@@ -453,6 +453,12 @@ public partial class UserSettings : ObservableObject
     public partial int TaskbarWidgetControlsPosition { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether clicking the taskbar widget opens the media flyout.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool TaskbarWidgetClickOpensFlyout { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether the taskbar widget should play animations.
     /// </summary>
     [ObservableProperty]
@@ -740,6 +746,7 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetManualPadding = 0;
         TaskbarWidgetBackgroundBlur = false;
         TaskbarWidgetHideCompletely = false;
+        TaskbarWidgetClickOpensFlyout = true;
         TaskbarWidgetFixedWidth = false;
         TaskbarWidgetShowPauseOverlay = true;
         TaskbarWidgetControlsEnabled = false;
@@ -1041,9 +1048,15 @@ public partial class UserSettings : ObservableObject
 
     partial void OnVolumeControlEnabledChanged(bool oldValue, bool newValue)
     {
-        if (newValue == true || oldValue == newValue || _initializing) return;
+        if (oldValue == newValue || _initializing) return;
 
-        // re-enable native volume flyout
-        VolumeMixerWindow.ShowVolumeOsd();
+        if (newValue == false)
+        {
+            // re-enable native volume flyout and dispose the lazy-created volume window
+            VolumeMixerWindow.ShowVolumeOsd();
+
+            MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+            mainWindow.DisposeVolumeWindow();
+        }
     }
 }

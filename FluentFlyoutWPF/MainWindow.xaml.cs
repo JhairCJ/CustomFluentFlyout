@@ -578,10 +578,27 @@ public partial class MainWindow : MicaWindow
 
     public void UpdateTaskbar()
     {
+        // Taskbar widget window is only created when the widget is enabled
+        if (!SettingsManager.Current.TaskbarWidgetEnabled || !SettingsManager.Current.IsPremiumUnlocked)
+        {
+            if (taskbarWindow != null)
+            {
+                ShutdownTaskbarWindow();
+            }
+            return;
+        }
+
+        if (taskbarWindow == null)
+        {
+            taskbarWindow = new TaskbarWindow();
+        }
+
+        TaskbarWindow widget = taskbarWindow;
+
         var activeSession = GetActiveMediaSession();
         if (!mediaManager.IsStarted || activeSession == null)
         {
-            taskbarWindow?.UpdateUi("-", "-", null, GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed);
+            widget.UpdateUi("-", "-", null, GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed);
             return;
         }
 
@@ -592,7 +609,35 @@ public partial class MainWindow : MicaWindow
         var playbackInfo = activeSession.ControlSession.GetPlaybackInfo();
         var thumbnail = BitmapHelper.GetThumbnail(songInfo.Thumbnail);
         BitmapHelper.GetDominantColors(1);
-        taskbarWindow?.UpdateUi(songInfo.Title, songInfo.Artist, thumbnail, playbackInfo.PlaybackStatus, playbackInfo.Controls);
+        widget.UpdateUi(songInfo.Title, songInfo.Artist, thumbnail, playbackInfo.PlaybackStatus, playbackInfo.Controls);
+    }
+
+    private void ShutdownTaskbarWindow()
+    {
+        try
+        {
+            taskbarWindow?.Close();
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to close Taskbar Widget window");
+        }
+        taskbarWindow = null;
+    }
+
+    internal void DisposeVolumeWindow()
+    {
+        try
+        {
+            if (volumeMixerWindow?.IsLoaded == true)
+                volumeMixerWindow.Close();
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to close Volume Mixer window");
+        }
+        volumeMixerWindow?.ViewModel.Dispose();
+        volumeMixerWindow = null;
     }
 
     public void reportBug(object? sender, EventArgs e)
@@ -819,6 +864,10 @@ public partial class MainWindow : MicaWindow
 
                 if (SettingsManager.Current.VolumeControlEnabled)
                 {
+                    if (volumeMixerWindow == null)
+                    {
+                        volumeMixerWindow = new VolumeMixerWindow();
+                    }
                     volumeMixerWindow?.ViewModel.SyncMasterFromDevice();
                     volumeMixerWindow?.ShowFlyout();
                 }
@@ -1681,9 +1730,7 @@ public partial class MainWindow : MicaWindow
         await ExperimentsService.GetExperimentsAsync();
 
         BitmapHelper.GetDominantColors(1);
-        taskbarWindow = new TaskbarWindow();
         UpdateTaskbar();
-        volumeMixerWindow = new VolumeMixerWindow();
     }
 
     public void RecreateTaskbarWindow()
@@ -1702,6 +1749,9 @@ public partial class MainWindow : MicaWindow
 
                 taskbarWindow = null;
             }
+
+            if (!SettingsManager.Current.TaskbarWidgetEnabled || !SettingsManager.Current.IsPremiumUnlocked)
+                return;
 
             taskbarWindow = new();
             UpdateTaskbar();
