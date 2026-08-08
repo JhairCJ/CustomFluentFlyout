@@ -208,7 +208,8 @@ public partial class TaskbarWidgetControl : UserControl
         if (_mainWindow == null) return;
 
         // toggle main flyout when clicked
-        _mainWindow.ShowMediaFlyout(toggleMode: true, forceShow: true);
+        if (SettingsManager.Current.TaskbarWidgetClickOpensFlyout)
+            _mainWindow.ShowMediaFlyout(toggleMode: true, forceShow: true);
     }
 
     public (double logicalWidth, double logicalHeight) CalculateSize(double dpiScale)
