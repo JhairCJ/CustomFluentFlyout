@@ -213,6 +213,24 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding TaskbarWidgetBackgroundBlur, Mode=TwoWay}" IsEnabled="{Binding IsPremiumUnlocked}" />
             </ui:CardControl>
+            <ui:CardControl x:Name="TaskbarWidgetBackgroundBlurIntensityTitleCard" Tag="Indexable" Grid.Row="7" Icon="{ui:SymbolIcon Color24}" Margin="0,0,0,3">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundBlurIntensityTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundBlurIntensityDescription}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <Slider Minimum="0" Maximum="100" Value="{Binding TaskbarWidgetBackgroundBlurIntensity, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding TaskbarWidgetBackgroundBlurIntensityEnabled}" />
+            </ui:CardControl>
+            <ui:CardControl x:Name="TaskbarWidgetBackgroundBlurRadiusTitleCard" Tag="Indexable" Grid.Row="7" Icon="{ui:SymbolIcon Blur24}" Margin="0,0,0,3">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundBlurRadiusTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundBlurRadiusDescription}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <Slider Minimum="0" Maximum="150" Value="{Binding TaskbarWidgetBackgroundBlurRadius, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding TaskbarWidgetBackgroundBlurRadiusEnabled}" />
+            </ui:CardControl>
             <ui:CardControl x:Name="TaskbarWidgetHideCompletelyTitleCard" Tag="Indexable" Grid.Row="8" Icon="{ui:SymbolIcon EyeOff24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">

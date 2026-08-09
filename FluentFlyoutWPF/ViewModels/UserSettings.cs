@@ -450,7 +450,27 @@ public partial class UserSettings : ObservableObject
     /// Gets or sets a value indication whether the taskbar widget background should have a blur effect
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundBlurIntensityEnabled))]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundBlurRadiusEnabled))]
     public partial bool TaskbarWidgetBackgroundBlur { get; set; }
+
+    /// <summary>
+    /// Gets or sets the intensity (0-100) of the taskbar widget background blur
+    /// </summary>
+    [ObservableProperty]
+    public partial int TaskbarWidgetBackgroundBlurIntensity { get; set; }
+
+    /// <summary>
+    /// Gets or sets the blur radius (0-150) of the taskbar widget background blur
+    /// </summary>
+    [ObservableProperty]
+    public partial int TaskbarWidgetBackgroundBlurRadius { get; set; }
+
+    [XmlIgnore]
+    public bool TaskbarWidgetBackgroundBlurIntensityEnabled => TaskbarWidgetBackgroundBlur && IsPremiumUnlocked;
+
+    [XmlIgnore]
+    public bool TaskbarWidgetBackgroundBlurRadiusEnabled => TaskbarWidgetBackgroundBlur && IsPremiumUnlocked;
 
     /// <summary>
     /// Gets or sets a value indicating whether the taskbar widget should be completely hidden from view when no media is playing.
@@ -707,6 +727,8 @@ public partial class UserSettings : ObservableObject
     [XmlIgnore]
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(TaskbarWidgetFixedWidthPxEnabled))]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundBlurIntensityEnabled))]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundBlurRadiusEnabled))]
     public partial bool IsPremiumUnlocked { get; set; }
 
     /// <summary>
@@ -814,6 +836,8 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetManualPadding = 0;
         TaskbarWidgetBorderRadius = 6;
         TaskbarWidgetBackgroundBlur = false;
+        TaskbarWidgetBackgroundBlurIntensity = 40;
+        TaskbarWidgetBackgroundBlurRadius = 80;
         TaskbarWidgetHideCompletely = false;
         TaskbarWidgetClickOpensFlyout = true;
         TaskbarWidgetFixedWidth = false;
