@@ -344,8 +344,27 @@ on_error:
                     _lastTaskbarRect = currentRect;
                     _hasTaskbarRect = true;
 
-                    if (!taskbarMoved)
-                        return;
+                    if (taskbarMoved)
+                    {
+                        // Taskbar geometry changed - full reposition
+                        force = true;
+                    }
+                    else
+                    {
+                        // The timer used to always re-run CalculateAndSetPosition, which re-showed
+                        // the widget if something had hidden it. Now that redundant updates are
+                        // skipped to avoid jittering, self-heal here: if the widget should be
+                        // visible but its window is actually hidden, force a full reposition+show.
+                        // The taskbar visibility check avoids poking auto-hide taskbars while they
+                        // are retracted/hidden.
+                        bool shouldBeVisible = !SettingsManager.Current.TaskbarWidgetAutoHide
+                            || _lastPlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+
+                        if (!shouldBeVisible || !IsWindowVisible(taskbarHandle) || IsWindowVisible(interop.Handle))
+                            return;
+
+                        force = true;
+                    }
                 }
 
                 Dispatcher.BeginInvoke(() =>
