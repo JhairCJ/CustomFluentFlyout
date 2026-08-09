@@ -39,6 +39,10 @@ public partial class TaskbarWindow : Window
     private bool _positionUpdateInProgress;
     private readonly Dictionary<string, Task> _pendingAutomationTasks = [];
 
+    // Last known taskbar window rect, used to skip redundant position updates.
+    private RECT _lastTaskbarRect;
+    private bool _hasTaskbarRect;
+
     private GlobalSystemMediaTransportControlsSessionPlaybackStatus? _lastPlaybackStatus;
     private DispatcherTimer? _autoHideTimer;
 
@@ -270,7 +274,7 @@ on_error:
             Logger.Error("Taskbar Widget error during window region reset.");
     }
 
-    private void UpdatePosition()
+    private void UpdatePosition(bool force = false)
     {
         if (MainWindow.ExplorerRestarting)
         {
@@ -321,6 +325,29 @@ on_error:
 
             if (taskbarHandle != IntPtr.Zero && interop.Handle != IntPtr.Zero)
             {
+                // The widget is a child of the taskbar, so it already follows the taskbar's
+                // movements on its own. Only reposition when the taskbar geometry actually
+                // changed; otherwise skip this tick entirely.
+                //
+                // This is important for auto-hide taskbars: constantly re-querying the taskbar
+                // with UI Automation and calling SetWindowPos while the mouse is inside it
+                // pokes the shell and makes the taskbar (and thus the widget) jitter up/down.
+                if (!force)
+                {
+                    GetWindowRect(taskbarHandle, out RECT currentRect);
+                    bool taskbarMoved = !_hasTaskbarRect
+                        || Math.Abs(currentRect.Left - _lastTaskbarRect.Left) > 1
+                        || Math.Abs(currentRect.Top - _lastTaskbarRect.Top) > 1
+                        || Math.Abs(currentRect.Right - _lastTaskbarRect.Right) > 1
+                        || Math.Abs(currentRect.Bottom - _lastTaskbarRect.Bottom) > 1;
+
+                    _lastTaskbarRect = currentRect;
+                    _hasTaskbarRect = true;
+
+                    if (!taskbarMoved)
+                        return;
+                }
+
                 Dispatcher.BeginInvoke(() =>
                 {
                     CalculateAndSetPosition(taskbarHandle, interop.Handle, isMainTaskbarSelected);
@@ -724,7 +751,7 @@ on_error:
         Widget.UpdateUi(title, artist, icon, playbackStatus, playbackControls);
 
         // Update position after UI change
-        Dispatcher.BeginInvoke(() => UpdatePosition(), DispatcherPriority.Background);
+        Dispatcher.BeginInvoke(() => UpdatePosition(true), DispatcherPriority.Background);
 
         Dispatcher.Invoke(() =>
         {
