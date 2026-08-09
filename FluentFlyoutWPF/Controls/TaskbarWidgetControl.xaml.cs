@@ -58,16 +58,23 @@ public partial class TaskbarWidgetControl : UserControl
         // Set DataContext for bindings
         DataContext = SettingsManager.Current;
 
-        MainBorder.SizeChanged += (s, e) =>
-        {
-            var rect = new RectangleGeometry(new Rect(0, 0, MainBorder.ActualWidth, MainBorder.ActualHeight), 6, 6);
-            MainBorder.Clip = rect;
-        };
+        MainBorder.SizeChanged += (s, e) => ApplyCornerRadius();
+        ApplyCornerRadius();
 
         Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0));
 
         // Initialize control order
         ReorderControls();
+    }
+
+    public void ApplyCornerRadius()
+    {
+        double radius = SettingsManager.Current.TaskbarWidgetBorderRadius;
+        MainBorder.CornerRadius = new CornerRadius(radius);
+        TopBorder.CornerRadius = new CornerRadius(Math.Max(0, radius - 1));
+        SongImageBorder.CornerRadius = new CornerRadius(Math.Max(0, radius - 1));
+        MainBorder.Clip = new RectangleGeometry(
+            new Rect(0, 0, MainBorder.ActualWidth, MainBorder.ActualHeight), radius, radius);
     }
 
     public void ReorderControls()

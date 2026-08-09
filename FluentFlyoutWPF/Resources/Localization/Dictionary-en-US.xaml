@@ -62,6 +62,8 @@ hides repeat, shuffle and player info</System:String>
     <System:String x:Key="TaskbarWidgetPaddingDescription">Turn this feature on if you have Windows Widgets enabled</System:String>
     <System:String x:Key="TaskbarWidgetManualPaddingTitle">Custom Padding</System:String>
     <System:String x:Key="TaskbarWidgetManualPaddingDescription">Add extra padding (default: 0px)</System:String>
+    <System:String x:Key="TaskbarWidgetBorderRadiusTitle">Corner Radius</System:String>
+    <System:String x:Key="TaskbarWidgetBorderRadiusDescription">Adjust the roundness of the widget corners (default: 6px)</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundBlurTitle">Background Blur</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundBlurDescription">Add background blur effect to the taskbar widget</System:String>
     <System:String x:Key="TaskbarWidgetHideCompletelyTitle">Hide Completely When No Media Is Present</System:String>

@@ -416,6 +416,37 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
+    /// Corner radius in pixels applied to the taskbar widget, controlling how rounded its corners are.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetBorderRadiusText))]
+    public partial int TaskbarWidgetBorderRadius { get; set; }
+
+    [XmlIgnore]
+    public string TaskbarWidgetBorderRadiusText
+    {
+        get => TaskbarWidgetBorderRadius.ToString();
+        set
+        {
+            if (int.TryParse(value, out var result))
+            {
+                TaskbarWidgetBorderRadius = result switch
+                {
+                    > 40 => 40,
+                    < 0 => 0,
+                    _ => result
+                };
+            }
+            else
+            {
+                TaskbarWidgetBorderRadius = 6;
+            }
+
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
     /// Gets or sets a value indication whether the taskbar widget background should have a blur effect
     /// </summary>
     [ObservableProperty]
@@ -744,6 +775,7 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetPosition = 0;
         TaskbarWidgetPadding = true;
         TaskbarWidgetManualPadding = 0;
+        TaskbarWidgetBorderRadius = 6;
         TaskbarWidgetBackgroundBlur = false;
         TaskbarWidgetHideCompletely = false;
         TaskbarWidgetClickOpensFlyout = true;
@@ -901,6 +933,13 @@ public partial class UserSettings : ObservableObject
     {
         if (oldValue == newValue || _initializing) return;
         UpdateTaskbar();
+    }
+
+    partial void OnTaskbarWidgetBorderRadiusChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.taskbarWindow?.Widget?.ApplyCornerRadius();
     }
 
     partial void OnTaskbarWidgetBackgroundBlurChanged(bool oldValue, bool newValue)
