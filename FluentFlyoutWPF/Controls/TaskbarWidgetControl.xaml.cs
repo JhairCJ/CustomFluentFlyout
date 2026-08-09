@@ -50,7 +50,7 @@ public partial class TaskbarWidgetControl : UserControl
     private bool _isPaused;
 
     // rotating background (baked blur)
-    private static readonly TimeSpan BackgroundRotationDuration = TimeSpan.FromSeconds(20);
+    private double _appliedRotationDurationSeconds;
     private BitmapImage? _currentIcon;
     private BitmapImage? _bakedIcon;
     private BitmapSource? _bakedBackground;
@@ -216,15 +216,19 @@ public partial class TaskbarWidgetControl : UserControl
 
         // 0 = spins down (clockwise), 1 = spins up (counter - clockwise)
         bool spinUp = SettingsManager.Current.TaskbarWidgetBackgroundRotateDirection == 1;
-        if (!_backgroundRotationActive || _backgroundRotationWasUp != spinUp)
+
+        // Restart the endless rotation when a different direction or duration is requested
+        double durationSeconds = Math.Max(SettingsManager.Current.TaskbarWidgetBackgroundRotateDuration, 1);
+        if (!_backgroundRotationActive || _backgroundRotationWasUp != spinUp || Math.Abs(_appliedRotationDurationSeconds - durationSeconds) > 0.01)
         {
             _backgroundRotationWasUp = spinUp;
             _backgroundRotationActive = true;
+            _appliedRotationDurationSeconds = durationSeconds;
             var animation = new DoubleAnimation
             {
                 From = 0,
                 To = spinUp ? -360 : 360,
-                Duration = BackgroundRotationDuration,
+                Duration = TimeSpan.FromSeconds(durationSeconds),
                 RepeatBehavior = RepeatBehavior.Forever
             };
             _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, animation);

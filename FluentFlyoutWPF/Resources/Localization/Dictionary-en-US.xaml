@@ -76,6 +76,8 @@ hides repeat, shuffle and player info</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundRotateSideDescription">Show the left or right side of the spinning album disc</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundRotateDirectionTitle">Rotation Direction</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundRotateDirectionDescription">Spin the album art down or up</System:String>
+    <System:String x:Key="TaskbarWidgetBackgroundRotateDurationTitle">Rotation Time</System:String>
+    <System:String x:Key="TaskbarWidgetBackgroundRotateDurationDescription">How many seconds one full rotation takes</System:String>
     <System:String x:Key="PositionDown">Down</System:String>
     <System:String x:Key="PositionUp">Up</System:String>
     <System:String x:Key="TaskbarWidgetHideCompletelyTitle">Hide Completely When No Media Is Present</System:String>

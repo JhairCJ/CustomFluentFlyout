@@ -486,6 +486,16 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial int TaskbarWidgetBackgroundRotateDirection { get; set; }
 
+    /// <summary>
+    /// Gets or sets the number of seconds one full background rotation takes
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundRotateDurationText))]
+    public partial int TaskbarWidgetBackgroundRotateDuration { get; set; }
+
+    [XmlIgnore]
+    public string TaskbarWidgetBackgroundRotateDurationText => TaskbarWidgetBackgroundRotateDuration > 1 ? $"{TaskbarWidgetBackgroundRotateDuration} seconds" : $"{TaskbarWidgetBackgroundRotateDuration} second";
+
     [XmlIgnore]
     public bool TaskbarWidgetBackgroundBlurIntensityEnabled => TaskbarWidgetBackgroundBlur && IsPremiumUnlocked;
 
@@ -860,11 +870,12 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetManualPadding = 0;
         TaskbarWidgetBorderRadius = 6;
         TaskbarWidgetBackgroundBlur = false;
-        TaskbarWidgetBackgroundBlurIntensity = 40;
-        TaskbarWidgetBackgroundBlurRadius = 80;
+        TaskbarWidgetBackgroundBlurIntensity = 65;
+        TaskbarWidgetBackgroundBlurRadius = 35;
         TaskbarWidgetBackgroundRotate = false;
         TaskbarWidgetBackgroundRotateSide = 0;
         TaskbarWidgetBackgroundRotateDirection = 0;
+        TaskbarWidgetBackgroundRotateDuration = 20;
         TaskbarWidgetHideCompletely = false;
         TaskbarWidgetClickOpensFlyout = true;
         TaskbarWidgetFixedWidth = false;
@@ -1052,6 +1063,13 @@ public partial class UserSettings : ObservableObject
     }
 
     partial void OnTaskbarWidgetBackgroundRotateDirectionChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.taskbarWindow?.Widget?.UpdateBackgroundMode();
+    }
+
+    partial void OnTaskbarWidgetBackgroundRotateDurationChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;

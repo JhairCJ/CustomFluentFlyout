@@ -220,7 +220,11 @@
                         <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundBlurIntensityDescription}" FontSize="12" Opacity="0.5" />
                     </StackPanel>
                 </ui:CardControl.Header>
-                <Slider Minimum="0" Maximum="100" Value="{Binding TaskbarWidgetBackgroundBlurIntensity, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding TaskbarWidgetBackgroundBlurIntensityEnabled}" />
+                <StackPanel Orientation="Horizontal">
+                    <Slider Minimum="0" Maximum="100" Value="{Binding TaskbarWidgetBackgroundBlurIntensity, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding TaskbarWidgetBackgroundBlurIntensityEnabled}" />
+                    <TextBlock Text="{Binding TaskbarWidgetBackgroundBlurIntensity}" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+                    <TextBlock Text="%" FontSize="14" FontWeight="Regular" Margin="2,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
             </ui:CardControl>
             <ui:CardControl x:Name="TaskbarWidgetBackgroundBlurRadiusTitleCard" Tag="Indexable" Grid.Row="7" Icon="{ui:SymbolIcon Blur24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
@@ -229,7 +233,11 @@
                         <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundBlurRadiusDescription}" FontSize="12" Opacity="0.5" />
                     </StackPanel>
                 </ui:CardControl.Header>
-                <Slider Minimum="0" Maximum="150" Value="{Binding TaskbarWidgetBackgroundBlurRadius, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding TaskbarWidgetBackgroundBlurRadiusEnabled}" />
+                <StackPanel Orientation="Horizontal">
+                    <Slider Minimum="0" Maximum="150" Value="{Binding TaskbarWidgetBackgroundBlurRadius, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding TaskbarWidgetBackgroundBlurRadiusEnabled}" />
+                    <TextBlock Text="{Binding TaskbarWidgetBackgroundBlurRadius}" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+                    <TextBlock Text="{DynamicResource PixelsUnit}" FontSize="14" FontWeight="Regular" Margin="2,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
             </ui:CardControl>
             <ui:CardControl x:Name="TaskbarWidgetBackgroundRotateTitleCard" Tag="Indexable" Grid.Row="7" Icon="{ui:SymbolIcon ArrowCounterclockwise24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
@@ -263,6 +271,18 @@
                     <ComboBoxItem Content="{DynamicResource PositionDown}" />
                     <ComboBoxItem Content="{DynamicResource PositionUp}" />
                 </ComboBox>
+            </ui:CardControl>
+            <ui:CardControl Grid.Row="7" Icon="{ui:SymbolIcon Timer24}" Margin="0,0,0,3">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundRotateDurationTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundRotateDurationDescription}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <StackPanel Orientation="Horizontal">
+                    <Slider Minimum="5" Maximum="60" Value="{Binding TaskbarWidgetBackgroundRotateDuration, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding TaskbarWidgetBackgroundRotateEnabled}" />
+                    <TextBlock Text="{Binding TaskbarWidgetBackgroundRotateDurationText}" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
             </ui:CardControl>
             <ui:CardControl x:Name="TaskbarWidgetHideCompletelyTitleCard" Tag="Indexable" Grid.Row="8" Icon="{ui:SymbolIcon EyeOff24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
