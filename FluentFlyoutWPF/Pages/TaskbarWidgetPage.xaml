@@ -231,6 +231,39 @@
                 </ui:CardControl.Header>
                 <Slider Minimum="0" Maximum="150" Value="{Binding TaskbarWidgetBackgroundBlurRadius, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding TaskbarWidgetBackgroundBlurRadiusEnabled}" />
             </ui:CardControl>
+            <ui:CardControl x:Name="TaskbarWidgetBackgroundRotateTitleCard" Tag="Indexable" Grid.Row="7" Icon="{ui:SymbolIcon ArrowCounterclockwise24}" Margin="0,0,0,3">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundRotateTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundRotateDescription}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:ToggleSwitch IsChecked="{Binding TaskbarWidgetBackgroundRotate, Mode=TwoWay}" IsEnabled="{Binding TaskbarWidgetBackgroundRotateEnabled}" />
+            </ui:CardControl>
+            <ui:CardControl Grid.Row="7" Icon="{ui:SymbolIcon ArrowMove24}" Margin="0,0,0,3">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundRotateSideTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundRotateSideDescription}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ComboBox SelectedIndex="{Binding TaskbarWidgetBackgroundRotateSide, Mode=TwoWay}" IsEnabled="{Binding TaskbarWidgetBackgroundRotateEnabled}">
+                    <ComboBoxItem Content="{DynamicResource PositionLeft}" />
+                    <ComboBoxItem Content="{DynamicResource PositionRight}" />
+                </ComboBox>
+            </ui:CardControl>
+            <ui:CardControl Grid.Row="7" Icon="{ui:SymbolIcon ArrowCounterclockwise24}" Margin="0,0,0,3">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundRotateDirectionTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundRotateDirectionDescription}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ComboBox SelectedIndex="{Binding TaskbarWidgetBackgroundRotateDirection, Mode=TwoWay}" IsEnabled="{Binding TaskbarWidgetBackgroundRotateEnabled}">
+                    <ComboBoxItem Content="{DynamicResource PositionDown}" />
+                    <ComboBoxItem Content="{DynamicResource PositionUp}" />
+                </ComboBox>
+            </ui:CardControl>
             <ui:CardControl x:Name="TaskbarWidgetHideCompletelyTitleCard" Tag="Indexable" Grid.Row="8" Icon="{ui:SymbolIcon EyeOff24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">

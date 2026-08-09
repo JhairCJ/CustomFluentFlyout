@@ -452,6 +452,7 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundBlurIntensityEnabled))]
     [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundBlurRadiusEnabled))]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundRotateEnabled))]
     public partial bool TaskbarWidgetBackgroundBlur { get; set; }
 
     /// <summary>
@@ -466,11 +467,33 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial int TaskbarWidgetBackgroundBlurRadius { get; set; }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether the taskbar widget background should rotate continuously
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundRotateEnabled))]
+    public partial bool TaskbarWidgetBackgroundRotate { get; set; }
+
+    /// <summary>
+    /// Gets or sets which side of the rotating album is visible in the widget (0 = left, 1 = right)
+    /// </summary>
+    [ObservableProperty]
+    public partial int TaskbarWidgetBackgroundRotateSide { get; set; }
+
+    /// <summary>
+    /// Gets or sets the rotation direction of the background disc (0 = down, 1 = up)
+    /// </summary>
+    [ObservableProperty]
+    public partial int TaskbarWidgetBackgroundRotateDirection { get; set; }
+
     [XmlIgnore]
     public bool TaskbarWidgetBackgroundBlurIntensityEnabled => TaskbarWidgetBackgroundBlur && IsPremiumUnlocked;
 
     [XmlIgnore]
     public bool TaskbarWidgetBackgroundBlurRadiusEnabled => TaskbarWidgetBackgroundBlur && IsPremiumUnlocked;
+
+    [XmlIgnore]
+    public bool TaskbarWidgetBackgroundRotateEnabled => TaskbarWidgetBackgroundBlur && IsPremiumUnlocked;
 
     /// <summary>
     /// Gets or sets a value indicating whether the taskbar widget should be completely hidden from view when no media is playing.
@@ -729,6 +752,7 @@ public partial class UserSettings : ObservableObject
     [NotifyPropertyChangedFor(nameof(TaskbarWidgetFixedWidthPxEnabled))]
     [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundBlurIntensityEnabled))]
     [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundBlurRadiusEnabled))]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundRotateEnabled))]
     public partial bool IsPremiumUnlocked { get; set; }
 
     /// <summary>
@@ -838,6 +862,9 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetBackgroundBlur = false;
         TaskbarWidgetBackgroundBlurIntensity = 40;
         TaskbarWidgetBackgroundBlurRadius = 80;
+        TaskbarWidgetBackgroundRotate = false;
+        TaskbarWidgetBackgroundRotateSide = 0;
+        TaskbarWidgetBackgroundRotateDirection = 0;
         TaskbarWidgetHideCompletely = false;
         TaskbarWidgetClickOpensFlyout = true;
         TaskbarWidgetFixedWidth = false;
@@ -1008,6 +1035,27 @@ public partial class UserSettings : ObservableObject
     {
         if (oldValue == newValue || _initializing) return;
         UpdateTaskbar();
+    }
+
+    partial void OnTaskbarWidgetBackgroundRotateChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.taskbarWindow?.Widget?.UpdateBackgroundMode();
+    }
+
+    partial void OnTaskbarWidgetBackgroundRotateSideChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.taskbarWindow?.Widget?.UpdateBackgroundMode();
+    }
+
+    partial void OnTaskbarWidgetBackgroundRotateDirectionChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.taskbarWindow?.Widget?.UpdateBackgroundMode();
     }
 
     partial void OnTaskbarWidgetHideCompletelyChanged(bool oldValue, bool newValue)

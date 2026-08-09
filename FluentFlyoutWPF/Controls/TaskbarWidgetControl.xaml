@@ -13,11 +13,16 @@
              FlowDirection="{Binding FlowDirection}">
     <Border Name="MainBorder" CornerRadius="6" MouseLeftButtonUp="Grid_MouseLeftButtonUp" ClipToBounds="True">
         <Grid>
-            <Image x:Name="BackgroundImage" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5" Opacity="{Binding TaskbarWidgetBackgroundBlurIntensity, Converter={StaticResource PercentageToOpacityConverter}}">
-                <Image.Effect>
-                    <BlurEffect Radius="{Binding TaskbarWidgetBackgroundBlurRadius}" />
-                </Image.Effect>
-            </Image>
+            <!-- The rotating background lives in a Canvas so it is arranged at its exact
+                 square size, independent of the widget's rectangular layout slot. The widget
+                 (MainBorder, ClipToBounds) acts purely as the viewport over that square. -->
+            <Canvas x:Name="BackgroundCanvas" IsHitTestVisible="False">
+                <Image x:Name="BackgroundImage" Stretch="UniformToFill" RenderTransformOrigin="0.5,0.5" Opacity="{Binding TaskbarWidgetBackgroundBlurIntensity, Converter={StaticResource PercentageToOpacityConverter}}">
+                    <Image.Effect>
+                        <BlurEffect x:Name="BackgroundImageBlurEffect" Radius="{Binding TaskbarWidgetBackgroundBlurRadius}" />
+                    </Image.Effect>
+                </Image>
+            </Canvas>
             <Border Name="TopBorder" BorderThickness="0,1.25,0,0" CornerRadius="5" Margin="0,0,0,1.25">
                 <Grid Name="MainGrid" HorizontalAlignment="Left" VerticalAlignment="Center" RenderTransformOrigin="0,0.5">
                     <Grid.RenderTransform>

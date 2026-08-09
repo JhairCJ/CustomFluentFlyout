@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using Windows.Media.Control;
 using Wpf.Ui.Controls;
@@ -48,6 +49,16 @@ public partial class TaskbarWidgetControl : UserControl
     private MainWindow? _mainWindow;
     private bool _isPaused;
 
+    // rotating background (baked blur)
+    private static readonly TimeSpan BackgroundRotationDuration = TimeSpan.FromSeconds(20);
+    private BitmapImage? _currentIcon;
+    private BitmapImage? _bakedIcon;
+    private BitmapSource? _bakedBackground;
+    private double _bakedSideDip;
+    private RotateTransform? _backgroundRotateTransform;
+    private bool _backgroundRotationActive;
+    private bool _backgroundRotationWasUp;
+
     public TaskbarWidgetControl()
     {
         InitializeComponent();
@@ -58,13 +69,24 @@ public partial class TaskbarWidgetControl : UserControl
         // Set DataContext for bindings
         DataContext = SettingsManager.Current;
 
-        MainBorder.SizeChanged += (s, e) => ApplyCornerRadius();
+        MainBorder.SizeChanged += (s, e) =>
+        {
+            ApplyCornerRadius();
+
+            if (_backgroundRotationActive)
+                ApplyBackgroundRotation();
+            else
+                LayoutBackgroundToFillWidget();
+        };
         ApplyCornerRadius();
 
         Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0));
 
         // Initialize control order
         ReorderControls();
+
+        // Apply the background mode (normal or animated rotation)
+        UpdateBackgroundMode();
     }
 
     public void ApplyCornerRadius()
@@ -130,6 +152,189 @@ public partial class TaskbarWidgetControl : UserControl
         PreviousButton.Foreground = foreground;
         PlayPauseButton.Foreground = foreground;
         NextButton.Foreground = foreground;
+    }
+
+    /// <summary>
+    /// Applies the background mode based on settings: either the normal live-blurred image
+    /// or the complete square album disc rotating behind the widget (the widget only acts
+    /// as the viewport that reveals a band of the rotating square).
+    /// </summary>
+    public void UpdateBackgroundMode()
+    {
+        bool shouldRotate = SettingsManager.Current.TaskbarWidgetBackgroundRotate &&
+                            SettingsManager.Current.TaskbarWidgetBackgroundBlur;
+
+        if (shouldRotate)
+        {
+            ApplyBackgroundRotation();
+        }
+        else
+        {
+            StopBackgroundRotation();
+
+            LayoutBackgroundToFillWidget();
+
+            if (_currentIcon != null)
+                BackgroundImage.Source = _currentIcon;
+        }
+    }
+
+    private void ApplyBackgroundRotation()
+    {
+        double width = MainBorder.ActualWidth > 0 ? MainBorder.ActualWidth : 240;
+        double height = MainBorder.ActualHeight > 0 ? MainBorder.ActualHeight : 40;
+
+        if (_backgroundRotateTransform == null)
+        {
+            _backgroundRotateTransform = new RotateTransform(0);
+            BackgroundImage.RenderTransform = _backgroundRotateTransform;
+        }
+
+        // blur is baked into the bitmap, so disable the live effect while rotating
+        BackgroundImage.Effect = null;
+
+        // The rotating element is a square and is rotated as a whole. To reveal only one side
+        // of the artwork (never its centre) the square is sized large enough for a
+        // viewport-width band to sit over its outer half, and then positioned so the
+        // widget looks at one side of the rotation centre instead of the centre itself.
+        double discSide = Math.Max(Math.Max(width * 4, height * 4), 360);
+        double offsetX = discSide * 0.35; // distance of the viewport band from the disc centre
+
+        BackgroundImage.Width = discSide;
+        BackgroundImage.Height = discSide;
+        BackgroundImage.Stretch = Stretch.Fill;
+        BackgroundImage.Margin = new Thickness(0);
+
+        // The square is centred vertically, but shifted horizontally away from the disc
+        // centre so the centre of the album is never visible through the viewport.
+        bool showLeftSide = SettingsManager.Current.TaskbarWidgetBackgroundRotateSide == 0;
+        Canvas.SetLeft(BackgroundImage, (width - discSide) / 2 + (showLeftSide ? offsetX : -offsetX));
+        Canvas.SetTop(BackgroundImage, (height - discSide) / 2);
+
+        if (_currentIcon != null)
+            BackgroundImage.Source = GetBakedBackground(_currentIcon, discSide);
+
+        // 0 = spins down (clockwise), 1 = spins up (counter - clockwise)
+        bool spinUp = SettingsManager.Current.TaskbarWidgetBackgroundRotateDirection == 1;
+        if (!_backgroundRotationActive || _backgroundRotationWasUp != spinUp)
+        {
+            _backgroundRotationWasUp = spinUp;
+            _backgroundRotationActive = true;
+            var animation = new DoubleAnimation
+            {
+                From = 0,
+                To = spinUp ? -360 : 360,
+                Duration = BackgroundRotationDuration,
+                RepeatBehavior = RepeatBehavior.Forever
+            };
+            _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, animation);
+        }
+    }
+
+    private void StopBackgroundRotation()
+    {
+        _backgroundRotationActive = false;
+        if (_backgroundRotateTransform != null)
+        {
+            _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, null);
+            _backgroundRotateTransform.Angle = 0;
+        }
+        BackgroundImage.Effect = BackgroundImageBlurEffect;
+    }
+
+    /// <summary>
+    /// Lays out the background for the normal (non-rotating) blurred mode. A square
+    /// element the size of the widget's larger dimension is centred over the viewport,
+    /// so the visible band is cropped from the middle of the artwork, not its top.
+    /// </summary>
+    private void LayoutBackgroundToFillWidget()
+    {
+        double width = BackgroundCanvas.ActualWidth > 0 ? BackgroundCanvas.ActualWidth : (MainBorder.ActualWidth > 0 ? MainBorder.ActualWidth : 240);
+        double height = BackgroundCanvas.ActualHeight > 0 ? BackgroundCanvas.ActualHeight : (MainBorder.ActualHeight > 0 ? MainBorder.ActualHeight : 40);
+
+        double side = Math.Max(Math.Max(width, height), 1);
+
+        Canvas.SetLeft(BackgroundImage, (width - side) / 2);
+        Canvas.SetTop(BackgroundImage, (height - side) / 2);
+        BackgroundImage.Width = side;
+        BackgroundImage.Height = side;
+        BackgroundImage.Margin = new Thickness(0);
+        BackgroundImage.Stretch = Stretch.UniformToFill;
+    }
+
+    private void SetBackground(BitmapImage? icon)
+    {
+        _currentIcon = icon;
+
+        if (icon == null)
+        {
+            StopBackgroundRotation();
+            Canvas.SetLeft(BackgroundImage, 0);
+            Canvas.SetTop(BackgroundImage, 0);
+            BackgroundImage.Source = null;
+            return;
+        }
+
+        if (SettingsManager.Current.TaskbarWidgetBackgroundRotate &&
+            SettingsManager.Current.TaskbarWidgetBackgroundBlur)
+        {
+            ApplyBackgroundRotation();
+        }
+        else
+        {
+            LayoutBackgroundToFillWidget();
+            BackgroundImage.Source = icon;
+        }
+    }
+
+    /// <summary>
+    /// Bakes the complete album cover once into a large blurred square that covers the
+    /// widget while rotating, avoiding per-frame software re-rasterization of a live effect.
+    /// </summary>
+    private BitmapSource? GetBakedBackground(BitmapImage icon, double discSide)
+    {
+        if (_bakedBackground != null && ReferenceEquals(_bakedIcon, icon) && Math.Abs(_bakedSideDip - discSide) < 0.5)
+            return _bakedBackground;
+
+        try
+        {
+            // bake at a fixed resolution and let the Image stretch, keeps the texture small
+            const int res = 512;
+            double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+            int pixelSide = res;
+
+            // scale the user's blur radius (DIPs on screen) into the baked texture space
+            double blurRadius = SettingsManager.Current.TaskbarWidgetBackgroundBlurRadius * res / Math.Max(discSide, 1);
+
+            var visual = new DrawingVisual();
+            using (DrawingContext dc = visual.RenderOpen())
+            {
+                // the complete, unedited album cover, stretched to fill the square disc
+                dc.DrawImage(icon, new Rect(0, 0, res, res));
+            }
+
+            visual.Effect = new BlurEffect
+            {
+                Radius = blurRadius,
+                KernelType = KernelType.Gaussian
+            };
+
+            var rtb = new RenderTargetBitmap(pixelSide, pixelSide, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(visual);
+            rtb.Freeze();
+            _bakedIcon = icon;
+            _bakedBackground = rtb;
+            _bakedSideDip = discSide;
+            return _bakedBackground;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to bake blurred taskbar widget background");
+            _bakedIcon = null;
+            _bakedBackground = null;
+            _bakedSideDip = 0;
+            return null;
+        }
     }
 
     private void Grid_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -389,7 +594,7 @@ public partial class TaskbarWidgetControl : UserControl
                 SongImagePlaceholder.Symbol = SymbolRegular.MusicNote220;
                 SongImagePlaceholder.Visibility = Visibility.Visible;
                 SongImage.ImageSource = null;
-                BackgroundImage.Source = null;
+                SetBackground(null);
                 SongImageBorder.Margin = new Thickness(0, 0, 0, -3); // align music note better when no cover
 
                 MainBorder.Background = new SolidColorBrush(Colors.Transparent);
@@ -482,7 +687,7 @@ public partial class TaskbarWidgetControl : UserControl
                     SongImage.Opacity = 1;
                 }
                 SongImage.ImageSource = icon;
-                BackgroundImage.Source = icon;
+                SetBackground(icon);
                 SongImageBorder.Margin = new Thickness(0, 0, 0, -2); // align image better when cover is present
             }
             else
@@ -490,7 +695,7 @@ public partial class TaskbarWidgetControl : UserControl
                 SongImagePlaceholder.Symbol = SymbolRegular.MusicNote220;
                 SongImagePlaceholder.Visibility = Visibility.Visible;
                 SongImage.ImageSource = null;
-                BackgroundImage.Source = null;
+                SetBackground(null);
             }
 
             SongTitle.Visibility = Visibility.Visible;
