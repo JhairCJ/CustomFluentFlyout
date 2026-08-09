@@ -57,7 +57,10 @@ public partial class TaskbarWidgetControl : UserControl
     private double _bakedSideDip;
     private RotateTransform? _backgroundRotateTransform;
     private bool _backgroundRotationActive;
+    private bool _backgroundRotationAnimationRunning;
     private bool _backgroundRotationWasUp;
+    private bool _backgroundRotationPaused;
+    private double _pausedRotationAngle;
 
     public TaskbarWidgetControl()
     {
@@ -177,12 +180,16 @@ public partial class TaskbarWidgetControl : UserControl
             if (_currentIcon != null)
                 BackgroundImage.Source = _currentIcon;
         }
+
+        UpdateRotationPauseState();
     }
 
-    private void ApplyBackgroundRotation()
+    private void ApplyBackgroundRotation(double startAngle = 0)
     {
         double width = MainBorder.ActualWidth > 0 ? MainBorder.ActualWidth : 240;
         double height = MainBorder.ActualHeight > 0 ? MainBorder.ActualHeight : 40;
+
+        _backgroundRotationActive = true;
 
         if (_backgroundRotateTransform == null)
         {
@@ -217,17 +224,30 @@ public partial class TaskbarWidgetControl : UserControl
         // 0 = spins down (clockwise), 1 = spins up (counter - clockwise)
         bool spinUp = SettingsManager.Current.TaskbarWidgetBackgroundRotateDirection == 1;
 
-        // Restart the endless rotation when a different direction or duration is requested
+        // Restart the endless rotation when a different direction, duration or start angle
+        // (e.g. resuming after a pause) is requested
         double durationSeconds = Math.Max(SettingsManager.Current.TaskbarWidgetBackgroundRotateDuration, 1);
-        if (!_backgroundRotationActive || _backgroundRotationWasUp != spinUp || Math.Abs(_appliedRotationDurationSeconds - durationSeconds) > 0.01)
+        if (_backgroundRotationPaused)
+        {
+            // keep the disc frozen at the angle it was paused at, even if the layout
+            // changed (e.g. widget resize or settings change) while media is paused
+            _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, null);
+            _backgroundRotateTransform.Angle = _pausedRotationAngle;
+            return;
+        }
+
+        if (!_backgroundRotationAnimationRunning ||
+            _backgroundRotationWasUp != spinUp ||
+            Math.Abs(_appliedRotationDurationSeconds - durationSeconds) > 0.01 ||
+            Math.Abs(startAngle - 0) > 0.01)
         {
             _backgroundRotationWasUp = spinUp;
-            _backgroundRotationActive = true;
+            _backgroundRotationAnimationRunning = true;
             _appliedRotationDurationSeconds = durationSeconds;
             var animation = new DoubleAnimation
             {
-                From = 0,
-                To = spinUp ? -360 : 360,
+                From = startAngle,
+                To = spinUp ? startAngle - 360 : startAngle + 360,
                 Duration = TimeSpan.FromSeconds(durationSeconds),
                 RepeatBehavior = RepeatBehavior.Forever
             };
@@ -235,9 +255,55 @@ public partial class TaskbarWidgetControl : UserControl
         }
     }
 
+    /// <summary>
+    /// Freezes the rotating background at its current angle. The animation clock is
+    /// stopped but the disc stays visible at the exact angle it had when paused.
+    /// </summary>
+    private void PauseBackgroundRotation()
+    {
+        if (!_backgroundRotationAnimationRunning || _backgroundRotationPaused || _backgroundRotateTransform == null)
+            return;
+
+        _pausedRotationAngle = _backgroundRotateTransform.Angle;
+        _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, null);
+        _backgroundRotateTransform.Angle = _pausedRotationAngle;
+        _backgroundRotationAnimationRunning = false;
+        _backgroundRotationPaused = true;
+    }
+
+    /// <summary>
+    /// Resumes the rotating background animation from the angle it was paused at.
+    /// </summary>
+    private void ResumeBackgroundRotation()
+    {
+        if (!_backgroundRotationPaused)
+            return;
+
+        _backgroundRotationPaused = false;
+        ApplyBackgroundRotation(_pausedRotationAngle);
+    }
+
+    /// <summary>
+    /// Pauses or resumes the rotating background to match the current media playback
+    /// state so the spinning disc freezes while media is paused.
+    /// </summary>
+    private void UpdateRotationPauseState()
+    {
+        if (!SettingsManager.Current.TaskbarWidgetBackgroundRotate ||
+            !SettingsManager.Current.TaskbarWidgetBackgroundBlur)
+            return;
+
+        if (_isPaused)
+            PauseBackgroundRotation();
+        else
+            ResumeBackgroundRotation();
+    }
+
     private void StopBackgroundRotation()
     {
         _backgroundRotationActive = false;
+        _backgroundRotationAnimationRunning = false;
+        _backgroundRotationPaused = false;
         if (_backgroundRotateTransform != null)
         {
             _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, null);
@@ -717,6 +783,8 @@ public partial class TaskbarWidgetControl : UserControl
             ControlsStackPanel.Visibility = SettingsManager.Current.TaskbarWidgetControlsEnabled
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+
+            UpdateRotationPauseState();
 
             Visibility = Visibility.Visible;
         });
