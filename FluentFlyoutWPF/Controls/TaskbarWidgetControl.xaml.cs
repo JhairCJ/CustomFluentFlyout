@@ -204,7 +204,8 @@ public partial class TaskbarWidgetControl : UserControl
         // full viewport-width band always stays inside the rotating disc at every angle,
         // while still keeping the artwork recognisable. It is sized in DIPs from the
         // widget itself, so it scales with any screen/DPI (1080p, 4K, ...).
-        double discSide = Math.Max(Math.Max(width * 3, height * 3), 720);
+        double sizeMultiplier = Math.Max(SettingsManager.Current.TaskbarWidgetBackgroundRotateSize, 100) / 100.0;
+        double discSide = Math.Max(Math.Max(width * sizeMultiplier, height * sizeMultiplier), 720);
         double offsetX = discSide * 0.28; // distance of the viewport band from the disc centre
 
         BackgroundImage.Width = discSide;

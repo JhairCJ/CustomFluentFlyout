@@ -496,6 +496,17 @@ public partial class UserSettings : ObservableObject
     [XmlIgnore]
     public string TaskbarWidgetBackgroundRotateDurationText => TaskbarWidgetBackgroundRotateDuration > 1 ? $"{TaskbarWidgetBackgroundRotateDuration} seconds" : $"{TaskbarWidgetBackgroundRotateDuration} second";
 
+    /// <summary>
+    /// Gets or sets the size multiplier (in percent) of the rotating album disc relative to
+    /// the widget's dimensions. 300 = the disc is three times the widget's width/height.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundRotateSizeText))]
+    public partial int TaskbarWidgetBackgroundRotateSize { get; set; }
+
+    [XmlIgnore]
+    public string TaskbarWidgetBackgroundRotateSizeText => $"{TaskbarWidgetBackgroundRotateSize}%";
+
     [XmlIgnore]
     public bool TaskbarWidgetBackgroundBlurIntensityEnabled => TaskbarWidgetBackgroundBlur && IsPremiumUnlocked;
 
@@ -883,6 +894,7 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetBackgroundRotateSide = 0;
         TaskbarWidgetBackgroundRotateDirection = 0;
         TaskbarWidgetBackgroundRotateDuration = 20;
+        TaskbarWidgetBackgroundRotateSize = 300;
         TaskbarWidgetHideCompletely = false;
         TaskbarWidgetClickOpensFlyout = true;
         TaskbarWidgetFixedWidth = false;
@@ -1078,6 +1090,13 @@ public partial class UserSettings : ObservableObject
     }
 
     partial void OnTaskbarWidgetBackgroundRotateDurationChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.taskbarWindow?.Widget?.UpdateBackgroundMode();
+    }
+
+    partial void OnTaskbarWidgetBackgroundRotateSizeChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;

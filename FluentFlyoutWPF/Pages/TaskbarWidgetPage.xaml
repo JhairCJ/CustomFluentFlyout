@@ -284,6 +284,18 @@
                     <TextBlock Text="{Binding TaskbarWidgetBackgroundRotateDurationText}" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
                 </StackPanel>
             </ui:CardControl>
+            <ui:CardControl Grid.Row="7" Icon="{ui:SymbolIcon Circle24}" Margin="0,0,0,3">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundRotateSizeTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundRotateSizeDescription}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <StackPanel Orientation="Horizontal">
+                    <Slider Minimum="100" Maximum="600" Value="{Binding TaskbarWidgetBackgroundRotateSize, Mode=TwoWay}" TickFrequency="10" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding TaskbarWidgetBackgroundRotateEnabled}" />
+                    <TextBlock Text="{Binding TaskbarWidgetBackgroundRotateSizeText}" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
+            </ui:CardControl>
             <ui:CardControl x:Name="TaskbarWidgetHideCompletelyTitleCard" Tag="Indexable" Grid.Row="8" Icon="{ui:SymbolIcon EyeOff24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">

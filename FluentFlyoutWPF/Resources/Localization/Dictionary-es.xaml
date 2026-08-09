@@ -237,6 +237,8 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="TaskbarWidgetShowPauseOverlayTitle">Muestra un Icono de Pausa Superpuesto</system:String>
     <system:String x:Key="TaskbarWidgetShowAlbumArtTitle">Mostrar arte del álbum</system:String>
     <system:String x:Key="TaskbarWidgetShowAlbumArtDescription">Muestra la miniatura de la portada del álbum junto al título de la canción y el artista</system:String>
+    <system:String x:Key="TaskbarWidgetBackgroundRotateSizeTitle">Tamaño del Disco</system:String>
+    <system:String x:Key="TaskbarWidgetBackgroundRotateSizeDescription">Qué tan grande es el disco del álbum giratorio en relación al widget (por defecto: 300%)</system:String>
     <system:String x:Key="VolumeMixerHighlightPerk">Resaltar aplicaciones activas en el Mezclador de Volumen</system:String>
     <system:String x:Key="MasterVolumeText">Volumen maestro</system:String>
     <system:String x:Key="VolumeFlyoutTitle">Flyout de volumen</system:String>
