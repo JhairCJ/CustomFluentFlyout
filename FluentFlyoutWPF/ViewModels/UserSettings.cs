@@ -1133,13 +1133,31 @@ public partial class UserSettings : ObservableObject
     {
         if (oldValue == newValue || _initializing) return;
 
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.RefreshKeyboardHook();
+
         if (newValue == false)
         {
             // re-enable native volume flyout and dispose the lazy-created volume window
             VolumeMixerWindow.ShowVolumeOsd();
 
-            MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
             mainWindow.DisposeVolumeWindow();
         }
+    }
+
+    partial void OnMediaFlyoutEnabledChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.RefreshKeyboardHook();
+    }
+
+    partial void OnLockKeysEnabledChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.RefreshKeyboardHook();
     }
 }

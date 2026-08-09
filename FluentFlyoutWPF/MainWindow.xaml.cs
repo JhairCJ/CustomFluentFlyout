@@ -40,7 +40,7 @@ public partial class MainWindow : MicaWindow
     private int WM_TASKBARCREATED, WM_SHELLHOOK;
 
     private IntPtr _hookId = IntPtr.Zero;
-    private LowLevelKeyboardProc _hookProc;
+    private LowLevelKeyboardProc? _hookProc;
 
     private CancellationTokenSource cts; // to close the flyout after a certain time
     private long _lastFlyoutTime = 0;
@@ -160,8 +160,7 @@ public partial class MainWindow : MicaWindow
 
         mediaManager.Start();
 
-        _hookProc = HookCallback;
-        _hookId = SetHook(_hookProc);
+        RefreshKeyboardHook();
 
         WindowStartupLocation = WindowStartupLocation.Manual;
         Left = -Width - 20; // workaround for window appearing on the screen before the animation starts
@@ -844,6 +843,34 @@ public partial class MainWindow : MicaWindow
             return IntPtr.Zero;
         }
         return SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(curModule.ModuleName), 0);
+    }
+
+    /// <summary>
+    /// The keyboard hook is only needed when a feature that relies on it is enabled:
+    /// the lock keys flyout, the volume mixer, or the media flyout triggered by media keys.
+    /// </summary>
+    private bool ShouldInstallKeyboardHook()
+    {
+        return SettingsManager.Current.LockKeysEnabled
+            || SettingsManager.Current.VolumeControlEnabled
+            || SettingsManager.Current.MediaFlyoutEnabled;
+    }
+
+    // installs or removes the low-level keyboard hook depending on which features are enabled
+    public void RefreshKeyboardHook()
+    {
+        bool shouldInstall = ShouldInstallKeyboardHook();
+
+        if (shouldInstall && _hookId == IntPtr.Zero)
+        {
+            _hookProc = HookCallback;
+            _hookId = SetHook(_hookProc);
+        }
+        else if (!shouldInstall && _hookId != IntPtr.Zero)
+        {
+            UnhookWindowsHookEx(_hookId);
+            _hookId = IntPtr.Zero;
+        }
     }
 
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
