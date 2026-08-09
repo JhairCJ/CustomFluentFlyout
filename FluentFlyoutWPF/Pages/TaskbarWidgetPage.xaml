@@ -395,6 +395,15 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding TaskbarWidgetShowPauseOverlay, Mode=TwoWay}" IsEnabled="{Binding IsPremiumUnlocked}" />
             </ui:CardControl>
+            <ui:CardControl x:Name="TaskbarWidgetShowAlbumArtTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon Album24}" Margin="0,0,0,3">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="{DynamicResource TaskbarWidgetShowAlbumArtTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="{DynamicResource TaskbarWidgetShowAlbumArtDescription}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:ToggleSwitch IsChecked="{Binding TaskbarWidgetShowAlbumArt, Mode=TwoWay}" IsEnabled="{Binding IsPremiumUnlocked}" />
+            </ui:CardControl>
             <ui:CardControl x:Name="TaskbarWidgetClickOpensFlyoutTitleCard" Tag="Indexable" Grid.Row="16" Icon="{ui:SymbolIcon ArrowUp24}" Margin="0,0,0,76">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">

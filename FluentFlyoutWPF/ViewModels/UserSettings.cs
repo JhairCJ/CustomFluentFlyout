@@ -555,6 +555,13 @@ public partial class UserSettings : ObservableObject
     public bool TaskbarWidgetFixedWidthPxEnabled => TaskbarWidgetFixedWidth && IsPremiumUnlocked;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the album art thumbnail next to the song
+    /// title and artist should be shown on the taskbar widget.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool TaskbarWidgetShowAlbumArt { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether the pause icon overlay should be completely hidden from view.
     /// </summary>
     [ObservableProperty]
@@ -880,6 +887,7 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetClickOpensFlyout = true;
         TaskbarWidgetFixedWidth = false;
         TaskbarWidgetFixedWidthPx = 216;
+        TaskbarWidgetShowAlbumArt = true;
         TaskbarWidgetShowPauseOverlay = true;
         TaskbarWidgetControlsEnabled = false;
         TaskbarWidgetControlsPosition = 1;
@@ -1095,6 +1103,12 @@ public partial class UserSettings : ObservableObject
     }
 
     partial void OnTaskbarWidgetShowPauseOverlayChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        UpdateTaskbar();
+    }
+
+    partial void OnTaskbarWidgetShowAlbumArtChanged(bool oldValue, bool newValue)
     {
         if (oldValue == newValue || _initializing) return;
         UpdateTaskbar();

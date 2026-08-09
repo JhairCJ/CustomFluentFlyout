@@ -379,6 +379,8 @@ public partial class TaskbarWidgetControl : UserControl
         double maxLogicalWidth = _nativeWidgetsPadding / _scale;
         double logicalWidth;
 
+        double coverImageReserved = SettingsManager.Current.TaskbarWidgetShowAlbumArt ? _coverImageMargin : 0;
+
         if (SettingsManager.Current.TaskbarWidgetFixedWidth)
         {
             // pin to the user-configured width so right-aligned controls don't shift between songs
@@ -387,12 +389,12 @@ public partial class TaskbarWidgetControl : UserControl
         }
         else
         {
-            logicalWidth = Math.Max(_cachedTitleWidth, _cachedArtistWidth) + _coverImageMargin + _extraMarginForText; // add margin for cover image
+            logicalWidth = Math.Max(_cachedTitleWidth, _cachedArtistWidth) + coverImageReserved + _extraMarginForText; // add margin for cover image
             logicalWidth = Math.Min(logicalWidth, maxLogicalWidth);
         }
 
-        double newTitleContainerWidth = Math.Max(logicalWidth - _coverImageMargin, 0);
-        double newArtistContainerWidth = Math.Max(logicalWidth - _coverImageMargin, 0);
+        double newTitleContainerWidth = Math.Max(logicalWidth - coverImageReserved, 0);
+        double newArtistContainerWidth = Math.Max(logicalWidth - coverImageReserved, 0);
         bool widthChanged = false;
 
         if (_cachedTitleContainerWidth != newTitleContainerWidth)
