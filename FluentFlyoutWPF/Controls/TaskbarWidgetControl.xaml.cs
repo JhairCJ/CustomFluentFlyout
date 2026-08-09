@@ -193,12 +193,12 @@ public partial class TaskbarWidgetControl : UserControl
         // blur is baked into the bitmap, so disable the live effect while rotating
         BackgroundImage.Effect = null;
 
-        // The rotating element is a square and is rotated as a whole. To reveal only one side
-        // of the artwork (never its centre) the square is sized large enough for a
-        // viewport-width band to sit over its outer half, and then positioned so the
-        // widget looks at one side of the rotation centre instead of the centre itself.
-        double discSide = Math.Max(Math.Max(width * 4, height * 4), 360);
-        double offsetX = discSide * 0.35; // distance of the viewport band from the disc centre
+        // The rotating square is about three times the widget's width - large enough that a
+        // full viewport-width band always stays inside the rotating disc at every angle,
+        // while still keeping the artwork recognisable. It is sized in DIPs from the
+        // widget itself, so it scales with any screen/DPI (1080p, 4K, ...).
+        double discSide = Math.Max(Math.Max(width * 3, height * 3), 720);
+        double offsetX = discSide * 0.28; // distance of the viewport band from the disc centre
 
         BackgroundImage.Width = discSide;
         BackgroundImage.Height = discSide;
@@ -302,9 +302,13 @@ public partial class TaskbarWidgetControl : UserControl
 
         try
         {
-            // bake at a fixed resolution and let the Image stretch, keeps the texture small
-            const int res = 512;
+            // Bake the texture at a resolution that matches the on-screen size of the
+            // square (discSide DIPs * monitor DPI), clamped to keep memory reasonable.
+            // This keeps the rotating background sharp on any screen size (1080p, 4K, ...).
             double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+            int res = (int)Math.Ceiling(discSide * dpi);
+            res = Math.Max(res, 512);
+            res = Math.Min(res, 4096);
             int pixelSide = res;
 
             // scale the user's blur radius (DIPs on screen) into the baked texture space
