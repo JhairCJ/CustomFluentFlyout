@@ -168,8 +168,9 @@ public partial class TaskbarWidgetControl : UserControl
 
         if (SettingsManager.Current.TaskbarWidgetFixedWidth)
         {
-            // pin to maximum width so right-aligned controls don't shift between songs
-            logicalWidth = maxLogicalWidth;
+            // pin to the user-configured width so right-aligned controls don't shift between songs
+            logicalWidth = SettingsManager.Current.TaskbarWidgetFixedWidthPx / _scale;
+            logicalWidth = Math.Min(logicalWidth, maxLogicalWidth);
         }
         else
         {

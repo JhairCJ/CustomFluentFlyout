@@ -463,7 +463,43 @@ public partial class UserSettings : ObservableObject
     /// maximum width, so right-aligned controls don't shift when the song changes.
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetFixedWidthPxEnabled))]
     public partial bool TaskbarWidgetFixedWidth { get; set; }
+
+    /// <summary>
+    /// Gets or sets the fixed width in pixels (at 100% DPI) applied to the taskbar widget when
+    /// <see cref="TaskbarWidgetFixedWidth"/> is enabled.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetFixedWidthPxText))]
+    public partial int TaskbarWidgetFixedWidthPx { get; set; }
+
+    [XmlIgnore]
+    public string TaskbarWidgetFixedWidthPxText
+    {
+        get => TaskbarWidgetFixedWidthPx.ToString();
+        set
+        {
+            if (int.TryParse(value, out var result))
+            {
+                TaskbarWidgetFixedWidthPx = result switch
+                {
+                    > 216 => 216,
+                    < 80 => 80,
+                    _ => result
+                };
+            }
+            else
+            {
+                TaskbarWidgetFixedWidthPx = 216;
+            }
+
+            OnPropertyChanged();
+        }
+    }
+
+    [XmlIgnore]
+    public bool TaskbarWidgetFixedWidthPxEnabled => TaskbarWidgetFixedWidth && IsPremiumUnlocked;
 
     /// <summary>
     /// Gets or sets a value indicating whether the pause icon overlay should be completely hidden from view.
@@ -670,6 +706,7 @@ public partial class UserSettings : ObservableObject
     /// </summary>
     [XmlIgnore]
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetFixedWidthPxEnabled))]
     public partial bool IsPremiumUnlocked { get; set; }
 
     /// <summary>
@@ -780,6 +817,7 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetHideCompletely = false;
         TaskbarWidgetClickOpensFlyout = true;
         TaskbarWidgetFixedWidth = false;
+        TaskbarWidgetFixedWidthPx = 216;
         TaskbarWidgetShowPauseOverlay = true;
         TaskbarWidgetControlsEnabled = false;
         TaskbarWidgetControlsPosition = 1;
@@ -955,6 +993,12 @@ public partial class UserSettings : ObservableObject
     }
 
     partial void OnTaskbarWidgetFixedWidthChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        UpdateTaskbar();
+    }
+
+    partial void OnTaskbarWidgetFixedWidthPxChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         UpdateTaskbar();
