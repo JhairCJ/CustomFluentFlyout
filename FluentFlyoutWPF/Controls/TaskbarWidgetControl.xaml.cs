@@ -28,6 +28,11 @@ public partial class TaskbarWidgetControl : UserControl
 
     private readonly int _coverImageMargin = 55;
 
+    // Physical left margins that stay on screen even when the album art is hidden
+    // (MainStackPanel 4px + SongInfoStackPanel 8px). These must still be reserved in the
+    // width calculation, otherwise the media buttons overflow to the right.
+    private readonly int _noCoverReservedMargin = 12;
+
     // Cached width calculations
     private string _cachedTitleText = string.Empty;
     private string _cachedArtistText = string.Empty;
@@ -446,7 +451,7 @@ public partial class TaskbarWidgetControl : UserControl
         double maxLogicalWidth = _nativeWidgetsPadding / _scale;
         double logicalWidth;
 
-        double coverImageReserved = SettingsManager.Current.TaskbarWidgetShowAlbumArt ? _coverImageMargin : 0;
+        double coverImageReserved = SettingsManager.Current.TaskbarWidgetShowAlbumArt ? _coverImageMargin : _noCoverReservedMargin;
 
         if (SettingsManager.Current.TaskbarWidgetFixedWidth)
         {
