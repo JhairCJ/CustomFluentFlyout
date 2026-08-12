@@ -11,6 +11,8 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+using System.Threading.Tasks;
 using Windows.Media.Control;
 using Wpf.Ui.Controls;
 
@@ -67,6 +69,11 @@ public partial class TaskbarWidgetControl : UserControl
     private bool _backgroundRotationPaused;
     private double _pausedRotationAngle;
 
+    // Debounce before collapsing to the "no media" placeholder so the widget does not
+    // blink during the transient gap while switching tracks.
+    private const int NoMediaDebounceMs = 700;
+    private DispatcherTimer? _noMediaDebounceTimer;
+
     public TaskbarWidgetControl()
     {
         InitializeComponent();
@@ -103,6 +110,7 @@ public partial class TaskbarWidgetControl : UserControl
         MainBorder.CornerRadius = new CornerRadius(radius);
         TopBorder.CornerRadius = new CornerRadius(Math.Max(0, radius - 1));
         SongImageBorder.CornerRadius = new CornerRadius(Math.Max(0, radius - 1));
+        CrossfadeOverlay.CornerRadius = new CornerRadius(radius);
         MainBorder.Clip = new RectangleGeometry(
             new Rect(0, 0, MainBorder.ActualWidth, MainBorder.ActualHeight), radius, radius);
     }
@@ -225,7 +233,7 @@ public partial class TaskbarWidgetControl : UserControl
         Canvas.SetTop(BackgroundImage, (height - discSide) / 2);
 
         if (_currentIcon != null)
-            BackgroundImage.Source = GetBakedBackground(_currentIcon, discSide);
+            UpdateBakedBackgroundAsync(_currentIcon, discSide);
 
         // 0 = spins down (clockwise), 1 = spins up (counter - clockwise)
         bool spinUp = SettingsManager.Current.TaskbarWidgetBackgroundRotateDirection == 1;
@@ -366,55 +374,83 @@ public partial class TaskbarWidgetControl : UserControl
     /// <summary>
     /// Bakes the complete album cover once into a large blurred square that covers the
     /// widget while rotating, avoiding per-frame software re-rasterization of a live effect.
+    /// Runs on a worker thread so it never blocks the UI thread during a song change.
     /// </summary>
-    private BitmapSource? GetBakedBackground(BitmapImage icon, double discSide)
+    private static BitmapSource? BakeBlurredBackground(BitmapImage icon, double discSide, double dpi, double blurRadiusDips)
+    {
+        // Bake the texture at a resolution that matches the on-screen size of the
+        // square (discSide DIPs * monitor DPI), clamped to keep memory reasonable.
+        // This keeps the rotating background sharp on any screen size (1080p, 4K, ...).
+        int res = (int)Math.Ceiling(discSide * dpi);
+        res = Math.Max(res, 512);
+        res = Math.Min(res, 4096);
+        int pixelSide = res;
+
+        // scale the user's blur radius (DIPs on screen) into the baked texture space
+        double blurRadius = blurRadiusDips * res / Math.Max(discSide, 1);
+
+        var visual = new DrawingVisual();
+        using (DrawingContext dc = visual.RenderOpen())
+        {
+            // the complete, unedited album cover, stretched to fill the square disc
+            dc.DrawImage(icon, new Rect(0, 0, res, res));
+        }
+
+        visual.Effect = new BlurEffect
+        {
+            Radius = blurRadius,
+            KernelType = KernelType.Gaussian
+        };
+
+        var rtb = new RenderTargetBitmap(pixelSide, pixelSide, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(visual);
+        rtb.Freeze();
+        return rtb;
+    }
+
+    /// <summary>
+    /// Asynchronously bakes the blurred rotating background for the current album. The raw
+    /// artwork is shown immediately as a placeholder so the disc is never empty, and the
+    /// baked (blurred) texture replaces it once the worker thread finishes.
+    /// </summary>
+    private async void UpdateBakedBackgroundAsync(BitmapImage icon, double discSide)
     {
         if (_bakedBackground != null && ReferenceEquals(_bakedIcon, icon) && Math.Abs(_bakedSideDip - discSide) < 0.5)
-            return _bakedBackground;
+        {
+            BackgroundImage.Source = _bakedBackground;
+            return;
+        }
 
+        // Show the raw artwork right away if no baked version exists yet; for subsequent
+        // songs the previous baked background keeps showing until the new one is ready.
+        if (!ReferenceEquals(_bakedIcon, icon))
+            BackgroundImage.Source = icon;
+
+        double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        double blurRadiusDips = SettingsManager.Current.TaskbarWidgetBackgroundBlurRadius;
+
+        BitmapSource? baked;
         try
         {
-            // Bake the texture at a resolution that matches the on-screen size of the
-            // square (discSide DIPs * monitor DPI), clamped to keep memory reasonable.
-            // This keeps the rotating background sharp on any screen size (1080p, 4K, ...).
-            double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-            int res = (int)Math.Ceiling(discSide * dpi);
-            res = Math.Max(res, 512);
-            res = Math.Min(res, 4096);
-            int pixelSide = res;
-
-            // scale the user's blur radius (DIPs on screen) into the baked texture space
-            double blurRadius = SettingsManager.Current.TaskbarWidgetBackgroundBlurRadius * res / Math.Max(discSide, 1);
-
-            var visual = new DrawingVisual();
-            using (DrawingContext dc = visual.RenderOpen())
-            {
-                // the complete, unedited album cover, stretched to fill the square disc
-                dc.DrawImage(icon, new Rect(0, 0, res, res));
-            }
-
-            visual.Effect = new BlurEffect
-            {
-                Radius = blurRadius,
-                KernelType = KernelType.Gaussian
-            };
-
-            var rtb = new RenderTargetBitmap(pixelSide, pixelSide, 96, 96, PixelFormats.Pbgra32);
-            rtb.Render(visual);
-            rtb.Freeze();
-            _bakedIcon = icon;
-            _bakedBackground = rtb;
-            _bakedSideDip = discSide;
-            return _bakedBackground;
+            baked = await Task.Run(() => BakeBlurredBackground(icon, discSide, dpi, blurRadiusDips));
         }
         catch (Exception ex)
         {
             Logger.Error(ex, "Failed to bake blurred taskbar widget background");
-            _bakedIcon = null;
-            _bakedBackground = null;
-            _bakedSideDip = 0;
-            return null;
+            return;
         }
+
+        // A newer song may have arrived while baking; discard the stale result.
+        if (baked == null || !ReferenceEquals(_currentIcon, icon))
+            return;
+
+        _bakedIcon = icon;
+        _bakedBackground = baked;
+        _bakedSideDip = discSide;
+
+        // Swap the baked texture in if this song is still in rotation mode.
+        if (_backgroundRotationActive)
+            BackgroundImage.Source = baked;
     }
 
     private void Grid_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -656,34 +692,29 @@ public partial class TaskbarWidgetControl : UserControl
     {
         if (title == "-" && artist == "-")
         {
-            // No media playing, hide UI
+            // No media playing right now. This is often a transient gap while switching
+            // tracks, so keep the last song visible instead of blinking to the music-note
+            // placeholder; only collapse after a short debounce if media truly stopped.
             Dispatcher.Invoke(() =>
             {
-                _actualTitle = string.Empty;
-                _actualArtist = string.Empty;
+                _isPaused = true;
+                UpdateRotationPauseState();
 
-                if (SettingsManager.Current.TaskbarWidgetHideCompletely)
+                if (_noMediaDebounceTimer == null)
                 {
-                    Visibility = Visibility.Collapsed;
-                    return;
+                    _noMediaDebounceTimer = new DispatcherTimer
+                    {
+                        Interval = TimeSpan.FromMilliseconds(NoMediaDebounceMs)
+                    };
+                    _noMediaDebounceTimer.Tick += (s, e) =>
+                    {
+                        _noMediaDebounceTimer.Stop();
+                        ShowNoMediaPlaceholder();
+                    };
                 }
 
-                ControlsStackPanel.Visibility = Visibility.Collapsed;
-                SongTitle.Text = string.Empty;
-                SongArtist.Text = string.Empty;
-                SongInfoStackPanel.Visibility = Visibility.Collapsed;
-                SongInfoStackPanel.ToolTip = string.Empty;
-                SongImagePlaceholder.Symbol = SymbolRegular.MusicNote220;
-                SongImagePlaceholder.Visibility = Visibility.Visible;
-                SongImage.ImageSource = null;
-                SetBackground(null);
-                SongImageBorder.Margin = new Thickness(0, 0, 0, -3); // align music note better when no cover
-
-                MainBorder.Background = new SolidColorBrush(Colors.Transparent);
-                MainBorder.Background.Opacity = 0;
-                TopBorder.BorderBrush = Brushes.Transparent;
-
-                Visibility = Visibility.Visible;
+                _noMediaDebounceTimer.Stop();
+                _noMediaDebounceTimer.Start();
             });
             return;
         }
@@ -721,6 +752,9 @@ public partial class TaskbarWidgetControl : UserControl
 
         Dispatcher.Invoke(() =>
         {
+            _noMediaDebounceTimer?.Stop();
+            _noMediaDebounceTimer = null;
+
             string newTitle = !string.IsNullOrEmpty(title) ? title : "-";
             string newArtist = !string.IsNullOrEmpty(artist) ? artist : "-";
 
@@ -796,47 +830,117 @@ public partial class TaskbarWidgetControl : UserControl
         });
     }
 
-    private async void AnimateEntrance()
+    /// <summary>
+    /// Collapses the widget to the bare music-note placeholder. Only called once media
+    /// has genuinely stopped (after the no-media debounce has elapsed).
+    /// </summary>
+    private void ShowNoMediaPlaceholder()
+    {
+        _actualTitle = string.Empty;
+        _actualArtist = string.Empty;
+
+        if (SettingsManager.Current.TaskbarWidgetHideCompletely)
+        {
+            Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ControlsStackPanel.Visibility = Visibility.Collapsed;
+        SongTitle.Text = string.Empty;
+        SongArtist.Text = string.Empty;
+        SongInfoStackPanel.Visibility = Visibility.Collapsed;
+        SongInfoStackPanel.ToolTip = string.Empty;
+        SongImagePlaceholder.Symbol = SymbolRegular.MusicNote220;
+        SongImagePlaceholder.Visibility = Visibility.Visible;
+        SongImage.ImageSource = null;
+        SetBackground(null);
+        SongImageBorder.Margin = new Thickness(0, 0, 0, -3); // align music note better when no cover
+
+        MainBorder.Background = new SolidColorBrush(Colors.Transparent);
+        MainBorder.Background.Opacity = 0;
+        TopBorder.BorderBrush = Brushes.Transparent;
+
+        Visibility = Visibility.Visible;
+    }
+
+    private void AnimateEntrance()
     {
         try
         {
-            int msDuration = MainWindow.getDuration();
+            int msDuration = Math.Max(MainWindow.getDuration(), 250);
 
-            // opacity and left to right animation for SongInfoStackPanel
-            DoubleAnimation opacityAnimation = new()
+            // Snapshot the current widget (old album) into the overlay and fade it out on
+            // top of the new content underneath, so the artwork colours crossfade instead
+            // of blanking out to the transparent background.
+            if (!RenderCrossfadeSnapshot())
             {
-                From = 0.0,
-                To = 1.0,
-                Duration = TimeSpan.FromMilliseconds(msDuration),
-                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-            };
-
-            DoubleAnimation translateAnimation = new()
-            {
-                From = -10,
-                To = 0,
-                Duration = TimeSpan.FromMilliseconds(msDuration),
-                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-            };
-
-            // Apply animations
-            SongInfoStackPanel.BeginAnimation(OpacityProperty, opacityAnimation);
-            TranslateTransform translateTransform = new();
-            SongInfoStackPanel.RenderTransform = translateTransform;
-            translateTransform.BeginAnimation(TranslateTransform.XProperty, translateAnimation);
-
-            // don't play ControlsStackPanel animation if it's not enabled
-            if (!SettingsManager.Current.TaskbarWidgetControlsEnabled)
+                // Snapshot unavailable: fall back to fading the widget itself in place.
+                DoubleAnimation opacityAnimation = new()
+                {
+                    From = 0.0,
+                    To = 1.0,
+                    Duration = TimeSpan.FromMilliseconds(msDuration),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+                RootGrid.BeginAnimation(OpacityProperty, opacityAnimation);
                 return;
+            }
 
-            ControlsStackPanel.BeginAnimation(OpacityProperty, opacityAnimation);
-            TranslateTransform translateTransform2 = new();
-            ControlsStackPanel.RenderTransform = translateTransform2;
-            translateTransform2.BeginAnimation(TranslateTransform.XProperty, translateAnimation);
+            DoubleAnimation fadeOutAnimation = new()
+            {
+                From = 1.0,
+                To = 0.0,
+                Duration = TimeSpan.FromMilliseconds(msDuration),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            fadeOutAnimation.Completed += (s, e) =>
+            {
+                CrossfadeOverlay.BeginAnimation(OpacityProperty, null);
+                CrossfadeOverlay.Visibility = Visibility.Collapsed;
+                CrossfadeOverlay.Background = null;
+            };
+
+            CrossfadeOverlay.BeginAnimation(OpacityProperty, fadeOutAnimation);
         }
         catch (Exception ex)
         {
             Logger.Error(ex, "Taskbar Widget error during entrance animation");
+        }
+    }
+
+    /// <summary>
+    /// Renders the current widget (old album) into <see cref="CrossfadeOverlay"/> so it
+    /// can be faded out on top of the freshly updated content underneath (true crossfade).
+    /// </summary>
+    /// <returns><see langword="true"/> when the snapshot was taken.</returns>
+    private bool RenderCrossfadeSnapshot()
+    {
+        try
+        {
+            if (CrossfadeOverlay == null || RootGrid.ActualWidth <= 0 || RootGrid.ActualHeight <= 0)
+                return false;
+
+            // Cap the snapshot resolution: the widget is tiny and the crossfade brief, so
+            // rendering at full DPI is unnecessary and adds UI-thread work per song change.
+            double dpi = Math.Min(VisualTreeHelper.GetDpi(this).PixelsPerDip, 1.5);
+            int pixelWidth = Math.Max(1, (int)Math.Round(RootGrid.ActualWidth * dpi));
+            int pixelHeight = Math.Max(1, (int)Math.Round(RootGrid.ActualHeight * dpi));
+
+            var rtb = new RenderTargetBitmap(pixelWidth, pixelHeight, 96 * dpi, 96 * dpi, PixelFormats.Pbgra32);
+            rtb.Render(RootGrid);
+            rtb.Freeze();
+
+            CrossfadeOverlay.Width = RootGrid.ActualWidth;
+            CrossfadeOverlay.Height = RootGrid.ActualHeight;
+            CrossfadeOverlay.Background = new ImageBrush(rtb) { Stretch = Stretch.Fill };
+            CrossfadeOverlay.Visibility = Visibility.Visible;
+            CrossfadeOverlay.Opacity = 1.0;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to render taskbar widget crossfade snapshot");
+            return false;
         }
     }
 

@@ -12,7 +12,7 @@
              FontFamily="{Binding FontFamily}"
              FlowDirection="{Binding FlowDirection}">
     <Border Name="MainBorder" CornerRadius="6" MouseLeftButtonUp="Grid_MouseLeftButtonUp" ClipToBounds="True">
-        <Grid>
+        <Grid x:Name="RootGrid">
             <!-- The rotating background lives in a Canvas so it is arranged at its exact
                  square size, independent of the widget's rectangular layout slot. The widget
                  (MainBorder, ClipToBounds) acts purely as the viewport over that square. -->
@@ -87,6 +87,9 @@
                     </StackPanel>
                 </Grid>
             </Border>
+            <!-- Snapshot layer: holds a render of the previous album while a song change
+                 is underway so it can crossfade into the new content underneath. -->
+            <Border x:Name="CrossfadeOverlay" CornerRadius="6" ClipToBounds="True" IsHitTestVisible="False" Opacity="0" Visibility="Collapsed" />
         </Grid>
     </Border>
 </UserControl>
