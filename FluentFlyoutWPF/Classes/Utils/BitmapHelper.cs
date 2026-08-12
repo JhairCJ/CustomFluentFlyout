@@ -273,7 +273,7 @@ internal static class BitmapHelper
 
             // all pixels (no chroma/lightness filter) => the album's dominant tone
             var coverageHistogram = new int[binCount];
-            // saturated pixels only, weighted by chroma => the vivid candidate
+            // saturated pixels only, weighted by area (chroma tie-break) => the vivid candidate
             var vibrantHistogram = new int[binCount];
             int saturatedSamples = 0;
 
@@ -297,10 +297,10 @@ internal static class BitmapHelper
 
                 // skip blacks, whites, and neutrals for the vibrant candidate
                 if (chroma < 0.15f) continue;
-                if (lightness < 0.15f || lightness > 0.85f) continue;
+                if (lightness < 0.08f || lightness > 0.85f) continue;
 
                 saturatedSamples++;
-                vibrantHistogram[idx] += (int)(chroma * chroma * 100);
+                vibrantHistogram[idx] += 100 + (int)(chroma * 100);
             }
 
             int coveragePeak = 0;
@@ -313,8 +313,29 @@ internal static class BitmapHelper
 
             float saturatedFraction = samples.Count > 0 ? (float)saturatedSamples / samples.Count : 0f;
 
-            // only use the vivid color when the album is genuinely colorful
-            bool useVibrant = saturatedSamples > 0 && saturatedFraction >= minSaturatedFraction;
+            // decode the dominant-tone candidate to judge whether it makes a usable accent
+            int covR = coveragePeak / (bins * bins);
+            int covG = (coveragePeak / bins) % bins;
+            int covB = coveragePeak % bins;
+
+            byte covRc = (byte)((covR << shift) + halfBin);
+            byte covGc = (byte)((covG << shift) + halfBin);
+            byte covBc = (byte)((covB << shift) + halfBin);
+
+            float covMax = MathF.Max(covRc, MathF.Max(covGc, covBc)) / 255f;
+            float covMin = MathF.Min(covRc, MathF.Min(covGc, covBc)) / 255f;
+            float coverageChroma = covMax - covMin;
+            float coverageLightness = (covMax + covMin) / 2f;
+
+            // when the dominant tone is too dark (essentially black), the lifted accent would
+            // turn white: prefer the vivid color instead. Colored dark tones (e.g. dark blue)
+            // have enough chroma to stay useful, so they are kept as-is.
+            bool dominantTooDark = coverageLightness < 0.15f && coverageChroma < 0.15f;
+            bool hasColor = saturatedFraction >= 0.01f;
+
+            // only use the vivid color when the album is genuinely colorful,
+            // or when the dominant tone is too dark to make a useful accent
+            bool useVibrant = saturatedSamples > 0 && hasColor && (dominantTooDark || saturatedFraction >= minSaturatedFraction);
             int chosenIdx = useVibrant ? vibrantPeak : coveragePeak;
 
             int cr = chosenIdx / (bins * bins);
@@ -388,8 +409,12 @@ internal static class BitmapHelper
             }
         }
 
-        // desaturate
-        double desaturation = 0.30;
+        // desaturate; tame very saturated colors a bit more so the accent doesn't glare
+        double maxC = Math.Max(r, Math.Max(g, b));
+        double minC = Math.Min(r, Math.Min(g, b));
+        double chroma = Math.Min(maxC - minC, 1.0);
+        double desaturation = 0.30 + Math.Clamp((chroma - 0.45) / 0.55, 0.0, 1.0) * 0.30;
+
         double newL = 0.2126 * r + 0.7152 * g + 0.0722 * b;
         r += (newL - r) * desaturation;
         g += (newL - g) * desaturation;
