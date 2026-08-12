@@ -64,6 +64,10 @@ hides repeat, shuffle and player info</System:String>
     <System:String x:Key="TaskbarWidgetManualPaddingDescription">Add extra padding (default: 0px)</System:String>
     <System:String x:Key="TaskbarWidgetBorderRadiusTitle">Corner Radius</System:String>
     <System:String x:Key="TaskbarWidgetBorderRadiusDescription">Adjust the roundness of the widget corners (default: 6px)</System:String>
+    <System:String x:Key="TaskbarWidgetAlbumArtRadiusTitle">Album Art Corner Radius</System:String>
+    <System:String x:Key="TaskbarWidgetAlbumArtRadiusDescription">Adjust the roundness of the album art corners (default: 5px)</System:String>
+    <System:String x:Key="TaskbarWidgetButtonHoverRadiusTitle">Media Buttons Hover Radius</System:String>
+    <System:String x:Key="TaskbarWidgetButtonHoverRadiusDescription">Adjust the roundness of the hover background of the media buttons (default: 6px)</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundBlurTitle">Background Blur</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundBlurDescription">Add background blur effect to the taskbar widget</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundBlurIntensityTitle">Blurred Background Intensity</System:String>

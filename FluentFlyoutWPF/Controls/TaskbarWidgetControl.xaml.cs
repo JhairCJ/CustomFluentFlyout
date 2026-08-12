@@ -99,6 +99,7 @@ public partial class TaskbarWidgetControl : UserControl
                 LayoutBackgroundToFillWidget();
         };
         ApplyCornerRadius();
+        ApplyButtonHoverRadius();
 
         Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0));
 
@@ -114,10 +115,18 @@ public partial class TaskbarWidgetControl : UserControl
         double radius = SettingsManager.Current.TaskbarWidgetBorderRadius;
         MainBorder.CornerRadius = new CornerRadius(radius);
         TopBorder.CornerRadius = new CornerRadius(Math.Max(0, radius - 1));
-        SongImageBorder.CornerRadius = new CornerRadius(Math.Max(0, radius - 1));
+        SongImageBorder.CornerRadius = new CornerRadius(SettingsManager.Current.TaskbarWidgetAlbumArtRadius);
         CrossfadeOverlay.CornerRadius = new CornerRadius(radius);
         MainBorder.Clip = new RectangleGeometry(
             new Rect(0, 0, MainBorder.ActualWidth, MainBorder.ActualHeight), radius, radius);
+    }
+
+    public void ApplyButtonHoverRadius()
+    {
+        var radius = new CornerRadius(SettingsManager.Current.TaskbarWidgetButtonHoverRadius);
+        PreviousButton.CornerRadius = radius;
+        PlayPauseButton.CornerRadius = radius;
+        NextButton.CornerRadius = radius;
     }
 
     public void ReorderControls()

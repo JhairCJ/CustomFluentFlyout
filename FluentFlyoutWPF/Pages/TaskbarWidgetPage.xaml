@@ -201,6 +201,30 @@
                             <TextBlock Text="{DynamicResource PixelsUnit}" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
                         </StackPanel>
                     </ui:CardControl>
+                    <ui:CardControl x:Name="TaskbarWidgetAlbumArtRadiusTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon Album24}" Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">
+                        <ui:CardControl.Header>
+                            <StackPanel Orientation="Vertical">
+                                <TextBlock Text="{DynamicResource TaskbarWidgetAlbumArtRadiusTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                                <TextBlock Text="{DynamicResource TaskbarWidgetAlbumArtRadiusDescription}" FontSize="12" Opacity="0.5" />
+                            </StackPanel>
+                        </ui:CardControl.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <ui:TextBox Width="60" ClearButtonEnabled="False" Text="{Binding TaskbarWidgetAlbumArtRadiusText, Mode=TwoWay}" IsEnabled="{Binding IsPremiumUnlocked}" />
+                            <TextBlock Text="{DynamicResource PixelsUnit}" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </ui:CardControl>
+                    <ui:CardControl x:Name="TaskbarWidgetButtonHoverRadiusTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon VideoPlayPause24}" Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0" CornerRadius="0" Padding="52,16,16,16">
+                        <ui:CardControl.Header>
+                            <StackPanel Orientation="Vertical">
+                                <TextBlock Text="{DynamicResource TaskbarWidgetButtonHoverRadiusTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                                <TextBlock Text="{DynamicResource TaskbarWidgetButtonHoverRadiusDescription}" FontSize="12" Opacity="0.5" />
+                            </StackPanel>
+                        </ui:CardControl.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <ui:TextBox Width="60" ClearButtonEnabled="False" Text="{Binding TaskbarWidgetButtonHoverRadiusText, Mode=TwoWay}" IsEnabled="{Binding IsPremiumUnlocked}" />
+                            <TextBlock Text="{DynamicResource PixelsUnit}" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </ui:CardControl>
                 </StackPanel>
             </ui:CardExpander>
 

@@ -447,6 +447,68 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
+    /// Corner radius in pixels applied to the album art inside the taskbar widget.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetAlbumArtRadiusText))]
+    public partial int TaskbarWidgetAlbumArtRadius { get; set; }
+
+    [XmlIgnore]
+    public string TaskbarWidgetAlbumArtRadiusText
+    {
+        get => TaskbarWidgetAlbumArtRadius.ToString();
+        set
+        {
+            if (int.TryParse(value, out var result))
+            {
+                TaskbarWidgetAlbumArtRadius = result switch
+                {
+                    > 20 => 20,
+                    < 0 => 0,
+                    _ => result
+                };
+            }
+            else
+            {
+                TaskbarWidgetAlbumArtRadius = 5;
+            }
+
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Corner radius in pixels applied to the hover background of the media buttons in the taskbar widget.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetButtonHoverRadiusText))]
+    public partial int TaskbarWidgetButtonHoverRadius { get; set; }
+
+    [XmlIgnore]
+    public string TaskbarWidgetButtonHoverRadiusText
+    {
+        get => TaskbarWidgetButtonHoverRadius.ToString();
+        set
+        {
+            if (int.TryParse(value, out var result))
+            {
+                TaskbarWidgetButtonHoverRadius = result switch
+                {
+                    > 20 => 20,
+                    < 0 => 0,
+                    _ => result
+                };
+            }
+            else
+            {
+                TaskbarWidgetButtonHoverRadius = 6;
+            }
+
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
     /// Gets or sets a value indication whether the taskbar widget background should have a blur effect
     /// </summary>
     [ObservableProperty]
@@ -901,6 +963,8 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetPadding = true;
         TaskbarWidgetManualPadding = 0;
         TaskbarWidgetBorderRadius = 6;
+        TaskbarWidgetAlbumArtRadius = 5;
+        TaskbarWidgetButtonHoverRadius = 6;
         TaskbarWidgetBackgroundBlur = false;
         TaskbarWidgetBackgroundBlurIntensity = 65;
         TaskbarWidgetBackgroundBlurRadius = 35;
@@ -1076,6 +1140,20 @@ public partial class UserSettings : ObservableObject
         if (oldValue == newValue || _initializing) return;
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
         mainWindow.taskbarWindow?.Widget?.ApplyCornerRadius();
+    }
+
+    partial void OnTaskbarWidgetAlbumArtRadiusChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.taskbarWindow?.Widget?.ApplyCornerRadius();
+    }
+
+    partial void OnTaskbarWidgetButtonHoverRadiusChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.taskbarWindow?.Widget?.ApplyButtonHoverRadius();
     }
 
     partial void OnTaskbarWidgetBackgroundBlurChanged(bool oldValue, bool newValue)

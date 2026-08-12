@@ -106,6 +106,10 @@ Puedes ayudar a contribuir con las traducciones en</system:String>
     <system:String x:Key="TaskbarWidgetVisualIssuesWarning">Configura las opciones de debajo si experimentas problemas visuales.</system:String>
     <system:String x:Key="TaskbarWidgetPaddingTitle">Margen Automático para el Botón de Widgets de Windows</system:String>
     <system:String x:Key="TaskbarWidgetPaddingDescription">Activa esta función si tienes los Widgets de Windows activados</system:String>
+    <system:String x:Key="TaskbarWidgetAlbumArtRadiusTitle">Radio de Esquinas del Arte del Álbum</system:String>
+    <system:String x:Key="TaskbarWidgetAlbumArtRadiusDescription">Ajusta la redondez de las esquinas del arte del álbum (por defecto: 5px)</system:String>
+    <system:String x:Key="TaskbarWidgetButtonHoverRadiusTitle">Radio del Hover de los Botones Multimedia</system:String>
+    <system:String x:Key="TaskbarWidgetButtonHoverRadiusDescription">Ajusta la redondez del fondo del hover de los botones multimedia (por defecto: 6px)</system:String>
     <system:String x:Key="TaskbarWidgetClickableTitle">Haz click para abrir el Flyout Multimedia cuando se reproduce multimedia</system:String>
     <system:String x:Key="TaskbarWidgetClickableDescription">Si el flyout multimedia esta activado se abrirá cuando hagas click en el widget de la barra de tareas</system:String>
     <system:String x:Key="TaskbarWidgetBackgroundBlurTitle">Difuminado del Fondo</system:String>
