@@ -1221,7 +1221,7 @@ public partial class UserSettings : ObservableObject
     partial void OnUseAlbumArtAsAccentColorChanged(bool oldValue, bool newValue)
     {
         if (oldValue == newValue || _initializing) return;
-        BitmapHelper.GetDominantColors(1);
+        BitmapHelper.GetDominantColors();
     }
 
     partial void OnAppFilteringEnabledChanged(bool oldValue, bool newValue)

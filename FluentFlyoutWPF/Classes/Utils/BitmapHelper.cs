@@ -180,13 +180,12 @@ internal static class BitmapHelper
     }
 
     /// <summary>
-    /// Gets dominant colors from last cached Bitmap from GetThumbnail method.
-    /// K-means clustering for multiple colors, histogram peak for single color.
+    /// Gets the dominant accent color from the last cached Bitmap from the GetThumbnail method.
+    /// Uses a two-candidate scheme (overall tone vs vivid color) so the accent represents the
+    /// album instead of its most saturated spot.
     /// </summary>
-    /// <param name="colorCount">Amount of colors needed</param>
-    /// <param name="maxIterations">Amount of k-means iterations (more = higher accuracy)</param>
     /// <returns>List of dominant colors from cached Bitmap as SolidColorBrush</returns>
-    public static List<SolidColorBrush> GetDominantColors(int colorCount, int maxIterations = 15)
+    public static List<SolidColorBrush> GetDominantColors()
     {
         int hashCode = _currentHashCodeContext.Value != 0 ? _currentHashCodeContext.Value : _currentHashCode;
 
@@ -245,7 +244,7 @@ internal static class BitmapHelper
 
             // downsample pixels
             var rng = new Random();
-            var samples = new List<int[]>();
+            var samples = new List<(byte R, byte G, byte B)>();
 
             for (int i = 0; i < pixels.Length; i += 4)
             {
@@ -257,211 +256,84 @@ internal static class BitmapHelper
                 if (a < 128) continue;
                 if (rng.Next(10) != 0) continue; // sample ~10%
 
-                samples.Add([r, g, b]);
+                samples.Add((r, g, b));
             }
 
-            List<Color> result;
+            // Two-candidate scheme so the accent represents the album's overall tone
+            // instead of the most saturated spot: a mostly gray/black cover with a few
+            // small colored letters must produce a gray accent, not the letter color.
+            const int quantBits = 4;
+            const int bins = 1 << quantBits;
+            const int binCount = bins * bins * bins;
+            const int shift = 8 - quantBits;
+            const int halfBin = 1 << (shift - 1);
+            // if a meaningful share of the cover is saturated, the album is "colorful":
+            // use the vivid candidate instead of the (often white/black) dominant tone
+            const float minSaturatedFraction = 0.20f;
 
-            if (colorCount == 1)
+            // all pixels (no chroma/lightness filter) => the album's dominant tone
+            var coverageHistogram = new int[binCount];
+            // saturated pixels only, weighted by chroma => the vivid candidate
+            var vibrantHistogram = new int[binCount];
+            int saturatedSamples = 0;
+
+            foreach (var pixel in samples)
             {
-                // Two-candidate scheme so the accent represents the album's overall tone
-                // instead of the most saturated spot: a mostly gray/black cover with a few
-                // small colored letters must produce a gray accent, not the letter color.
-                const int quantBits = 4;
-                const int bins = 1 << quantBits;
-                // if a meaningful share of the cover is saturated, the album is "colorful":
-                // use the vivid candidate instead of the (often white/black) dominant tone
-                const float minSaturatedFraction = 0.20f;
+                float r = pixel.R / 255f;
+                float g = pixel.G / 255f;
+                float b = pixel.B / 255f;
 
-                // all pixels (no chroma/lightness filter) => the album's dominant tone
-                var coverageHistogram = new int[bins * bins * bins];
-                // saturated pixels only, weighted by chroma => the vivid candidate
-                var vibrantHistogram = new int[bins * bins * bins];
-                int saturatedSamples = 0;
+                float max = MathF.Max(r, MathF.Max(g, b));
+                float min = MathF.Min(r, MathF.Min(g, b));
+                float chroma = max - min;
+                float lightness = (max + min) / 2f;
 
-                foreach (var pixel in samples)
-                {
-                    float r = pixel[0] / 255f;
-                    float g = pixel[1] / 255f;
-                    float b = pixel[2] / 255f;
+                int ri = pixel.R >> shift;
+                int gi = pixel.G >> shift;
+                int bi = pixel.B >> shift;
+                int idx = ri * bins * bins + gi * bins + bi;
 
-                    float max = MathF.Max(r, MathF.Max(g, b));
-                    float min = MathF.Min(r, MathF.Min(g, b));
-                    float chroma = max - min;
-                    float lightness = (max + min) / 2f;
+                coverageHistogram[idx]++;
 
-                    int ri = pixel[0] >> (8 - quantBits);
-                    int gi = pixel[1] >> (8 - quantBits);
-                    int bi = pixel[2] >> (8 - quantBits);
-                    int idx = ri * bins * bins + gi * bins + bi;
+                // skip blacks, whites, and neutrals for the vibrant candidate
+                if (chroma < 0.15f) continue;
+                if (lightness < 0.15f || lightness > 0.85f) continue;
 
-                    coverageHistogram[idx]++;
-
-                    // skip blacks, whites, and neutrals for the vibrant candidate
-                    if (chroma < 0.15f) continue;
-                    if (lightness < 0.15f || lightness > 0.85f) continue;
-
-                    saturatedSamples++;
-                    vibrantHistogram[idx] += (int)(chroma * chroma * 100);
-                }
-
-                int coveragePeak = 0;
-                for (int i = 1; i < coverageHistogram.Length; i++)
-                    if (coverageHistogram[i] > coverageHistogram[coveragePeak]) coveragePeak = i;
-
-                int vibrantPeak = 0;
-                for (int i = 1; i < vibrantHistogram.Length; i++)
-                    if (vibrantHistogram[i] > vibrantHistogram[vibrantPeak]) vibrantPeak = i;
-
-                float saturatedFraction = samples.Count > 0 ? (float)saturatedSamples / samples.Count : 0f;
-
-                // only use the vivid color when the album is genuinely colorful
-                bool useVibrant = saturatedSamples > 0 && saturatedFraction >= minSaturatedFraction;
-                int chosenIdx = useVibrant ? vibrantPeak : coveragePeak;
-
-                int cr2 = chosenIdx / (bins * bins);
-                int cg2 = (chosenIdx / bins) % bins;
-                int cb2 = chosenIdx % bins;
-
-                // map each bin index back to the center of its value range
-                byte peakR = (byte)((cr2 << (8 - quantBits)) + (1 << (8 - quantBits - 1)));
-                byte peakG = (byte)((cg2 << (8 - quantBits)) + (1 << (8 - quantBits - 1)));
-                byte peakB = (byte)((cb2 << (8 - quantBits)) + (1 << (8 - quantBits - 1)));
-
-                result = [Color.FromArgb(255, peakR, peakG, peakB)];
-            }
-            else
-            {
-                // get random initial centroids
-                var centroids = samples
-                    .OrderBy(_ => rng.Next())
-                    .Take(colorCount)
-                    .Select(p => new double[] { p[0], p[1], p[2] })
-                    .ToList();
-
-                // k-means iterations
-                for (int iter = 0; iter < maxIterations; iter++)
-                {
-                    var clusters = Enumerable.Range(0, colorCount)
-                        .Select(_ => new List<int[]>())
-                        .ToList();
-
-                    // assign pixels to nearest centroid
-                    foreach (var pixel in samples)
-                    {
-                        int best = 0;
-                        double bestDist = double.MaxValue;
-
-                        for (int i = 0; i < colorCount; i++)
-                        {
-                            double dr = pixel[0] - centroids[i][0];
-                            double dg = pixel[1] - centroids[i][1];
-                            double db = pixel[2] - centroids[i][2];
-                            double dist = dr * dr + dg * dg + db * db;
-
-                            if (dist < bestDist) { bestDist = dist; best = i; }
-                        }
-
-                        clusters[best].Add(pixel);
-                    }
-
-                    // recalculate centroids + check convergence
-                    bool converged = true;
-                    for (int i = 0; i < colorCount; i++)
-                    {
-                        if (clusters[i].Count == 0) continue;
-
-                        double newR = clusters[i].Average(p => p[0]);
-                        double newG = clusters[i].Average(p => p[1]);
-                        double newB = clusters[i].Average(p => p[2]);
-
-                        double dr = newR - centroids[i][0];
-                        double dg = newG - centroids[i][1];
-                        double db = newB - centroids[i][2];
-
-                        if (dr * dr + dg * dg + db * db > 1.0) converged = false;
-
-                        centroids[i][0] = newR;
-                        centroids[i][1] = newG;
-                        centroids[i][2] = newB;
-                    }
-
-                    if (converged) break;
-                }
-
-                result = [.. centroids.Select(c => Color.FromArgb(255, (byte)c[0], (byte)c[1], (byte)c[2]))];
+                saturatedSamples++;
+                vibrantHistogram[idx] += (int)(chroma * chroma * 100);
             }
 
-            if (ApplicationThemeManager.GetSystemTheme() == SystemTheme.Dark)
-            {
-                // lighten colors and add contrast when in dark mode
-                result = [.. result
-                .Select(c =>
-                {
-                    double r = ToLinear(c.R);
-                    double g = ToLinear(c.G);
-                    double b = ToLinear(c.B);
+            int coveragePeak = 0;
+            for (int i = 1; i < coverageHistogram.Length; i++)
+                if (coverageHistogram[i] > coverageHistogram[coveragePeak]) coveragePeak = i;
 
-                    double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            int vibrantPeak = 0;
+            for (int i = 1; i < vibrantHistogram.Length; i++)
+                if (vibrantHistogram[i] > vibrantHistogram[vibrantPeak]) vibrantPeak = i;
 
-                    // lift colors that are too dark for black backgrounds
-                    double targetL = Math.Max(luminance, 0.65);
-                    double scale = targetL / Math.Max(0.0001, luminance);
-                    r *= scale; g *= scale; b *= scale;
+            float saturatedFraction = samples.Count > 0 ? (float)saturatedSamples / samples.Count : 0f;
 
-                    // desaturate
-                    double desaturation = 0.30;
-                    double newL = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-                    r += (newL - r) * desaturation;
-                    g += (newL - g) * desaturation;
-                    b += (newL - b) * desaturation;
+            // only use the vivid color when the album is genuinely colorful
+            bool useVibrant = saturatedSamples > 0 && saturatedFraction >= minSaturatedFraction;
+            int chosenIdx = useVibrant ? vibrantPeak : coveragePeak;
 
-                    return Color.FromArgb(c.A, ToGamma(r), ToGamma(g), ToGamma(b));
-                })];
-            }
-            else
-            {
-                // light mode: keep the accent visible on light backgrounds. The dominant tone
-                // of many album covers is very dark, so lift those up to a mid tone (which
-                // still preserves the album's hue), and clamp near-white tones.
-                result = [.. result
-            .Select(c =>
-            {
-                double r = ToLinear(c.R);
-                double g = ToLinear(c.G);
-                double b = ToLinear(c.B);
+            int cr = chosenIdx / (bins * bins);
+            int cg = (chosenIdx / bins) % bins;
+            int cb = chosenIdx % bins;
 
-                double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-                if (luminance < 0.40)
-                {
-                    double scale = 0.40 / Math.Max(0.0001, luminance);
-                    r *= scale; g *= scale; b *= scale;
-                }
-                else if (luminance > 0.85)
-                {
-                    double scale = 0.70 / luminance;
-                    r *= scale; g *= scale; b *= scale;
-                }
+            // map each bin index back to the center of its value range
+            byte peakR = (byte)((cr << shift) + halfBin);
+            byte peakG = (byte)((cg << shift) + halfBin);
+            byte peakB = (byte)((cb << shift) + halfBin);
 
-                double desaturation = 0.30;
-                double newL = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-                r += (newL - r) * desaturation;
-                g += (newL - g) * desaturation;
-                b += (newL - b) * desaturation;
+            bool isDark = ApplicationThemeManager.GetSystemTheme() == SystemTheme.Dark;
+            Color accentColor = AdjustAccentForTheme(Color.FromArgb(255, peakR, peakG, peakB), isDark);
 
-                return Color.FromArgb(c.A, ToGamma(r), ToGamma(g), ToGamma(b));
-            })];
-            }
+            // convert to a frozen brush
+            var brush = new SolidColorBrush(accentColor);
+            brush.Freeze(); // makes it immutable & thread-safe
 
-            // convert to brushes
-            var brushes = result.Select(c =>
-            {
-                var brush = new SolidColorBrush(c);
-                brush.Freeze(); // makes it immutable & thread-safe
-                return brush;
-            }).ToList();
-
-            _currentDominantColors = brushes;
+            _currentDominantColors = [brush];
 
             // save brushes to cache with current hash as key
             _dominantColorsCache.Set(hashCode, _currentDominantColors);
@@ -477,6 +349,53 @@ internal static class BitmapHelper
             Logger.Error(ex, "Error extracting dominant colors");
             return [];
         }
+    }
+
+    /// <summary>
+    /// Adjusts an accent color so it stays visible on the flyout background while keeping
+    /// the album's hue. Dark mode lifts dark tones up; light mode lifts very dark tones to
+    /// a mid tone and clamps near-white tones. Both modes desaturate slightly.
+    /// </summary>
+    private static Color AdjustAccentForTheme(Color c, bool isDark)
+    {
+        double r = ToLinear(c.R);
+        double g = ToLinear(c.G);
+        double b = ToLinear(c.B);
+
+        double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+        if (isDark)
+        {
+            // lift colors that are too dark for black backgrounds
+            double targetL = Math.Max(luminance, 0.65);
+            double scale = targetL / Math.Max(0.0001, luminance);
+            r *= scale; g *= scale; b *= scale;
+        }
+        else
+        {
+            // light mode: the dominant tone of many album covers is very dark, so lift those
+            // up to a mid tone (which still preserves the album's hue), and clamp near-white
+            // tones so the accent stays visible on light backgrounds.
+            if (luminance < 0.40)
+            {
+                double scale = 0.40 / Math.Max(0.0001, luminance);
+                r *= scale; g *= scale; b *= scale;
+            }
+            else if (luminance > 0.85)
+            {
+                double scale = 0.70 / luminance;
+                r *= scale; g *= scale; b *= scale;
+            }
+        }
+
+        // desaturate
+        double desaturation = 0.30;
+        double newL = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        r += (newL - r) * desaturation;
+        g += (newL - g) * desaturation;
+        b += (newL - b) * desaturation;
+
+        return Color.FromArgb(c.A, ToGamma(r), ToGamma(g), ToGamma(b));
     }
 
     private static double ToLinear(byte v)

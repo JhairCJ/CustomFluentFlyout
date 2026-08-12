@@ -607,7 +607,7 @@ public partial class MainWindow : MicaWindow
 
         var playbackInfo = activeSession.ControlSession.GetPlaybackInfo();
         var thumbnail = BitmapHelper.GetThumbnail(songInfo.Thumbnail);
-        BitmapHelper.GetDominantColors(1);
+        BitmapHelper.GetDominantColors();
         widget.UpdateUi(songInfo.Title, songInfo.Artist, thumbnail, playbackInfo.PlaybackStatus, playbackInfo.Controls);
     }
 
@@ -698,7 +698,7 @@ public partial class MainWindow : MicaWindow
         if (tbSongInfo != null)
         {
             var tbThumbnail = BitmapHelper.GetThumbnail(tbSongInfo.Thumbnail);
-            BitmapHelper.GetDominantColors(1);
+            BitmapHelper.GetDominantColors();
             var tbPlayback = focusedSession.ControlSession.GetPlaybackInfo();
 
             taskbarWindow?.UpdateUi(tbSongInfo.Title, tbSongInfo.Artist, tbThumbnail, tbPlayback?.PlaybackStatus, tbPlayback?.Controls);
@@ -750,7 +750,7 @@ public partial class MainWindow : MicaWindow
         previousMediaPropertyThumbnail = checkThumbnail;
 
         var thumbnail = BitmapHelper.GetThumbnail(songInfo.Thumbnail);
-        BitmapHelper.GetDominantColors(1);
+        BitmapHelper.GetDominantColors();
 
         taskbarWindow?.UpdateUi(songInfo.Title, songInfo.Artist, thumbnail, playbackInfo.PlaybackStatus, playbackInfo.Controls);
 
@@ -1756,7 +1756,7 @@ public partial class MainWindow : MicaWindow
         // Add the experiments loading here
         await ExperimentsService.GetExperimentsAsync();
 
-        BitmapHelper.GetDominantColors(1);
+        BitmapHelper.GetDominantColors();
         UpdateTaskbar();
     }
 
