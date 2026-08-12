@@ -109,6 +109,60 @@ public static class MonitorUtil
         return "Unknown Monitor";
     }
 
+    /// <summary>
+    /// Gets the refresh rate (Hz) of the monitor nearest to the given window handle.
+    /// Falls back to the primary monitor, then to 60 Hz.
+    /// </summary>
+    public static int GetRefreshRate(IntPtr hwnd)
+    {
+        var hMonitor = MonitorFromWindow(hwnd, (int)MonitorFromWindowFlags.DEFAULTTONEAREST);
+        return GetRefreshRateInternal(hMonitor);
+    }
+
+    /// <summary>
+    /// Gets the refresh rate (Hz) of the primary monitor. Falls back to 60 Hz.
+    /// </summary>
+    public static int GetRefreshRate()
+    {
+        foreach (var monitor in GetMonitors())
+        {
+            if (monitor.isPrimary)
+                return GetRefreshRateInternalFromDevice(monitor.deviceId);
+        }
+
+        var monitors = GetMonitors();
+        return monitors.Count > 0 ? GetRefreshRateInternalFromDevice(monitors[0].deviceId) : 60;
+    }
+
+    private static int GetRefreshRateInternal(IntPtr hMonitor)
+    {
+        var info = new NativeMethods.MONITORINFOEX();
+        info.cbSize = Marshal.SizeOf<NativeMethods.MONITORINFOEX>();
+
+        if (GetMonitorInfo(hMonitor, ref info))
+        {
+            int refresh = GetRefreshRateInternalFromDevice(info.szDevice);
+            if (refresh > 0)
+                return refresh;
+        }
+
+        // fallback to primary monitor
+        return GetRefreshRate();
+    }
+
+    private static int GetRefreshRateInternalFromDevice(string deviceName)
+    {
+        var devMode = new NativeMethods.DEVMODE();
+        devMode.dmSize = (short)Marshal.SizeOf<NativeMethods.DEVMODE>();
+
+        if (EnumDisplaySettings(deviceName, NativeMethods.ENUM_CURRENT_SETTINGS, ref devMode))
+        {
+            return devMode.dmDisplayFrequency;
+        }
+
+        return 60;
+    }
+
     public static void UpdateMonitorList(ComboBox comboBox, Func<int> getSelectedIndex, Action<int> setSelectedIndex)
     {
         var monitors = GetMonitors();

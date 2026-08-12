@@ -725,6 +725,13 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial bool TaskbarVisualizerBaselineAutoHide { get; set; }
 
+    /// <summary>
+    /// Whether the visualizer renders at the monitor's refresh rate.
+    /// When false, rendering is capped at 30 FPS.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool TaskbarVisualizerHighRefreshRate { get; set; }
+
     [ObservableProperty]
     public partial bool VolumeControlEnabled { get; set; }
 
@@ -918,6 +925,7 @@ public partial class UserSettings : ObservableObject
         TaskbarVisualizerAudioSensitivity = 2;
         TaskbarVisualizerAudioPeakLevel = 3;
         TaskbarVisualizerBaselineAutoHide = false;
+        TaskbarVisualizerHighRefreshRate = false;
         VolumeControlEnabled = false;
         VolumeControlAboveMediaFlyout = false;
         VolumeControlDuration = 3000;
@@ -1202,6 +1210,12 @@ public partial class UserSettings : ObservableObject
     {
         if (oldValue == newValue || _initializing) return;
         Visualizer.ResizeBarList(newValue);
+    }
+
+    partial void OnTaskbarVisualizerHighRefreshRateChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        TaskbarVisualizerControl.OnTaskbarVisualizerHighRefreshRateChanged();
     }
 
     partial void OnTaskbarVisualizerBaselineChanged(bool oldValue, bool newValue)

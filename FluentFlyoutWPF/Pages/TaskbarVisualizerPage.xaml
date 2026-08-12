@@ -101,6 +101,19 @@
                 <ui:ToggleSwitch IsChecked="{Binding TaskbarVisualizerEnabled, Mode=TwoWay}" IsEnabled="{Binding IsPremiumUnlocked}" />
             </ui:CardControl>
 
+            <ui:CardControl x:Name="TaskbarVisualizerHighRefreshRateTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon ViewDesktop24}" Margin="0,0,0,3">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{DynamicResource TaskbarVisualizerHighRefreshRateTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <fluentflyoutcontrols:AccentBadge Margin="6,0,0,0" />
+                        </StackPanel>
+                        <TextBlock Text="{DynamicResource TaskbarVisualizerHighRefreshRateDescription}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:ToggleSwitch IsChecked="{Binding TaskbarVisualizerHighRefreshRate, Mode=TwoWay}" IsEnabled="{Binding IsPremiumUnlocked}" />
+            </ui:CardControl>
+
             <ui:CardControl x:Name="TaskbarVisualizerPositionTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon ArrowMove24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">

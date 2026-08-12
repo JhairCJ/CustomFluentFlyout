@@ -3,13 +3,18 @@
 
 using FluentFlyout.Classes.Settings;
 using FluentFlyout.Classes.Utils;
+using FluentFlyout.Windows;
+using FluentFlyoutWPF.Classes.Utils;
 using Microsoft.Win32;
 using NAudio.CoreAudioApi;
 using NAudio.Dsp;
 using NAudio.Wave;
+using System.Diagnostics;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 
 namespace FluentFlyoutWPF.Classes
 {
@@ -25,21 +30,36 @@ namespace FluentFlyoutWPF.Classes
         private WasapiLoopbackCapture? _capture;
         private MMDevice? _renderDevice;
         private static float[]? _barValues;
+        private static float[]? _targetValues;
         private WriteableBitmap? _bitmap;
         private bool _isRunning;
         private readonly object _lock = new();
 
         private readonly int _fftLength = 4096;
+        private const int FftHop = 256; // overlapping FFT hop for smooth high-refresh updates
         private int _fftPos = 0;
+        private int _samplesSinceFft = 0;
         private readonly Complex[] _fftBuffer;
-
-        private readonly int _targetFps = 30;
-        private DateTime _lastUpdateTime = DateTime.MinValue;
+        private readonly Complex[] _fftWork;
 
         private System.Timers.Timer? _captureWatchdog;
         private DateTime _lastDataAvailableUtc = DateTime.MinValue;
         private int _restartInProgress; // 0=false, 1=true (Interlocked)
         private string? _deviceId; // track current device ID for restart logic
+
+        // Render loop, driven either by CompositionTarget.Rendering (monitor refresh rate)
+        // or by a 30 FPS DispatcherTimer when high refresh rate is disabled.
+        private DispatcherTimer? _renderTimer;
+        private volatile bool _renderLoopActive;
+        private int _renderLoopRequested; // 0=false, 1=true (Interlocked)
+        private readonly Stopwatch _renderStopwatch = new();
+        private double _lastRenderTime;
+        private bool _lastHasContent;
+        private int _monitorRefreshRate;
+
+        // Frame-rate independent attack/release smoothing (seconds).
+        private const double AttackSeconds = 0.03;
+        private const double ReleaseSeconds = 0.35;
 
         private readonly struct BarGeometry
         {
@@ -76,6 +96,7 @@ namespace FluentFlyoutWPF.Classes
             InitializeBitmap();
 
             _fftBuffer = new Complex[_fftLength];
+            _fftWork = new Complex[_fftLength];
 
             ResizeBarList(SettingsManager.Current.TaskbarVisualizerBarCount);
             AudioDeviceMonitor.Instance.DefaultDeviceChanged += OnDefaultDeviceChanged;
@@ -195,6 +216,7 @@ namespace FluentFlyoutWPF.Classes
         {
             BarCount = newBarCount;
             _barValues = new float[BarCount];
+            _targetValues = new float[BarCount];
         }
 
         public void Start()
@@ -204,6 +226,8 @@ namespace FluentFlyoutWPF.Classes
 
             float barCount = BarCount >= 0 ? BarCount : 8;
             _barValues = new float[(int)barCount];
+            _targetValues = new float[(int)barCount];
+            _lastHasContent = false;
 
             try
             {
@@ -236,11 +260,9 @@ namespace FluentFlyoutWPF.Classes
                 {
                     if (_isRunning)
                     {
-                        for (int i = 0; i < _barValues.Length; i++)
-                        {
-                            _barValues[i] = 0;
-                        }
-                        UpdateBitmap();
+                        // Zero the targets; the render loop (if active) draws the bars falling to zero.
+                        if (_targetValues != null) Array.Clear(_targetValues, 0, _targetValues.Length);
+                        if (_barValues != null) Array.Clear(_barValues, 0, _barValues.Length);
 
                         if (!SettingsManager.Current.TaskbarVisualizerBaseline || SettingsManager.Current.TaskbarVisualizerBaselineAutoHide) // if baseline is enabled and autohide is off, condition is false
                             SettingsManager.Current.TaskbarVisualizerHasContent = false;
@@ -267,6 +289,8 @@ namespace FluentFlyoutWPF.Classes
                 return;
 
             _isRunning = false;
+
+            StopRenderLoop();
 
             _capture?.DataAvailable -= OnDataAvailable;
             _capture?.RecordingStopped -= OnRecordingStopped;
@@ -295,6 +319,10 @@ namespace FluentFlyoutWPF.Classes
             int bytesPerSample = _capture!.WaveFormat.BitsPerSample / 8;
             int samplesRecorded = e.BytesRecorded / bytesPerSample;
 
+            // In high-refresh mode use a small overlapping hop for frequent target updates.
+            // In 30 FPS mode use a full-length hop to reproduce the original behavior.
+            int hop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHop : _fftLength;
+
             for (int i = 0; i < samplesRecorded; i++)
             {
                 float sampleValue = 0;
@@ -307,58 +335,57 @@ namespace FluentFlyoutWPF.Classes
                     sampleValue = BitConverter.ToInt16(e.Buffer, i * 2) / 32768f;
                 }
 
-                _fftBuffer[_fftPos].X = (float)(sampleValue * FastFourierTransform.HammingWindow(_fftPos, _fftLength));
+                _fftBuffer[_fftPos].X = sampleValue;
                 _fftBuffer[_fftPos].Y = 0;
                 _fftPos++;
 
-                // When buffer isn't full, skip processing and continue filling
-                if (_fftPos < _fftLength)
+                // Wrap around to keep a sliding window of the last _fftLength samples.
+                if (_fftPos >= _fftLength)
+                    _fftPos = 0;
+
+                _samplesSinceFft++;
+                if (_samplesSinceFft < hop)
                     continue;
+                _samplesSinceFft = 0;
+
+                // Copy the sliding window into the work buffer (in chronological order),
+                // applying the Hamming window.
+                for (int j = 0; j < _fftLength; j++)
+                {
+                    int src = _fftPos + j;
+                    if (src >= _fftLength)
+                        src -= _fftLength;
+                    double w = FastFourierTransform.HammingWindow(j, _fftLength);
+                    _fftWork[j].X = (float)(_fftBuffer[src].X * w);
+                    _fftWork[j].Y = 0;
+                }
 
                 // perform FFT
-                _fftPos = 0;
                 ProcessFftData();
+            }
 
-                // Update UI with frame rate limiting
-                DateTime now = DateTime.UtcNow;
-                double minFrameTime = 1000.0 / _targetFps;
-                double timeSinceLastUpdate = (now - _lastUpdateTime).TotalMilliseconds;
-
-                if (timeSinceLastUpdate < minFrameTime)
-                    continue;
-
-                _lastUpdateTime = now;
-                SettingsManager.Current.TaskbarVisualizerHasContent = true;
-
-                if (SettingsManager.Current.TaskbarVisualizerBaseline && !SettingsManager.Current.TaskbarVisualizerBaselineAutoHide)
+            // Wake up the render loop when there is content to display.
+            bool hasContent = false;
+            int targetCount = _targetValues?.Length ?? 0;
+            for (int j = 0; j < Math.Min(BarCount, targetCount); j++)
+            {
+                if (_targetValues[j] > 0.01f)
                 {
-                    // if baseline is enabled and autohide is off, we want to keep showing the bars even when they are all zero
-                    UpdateBitmap();
+                    hasContent = true;
                     break;
                 }
+            }
 
-                // check if bars are all zero, if so set has content to false to disable hover effect
-                bool allZero = true;
-                for (int j = 0; j < BarCount; j++)
-                {
-                    if (_barValues[j] > 0.01f)
-                    {
-                        allZero = false;
-                        break;
-                    }
-                }
-
-                // update bars if they have content
-                if (!allZero)
-                    UpdateBitmap();
-                else
-                    SettingsManager.Current.TaskbarVisualizerHasContent = false;
+            if (hasContent || (SettingsManager.Current.TaskbarVisualizerBaseline && !SettingsManager.Current.TaskbarVisualizerBaselineAutoHide))
+            {
+                EnsureRenderLoop();
+                SettingsManager.Current.TaskbarVisualizerHasContent = true;
             }
         }
 
         private void ProcessFftData()
         {
-            FastFourierTransform.FFT(true, (int)Math.Log(_fftLength, 2.0), _fftBuffer);
+            FastFourierTransform.FFT(true, (int)Math.Log(_fftLength, 2.0), _fftWork);
 
             int sampleRate = _capture.WaveFormat.SampleRate;
             double frequencyPerBin = (double)sampleRate / _fftLength;
@@ -370,9 +397,9 @@ namespace FluentFlyoutWPF.Classes
             float minDb = (SettingsManager.Current.TaskbarVisualizerAudioSensitivity * -10f) - 30f;
             float maxDb = (SettingsManager.Current.TaskbarVisualizerAudioPeakLevel * 10f) - 30f;
 
-            float[] currentBars = new float[BarCount];
+            int count = Math.Min(BarCount, _targetValues?.Length ?? 0);
 
-            for (int i = 0; i < BarCount; i++)
+            for (int i = 0; i < count; i++)
             {
                 double startFreq = minFreq * Math.Pow(maxFreq / minFreq, (double)i / BarCount);
                 double endFreq = minFreq * Math.Pow(maxFreq / minFreq, (double)(i + 1) / BarCount);
@@ -381,14 +408,14 @@ namespace FluentFlyoutWPF.Classes
                 int endBin = (int)(endFreq / frequencyPerBin);
 
                 if (endBin <= startBin) endBin = startBin + 1;
-                if (endBin >= _fftBuffer.Length / 2) endBin = _fftBuffer.Length / 2 - 1;
+                if (endBin >= _fftWork.Length / 2) endBin = _fftWork.Length / 2 - 1;
 
                 float maxAmplitude = 0;
 
                 // Find max amplitude
                 for (int j = startBin; j < endBin; j++)
                 {
-                    float amplitude = (float)Math.Sqrt(_fftBuffer[j].X * _fftBuffer[j].X + _fftBuffer[j].Y * _fftBuffer[j].Y);
+                    float amplitude = (float)Math.Sqrt(_fftWork[j].X * _fftWork[j].X + _fftWork[j].Y * _fftWork[j].Y);
                     if (amplitude > maxAmplitude)
                         maxAmplitude = amplitude;
                 }
@@ -404,23 +431,192 @@ namespace FluentFlyoutWPF.Classes
                 float intensity = (db - minDb) / (maxDb - minDb);
                 intensity = Math.Clamp(intensity, 0f, 1f);
 
-                currentBars[i] = intensity;
+                _targetValues[i] = intensity;
+            }
+        }
+
+        private void EnsureRenderLoop()
+        {
+            if (!_isRunning || _renderLoopActive)
+                return;
+            if (Interlocked.CompareExchange(ref _renderLoopRequested, 1, 0) == 1)
+                return;
+
+            Application.Current.Dispatcher.BeginInvoke(() =>
+            {
+                try
+                {
+                    if (_renderLoopActive || !_isRunning)
+                        return;
+                    StartRenderLoopCore();
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _renderLoopRequested, 0);
+                }
+            });
+        }
+
+        private void StartRenderLoopCore()
+        {
+            StopRenderLoopCore();
+            _renderLoopActive = true;
+            _renderStopwatch.Restart();
+            _lastRenderTime = 0;
+
+            if (SettingsManager.Current.TaskbarVisualizerHighRefreshRate)
+            {
+                if (_monitorRefreshRate <= 0)
+                {
+                    var taskbarWindow = Application.Current.Windows.OfType<TaskbarWindow>().FirstOrDefault();
+                    if (taskbarWindow != null)
+                    {
+                        IntPtr hwnd = new WindowInteropHelper(taskbarWindow).Handle;
+                        if (hwnd != IntPtr.Zero)
+                            _monitorRefreshRate = MonitorUtil.GetRefreshRate(hwnd);
+                    }
+                    if (_monitorRefreshRate <= 0)
+                        _monitorRefreshRate = MonitorUtil.GetRefreshRate();
+                    if (_monitorRefreshRate <= 0)
+                        _monitorRefreshRate = 60;
+                }
+
+                // CompositionTarget.Rendering fires once per composited frame, i.e. at the monitor's refresh rate.
+                CompositionTarget.Rendering += OnRenderingFrame;
+            }
+            else
+            {
+                _renderTimer = new DispatcherTimer(DispatcherPriority.Render)
+                {
+                    Interval = TimeSpan.FromMilliseconds(1000.0 / 30)
+                };
+                _renderTimer.Tick += OnRenderTimerTick;
+                _renderTimer.Start();
+            }
+        }
+
+        /// <summary>
+        /// Restarts the render loop so a high refresh rate toggle takes effect immediately.
+        /// </summary>
+        public void RestartRenderLoop()
+        {
+            if (!_isRunning || !_renderLoopActive)
+                return;
+
+            Application.Current.Dispatcher.BeginInvoke(() =>
+            {
+                if (!_isRunning)
+                    return;
+                StopRenderLoopCore();
+                StartRenderLoopCore();
+            });
+        }
+
+        private void StopRenderLoop()
+        {
+            if (Application.Current.Dispatcher.CheckAccess())
+            {
+                StopRenderLoopCore();
+            }
+            else
+            {
+                Application.Current.Dispatcher.Invoke(StopRenderLoopCore);
+            }
+        }
+
+        private void StopRenderLoopCore()
+        {
+            _renderLoopActive = false;
+            CompositionTarget.Rendering -= OnRenderingFrame;
+            _renderTimer?.Stop();
+            _renderTimer = null;
+        }
+
+        private void OnRenderingFrame(object? sender, EventArgs e)
+        {
+            RenderFrame();
+        }
+
+        private void OnRenderTimerTick(object? sender, EventArgs e)
+        {
+            RenderFrame();
+        }
+
+        private void RenderFrame()
+        {
+            if (!_isRunning || !_renderLoopActive)
+                return;
+
+            double now = _renderStopwatch.Elapsed.TotalSeconds;
+            double dt = now - _lastRenderTime;
+            _lastRenderTime = now;
+            if (dt <= 0 || dt > 1.0)
+                dt = 1.0 / 60.0;
+
+            SmoothBars(dt);
+
+            // check if bars are all zero
+            bool allZero = true;
+            for (int j = 0; j < Math.Min(BarCount, _barValues?.Length ?? 0); j++)
+            {
+                if (_barValues[j] > 0.01f)
+                {
+                    allZero = false;
+                    break;
+                }
             }
 
-            for (int i = 0; i < BarCount; i++)
+            bool forcedBaseline = SettingsManager.Current.TaskbarVisualizerBaseline && !SettingsManager.Current.TaskbarVisualizerBaselineAutoHide;
+
+            if (allZero && !forcedBaseline)
             {
-                if (currentBars[i] > _barValues[i])
+                // update bars if they have content
+                if (_lastHasContent)
+                {
+                    _lastHasContent = false;
+                    SettingsManager.Current.TaskbarVisualizerHasContent = false;
+                }
+
+                // draw one final empty frame, then stop the render loop to save CPU
+                UpdateBitmap();
+                StopRenderLoop();
+                return;
+            }
+
+            if (!_lastHasContent)
+            {
+                _lastHasContent = true;
+                SettingsManager.Current.TaskbarVisualizerHasContent = true;
+            }
+
+            UpdateBitmap();
+        }
+
+        // Frame-rate independent attack/release interpolation toward the audio thread's targets.
+        private void SmoothBars(double dt)
+        {
+            if (_barValues == null || _targetValues == null)
+                return;
+
+            int count = Math.Min(BarCount, Math.Min(_barValues.Length, _targetValues.Length));
+
+            float attackFactor = 1f - (float)Math.Exp(-dt / AttackSeconds);
+            float releaseFactor = 1f - (float)Math.Exp(-dt / ReleaseSeconds);
+
+            for (int i = 0; i < count; i++)
+            {
+                float target = _targetValues[i];
+                float current = _barValues[i];
+
+                if (target > current)
                 {
                     // Jump up quickly
-                    _barValues[i] = currentBars[i];
+                    _barValues[i] = current + (target - current) * attackFactor;
                 }
                 else
                 {
                     // Fall down slowly
-                    //_barValues[i] = (_barValues[i] * 0.9f) + (currentBars[i] * 0.1f);
-                    _barValues[i] = (_barValues[i] * 0.8f) + (currentBars[i] * 0.2f);
-                    //_barValues[i] = (_barValues[i] * 0.7f) + (currentBars[i] * 0.3f); // could be options for smoothening
-                    //_barValues[i] = (_barValues[i] * 0.6f) + (currentBars[i] * 0.4f);
+                    _barValues[i] = current + (target - current) * releaseFactor;
                 }
             }
         }
@@ -430,38 +626,35 @@ namespace FluentFlyoutWPF.Classes
             if (_bitmap == null)
                 return;
 
-            Application.Current.Dispatcher.InvokeAsync(() =>
+            lock (_lock)
             {
-                lock (_lock)
+                if (_bitmap == null)
+                    return;
+
+                _bitmap.Lock();
+
+                try
                 {
-                    if (_bitmap == null)
-                        return;
-
-                    _bitmap.Lock();
-
-                    try
+                    unsafe
                     {
-                        unsafe
-                        {
-                            IntPtr pBackBuffer = _bitmap.BackBuffer;
-                            int stride = _bitmap.BackBufferStride;
-                            int bufferSize = stride * ImageHeight;
+                        IntPtr pBackBuffer = _bitmap.BackBuffer;
+                        int stride = _bitmap.BackBufferStride;
+                        int bufferSize = stride * ImageHeight;
 
-                            Span<byte> buffer = new Span<byte>(pBackBuffer.ToPointer(), bufferSize);
+                        Span<byte> buffer = new Span<byte>(pBackBuffer.ToPointer(), bufferSize);
 
-                            buffer.Clear();
+                        buffer.Clear();
 
-                            DrawBars(stride, buffer);
-                        }
-
-                        _bitmap.AddDirtyRect(new Int32Rect(0, 0, ImageWidth, ImageHeight));
+                        DrawBars(stride, buffer);
                     }
-                    finally
-                    {
-                        _bitmap.Unlock();
-                    }
+
+                    _bitmap.AddDirtyRect(new Int32Rect(0, 0, ImageWidth, ImageHeight));
                 }
-            }, System.Windows.Threading.DispatcherPriority.Render);
+                finally
+                {
+                    _bitmap.Unlock();
+                }
+            }
         }
 
         private unsafe void DrawBars(int stride, Span<byte> buffer)
@@ -492,7 +685,9 @@ namespace FluentFlyoutWPF.Classes
             const float aa = 1.25f;
             float invAA = 1f / aa;
 
-            for (int i = 0; i < BarCount; i++)
+            int count = Math.Min(BarCount, _barValues?.Length ?? 0);
+
+            for (int i = 0; i < count; i++)
             {
                 int barX = offsetX + i * (barWidth + BarSpacing);
 
@@ -661,6 +856,8 @@ namespace FluentFlyoutWPF.Classes
         public void Dispose()
         {
             Stop();
+
+            StopRenderLoop();
 
             AudioDeviceMonitor.Instance.DefaultDeviceChanged -= OnDefaultDeviceChanged;
             TryUnregisterSystemEvents();

@@ -60,6 +60,11 @@ public partial class TaskbarVisualizerControl : UserControl
         }
     }
 
+    public static void OnTaskbarVisualizerHighRefreshRateChanged()
+    {
+        visualizer?.RestartRenderLoop();
+    }
+
     public static void DisposeVisualizer()
     {
         if (visualizer == null)
