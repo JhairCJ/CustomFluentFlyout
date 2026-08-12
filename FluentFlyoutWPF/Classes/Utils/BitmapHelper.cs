@@ -264,10 +264,20 @@ internal static class BitmapHelper
 
             if (colorCount == 1)
             {
-                // histogram peak for single dominant color for single color extraction (~2x faster than k-means)
+                // Two-candidate scheme so the accent represents the album's overall tone
+                // instead of the most saturated spot: a mostly gray/black cover with a few
+                // small colored letters must produce a gray accent, not the letter color.
                 const int quantBits = 4;
                 const int bins = 1 << quantBits;
-                var histogram = new int[bins * bins * bins];
+                // if a meaningful share of the cover is saturated, the album is "colorful":
+                // use the vivid candidate instead of the (often white/black) dominant tone
+                const float minSaturatedFraction = 0.20f;
+
+                // all pixels (no chroma/lightness filter) => the album's dominant tone
+                var coverageHistogram = new int[bins * bins * bins];
+                // saturated pixels only, weighted by chroma => the vivid candidate
+                var vibrantHistogram = new int[bins * bins * bins];
+                int saturatedSamples = 0;
 
                 foreach (var pixel in samples)
                 {
@@ -280,31 +290,43 @@ internal static class BitmapHelper
                     float chroma = max - min;
                     float lightness = (max + min) / 2f;
 
-                    // skip blacks, whites, and neutrals
-                    if (chroma < 0.15f) continue;
-                    if (lightness < 0.15f || lightness > 0.85f) continue;
-
-                    // weight by chroma so vivid colors dominate
-                    float weight = chroma * chroma;
-
                     int ri = pixel[0] >> (8 - quantBits);
                     int gi = pixel[1] >> (8 - quantBits);
                     int bi = pixel[2] >> (8 - quantBits);
-                    histogram[ri * bins * bins + gi * bins + bi] += (int)(weight * 100);
+                    int idx = ri * bins * bins + gi * bins + bi;
+
+                    coverageHistogram[idx]++;
+
+                    // skip blacks, whites, and neutrals for the vibrant candidate
+                    if (chroma < 0.15f) continue;
+                    if (lightness < 0.15f || lightness > 0.85f) continue;
+
+                    saturatedSamples++;
+                    vibrantHistogram[idx] += (int)(chroma * chroma * 100);
                 }
 
-                int peakIdx = 0;
-                for (int i = 1; i < histogram.Length; i++)
-                    if (histogram[i] > histogram[peakIdx]) peakIdx = i;
+                int coveragePeak = 0;
+                for (int i = 1; i < coverageHistogram.Length; i++)
+                    if (coverageHistogram[i] > coverageHistogram[coveragePeak]) coveragePeak = i;
 
-                int pr = peakIdx / (bins * bins);
-                int pg = (peakIdx / bins) % bins;
-                int pb = peakIdx % bins;
+                int vibrantPeak = 0;
+                for (int i = 1; i < vibrantHistogram.Length; i++)
+                    if (vibrantHistogram[i] > vibrantHistogram[vibrantPeak]) vibrantPeak = i;
+
+                float saturatedFraction = samples.Count > 0 ? (float)saturatedSamples / samples.Count : 0f;
+
+                // only use the vivid color when the album is genuinely colorful
+                bool useVibrant = saturatedSamples > 0 && saturatedFraction >= minSaturatedFraction;
+                int chosenIdx = useVibrant ? vibrantPeak : coveragePeak;
+
+                int cr2 = chosenIdx / (bins * bins);
+                int cg2 = (chosenIdx / bins) % bins;
+                int cb2 = chosenIdx % bins;
 
                 // map each bin index back to the center of its value range
-                byte peakR = (byte)((pr << (8 - quantBits)) + (1 << (8 - quantBits - 1)));
-                byte peakG = (byte)((pg << (8 - quantBits)) + (1 << (8 - quantBits - 1)));
-                byte peakB = (byte)((pb << (8 - quantBits)) + (1 << (8 - quantBits - 1)));
+                byte peakR = (byte)((cr2 << (8 - quantBits)) + (1 << (8 - quantBits - 1)));
+                byte peakG = (byte)((cg2 << (8 - quantBits)) + (1 << (8 - quantBits - 1)));
+                byte peakB = (byte)((cb2 << (8 - quantBits)) + (1 << (8 - quantBits - 1)));
 
                 result = [Color.FromArgb(255, peakR, peakG, peakB)];
             }
@@ -383,12 +405,12 @@ internal static class BitmapHelper
                     double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
                     // lift colors that are too dark for black backgrounds
-                    double targetL = Math.Max(luminance, 0.75);
+                    double targetL = Math.Max(luminance, 0.65);
                     double scale = targetL / Math.Max(0.0001, luminance);
                     r *= scale; g *= scale; b *= scale;
 
                     // desaturate
-                    double desaturation = 0.35;
+                    double desaturation = 0.30;
                     double newL = 0.2126 * r + 0.7152 * g + 0.0722 * b;
                     r += (newL - r) * desaturation;
                     g += (newL - g) * desaturation;
@@ -399,7 +421,9 @@ internal static class BitmapHelper
             }
             else
             {
-                // just desaturate when in light mode
+                // light mode: keep the accent visible on light backgrounds. The dominant tone
+                // of many album covers is very dark, so lift those up to a mid tone (which
+                // still preserves the album's hue), and clamp near-white tones.
                 result = [.. result
             .Select(c =>
             {
@@ -407,7 +431,19 @@ internal static class BitmapHelper
                 double g = ToLinear(c.G);
                 double b = ToLinear(c.B);
 
-                double desaturation = 0.35;
+                double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                if (luminance < 0.40)
+                {
+                    double scale = 0.40 / Math.Max(0.0001, luminance);
+                    r *= scale; g *= scale; b *= scale;
+                }
+                else if (luminance > 0.85)
+                {
+                    double scale = 0.70 / luminance;
+                    r *= scale; g *= scale; b *= scale;
+                }
+
+                double desaturation = 0.30;
                 double newL = 0.2126 * r + 0.7152 * g + 0.0722 * b;
                 r += (newL - r) * desaturation;
                 g += (newL - g) * desaturation;
