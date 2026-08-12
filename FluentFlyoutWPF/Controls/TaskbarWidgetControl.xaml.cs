@@ -74,6 +74,10 @@ public partial class TaskbarWidgetControl : UserControl
     private const int NoMediaDebounceMs = 700;
     private DispatcherTimer? _noMediaDebounceTimer;
 
+    // True while the widget is fading out; used to cancel the hide if media resumes
+    // before the fade completes.
+    private bool _isFadingOut;
+
     public TaskbarWidgetControl()
     {
         InitializeComponent();
@@ -826,7 +830,12 @@ public partial class TaskbarWidgetControl : UserControl
 
             UpdateRotationPauseState();
 
-            Visibility = Visibility.Visible;
+            // Fade the widget in when it is appearing (hidden or mid-fade-out), so the
+            // appear transition matches the song-change animation settings.
+            if (Visibility != Visibility.Visible || _isFadingOut)
+                AnimateFadeIn();
+            else
+                Visibility = Visibility.Visible;
         });
     }
 
@@ -841,7 +850,7 @@ public partial class TaskbarWidgetControl : UserControl
 
         if (SettingsManager.Current.TaskbarWidgetHideCompletely)
         {
-            Visibility = Visibility.Collapsed;
+            AnimateFadeOut(() => Visibility = Visibility.Collapsed);
             return;
         }
 
@@ -863,11 +872,96 @@ public partial class TaskbarWidgetControl : UserControl
         Visibility = Visibility.Visible;
     }
 
+    /// <summary>
+    /// Whether widget animations are active: both the widget animation toggle and the
+    /// global flyout animation speed must be enabled, matching the main flyout behaviour.
+    /// </summary>
+    private bool AreAnimationsEnabled =>
+        SettingsManager.Current.TaskbarWidgetAnimated && SettingsManager.Current.FlyoutAnimationSpeed != 0;
+
+    /// <summary>
+    /// Returns the user's chosen easing function, or <see langword="null"/> for linear
+    /// when "linear" is selected, mirroring the main flyout's behaviour.
+    /// </summary>
+    private EasingFunctionBase? GetEasing(bool easeOut)
+    {
+        if (_mainWindow != null)
+            return _mainWindow.getEasingStyle(easeOut); // null means linear, as in the main flyout
+        return new CubicEase { EasingMode = easeOut ? EasingMode.EaseOut : EasingMode.EaseIn };
+    }
+
+    /// <summary>
+    /// Fades the widget in when it appears (e.g. media starts playing again after being
+    /// hidden, or the widget is re-enabled). Uses the global animation duration/easing.
+    /// </summary>
+    private void AnimateFadeIn()
+    {
+        _isFadingOut = false;
+        BeginAnimation(OpacityProperty, null);
+
+        if (!AreAnimationsEnabled)
+        {
+            Opacity = 1;
+            Visibility = Visibility.Visible;
+            return;
+        }
+
+        Visibility = Visibility.Visible;
+        Opacity = 0;
+
+        int msDuration = Math.Max(MainWindow.getDuration(), 1);
+        DoubleAnimation fadeInAnimation = new()
+        {
+            From = 0.0,
+            To = 1.0,
+            Duration = TimeSpan.FromMilliseconds(msDuration),
+            EasingFunction = GetEasing(true)
+        };
+        BeginAnimation(OpacityProperty, fadeInAnimation);
+    }
+
+    /// <summary>
+    /// Fades the widget out, then invokes <paramref name="onComplete"/> (used to collapse
+    /// the widget once it has fully disappeared).
+    /// </summary>
+    private void AnimateFadeOut(Action onComplete)
+    {
+        if (!AreAnimationsEnabled || Visibility != Visibility.Visible || Opacity <= 0)
+        {
+            onComplete();
+            return;
+        }
+
+        _isFadingOut = true;
+
+        int msDuration = Math.Max(MainWindow.getDuration(), 1);
+        DoubleAnimation fadeOutAnimation = new()
+        {
+            To = 0.0,
+            Duration = TimeSpan.FromMilliseconds(msDuration),
+            EasingFunction = GetEasing(false)
+        };
+        fadeOutAnimation.Completed += (s, e) =>
+        {
+            _isFadingOut = false;
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 1;
+            onComplete();
+        };
+        BeginAnimation(OpacityProperty, fadeOutAnimation);
+    }
+
     private void AnimateEntrance()
     {
         try
         {
-            int msDuration = Math.Max(MainWindow.getDuration(), 250);
+            // When the widget is appearing from a collapsed state (or already fading out
+            // because media stopped), the whole-control fade handles the transition; a
+            // snapshot crossfade is only useful while the widget is fully visible.
+            if (!AreAnimationsEnabled || Visibility != Visibility.Visible || _isFadingOut)
+                return;
+
+            int msDuration = Math.Max(MainWindow.getDuration(), 1);
 
             // Snapshot the current widget (old album) into the overlay and fade it out on
             // top of the new content underneath, so the artwork colours crossfade instead
@@ -880,7 +974,7 @@ public partial class TaskbarWidgetControl : UserControl
                     From = 0.0,
                     To = 1.0,
                     Duration = TimeSpan.FromMilliseconds(msDuration),
-                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                    EasingFunction = GetEasing(true)
                 };
                 RootGrid.BeginAnimation(OpacityProperty, opacityAnimation);
                 return;
@@ -891,7 +985,7 @@ public partial class TaskbarWidgetControl : UserControl
                 From = 1.0,
                 To = 0.0,
                 Duration = TimeSpan.FromMilliseconds(msDuration),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                EasingFunction = GetEasing(true)
             };
             fadeOutAnimation.Completed += (s, e) =>
             {

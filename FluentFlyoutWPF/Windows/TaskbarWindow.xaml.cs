@@ -11,6 +11,8 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Windows.Media.Control;
@@ -710,10 +712,7 @@ on_error:
             if (_timer.IsEnabled) // pause timer to save resources
                 _timer.Stop();
 
-            Dispatcher.Invoke(() =>
-            {
-                Visibility = Visibility.Collapsed;
-            });
+            Dispatcher.Invoke(CollapseWindowWithFade);
             return;
         }
 
@@ -727,10 +726,7 @@ on_error:
                 _autoHideTimer?.Stop();
                 _autoHideTimer = null;
 
-                Dispatcher.Invoke(() =>
-                {
-                    Visibility = Visibility.Visible;
-                });
+                Dispatcher.Invoke(EnsureWindowVisible);
             }
             else
             {
@@ -750,10 +746,7 @@ on_error:
 
                         if (_lastPlaybackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
                         {
-                            Dispatcher.Invoke(() =>
-                            {
-                                Visibility = Visibility.Collapsed;
-                            });
+                            Dispatcher.Invoke(CollapseWindowWithFade);
                         }
                     };
 
@@ -774,8 +767,98 @@ on_error:
 
         Dispatcher.Invoke(() =>
         {
-            Visibility = Visibility.Visible;
+            // When autohide is on and playback is paused, the delayed-hide timer owns the
+            // window's visibility; force-showing here would cancel its fade-out.
+            if (SettingsManager.Current.TaskbarWidgetAutoHide &&
+                _lastPlaybackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                return;
+
+            EnsureWindowVisible();
         });
+    }
+
+    /// <summary>
+    /// Whether widget animations are active: both the widget animation toggle and the
+    /// global flyout animation speed must be enabled, matching the main flyout behaviour.
+    /// </summary>
+    private bool AreAnimationsEnabled =>
+        SettingsManager.Current.TaskbarWidgetAnimated && SettingsManager.Current.FlyoutAnimationSpeed != 0;
+
+    /// <summary>
+    /// Returns the user's chosen easing function, or <see langword="null"/> for linear
+    /// when "linear" is selected, mirroring the main flyout's behaviour.
+    /// </summary>
+    private EasingFunctionBase? GetEasing(bool easeOut)
+    {
+        if (_mainWindow != null)
+            return _mainWindow.getEasingStyle(easeOut); // null means linear, as in the main flyout
+        return new CubicEase { EasingMode = easeOut ? EasingMode.EaseOut : EasingMode.EaseIn };
+    }
+
+    /// <summary>
+    /// Ensures the widget window is visible, fading it in when it was hidden (autohide,
+    /// restart) and cancelling any fade-out that is still in progress.
+    /// </summary>
+    private void EnsureWindowVisible()
+    {
+        BeginAnimation(OpacityProperty, null);
+
+        if (!AreAnimationsEnabled)
+        {
+            Visibility = Visibility.Visible;
+            Opacity = 1;
+            return;
+        }
+
+        bool wasHidden = Visibility != Visibility.Visible;
+        Visibility = Visibility.Visible;
+
+        if (wasHidden)
+        {
+            Opacity = 0;
+            DoubleAnimation fadeInAnimation = new()
+            {
+                From = 0.0,
+                To = 1.0,
+                Duration = TimeSpan.FromMilliseconds(Math.Max(MainWindow.getDuration(), 1)),
+                EasingFunction = GetEasing(true)
+            };
+            BeginAnimation(OpacityProperty, fadeInAnimation);
+        }
+        else
+        {
+            // A fade-out may have just been cancelled; restore full opacity immediately.
+            Opacity = 1;
+        }
+    }
+
+    /// <summary>
+    /// Hides the widget window, fading it out first when animations are enabled.
+    /// </summary>
+    private void CollapseWindowWithFade()
+    {
+        if (Visibility != Visibility.Visible)
+            return;
+
+        if (!AreAnimationsEnabled)
+        {
+            Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        DoubleAnimation fadeOutAnimation = new()
+        {
+            To = 0.0,
+            Duration = TimeSpan.FromMilliseconds(Math.Max(MainWindow.getDuration(), 1)),
+            EasingFunction = GetEasing(false)
+        };
+        fadeOutAnimation.Completed += (s, e) =>
+        {
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 1;
+            Visibility = Visibility.Collapsed;
+        };
+        BeginAnimation(OpacityProperty, fadeOutAnimation);
     }
 
     private (bool, Rect) GetTaskbarXamlElementRect(IntPtr taskbarHandle, ref AutomationElement? elementCache, string elementName)
