@@ -378,12 +378,11 @@ public partial class TaskbarWidgetControl : UserControl
     /// </summary>
     private static BitmapSource? BakeBlurredBackground(BitmapImage icon, double discSide, double dpi, double blurRadiusDips)
     {
-        // Bake the texture at a resolution that matches the on-screen size of the
-        // square (discSide DIPs * monitor DPI), clamped to keep memory reasonable.
-        // This keeps the rotating background sharp on any screen size (1080p, 4K, ...).
-        int res = (int)Math.Ceiling(discSide * dpi);
-        res = Math.Max(res, 512);
-        res = Math.Min(res, 4096);
+        // Bake at a tiny fixed resolution regardless of disc size or monitor DPI. The blur
+        // radius is scaled proportionally (blurRadiusDips * res / discSide), so the on-screen
+        // look is identical at any resolution while the CPU rasterization drops to well under
+        // a millisecond at 128px.
+        int res = 128;
         int pixelSide = res;
 
         // scale the user's blur radius (DIPs on screen) into the baked texture space
@@ -399,7 +398,8 @@ public partial class TaskbarWidgetControl : UserControl
         visual.Effect = new BlurEffect
         {
             Radius = blurRadius,
-            KernelType = KernelType.Gaussian
+            KernelType = KernelType.Gaussian,
+            RenderingBias = RenderingBias.Performance
         };
 
         var rtb = new RenderTargetBitmap(pixelSide, pixelSide, 96, 96, PixelFormats.Pbgra32);
