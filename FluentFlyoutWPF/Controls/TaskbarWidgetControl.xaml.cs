@@ -58,6 +58,7 @@ public partial class TaskbarWidgetControl : UserControl
 
     // rotating background (baked blur)
     private double _appliedRotationDurationSeconds;
+    private int? _appliedDesiredFrameRate;
     private BitmapImage? _currentIcon;
     private BitmapImage? _bakedIcon;
     private BitmapSource? _bakedBackground;
@@ -257,6 +258,7 @@ public partial class TaskbarWidgetControl : UserControl
         if (!_backgroundRotationAnimationRunning ||
             _backgroundRotationWasUp != spinUp ||
             Math.Abs(_appliedRotationDurationSeconds - durationSeconds) > 0.01 ||
+            AppliedDesiredFrameRateChanged() ||
             Math.Abs(startAngle - 0) > 0.01)
         {
             _backgroundRotationWasUp = spinUp;
@@ -269,8 +271,46 @@ public partial class TaskbarWidgetControl : UserControl
                 Duration = TimeSpan.FromSeconds(durationSeconds),
                 RepeatBehavior = RepeatBehavior.Forever
             };
+
+            // Cap the animation clock at 30 FPS when high refresh rate mode is off to reduce
+            // per-frame rasterization cost. When on, the animation runs at the monitor's
+            // refresh rate (no cap).
+            int? desiredFrameRate = SettingsManager.Current.TaskbarWidgetBackgroundRotateHighRefreshRate
+                ? null
+                : 30;
+            Timeline.SetDesiredFrameRate(animation, desiredFrameRate);
+            _appliedDesiredFrameRate = desiredFrameRate;
+
             _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, animation);
         }
+    }
+
+    /// <summary>
+    /// True when the desired animation frame rate differs from the last applied one.
+    /// </summary>
+    private bool AppliedDesiredFrameRateChanged()
+    {
+        int? desiredFrameRate = SettingsManager.Current.TaskbarWidgetBackgroundRotateHighRefreshRate
+            ? null
+            : 30;
+        return (_appliedDesiredFrameRate ?? 0) != (desiredFrameRate ?? 0);
+    }
+
+    /// <summary>
+    /// Restarts the rotation with the current setting's frame rate, keeping the disc
+    /// at the exact angle it had before the toggle, so there is no visual jump.
+    /// </summary>
+    public void RefreshBackgroundRotationFrameRate()
+    {
+        if (!SettingsManager.Current.TaskbarWidgetBackgroundRotate ||
+            !SettingsManager.Current.TaskbarWidgetBackgroundBlur)
+            return;
+
+        if (!_backgroundRotationActive || _backgroundRotateTransform == null)
+            return;
+
+        double currentAngle = _backgroundRotateTransform.Angle;
+        ApplyBackgroundRotation(currentAngle);
     }
 
     /// <summary>
@@ -386,7 +426,7 @@ public partial class TaskbarWidgetControl : UserControl
         // radius is scaled proportionally (blurRadiusDips * res / discSide), so the on-screen
         // look is identical at any resolution while the CPU rasterization drops to well under
         // a millisecond at 128px.
-        int res = 128;
+        int res = 256;
         int pixelSide = res;
 
         // scale the user's blur radius (DIPs on screen) into the baked texture space

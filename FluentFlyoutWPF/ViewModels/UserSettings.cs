@@ -487,6 +487,13 @@ public partial class UserSettings : ObservableObject
     public partial int TaskbarWidgetBackgroundRotateDirection { get; set; }
 
     /// <summary>
+    /// Whether the rotating background runs at the monitor's refresh rate.
+    /// When false, the rotation animation is capped at 30 FPS to reduce GPU/CPU cost.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool TaskbarWidgetBackgroundRotateHighRefreshRate { get; set; }
+
+    /// <summary>
     /// Gets or sets the number of seconds one full background rotation takes
     /// </summary>
     [ObservableProperty]
@@ -900,6 +907,7 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetBackgroundRotate = false;
         TaskbarWidgetBackgroundRotateSide = 0;
         TaskbarWidgetBackgroundRotateDirection = 0;
+        TaskbarWidgetBackgroundRotateHighRefreshRate = false;
         TaskbarWidgetBackgroundRotateDuration = 20;
         TaskbarWidgetBackgroundRotateSize = 300;
         TaskbarWidgetHideCompletely = false;
@@ -1095,6 +1103,13 @@ public partial class UserSettings : ObservableObject
         if (oldValue == newValue || _initializing) return;
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
         mainWindow.taskbarWindow?.Widget?.UpdateBackgroundMode();
+    }
+
+    partial void OnTaskbarWidgetBackgroundRotateHighRefreshRateChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.taskbarWindow?.Widget?.RefreshBackgroundRotationFrameRate();
     }
 
     partial void OnTaskbarWidgetBackgroundRotateDurationChanged(int oldValue, int newValue)

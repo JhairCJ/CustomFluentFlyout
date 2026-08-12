@@ -80,6 +80,8 @@ hides repeat, shuffle and player info</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundRotateDurationDescription">How many seconds one full rotation takes</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundRotateSizeTitle">Disc Size</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundRotateSizeDescription">How large the rotating album disc is relative to the widget (default: 300%)</System:String>
+    <System:String x:Key="TaskbarWidgetBackgroundRotateHighRefreshRateTitle">High Refresh Rate Mode</System:String>
+    <System:String x:Key="TaskbarWidgetBackgroundRotateHighRefreshRateDescription">Run the rotation at the monitor's refresh rate. When off, the animation is capped at 30 FPS to reduce GPU/CPU cost.</System:String>
     <System:String x:Key="PositionDown">Down</System:String>
     <System:String x:Key="PositionUp">Up</System:String>
     <System:String x:Key="TaskbarWidgetHideCompletelyTitle">Hide Completely When No Media Is Present</System:String>
