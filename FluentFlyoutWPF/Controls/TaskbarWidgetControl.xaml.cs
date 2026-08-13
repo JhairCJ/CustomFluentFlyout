@@ -79,6 +79,13 @@ public partial class TaskbarWidgetControl : UserControl
     // before the fade completes.
     private bool _isFadingOut;
 
+    // True while the mouse is over the album art; used to reveal the switch-session chevron.
+    private bool _albumArtHovering;
+
+    // True while a cover thumbnail is currently displayed; the switch-session chevron and the
+    // pause overlay are only drawn over real cover art, not over the music-note placeholder.
+    private bool _hasAlbumCover;
+
     public TaskbarWidgetControl()
     {
         InitializeComponent();
@@ -835,28 +842,19 @@ public partial class TaskbarWidgetControl : UserControl
 
             if (icon != null)
             {
-                if (_isPaused && SettingsManager.Current.TaskbarWidgetShowPauseOverlay)
-                { // show pause icon overlay
-                    SongImagePlaceholder.Symbol = SymbolRegular.Pause24;
-                    SongImagePlaceholder.Visibility = Visibility.Visible;
-                    SongImage.Opacity = 0.4;
-                }
-                else
-                {
-                    SongImagePlaceholder.Visibility = Visibility.Collapsed;
-                    SongImage.Opacity = 1;
-                }
+                _hasAlbumCover = true;
                 SongImage.ImageSource = icon;
                 SetBackground(icon);
                 SongImageBorder.Margin = new Thickness(0, 0, 0, -2); // align image better when cover is present
             }
             else
             {
-                SongImagePlaceholder.Symbol = SymbolRegular.MusicNote220;
-                SongImagePlaceholder.Visibility = Visibility.Visible;
+                _hasAlbumCover = false;
                 SongImage.ImageSource = null;
                 SetBackground(null);
             }
+
+            UpdateAlbumArtOverlay();
 
             SongTitle.Visibility = Visibility.Visible;
             SongArtist.Visibility = !string.IsNullOrEmpty(artist) ? Visibility.Visible : Visibility.Collapsed; // hide artist if it's not available
@@ -903,6 +901,7 @@ public partial class TaskbarWidgetControl : UserControl
         SongImagePlaceholder.Visibility = Visibility.Visible;
         SongImage.ImageSource = null;
         SetBackground(null);
+        _hasAlbumCover = false;
         SongImageBorder.Margin = new Thickness(0, 0, 0, -3); // align music note better when no cover
 
         MainBorder.Background = new SolidColorBrush(Colors.Transparent);
@@ -1115,5 +1114,55 @@ public partial class TaskbarWidgetControl : UserControl
         if (_mainWindow == null) return;
 
         _mainWindow.CycleTaskbarSession();
+        UpdateAlbumArtOverlay();
+    }
+
+    private void SongImageBorder_MouseEnter(object sender, MouseEventArgs e)
+    {
+        _albumArtHovering = true;
+        UpdateAlbumArtOverlay();
+    }
+
+    private void SongImageBorder_MouseLeave(object sender, MouseEventArgs e)
+    {
+        _albumArtHovering = false;
+        UpdateAlbumArtOverlay();
+    }
+
+    // The switch-session chevron and the pause overlay share the same centered glyph element
+    // (SongImagePlaceholder), so they are mutually exclusive by construction: while hovering
+    // over the album art with several sessions available the chevron replaces the pause icon.
+    private void UpdateAlbumArtOverlay()
+    {
+        if (!_hasAlbumCover)
+        {
+            // no cover: the music-note placeholder stands alone, nothing to overlay
+            SongImagePlaceholder.Symbol = SymbolRegular.MusicNote220;
+            SongImagePlaceholder.Visibility = Visibility.Visible;
+            return;
+        }
+
+        bool showChevron = _albumArtHovering
+            && _mainWindow != null
+            && _mainWindow.GetTaskbarSessionCount() > 1;
+
+        if (showChevron)
+        { // same look as the pause overlay: dimmed art + centered dominant-color glyph
+            SongImagePlaceholder.Symbol = SymbolRegular.ChevronRight20;
+            SongImagePlaceholder.Visibility = Visibility.Visible;
+            SongImage.Opacity = 0.4;
+            return;
+        }
+
+        if (_isPaused && SettingsManager.Current.TaskbarWidgetShowPauseOverlay)
+        { // show pause icon overlay
+            SongImagePlaceholder.Symbol = SymbolRegular.Pause24;
+            SongImagePlaceholder.Visibility = Visibility.Visible;
+            SongImage.Opacity = 0.4;
+            return;
+        }
+
+        SongImagePlaceholder.Visibility = Visibility.Collapsed;
+        SongImage.Opacity = 1;
     }
 }

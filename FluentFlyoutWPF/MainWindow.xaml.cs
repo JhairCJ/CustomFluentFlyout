@@ -332,6 +332,15 @@ public partial class MainWindow : MicaWindow
     }
 
     /// <summary>
+    /// Number of available (allowed) media sessions. Used by the taskbar widget to decide
+    /// whether the switch-session chevron should be shown.
+    /// </summary>
+    public int GetTaskbarSessionCount()
+    {
+        return GetValidMediaSessions().Count;
+    }
+
+    /// <summary>
     /// Cycles the taskbar widget to the next available media session (circular list).
     /// Only affects what the widget shows and controls; the OS focused session is untouched.
     /// </summary>
