@@ -506,15 +506,6 @@ public partial class TaskbarWidgetControl : UserControl
             BackgroundImage.Source = baked;
     }
 
-    private void Grid_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        if (_mainWindow == null) return;
-
-        // toggle main flyout when clicked
-        if (SettingsManager.Current.TaskbarWidgetClickOpensFlyout)
-            _mainWindow.ShowMediaFlyout(toggleMode: true, forceShow: true);
-    }
-
     public (double logicalWidth, double logicalHeight) CalculateSize(double dpiScale)
     {
         // calculate widget width - use cached values if text hasn't changed
@@ -1092,29 +1083,37 @@ public partial class TaskbarWidgetControl : UserControl
     {
         if (_mainWindow == null) return;
 
-        var focusedSession = _mainWindow.GetActiveMediaSession();
-        if (focusedSession == null) return;
+        var session = _mainWindow.GetTaskbarSession();
+        if (session == null) return;
 
-        await focusedSession.ControlSession.TrySkipPreviousAsync();
+        await session.ControlSession.TrySkipPreviousAsync();
     }
 
     private async void PlayPause_Click(object sender, RoutedEventArgs e)
     {
         if (_mainWindow == null) return;
 
-        var focusedSession = _mainWindow.GetActiveMediaSession();
-        if (focusedSession == null) return;
+        var session = _mainWindow.GetTaskbarSession();
+        if (session == null) return;
 
-        await focusedSession.ControlSession.TryTogglePlayPauseAsync();
+        await session.ControlSession.TryTogglePlayPauseAsync();
     }
 
     private async void Next_Click(object sender, RoutedEventArgs e)
     {
         if (_mainWindow == null) return;
 
-        var focusedSession = _mainWindow.GetActiveMediaSession();
-        if (focusedSession == null) return;
+        var session = _mainWindow.GetTaskbarSession();
+        if (session == null) return;
 
-        await focusedSession.ControlSession.TrySkipNextAsync();
+        await session.ControlSession.TrySkipNextAsync();
+    }
+
+    // clicking the album art cycles through the available media sessions (circular list)
+    private void SongImage_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_mainWindow == null) return;
+
+        _mainWindow.CycleTaskbarSession();
     }
 }

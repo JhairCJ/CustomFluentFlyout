@@ -75,6 +75,10 @@ public partial class MainWindow : MicaWindow
 
     internal TaskbarWindow? taskbarWindow;
 
+    // Taskbar widget: the media session the user pinned by clicking the album art.
+    // null means the widget follows the OS focused session (default behaviour).
+    private string? _taskbarPinnedSessionId;
+
     private VolumeMixerWindow? volumeMixerWindow;
 
     internal static volatile bool ExplorerRestarting = false;
@@ -170,6 +174,7 @@ public partial class MainWindow : MicaWindow
         mediaManager.OnAnyPlaybackStateChanged += CurrentSession_OnPlaybackStateChanged;
         mediaManager.OnAnyTimelinePropertyChanged += MediaManager_OnAnyTimelinePropertyChanged;
         mediaManager.OnAnySessionClosed += MediaManager_OnAnySessionClosed;
+        mediaManager.OnFocusedSessionChanged += MediaManager_OnFocusedSessionChanged;
 
         WM_TASKBARCREATED = RegisterWindowMessage("TaskbarCreated");
         WM_SHELLHOOK = RegisterWindowMessage("SHELLHOOK");
@@ -289,9 +294,14 @@ public partial class MainWindow : MicaWindow
         }
     }
 
+    private List<MediaSession> GetValidMediaSessions()
+    {
+        return mediaManager.CurrentMediaSessions.Values.Where(IsSessionAllowed).ToList();
+    }
+
     public MediaSession? GetActiveMediaSession()
     {
-        var validSessions = mediaManager.CurrentMediaSessions.Values.Where(IsSessionAllowed).ToList();
+        var validSessions = GetValidMediaSessions();
 
         if (validSessions.Count == 0) return null;
 
@@ -300,6 +310,56 @@ public partial class MainWindow : MicaWindow
             return focused;
 
         return validSessions.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Returns the session the taskbar widget should show: the pinned one if the user
+    /// cycled to it and it is still available, otherwise the OS focused session.
+    /// </summary>
+    public MediaSession? GetTaskbarSession()
+    {
+        var validSessions = GetValidMediaSessions();
+        if (validSessions.Count == 0) return null;
+
+        if (_taskbarPinnedSessionId != null)
+        {
+            var pinned = validSessions.FirstOrDefault(s => s.Id == _taskbarPinnedSessionId);
+            if (pinned != null)
+                return pinned;
+        }
+
+        return GetActiveMediaSession();
+    }
+
+    /// <summary>
+    /// Cycles the taskbar widget to the next available media session (circular list).
+    /// Only affects what the widget shows and controls; the OS focused session is untouched.
+    /// </summary>
+    public void CycleTaskbarSession()
+    {
+        var validSessions = GetValidMediaSessions();
+        if (validSessions.Count <= 1) return;
+
+        var current = GetTaskbarSession();
+        int index = current == null ? -1 : validSessions.FindIndex(s => s.Id == current.Id);
+        var next = validSessions[(index + 1) % validSessions.Count];
+
+        _taskbarPinnedSessionId = next.Id;
+        UpdateTaskbar();
+    }
+
+    /// <summary>
+    /// Releases the pinned taskbar session when the OS focus moves to a different session,
+    /// so the widget follows the most recently used media source (matching Windows behaviour).
+    /// </summary>
+    private void MediaManager_OnFocusedSessionChanged(MediaSession mediaSession)
+    {
+        if (_taskbarPinnedSessionId != null && mediaSession?.Id != _taskbarPinnedSessionId)
+        {
+            _taskbarPinnedSessionId = null;
+        }
+
+        UpdateTaskbar();
     }
 
     public void RefreshFilteredMedia()
@@ -594,7 +654,7 @@ public partial class MainWindow : MicaWindow
 
         TaskbarWindow widget = taskbarWindow;
 
-        var activeSession = GetActiveMediaSession();
+        var activeSession = GetTaskbarSession();
         if (!mediaManager.IsStarted || activeSession == null)
         {
             widget.UpdateUi("-", "-", null, GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed);
@@ -687,7 +747,7 @@ public partial class MainWindow : MicaWindow
 #endif     
         pauseOtherMediaSessionsIfNeeded(mediaSession);
 
-        var focusedSession = GetActiveMediaSession();
+        var focusedSession = GetTaskbarSession();
         if (focusedSession == null)
         {
             taskbarWindow?.UpdateUi("-", "-", null, GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed);
@@ -714,6 +774,7 @@ public partial class MainWindow : MicaWindow
     // for determining whether MediaPropertyChanged has no changes
     private string previousMediaProperty = "";
     private int previousMediaPropertyThumbnail = 0;
+    private string? previousMediaPropertySessionId = null;
     private void MediaManager_OnAnyMediaPropertyChanged(MediaSession mediaSession, GlobalSystemMediaTransportControlsSessionMediaProperties mediaProperties)
     {
         // sometimes mediaSession.ControlSession can be null
@@ -723,11 +784,20 @@ public partial class MainWindow : MicaWindow
 #if DEBUG
         Logger.Debug("Media property changed: " + mediaProperties.Title + " " + mediaSession.ControlSession.GetPlaybackInfo().PlaybackStatus);
 #endif
-        var currentActiveSession = GetActiveMediaSession();
+        var currentActiveSession = GetTaskbarSession();
         if (currentActiveSession == null)
         {
             taskbarWindow?.UpdateUi("-", "-", null, GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed);
             return;
+        }
+
+        // reset the change-detection cache when the widget switched to another session
+        // so identical song info from a different source is not skipped
+        if (previousMediaPropertySessionId != currentActiveSession.Id)
+        {
+            previousMediaPropertySessionId = currentActiveSession.Id;
+            previousMediaProperty = "";
+            previousMediaPropertyThumbnail = 0;
         }
 
         var songInfo = TryGetMediaProperties(currentActiveSession.ControlSession);
@@ -830,6 +900,9 @@ public partial class MainWindow : MicaWindow
 #if DEBUG
         Logger.Debug("Session closed: " + (mediaSession.Id).ToString());
 #endif
+        if (_taskbarPinnedSessionId != null && mediaSession.Id == _taskbarPinnedSessionId)
+            _taskbarPinnedSessionId = null;
+
         UpdateTaskbar();
     }
 

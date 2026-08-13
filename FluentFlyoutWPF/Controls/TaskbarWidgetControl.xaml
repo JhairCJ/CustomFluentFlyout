@@ -11,7 +11,7 @@
              TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Ideal"
              FontFamily="{Binding FontFamily}"
              FlowDirection="{Binding FlowDirection}">
-    <Border Name="MainBorder" CornerRadius="6" MouseLeftButtonUp="Grid_MouseLeftButtonUp" ClipToBounds="True">
+    <Border Name="MainBorder" CornerRadius="6" ClipToBounds="True">
         <Grid x:Name="RootGrid">
             <!-- The rotating background lives in a Canvas so it is arranged at its exact
                  square size, independent of the widget's rectangular layout slot. The widget
@@ -29,7 +29,7 @@
                         <ScaleTransform ScaleX="0.9" ScaleY="0.9" />
                     </Grid.RenderTransform>
                     <StackPanel Name="MainStackPanel" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Width="Auto" Margin="4,0,-100,0">
-                        <Border Name="SongImageBorder" CornerRadius="5" ClipToBounds="True" Width="36" Height="36" Panel.ZIndex="2">
+                        <Border Name="SongImageBorder" CornerRadius="5" ClipToBounds="True" Width="36" Height="36" Panel.ZIndex="2" MouseLeftButtonUp="SongImage_MouseLeftButtonUp">
                             <Border.Style>
                                 <Style TargetType="Border">
                                     <Setter Property="Visibility" Value="Visible" />
