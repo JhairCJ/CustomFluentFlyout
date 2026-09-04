@@ -45,6 +45,11 @@ public partial class TaskbarWindow : Window
     private RECT _lastTaskbarRect;
     private bool _hasTaskbarRect;
 
+    // Last applied orientation transforms. LayoutTransform triggers a full
+    // measure/arrange pass, so only reassign when the orientation actually flips.
+    private bool? _lastWidgetIsVertical;
+    private bool? _lastVisualizerIsVertical;
+
     private GlobalSystemMediaTransportControlsSessionPlaybackStatus? _lastPlaybackStatus;
     private DispatcherTimer? _autoHideTimer;
 
@@ -473,10 +478,15 @@ on_error:
         int taskbarHeight = taskbarRect.Bottom - taskbarRect.Top;
         int taskbarWidth = taskbarRect.Right - taskbarRect.Left;
 
-        // Apply orientation transform
-        Widget.LayoutTransform = isVertical ? new System.Windows.Media.RotateTransform(90) : null;
-        Widget.RenderTransform = System.Windows.Media.Transform.Identity;
-        Widget.SetVerticalMode(isVertical);
+        // Apply orientation transform only when it flips: LayoutTransform forces a
+        // full measure/arrange of the whole subtree, and this runs per reposition tick.
+        if (_lastWidgetIsVertical != isVertical)
+        {
+            Widget.LayoutTransform = isVertical ? new System.Windows.Media.RotateTransform(90) : null;
+            Widget.RenderTransform = System.Windows.Media.Transform.Identity;
+            Widget.SetVerticalMode(isVertical);
+            _lastWidgetIsVertical = isVertical;
+        }
 
         // On a vertical taskbar the widget is rotated 90°, so the axes flip:
         //   primarySize = taskbarHeight, positioning runs along Y
@@ -657,8 +667,13 @@ on_error:
         if (!SettingsManager.Current.TaskbarVisualizerEnabled)
             return Rect.Empty;
 
-        // Rotate visualizer 90° on vertical taskbar so it fits the slim width
-        TaskbarVisualizer.LayoutTransform = isVertical ? new System.Windows.Media.RotateTransform(90) : null;
+        // Rotate visualizer 90° on vertical taskbar so it fits the slim width.
+        // Guarded like the widget transform above: LayoutTransform is a full layout pass.
+        if (_lastVisualizerIsVertical != isVertical)
+        {
+            TaskbarVisualizer.LayoutTransform = isVertical ? new System.Windows.Media.RotateTransform(90) : null;
+            _lastVisualizerIsVertical = isVertical;
+        }
 
         int taskbarHeight = taskbarRect.Bottom - taskbarRect.Top;
         int taskbarWidth = taskbarRect.Right - taskbarRect.Left;

@@ -45,7 +45,7 @@
                     <ui:TextBlock Text="{Binding AcrylicBlurOpacity}" Width="24" TextAlignment="Center" Margin="12,0,0,0" />
                 </StackPanel>
             </ui:CardControl>
-            <ui:CardControl x:Name="UseAlbumArtAccentColorCard" Tag="Indexable" Icon="{ui:SymbolIcon EyeDropper24}" Margin="0,0,0,12">
+            <ui:CardControl x:Name="UseAlbumArtAccentColorCard" Tag="Indexable" Icon="{ui:SymbolIcon EyeDropper24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <StackPanel Orientation="Horizontal">
@@ -55,6 +55,30 @@
                     </StackPanel>
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding UseAlbumArtAsAccentColor, Mode=TwoWay}" />
+            </ui:CardControl>
+            <ui:CardControl x:Name="AlbumAccentDesaturationCard" Tag="Indexable" Icon="{ui:SymbolIcon Color24}" Margin="0,0,0,12" IsEnabled="{Binding UseAlbumArtAsAccentColor}">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{DynamicResource AlbumAccentDesaturationTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock Text="{DynamicResource AlbumAccentDesaturationDescription}" FontSize="12" Opacity="0.5" TextWrapping="Wrap" MaxWidth="550" HorizontalAlignment="Left" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <StackPanel Orientation="Vertical">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="{DynamicResource AlbumAccentDesaturationThresholdTitle}" FontSize="12" Opacity="0.7" Width="90" VerticalAlignment="Center" />
+                        <Slider Minimum="0" Maximum="100" Value="{Binding AlbumAccentDesaturationThreshold, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150"
+                                IsMoveToPointEnabled="True" />
+                        <ui:TextBlock Text="{Binding AlbumAccentDesaturationThreshold}" Width="28" TextAlignment="Center" Margin="12,0,0,0" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" ToolTip="{DynamicResource AlbumAccentDesaturationAmountDescription}">
+                        <TextBlock Text="{DynamicResource AlbumAccentDesaturationAmountTitle}" FontSize="12" Opacity="0.7" Width="90" VerticalAlignment="Center" />
+                        <Slider Minimum="0" Maximum="100" Value="{Binding AlbumAccentDesaturationAmount, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150"
+                                IsMoveToPointEnabled="True" />
+                        <ui:TextBlock Text="{Binding AlbumAccentDesaturationAmount}" Width="28" TextAlignment="Center" Margin="12,0,0,0" />
+                    </StackPanel>
+                </StackPanel>
             </ui:CardControl>
             <ui:CardControl x:Name="AppLanguageCard" Tag="Indexable" Icon="{ui:SymbolIcon Globe24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>

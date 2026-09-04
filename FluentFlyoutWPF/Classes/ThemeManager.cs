@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
+using FluentFlyout.Classes.Utils;
 using FluentFlyoutWPF;
 using MicaWPF.Core.Enums;
 using MicaWPF.Core.Helpers;
@@ -70,6 +71,8 @@ internal static class ThemeManager
 
         // refresh accent color to its counterpart after theme changes
         MicaWPFServiceUtility.AccentColorService.RefreshAccentsColors();
+        // re-derive the album accent for the new theme (pixel-free, uses cached raw color)
+        BitmapHelper.RefreshAccentTheme();
     }
 
     /// <summary>

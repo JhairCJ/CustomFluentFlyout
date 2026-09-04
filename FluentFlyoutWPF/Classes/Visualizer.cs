@@ -35,6 +35,13 @@ namespace FluentFlyoutWPF.Classes
         private bool _isRunning;
         private readonly object _lock = new();
 
+        // Last drawn rect per bar, so static bars are skipped entirely instead of
+        // re-rasterized every frame. Only changed bars are cleared, redrawn and
+        // marked dirty. Reset (empty) whenever the bar count changes.
+        private int[] _prevBarY = [];
+        private int[] _prevBarEndY = [];
+        private int _prevBarsArgb = -1;
+
         private readonly int _fftLength = 4096;
         private const int FftHop = 256; // overlapping FFT hop for smooth high-refresh updates
         private int _fftPos = 0;
@@ -643,12 +650,11 @@ namespace FluentFlyoutWPF.Classes
 
                         Span<byte> buffer = new Span<byte>(pBackBuffer.ToPointer(), bufferSize);
 
-                        buffer.Clear();
-
-                        DrawBars(stride, buffer);
+                        // DrawBars clears/redraws only changed bars and reports their
+                        // bounding box; unchanged frames mark nothing dirty.
+                        if (DrawBars(stride, buffer, out int dirtyX, out int dirtyY, out int dirtyW, out int dirtyH))
+                            _bitmap.AddDirtyRect(new Int32Rect(dirtyX, dirtyY, dirtyW, dirtyH));
                     }
-
-                    _bitmap.AddDirtyRect(new Int32Rect(0, 0, ImageWidth, ImageHeight));
                 }
                 finally
                 {
@@ -657,16 +663,22 @@ namespace FluentFlyoutWPF.Classes
             }
         }
 
-        private unsafe void DrawBars(int stride, Span<byte> buffer)
+        /// <summary>
+        /// Draws bars whose rect or color changed since the last frame, clearing only
+        /// their old+new area. Returns whether anything changed plus the bounding box
+        /// of all touched pixels for a single dirty rect.
+        /// </summary>
+        private unsafe bool DrawBars(int stride, Span<byte> buffer, out int dirtyX, out int dirtyY, out int dirtyW, out int dirtyH)
         {
+            dirtyX = dirtyY = dirtyW = dirtyH = 0;
+
             // Resolve brush once 
-            SolidColorBrush brush = BitmapHelper.SavedDominantColors.Count > 0
-                ? BitmapHelper.SavedDominantColors.Last()
-                : (SolidColorBrush)Application.Current.TryFindResource("MicaWPF.Brushes.SystemAccentColorTertiary");
+            SolidColorBrush brush = AlbumAccent.Brush;
 
             byte b = brush.Color.B;
             byte g = brush.Color.G;
             byte r = brush.Color.R;
+            int argb = (r << 16) | (g << 8) | b;
 
             bool centeredBars = SettingsManager.Current.TaskbarVisualizerCenteredBars;
             int barBaseline = SettingsManager.Current.TaskbarVisualizerBaseline ? 4 : 0;
@@ -687,29 +699,90 @@ namespace FluentFlyoutWPF.Classes
 
             int count = Math.Min(BarCount, _barValues?.Length ?? 0);
 
+            // Bar count (thus x positions and widths) changed: old pixels sit at stale
+            // spots, so clear everything once and redraw all.
+            if (_prevBarY.Length != count || _prevBarEndY.Length != count)
+            {
+                buffer.Clear();
+                _prevBarY = new int[count];
+                _prevBarEndY = new int[count];
+                _prevBarsArgb = argb;
+            }
+
+            bool colorChanged = argb != _prevBarsArgb;
+            _prevBarsArgb = argb;
+
+            int minX = ImageWidth, minY = ImageHeight, maxX = 0, maxY = 0;
+
             for (int i = 0; i < count; i++)
             {
                 int barX = offsetX + i * (barWidth + BarSpacing);
 
                 int barHeight = GetBarHeight(_barValues[i], barBaseline);
 
-                if (barHeight <= 0)
-                    continue;
-
                 ComputeVertical(centeredBars, centerY, barHeight, out int barY, out int barEndY);
 
-                // Clamp radius per bar
-                float radius = ClampRadius(baseRadius, barWidth, barHeight);
-                float radiusSq = radius * radius;
+                int prevY = _prevBarY[i];
+                int prevEndY = _prevBarEndY[i];
 
-                RasterizeBar(
-                    buffer, stride,
-                    barX, barWidth,
-                    barY, barEndY,
-                    centeredBars,
-                    radius, radiusSq, invAA,
-                    b, g, r);
+                if (!colorChanged && barY == prevY && barEndY == prevEndY)
+                    continue;
+
+                int clearTop = Math.Min(barY, prevY);
+                int clearBottom = Math.Max(barEndY, prevEndY);
+                ClearRect(buffer, stride, barX, clearTop, barWidth, clearBottom - clearTop);
+
+                if (barHeight > 0)
+                {
+                    // Clamp radius per bar
+                    float radius = ClampRadius(baseRadius, barWidth, barHeight);
+                    float radiusSq = radius * radius;
+
+                    RasterizeBar(
+                        buffer, stride,
+                        barX, barWidth,
+                        barY, barEndY,
+                        centeredBars,
+                        radius, radiusSq, invAA,
+                        b, g, r);
+                }
+
+                _prevBarY[i] = barY;
+                _prevBarEndY[i] = barEndY;
+
+                if (barX < minX) minX = barX;
+                if (clearTop < minY) minY = clearTop;
+                if (barX + barWidth > maxX) maxX = barX + barWidth;
+                if (clearBottom > maxY) maxY = clearBottom;
             }
+
+            if (maxX <= minX || maxY <= minY)
+                return false;
+
+            dirtyX = Math.Max(minX, 0);
+            dirtyY = Math.Max(minY, 0);
+            dirtyW = Math.Min(maxX, ImageWidth) - dirtyX;
+            dirtyH = Math.Min(maxY, ImageHeight) - dirtyY;
+            return dirtyW > 0 && dirtyH > 0;
+        }
+
+        /// <summary>
+        /// Zeroes a pixel rect (clamped to the bitmap), used to erase a bar's old
+        /// position before redrawing it at its new height.
+        /// </summary>
+        private void ClearRect(Span<byte> buffer, int stride, int x, int y, int w, int h)
+        {
+            int x0 = Math.Max(x, 0);
+            int x1 = Math.Min(x + w, ImageWidth);
+            int y0 = Math.Max(y, 0);
+            int y1 = Math.Min(y + h, ImageHeight);
+            if (x1 <= x0 || y1 <= y0)
+                return;
+
+            int rowBytes = (x1 - x0) << 2;
+            int rowStart = (x0 << 2);
+            for (int row = y0; row < y1; row++)
+                buffer.Slice(row * stride + rowStart, rowBytes).Clear();
         }
 
         private static void ComputeLayout(

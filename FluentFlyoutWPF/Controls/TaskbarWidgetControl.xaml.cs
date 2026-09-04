@@ -52,6 +52,12 @@ public partial class TaskbarWidgetControl : UserControl
     private string _actualTitle = string.Empty;
     private string _actualArtist = string.Empty;
 
+    // Last artwork instance handed to UpdateUi. Media sessions deliver a song change
+    // in two phases (title first, cover art in a later event), so the art must be
+    // tracked separately: its arrival deserves its own entrance transition.
+    // Instances come from the thumbnail cache, so reference comparison is exact.
+    private BitmapImage? _lastIcon;
+
     // reference to main window for flyout functions
     private MainWindow? _mainWindow;
     private bool _isPaused;
@@ -75,12 +81,24 @@ public partial class TaskbarWidgetControl : UserControl
     private const int NoMediaDebounceMs = 700;
     private DispatcherTimer? _noMediaDebounceTimer;
 
+    // A new song's cover art routinely arrives in a later event than its title.
+    // While the title is fresh, a null cover means "not here yet", not "has none":
+    // keep the old cover + background instead of flashing placeholder-on-black.
+    private const int NoArtDebounceMs = 600;
+    private DispatcherTimer? _noArtDebounceTimer;
+    private DateTime _lastInfoChangeUtc = DateTime.MinValue;
+
     // True while the widget is fading out; used to cancel the hide if media resumes
     // before the fade completes.
     private bool _isFadingOut;
 
     // True while the mouse is over the album art; used to reveal the switch-session chevron.
     private bool _albumArtHovering;
+
+    // Play/pause glyphs shared across updates: allocating a new SymbolIcon per
+    // metadata event is pure GC pressure for two constant visuals.
+    private static readonly SymbolIcon _playIcon = new(SymbolRegular.Play24, filled: true);
+    private static readonly SymbolIcon _pauseIcon = new(SymbolRegular.Pause24, filled: true);
 
     // True while a cover thumbnail is currently displayed; the switch-session chevron and the
     // pause overlay are only drawn over real cover art, not over the music-note placeholder.
@@ -115,6 +133,10 @@ public partial class TaskbarWidgetControl : UserControl
 
         // Apply the background mode (normal or animated rotation)
         UpdateBackgroundMode();
+
+        // A forever rotation clock burns CPU/GPU even when nobody can see it
+        // (autohide, widget collapsed, no media). Freeze it while hidden.
+        IsVisibleChanged += (s, e) => UpdateRotationPauseState();
     }
 
     public void ApplyCornerRadius()
@@ -211,9 +233,14 @@ public partial class TaskbarWidgetControl : UserControl
 
             LayoutBackgroundToFillWidget();
 
+            // Static image needs no per-frame cache; drop it to save memory.
+            BackgroundImage.CacheMode = null;
+
             if (_currentIcon != null)
                 BackgroundImage.Source = _currentIcon;
         }
+
+        CancelBackgroundDip();
 
         UpdateRotationPauseState();
     }
@@ -234,24 +261,26 @@ public partial class TaskbarWidgetControl : UserControl
         // blur is baked into the bitmap, so disable the live effect while rotating
         BackgroundImage.Effect = null;
 
+        // Cache the rotating subtree as a bitmap: each frame becomes a cheap texture
+        // transform instead of a full resample + clip of the large disc. RenderAtScale
+        // 0.5 matches the 256px baked texture, so nothing visible is lost (it's all blur).
+        if (BackgroundImage.CacheMode is not BitmapCache)
+            BackgroundImage.CacheMode = new BitmapCache(0.5);
+
         // The rotating square is about three times the widget's width - large enough that a
         // full viewport-width band always stays inside the rotating disc at every angle,
         // while still keeping the artwork recognisable. It is sized in DIPs from the
         // widget itself, so it scales with any screen/DPI (1080p, 4K, ...).
+        // The floor is kept small on purpose: the baked texture is only 256px and heavily
+        // blurred, so a larger disc just burns fill-rate resampling it every frame.
         double sizeMultiplier = Math.Max(SettingsManager.Current.TaskbarWidgetBackgroundRotateSize, 100) / 100.0;
-        double discSide = Math.Max(Math.Max(width * sizeMultiplier, height * sizeMultiplier), 720);
+        double discSide = Math.Max(Math.Max(width * sizeMultiplier, height * sizeMultiplier), 480);
         double offsetX = discSide * 0.28; // distance of the viewport band from the disc centre
-
-        BackgroundImage.Width = discSide;
-        BackgroundImage.Height = discSide;
-        BackgroundImage.Stretch = Stretch.Fill;
-        BackgroundImage.Margin = new Thickness(0);
 
         // The square is centred vertically, but shifted horizontally away from the disc
         // centre so the centre of the album is never visible through the viewport.
         bool showLeftSide = SettingsManager.Current.TaskbarWidgetBackgroundRotateSide == 0;
-        Canvas.SetLeft(BackgroundImage, (width - discSide) / 2 + (showLeftSide ? offsetX : -offsetX));
-        Canvas.SetTop(BackgroundImage, (height - discSide) / 2);
+        LayoutDiscLayer(BackgroundImage, width, height, discSide, offsetX, showLeftSide);
 
         if (_currentIcon != null)
             UpdateBakedBackgroundAsync(_currentIcon, discSide);
@@ -299,6 +328,76 @@ public partial class TaskbarWidgetControl : UserControl
 
             _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, animation);
         }
+    }
+
+    /// <summary>
+    /// Positions a rotating-disc background layer over the viewport.
+    /// </summary>
+    private static void LayoutDiscLayer(System.Windows.Controls.Image layer, double width, double height, double discSide, double offsetX, bool showLeftSide)
+    {
+        layer.Width = discSide;
+        layer.Height = discSide;
+        layer.Stretch = Stretch.Fill;
+        layer.Margin = new Thickness(0);
+        Canvas.SetLeft(layer, (width - discSide) / 2 + (showLeftSide ? offsetX : -offsetX));
+        Canvas.SetTop(layer, (height - discSide) / 2);
+    }
+
+    /// <summary>
+    /// Fades the single background layer out, swaps to <paramref name="target"/>, and
+    /// fades back in. One layer, one clock: the rotation transform is never touched,
+    /// so the disc cannot jump position mid-transition. Restarting toward a newer
+    /// target kills the previous clock (removed clocks never complete), so rapid
+    /// skips collapse onto the latest art with no stuck states.
+    /// </summary>
+    private void BeginBackgroundDip(BitmapSource target)
+    {
+        // Restart toward the newest target if one is already running.
+        BackgroundImage.BeginAnimation(OpacityProperty, null);
+
+        if (!_backgroundRotationActive || ReferenceEquals(BackgroundImage.Source, target))
+            return;
+
+        if (!AreAnimationsEnabled)
+        {
+            BackgroundImage.Source = target;
+            return;
+        }
+
+        double bound = BackgroundImage.Opacity; // bound intensity value, restored afterwards
+
+        var dipOut = new DoubleAnimation
+        {
+            To = 0.0,
+            Duration = TimeSpan.FromMilliseconds(150),
+            EasingFunction = GetEasing(false)
+        };
+        dipOut.Completed += (s, e) =>
+        {
+            BackgroundImage.Source = target;
+
+            var dipIn = new DoubleAnimation
+            {
+                To = bound,
+                Duration = TimeSpan.FromMilliseconds(300),
+                EasingFunction = GetEasing(true)
+            };
+            dipIn.Completed += (s2, e2) =>
+            {
+                BackgroundImage.BeginAnimation(OpacityProperty, null); // binding resumes, value already matches
+            };
+            BackgroundImage.BeginAnimation(OpacityProperty, dipIn);
+        };
+        BackgroundImage.BeginAnimation(OpacityProperty, dipOut);
+    }
+
+    /// <summary>
+    /// Kills a running background dip, restoring the bound opacity.
+    /// Used when rotation stops or the widget is torn down.
+    /// </summary>
+    private void CancelBackgroundDip()
+    {
+        BackgroundImage.BeginAnimation(OpacityProperty, null);
     }
 
     /// <summary>
@@ -359,7 +458,8 @@ public partial class TaskbarWidgetControl : UserControl
 
     /// <summary>
     /// Pauses or resumes the rotating background to match the current media playback
-    /// state so the spinning disc freezes while media is paused.
+    /// state so the spinning disc freezes while media is paused. Also freezes while
+    /// the widget itself is hidden, so the forever clock never rasterizes off-screen.
     /// </summary>
     private void UpdateRotationPauseState()
     {
@@ -367,7 +467,7 @@ public partial class TaskbarWidgetControl : UserControl
             !SettingsManager.Current.TaskbarWidgetBackgroundBlur)
             return;
 
-        if (_isPaused)
+        if (_isPaused || !IsVisible)
             PauseBackgroundRotation();
         else
             ResumeBackgroundRotation();
@@ -383,6 +483,8 @@ public partial class TaskbarWidgetControl : UserControl
             _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, null);
             _backgroundRotateTransform.Angle = 0;
         }
+        CancelBackgroundDip();
+        BackgroundImage.CacheMode = null;
         BackgroundImage.Effect = BackgroundImageBlurEffect;
     }
 
@@ -469,27 +571,32 @@ public partial class TaskbarWidgetControl : UserControl
     }
 
     /// <summary>
-    /// Asynchronously bakes the blurred rotating background for the current album. The raw
-    /// artwork is shown immediately as a placeholder so the disc is never empty, and the
-    /// baked (blurred) texture replaces it once the worker thread finishes.
+    /// Asynchronously bakes the blurred rotating background for the current album. The
+    /// previous baked disc keeps showing until the new one is ready (no raw-art flash).
+    /// The raw artwork is only shown immediately on the very first paint, so the disc
+    /// is never empty.
     /// </summary>
     private async void UpdateBakedBackgroundAsync(BitmapImage icon, double discSide)
     {
         if (_bakedBackground != null && ReferenceEquals(_bakedIcon, icon) && Math.Abs(_bakedSideDip - discSide) < 0.5)
         {
+            CancelBackgroundDip();
             BackgroundImage.Source = _bakedBackground;
             return;
         }
 
-        // Show the raw artwork right away if no baked version exists yet; for subsequent
-        // songs the previous baked background keeps showing until the new one is ready.
-        if (!ReferenceEquals(_bakedIcon, icon))
+        // First paint ever: show the raw artwork right away; otherwise keep the previous
+        // baked background until the new one is ready.
+        if (_bakedBackground == null && !ReferenceEquals(_bakedIcon, icon))
             BackgroundImage.Source = icon;
 
         double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         double blurRadiusDips = SettingsManager.Current.TaskbarWidgetBackgroundBlurRadius;
 
         BitmapSource? baked;
+#if DEBUG
+        var bakeStopwatch = System.Diagnostics.Stopwatch.StartNew();
+#endif
         try
         {
             baked = await Task.Run(() => BakeBlurredBackground(icon, discSide, dpi, blurRadiusDips));
@@ -499,6 +606,9 @@ public partial class TaskbarWidgetControl : UserControl
             Logger.Error(ex, "Failed to bake blurred taskbar widget background");
             return;
         }
+#if DEBUG
+        bakeStopwatch.Stop();
+#endif
 
         // A newer song may have arrived while baking; discard the stale result.
         if (baked == null || !ReferenceEquals(_currentIcon, icon))
@@ -508,9 +618,25 @@ public partial class TaskbarWidgetControl : UserControl
         _bakedBackground = baked;
         _bakedSideDip = discSide;
 
-        // Swap the baked texture in if this song is still in rotation mode.
-        if (_backgroundRotationActive)
+        // Rotation may have been disabled while baking; the static path owns the layer then.
+        if (!_backgroundRotationActive)
+            return;
+
+#if DEBUG
+        Logger.Debug($"Widget background baked in {bakeStopwatch.Elapsed.TotalMilliseconds} ms, overlay visible: {CrossfadeOverlay.Visibility == Visibility.Visible}");
+#endif
+
+        if (CrossfadeOverlay.Visibility == Visibility.Visible)
+        {
+            // Covered by the song-change overlay: swap instantly underneath it, so the
+            // overlay's single fade reveals everything new together (texts, art, disc).
+            BackgroundImage.BeginAnimation(OpacityProperty, null);
             BackgroundImage.Source = baked;
+            return;
+        }
+
+        // Overlay already lifted (slow bake): dip-fade instead of snapping.
+        BeginBackgroundDip(baked);
     }
 
     public (double logicalWidth, double logicalHeight) CalculateSize(double dpiScale)
@@ -749,6 +875,9 @@ public partial class TaskbarWidgetControl : UserControl
             Dispatcher.Invoke(() =>
             {
                 _isPaused = true;
+                _lastIcon = null;
+                _noArtDebounceTimer?.Stop();
+                _noArtDebounceTimer = null;
                 UpdateRotationPauseState();
 
                 if (_noMediaDebounceTimer == null)
@@ -776,9 +905,12 @@ public partial class TaskbarWidgetControl : UserControl
             _isPaused = true;
         }
 
-        // adjust UI based on available controls
+        // Single UI-thread hop with every change batched: each Dispatcher.Invoke is
+        // a queue round-trip plus its own layout pass, so three of them per metadata
+        // event is pure overhead.
         Dispatcher.Invoke(() =>
         {
+            // adjust UI based on available controls
             if (SettingsManager.Current.TaskbarWidgetControlsEnabled && playbackControls != null)
             {
                 PreviousButton.IsHitTestVisible = playbackControls.IsPreviousEnabled;
@@ -799,17 +931,21 @@ public partial class TaskbarWidgetControl : UserControl
                 NextButton.Opacity = 0.5;
                 PlayPauseButton.Opacity = 0.5;
             }
-        });
 
-        Dispatcher.Invoke(() =>
-        {
             _noMediaDebounceTimer?.Stop();
             _noMediaDebounceTimer = null;
 
             string newTitle = !string.IsNullOrEmpty(title) ? title : "-";
             string newArtist = !string.IsNullOrEmpty(artist) ? artist : "-";
 
-            if (_actualTitle != newTitle || _actualArtist != newArtist)
+            // Title/artist and cover art arrive in separate events on song change:
+            // each half gets its own entrance so nothing pops in without a fade.
+            bool infoChanged = _actualTitle != newTitle || _actualArtist != newArtist;
+            if (infoChanged)
+                _lastInfoChangeUtc = DateTime.UtcNow;
+            bool artChanged = !ReferenceEquals(icon, _lastIcon);
+
+            if (infoChanged || artChanged)
             {
                 // changed info
                 if (SettingsManager.Current.TaskbarWidgetAnimated)
@@ -824,31 +960,52 @@ public partial class TaskbarWidgetControl : UserControl
                 SongArtist.Text = _actualArtist;
             }
 
-            // Update tooltip with song info
-            SongInfoStackPanel.ToolTip = string.Empty;
-            SongInfoStackPanel.ToolTip += !string.IsNullOrEmpty(title) ? title : string.Empty;
-            SongInfoStackPanel.ToolTip += !string.IsNullOrEmpty(artist) ? "\n\n" + artist : string.Empty;
+            // Update tooltip with song info (single allocation, no += chain)
+            SongInfoStackPanel.ToolTip = string.IsNullOrEmpty(artist) ? title : title + "\n\n" + artist;
 
             if (SettingsManager.Current.TaskbarWidgetControlsEnabled)
             {
-                PlayPauseButton.Icon = _isPaused ? new SymbolIcon(SymbolRegular.Play24, filled: true) : new SymbolIcon(SymbolRegular.Pause24, filled: true);
+                PlayPauseButton.Icon = _isPaused ? _playIcon : _pauseIcon;
             }
 
             // change color of icon
-            SolidColorBrush brush = BitmapHelper.SavedDominantColors.Count > 0 ?
-                BitmapHelper.SavedDominantColors.Last()
-                : (SolidColorBrush)Application.Current.TryFindResource("MicaWPF.Brushes.SystemAccentColorTertiary");
+            SolidColorBrush brush = AlbumAccent.Brush;
             SongImagePlaceholder.Foreground = brush;
 
+            bool freshTitle = (DateTime.UtcNow - _lastInfoChangeUtc).TotalMilliseconds < NoArtDebounceMs;
             if (icon != null)
             {
+                _noArtDebounceTimer?.Stop();
+                _noArtDebounceTimer = null;
+                _lastIcon = icon;
                 _hasAlbumCover = true;
                 SongImage.ImageSource = icon;
                 SetBackground(icon);
                 SongImageBorder.Margin = new Thickness(0, 0, 0, -2); // align image better when cover is present
             }
+            else if (_hasAlbumCover && freshTitle)
+            {
+                // Cover not here yet for this new song: keep displaying the old one.
+                // _lastIcon intentionally stays at the old art so the arrival diffs
+                // and gets its own entrance; the timer falls back to the placeholder
+                // if no art ever comes.
+                if (_noArtDebounceTimer == null)
+                {
+                    _noArtDebounceTimer = new DispatcherTimer
+                    {
+                        Interval = TimeSpan.FromMilliseconds(NoArtDebounceMs)
+                    };
+                    _noArtDebounceTimer.Tick += (s, e) => ShowArtPlaceholder();
+                }
+
+                _noArtDebounceTimer.Stop();
+                _noArtDebounceTimer.Start();
+            }
             else
             {
+                _noArtDebounceTimer?.Stop();
+                _noArtDebounceTimer = null;
+                _lastIcon = null;
                 _hasAlbumCover = false;
                 SongImage.ImageSource = null;
                 SetBackground(null);
@@ -878,11 +1035,37 @@ public partial class TaskbarWidgetControl : UserControl
     }
 
     /// <summary>
+    /// Falls back to the music-note placeholder when a new song's cover never arrives
+    /// (the art deferral in <see cref="UpdateUi"/> kept the old cover meanwhile).
+    /// </summary>
+    private void ShowArtPlaceholder()
+    {
+        _noArtDebounceTimer?.Stop();
+        _noArtDebounceTimer = null;
+
+        if (!_hasAlbumCover)
+            return;
+
+        if (SettingsManager.Current.TaskbarWidgetAnimated)
+            AnimateEntrance(); // snapshots the stale cover, fades to the placeholder
+
+        _lastIcon = null;
+        _hasAlbumCover = false;
+        SongImage.ImageSource = null;
+        SetBackground(null);
+        SongImageBorder.Margin = new Thickness(0, 0, 0, -3); // align music note better when no cover
+        UpdateAlbumArtOverlay();
+    }
+
+    /// <summary>
     /// Collapses the widget to the bare music-note placeholder. Only called once media
     /// has genuinely stopped (after the no-media debounce has elapsed).
     /// </summary>
     private void ShowNoMediaPlaceholder()
     {
+        _noArtDebounceTimer?.Stop();
+        _noArtDebounceTimer = null;
+        _lastIcon = null;
         _actualTitle = string.Empty;
         _actualArtist = string.Empty;
 
@@ -1005,7 +1188,19 @@ public partial class TaskbarWidgetControl : UserControl
             // Snapshot the current widget (old album) into the overlay and fade it out on
             // top of the new content underneath, so the artwork colours crossfade instead
             // of blanking out to the transparent background.
-            if (!RenderCrossfadeSnapshot())
+            // A transition is already in flight (rapid skips, or cover art arriving in
+            // a later event than the title): swap instantly underneath it. The fading
+            // old frame on top turns that swap into a crossfade on its own; re-arming
+            // here would either snap half-faded texts or ghost the old overlay into
+            // the new snapshot.
+            if (CrossfadeOverlay.Visibility == Visibility.Visible)
+                return;
+
+            bool snapshotOk = RenderCrossfadeSnapshot();
+#if DEBUG
+            Logger.Debug($"Widget entrance: crossfade snapshot {(snapshotOk ? "ok" : "failed")}");
+#endif
+            if (!snapshotOk)
             {
                 // Snapshot unavailable: fall back to fading the widget itself in place.
                 DoubleAnimation opacityAnimation = new()

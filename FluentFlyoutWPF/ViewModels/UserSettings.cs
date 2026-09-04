@@ -869,6 +869,22 @@ public partial class UserSettings : ObservableObject
     public partial bool UseAlbumArtAsAccentColor { get; set; }
 
     /// <summary>
+    /// Saturation threshold (0-100) for album accent desaturation.
+    /// Album colors less saturated than this are left untouched.
+    /// </summary>
+    [ObservableProperty]
+    public partial uint AlbumAccentDesaturationThreshold { get; set; }
+
+    /// <summary>
+    /// How much (0-100) to tone down saturation above the threshold.
+    /// 0 keeps the original color; 100 flattens everything above the
+    /// threshold down to it. Desaturation reduces color intensity toward
+    /// gray without changing brightness.
+    /// </summary>
+    [ObservableProperty]
+    public partial uint AlbumAccentDesaturationAmount { get; set; }
+
+    /// <summary>
     /// Gets whether this is a Store version. Once false, always false (only if last known version was not null).
     /// </summary>
     [ObservableProperty]
@@ -1005,6 +1021,8 @@ public partial class UserSettings : ObservableObject
         VolumeMixerHighlightActiveApps = false;
         AcrylicBlurOpacity = 175;
         UseAlbumArtAsAccentColor = false;
+        AlbumAccentDesaturationThreshold = 65;
+        AlbumAccentDesaturationAmount = 0;
         LastUpdateNotificationUnixSeconds = 0;
         ShowUpdateNotifications = true;
         LegacyTaskbarWidthEnabled = false;
@@ -1329,6 +1347,41 @@ public partial class UserSettings : ObservableObject
     {
         if (oldValue == newValue || _initializing) return;
         BitmapHelper.GetDominantColors();
+    }
+
+    partial void OnAlbumAccentDesaturationThresholdChanged(uint oldValue, uint newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        BitmapHelper.RefreshAccentTheme();
+        RepaintAlbumAccent();
+    }
+
+    partial void OnAlbumAccentDesaturationAmountChanged(uint oldValue, uint newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        BitmapHelper.RefreshAccentTheme();
+        RepaintAlbumAccent();
+    }
+
+    /// <summary>
+    /// Reapplies the current album accent to the flyout play button so
+    /// slider drags give live feedback without waiting for the next track.
+    /// </summary>
+    private static void RepaintAlbumAccent()
+    {
+        try
+        {
+            if (Application.Current?.MainWindow is not MainWindow mainWindow)
+                return;
+            mainWindow.Dispatcher.Invoke(() =>
+            {
+                mainWindow.ControlPlayPause.Background = AlbumAccent.Brush;
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug(ex, "Failed to repaint album accent");
+        }
     }
 
     partial void OnAppFilteringEnabledChanged(bool oldValue, bool newValue)

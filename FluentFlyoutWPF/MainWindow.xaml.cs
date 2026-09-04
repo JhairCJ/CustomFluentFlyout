@@ -1252,12 +1252,8 @@ public partial class MainWindow : MicaWindow
                 BackgroundImageStyle2.Visibility = SettingsManager.Current.MediaFlyoutBackgroundBlur == 2 ? Visibility.Visible : Visibility.Collapsed;
                 BackgroundImageStyle3.Visibility = SettingsManager.Current.MediaFlyoutBackgroundBlur == 3 ? Visibility.Visible : Visibility.Collapsed;
 
-                // color play/pause button
-                if (BitmapHelper.SavedDominantColors.Count > 0)
-                {
-                    SolidColorBrush brush = BitmapHelper.SavedDominantColors.First();
-                    ControlPlayPause.Background = brush;
-                }
+                // color play/pause button with the current album accent
+                ControlPlayPause.Background = AlbumAccent.Brush;
 
                 // acrylic effect setting
                 if (SettingsManager.Current.MediaFlyoutAcrylicWindowEnabled != _acrylicEnabled
@@ -1278,6 +1274,11 @@ public partial class MainWindow : MicaWindow
                 SongArtist.Text = songInfo.Artist;
                 var image = BitmapHelper.GetThumbnail(songInfo.Thumbnail);
                 SongImage.ImageSource = image;
+
+                // refresh the accent from the new artwork and repaint the button
+                // (it was painted with the previous song's color above)
+                BitmapHelper.GetDominantColors();
+                ControlPlayPause.Background = AlbumAccent.Brush;
 
                 // set tooltip
                 SongInfoStackPanel.ToolTip = string.Empty;

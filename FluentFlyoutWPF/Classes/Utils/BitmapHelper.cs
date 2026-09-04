@@ -2,14 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
-using System.Diagnostics;
 using System.IO;
-using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Windows.Storage.Streams;
-using Wpf.Ui.Appearance;
 
 namespace FluentFlyout.Classes.Utils;
 
@@ -91,20 +88,22 @@ internal static class BitmapHelper
     // cached thumbnails to prevent reprocessing
     private static readonly LruCache<int, BitmapImage> _thumbnailCache = new(_cacheEntryLimit);
 
-    // cached bitmapImage hashes and their dominant colors
-    private static readonly LruCache<int, List<SolidColorBrush>> _dominantColorsCache = new(_cacheEntryLimit);
+    // hash of the most recently requested thumbnail; GetDominantColors
+    // derives the accent from this entry. Calls are sequential on the UI
+    // thread (GetThumbnail then GetDominantColors), so no AsyncLocal needed.
+    private static int _latestThumbnailHash;
 
-    private static int _currentHashCode = 0;
-    private static readonly AsyncLocal<int> _currentHashCodeContext = new();
+    /// <summary>
+    /// Current accent brush. Single color shared by every consumer
+    /// (play button, placeholders, visualizer). See <see cref="AlbumAccent"/>.
+    /// </summary>
+    public static List<SolidColorBrush> SavedDominantColors => [AlbumAccent.Brush];
 
-    // current or latest dominant colors
-    private static List<SolidColorBrush>? _currentDominantColors;
-
-    public static List<SolidColorBrush> SavedDominantColors
-    {
-        get => _currentDominantColors ??= [];
-    }
-
+    /// <summary>
+    /// Fast non-cryptographic hash (FNV-1a) of the thumbnail stream, used for
+    /// cache lookup and change detection. Thumbnails are small; the previous
+    /// SHA-256 over the full stream was pure overhead on the UI thread.
+    /// </summary>
     public static int GetStableThumbnailHash(IRandomAccessStreamReference thumbnail)
     {
         if (thumbnail == null)
@@ -113,9 +112,23 @@ internal static class BitmapHelper
         try
         {
             using Stream stream = thumbnail.OpenReadAsync().GetAwaiter().GetResult().AsStreamForRead();
-            using SHA256 sha256 = SHA256.Create();
-            byte[] hashBytes = sha256.ComputeHash(stream);
-            return BitConverter.ToInt32(hashBytes, 0);
+            const uint offsetBasis = 2166136261;
+            const uint prime = 16777619;
+            uint hash = offsetBasis;
+            hash ^= (uint)stream.Length;
+            hash *= prime;
+
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                for (int i = 0; i < read; i++)
+                {
+                    hash ^= buffer[i];
+                    hash *= prime;
+                }
+            }
+            return unchecked((int)hash);
         }
         catch (Exception ex)
         {
@@ -136,8 +149,7 @@ internal static class BitmapHelper
 
         if (_thumbnailCache.TryGetValue(hashCode, out var cachedImage) && cachedImage != null)
         {
-            _currentHashCode = hashCode;
-            _currentHashCodeContext.Value = hashCode;
+            _latestThumbnailHash = hashCode;
             return cachedImage;
         }
 
@@ -156,8 +168,7 @@ internal static class BitmapHelper
         // add bitmap to thumbnail cache with empty brush
         _thumbnailCache.Set(hashCode, image);
 
-        _currentHashCode = hashCode;
-        _currentHashCodeContext.Value = hashCode;
+        _latestThumbnailHash = hashCode;
         return image;
     }
 
@@ -180,252 +191,72 @@ internal static class BitmapHelper
     }
 
     /// <summary>
-    /// Gets the dominant accent color from the last cached Bitmap from the GetThumbnail method.
-    /// Uses a two-candidate scheme (overall tone vs vivid color) so the accent represents the
-    /// album instead of its most saturated spot.
+    /// Current desaturation settings (0-1) for the album accent.
+    /// Threshold: saturation below this is left untouched.
+    /// Amount: fraction of the excess above threshold to remove.
     /// </summary>
-    /// <returns>List of dominant colors from cached Bitmap as SolidColorBrush</returns>
+    private static (double Threshold, double Amount) GetDesaturation()
+    {
+        double threshold = Math.Clamp(SettingsManager.Current.AlbumAccentDesaturationThreshold / 100.0, 0, 1);
+        double amount = Math.Clamp(SettingsManager.Current.AlbumAccentDesaturationAmount / 100.0, 0, 1);
+        return (threshold, amount);
+    }
+
+    /// <summary>
+    /// Refreshes the single album accent from the latest cached thumbnail
+    /// (see <see cref="GetThumbnail"/>) and returns it as a one-item list.
+    /// The list shape is kept for compatibility; new code should use
+    /// <see cref="AlbumAccent.Brush"/> directly.
+    /// </summary>
+    /// <returns>List containing the current accent brush.</returns>
     public static List<SolidColorBrush> GetDominantColors()
     {
-        int hashCode = _currentHashCodeContext.Value != 0 ? _currentHashCodeContext.Value : _currentHashCode;
+        var (threshold, amount) = GetDesaturation();
+        if (!SettingsManager.Current.UseAlbumArtAsAccentColor)
+            return [AlbumAccent.Refresh(null, 0, false, AlbumAccent.IsDarkTheme(), threshold, amount)];
 
-        if (!SettingsManager.Current.UseAlbumArtAsAccentColor || hashCode == 0)
+        // Re-derive from the latest thumbnail. AlbumAccent caches by hash,
+        // so repeat calls for the same artwork are free.
+        int hashCode = _latestThumbnailHash;
+        BitmapImage? sourceBitmap = null;
+        if (hashCode != 0)
+            _thumbnailCache.TryGetValue(hashCode, out sourceBitmap);
+
+        if (sourceBitmap == null)
         {
-            // control color (buttons, etc.)
-            var accent = (SolidColorBrush)Application.Current.TryFindResource("MicaWPF.Brushes.SystemAccentColorSecondary");
-            if (!accent.IsFrozen)
-                accent = accent.Clone();
-            accent.Freeze();
-
-            // accent color (for non-control elements)
-            var accent2 = (SolidColorBrush)Application.Current.TryFindResource("MicaWPF.Brushes.SystemAccentColorTertiary");
-            if (!accent2.IsFrozen)
-                accent2 = accent2.Clone();
-            accent2.Freeze();
-
-            _currentDominantColors = [accent, accent2];
-            return _currentDominantColors;
+            // No usable thumbnail (or first run): fall back to system accent.
+            return [AlbumAccent.Refresh(null, 0, false, AlbumAccent.IsDarkTheme(), threshold, amount)];
         }
-
-        // start timing
-#if DEBUG
-        Stopwatch stopwatch = Stopwatch.StartNew();
-#endif
 
         try
         {
-            // check if we've already calculated colors for this thumbnail by checking
-            // the current hash with cache (dumb method because we're assuming it's always the latest)
-            if (_dominantColorsCache.TryGetValue(hashCode, out var cachedColors) && cachedColors != null)
-            {
-                _currentDominantColors = cachedColors;
-                return _currentDominantColors;
-            }
-
-            // convert BitmapImage to BGRA byte array
-            if (!_thumbnailCache.TryGetValue(hashCode, out var sourceBitmap) || sourceBitmap == null)
-            {
-                Logger.Warn($"Thumbnail cache miss while extracting dominant colors");
-                return _currentDominantColors ?? [];
-            }
-
-            var formattedBitmap = new FormatConvertedBitmap();
-            formattedBitmap.BeginInit();
-            formattedBitmap.Source = sourceBitmap;
-            formattedBitmap.DestinationFormat = PixelFormats.Bgra32;
-            formattedBitmap.EndInit();
-
-            int width = formattedBitmap.PixelWidth;
-            int height = formattedBitmap.PixelHeight;
-            int stride = width * 4;
-
-            byte[] pixels = new byte[height * stride];
-            formattedBitmap.CopyPixels(pixels, stride, 0);
-
-            // downsample pixels
-            var rng = new Random();
-            var samples = new List<(byte R, byte G, byte B)>();
-
-            for (int i = 0; i < pixels.Length; i += 4)
-            {
-                byte b = pixels[i];
-                byte g = pixels[i + 1];
-                byte r = pixels[i + 2];
-                byte a = pixels[i + 3];
-
-                if (a < 128) continue;
-                if (rng.Next(10) != 0) continue; // sample ~10%
-
-                samples.Add((r, g, b));
-            }
-
-            // Two-candidate scheme so the accent represents the album's overall tone
-            // instead of the most saturated spot: a mostly gray/black cover with a few
-            // small colored letters must produce a gray accent, not the letter color.
-            const int quantBits = 4;
-            const int bins = 1 << quantBits;
-            const int binCount = bins * bins * bins;
-            const int shift = 8 - quantBits;
-            const int halfBin = 1 << (shift - 1);
-            // if a meaningful share of the cover is saturated, the album is "colorful":
-            // use the vivid candidate instead of the (often white/black) dominant tone
-            const float minSaturatedFraction = 0.20f;
-
-            // all pixels (no chroma/lightness filter) => the album's dominant tone
-            var coverageHistogram = new int[binCount];
-            // saturated pixels only, weighted by area (chroma tie-break) => the vivid candidate
-            var vibrantHistogram = new int[binCount];
-            int saturatedSamples = 0;
-
-            foreach (var pixel in samples)
-            {
-                float r = pixel.R / 255f;
-                float g = pixel.G / 255f;
-                float b = pixel.B / 255f;
-
-                float max = MathF.Max(r, MathF.Max(g, b));
-                float min = MathF.Min(r, MathF.Min(g, b));
-                float chroma = max - min;
-                float lightness = (max + min) / 2f;
-
-                int ri = pixel.R >> shift;
-                int gi = pixel.G >> shift;
-                int bi = pixel.B >> shift;
-                int idx = ri * bins * bins + gi * bins + bi;
-
-                coverageHistogram[idx]++;
-
-                // skip blacks, whites, and neutrals for the vibrant candidate
-                if (chroma < 0.15f) continue;
-                if (lightness < 0.08f || lightness > 0.85f) continue;
-
-                saturatedSamples++;
-                vibrantHistogram[idx] += 100 + (int)(chroma * 100);
-            }
-
-            int coveragePeak = 0;
-            for (int i = 1; i < coverageHistogram.Length; i++)
-                if (coverageHistogram[i] > coverageHistogram[coveragePeak]) coveragePeak = i;
-
-            int vibrantPeak = 0;
-            for (int i = 1; i < vibrantHistogram.Length; i++)
-                if (vibrantHistogram[i] > vibrantHistogram[vibrantPeak]) vibrantPeak = i;
-
-            float saturatedFraction = samples.Count > 0 ? (float)saturatedSamples / samples.Count : 0f;
-
-            // decode the dominant-tone candidate to judge whether it makes a usable accent
-            int covR = coveragePeak / (bins * bins);
-            int covG = (coveragePeak / bins) % bins;
-            int covB = coveragePeak % bins;
-
-            byte covRc = (byte)((covR << shift) + halfBin);
-            byte covGc = (byte)((covG << shift) + halfBin);
-            byte covBc = (byte)((covB << shift) + halfBin);
-
-            float covMax = MathF.Max(covRc, MathF.Max(covGc, covBc)) / 255f;
-            float covMin = MathF.Min(covRc, MathF.Min(covGc, covBc)) / 255f;
-            float coverageChroma = covMax - covMin;
-            float coverageLightness = (covMax + covMin) / 2f;
-
-            // when the dominant tone is too dark (essentially black), the lifted accent would
-            // turn white: prefer the vivid color instead. Colored dark tones (e.g. dark blue)
-            // have enough chroma to stay useful, so they are kept as-is.
-            bool dominantTooDark = coverageLightness < 0.15f && coverageChroma < 0.15f;
-            bool hasColor = saturatedFraction >= 0.01f;
-
-            // only use the vivid color when the album is genuinely colorful,
-            // or when the dominant tone is too dark to make a useful accent
-            bool useVibrant = saturatedSamples > 0 && hasColor && (dominantTooDark || saturatedFraction >= minSaturatedFraction);
-            int chosenIdx = useVibrant ? vibrantPeak : coveragePeak;
-
-            int cr = chosenIdx / (bins * bins);
-            int cg = (chosenIdx / bins) % bins;
-            int cb = chosenIdx % bins;
-
-            // map each bin index back to the center of its value range
-            byte peakR = (byte)((cr << shift) + halfBin);
-            byte peakG = (byte)((cg << shift) + halfBin);
-            byte peakB = (byte)((cb << shift) + halfBin);
-
-            bool isDark = ApplicationThemeManager.GetSystemTheme() == SystemTheme.Dark;
-            Color accentColor = AdjustAccentForTheme(Color.FromArgb(255, peakR, peakG, peakB), isDark);
-
-            // convert to a frozen brush
-            var brush = new SolidColorBrush(accentColor);
-            brush.Freeze(); // makes it immutable & thread-safe
-
-            _currentDominantColors = [brush];
-
-            // save brushes to cache with current hash as key
-            _dominantColorsCache.Set(hashCode, _currentDominantColors);
-
+#if DEBUG
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+#endif
+            var brush = AlbumAccent.Refresh(sourceBitmap, hashCode, true, AlbumAccent.IsDarkTheme(), threshold, amount);
 #if DEBUG
             stopwatch.Stop();
             Logger.Debug($"Dominant color extraction took {stopwatch.Elapsed.TotalMilliseconds} ms");
 #endif
-            return _currentDominantColors;
+            return [brush];
         }
         catch (Exception ex)
         {
             Logger.Error(ex, "Error extracting dominant colors");
-            return [];
+            return [AlbumAccent.Brush];
         }
     }
 
     /// <summary>
-    /// Adjusts an accent color so it stays visible on the flyout background while keeping
-    /// the album's hue. Dark mode lifts dark tones up; light mode lifts very dark tones to
-    /// a mid tone and clamps near-white tones. Both modes desaturate slightly.
+    /// Re-derives the themed accent from the cached album color without
+    /// re-scanning pixels. Call after theme changes or setting toggles.
     /// </summary>
-    private static Color AdjustAccentForTheme(Color c, bool isDark)
+    public static List<SolidColorBrush> RefreshAccentTheme()
     {
-        double r = ToLinear(c.R);
-        double g = ToLinear(c.G);
-        double b = ToLinear(c.B);
+        var (threshold, amount) = GetDesaturation();
+        if (!SettingsManager.Current.UseAlbumArtAsAccentColor)
+            return [AlbumAccent.Refresh(null, 0, false, AlbumAccent.IsDarkTheme(), threshold, amount)];
 
-        double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-
-        if (isDark)
-        {
-            // lift colors that are too dark for black backgrounds
-            double targetL = Math.Max(luminance, 0.65);
-            double scale = targetL / Math.Max(0.0001, luminance);
-            r *= scale; g *= scale; b *= scale;
-        }
-        else
-        {
-            // light mode: the dominant tone of many album covers is very dark, so lift those
-            // up to a mid tone (which still preserves the album's hue), and clamp near-white
-            // tones so the accent stays visible on light backgrounds.
-            if (luminance < 0.40)
-            {
-                double scale = 0.40 / Math.Max(0.0001, luminance);
-                r *= scale; g *= scale; b *= scale;
-            }
-            else if (luminance > 0.85)
-            {
-                double scale = 0.70 / luminance;
-                r *= scale; g *= scale; b *= scale;
-            }
-        }
-
-        // desaturate; tame very saturated colors a bit more so the accent doesn't glare
-        double maxC = Math.Max(r, Math.Max(g, b));
-        double minC = Math.Min(r, Math.Min(g, b));
-        double chroma = Math.Min(maxC - minC, 1.0);
-        double desaturation = 0.30 + Math.Clamp((chroma - 0.45) / 0.55, 0.0, 1.0) * 0.30;
-
-        double newL = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        r += (newL - r) * desaturation;
-        g += (newL - g) * desaturation;
-        b += (newL - b) * desaturation;
-
-        return Color.FromArgb(c.A, ToGamma(r), ToGamma(g), ToGamma(b));
+        return [AlbumAccent.RefreshTheme(AlbumAccent.IsDarkTheme(), threshold, amount)];
     }
-
-    private static double ToLinear(byte v)
-        => Math.Pow(v / 255.0, 2.2);
-
-    private static byte ToGamma(double v)
-        => (byte)Math.Clamp(Math.Pow(v, 1.0 / 2.2) * 255.0, 0, 255);
 }

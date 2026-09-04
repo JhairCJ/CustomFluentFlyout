@@ -187,6 +187,11 @@ Note: As an open-source project, these features are also available for free via 
     <System:String x:Key="AppThemeDark"> Dark</System:String>
     <System:String x:Key="UseAlbumArtAccentColorTitle">Use Album Art as Accent Color</System:String>
     <System:String x:Key="UseAlbumArtAccentColorDescription">Some UI elements will use the album art color instead of the system theme</System:String>
+    <System:String x:Key="AlbumAccentDesaturationTitle">Accent Color Desaturation</System:String>
+    <System:String x:Key="AlbumAccentDesaturationDescription">Tames overly intense album colors. Desaturating reduces color intensity toward gray without changing brightness.</System:String>
+    <System:String x:Key="AlbumAccentDesaturationThresholdTitle">Threshold</System:String>
+    <System:String x:Key="AlbumAccentDesaturationAmountTitle">Amount</System:String>
+    <System:String x:Key="AlbumAccentDesaturationAmountDescription">How much to tone down saturation above the threshold. 0 keeps the original color, 100 flattens everything above the threshold down to it. Colors below the threshold are left untouched.</System:String>
     <System:String x:Key="TrayIconLeftClickBehaviorTitle">Tray Icon Left Click Behavior</System:String>
     <System:String x:Key="TrayIconLeftClickBehaviorDescription">Choose what happens when you left click the tray icon</System:String>
     <System:String x:Key="TrayIconLeftClickOption1"> Open Settings</System:String>
