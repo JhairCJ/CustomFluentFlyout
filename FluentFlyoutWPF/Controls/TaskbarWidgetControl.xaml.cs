@@ -111,6 +111,25 @@ public partial class TaskbarWidgetControl : UserControl
     private int _songChangeSlideVersion;
     private readonly List<System.Windows.Controls.TextBlock> _songChangeSlideGhosts = new();
 
+    // Pending slide direction for the next song change: set when the user explicitly
+    // navigates (previous/next buttons) so a backward step animates mirrored (old text
+    // exits right, new text enters from the left). Expires quickly so a stale note never
+    // leaks into an unrelated later change (e.g. auto-advance at the end of a song).
+    private bool _slideBackwardsPending;
+    private DateTime _slideDirectionNotedUtc = DateTime.MinValue;
+    private static readonly TimeSpan SlideDirectionLifetime = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    /// Notes an explicit track navigation so the next song-change slide animates in the
+    /// matching direction (forward: exit left / enter from right; backward: mirrored).
+    /// </summary>
+    /// <param name="forward">True for next-track, false for previous-track.</param>
+    public void NoteTrackNavigation(bool forward)
+    {
+        _slideBackwardsPending = !forward;
+        _slideDirectionNotedUtc = DateTime.UtcNow;
+    }
+
     public TaskbarWidgetControl()
     {
         InitializeComponent();
@@ -1003,9 +1022,15 @@ public partial class TaskbarWidgetControl : UserControl
                 bool titleChanged = !string.Equals(oldTitle, newTitle, StringComparison.Ordinal);
                 bool artistChanged = !string.Equals(oldArtist, newArtist, StringComparison.Ordinal);
 
+                // Consume the pending navigation direction (if fresh) so it applies to this
+                // change only; anything later (e.g. auto-advance) defaults to forward.
+                bool slideBackwards = _slideBackwardsPending
+                    && (DateTime.UtcNow - _slideDirectionNotedUtc) <= SlideDirectionLifetime;
+                _slideBackwardsPending = false;
+
                 bool slid = infoChanged
                     && SettingsManager.Current.TaskbarWidgetSongChangeAnimation == 1
-                    && TryAnimateSongChangeSlide(oldTitle, oldArtist, newTitle, newArtist, titleChanged, artistChanged);
+                    && TryAnimateSongChangeSlide(oldTitle, oldArtist, newTitle, newArtist, titleChanged, artistChanged, slideBackwards);
 
                 if (!slid)
                 {
@@ -1247,8 +1272,9 @@ public partial class TaskbarWidgetControl : UserControl
     /// <param name="newArtist">Incoming artist (slides in from the right).</param>
     /// <param name="animateTitle">Whether the title row changed and should slide.</param>
     /// <param name="animateArtist">Whether the artist row changed and should slide.</param>
+    /// <param name="slideBackwards">True to mirror the direction (exit right, enter from left).</param>
     /// <returns>True when the slide was started and owns the text swap.</returns>
-    private bool TryAnimateSongChangeSlide(string oldTitle, string oldArtist, string newTitle, string newArtist, bool animateTitle, bool animateArtist)
+    private bool TryAnimateSongChangeSlide(string oldTitle, string oldArtist, string newTitle, string newArtist, bool animateTitle, bool animateArtist, bool slideBackwards)
     {
         try
         {
@@ -1298,10 +1324,10 @@ public partial class TaskbarWidgetControl : UserControl
                 if (artistHasOutgoing || artistHasIncoming)
                     SongArtist.Visibility = Visibility.Visible;
 
-                SlideSingleText(SongArtist, SongArtistContainer, oldArtist, newArtist, artistTravel, msDuration, 40, artistHasOutgoing);
+                SlideSingleText(SongArtist, SongArtistContainer, oldArtist, newArtist, artistTravel, msDuration, 40, artistHasOutgoing, slideBackwards);
             }
             if (animateTitle)
-                SlideSingleText(SongTitle, SongTitleContainer, oldTitle, newTitle, titleTravel, msDuration, 0, titleHasOutgoing);
+                SlideSingleText(SongTitle, SongTitleContainer, oldTitle, newTitle, titleTravel, msDuration, 0, titleHasOutgoing, slideBackwards);
 
             // Settle once the longest-running entrance finishes: the artist enters with a
             // small stagger so it finishes last when present, otherwise the title. Exits
@@ -1336,15 +1362,19 @@ public partial class TaskbarWidgetControl : UserControl
     }
 
     /// <summary>
-    /// Slides one text row: the outgoing ghost (old text) exits to the left while the live
-    /// <see cref="TextBlock"/> carrying the new text enters from the right, in parallel.
+    /// Slides one text row: the outgoing ghost (old text) exits to one side while the live
+    /// <see cref="TextBlock"/> carrying the new text enters from the other side, in parallel.
+    /// Forward slides exit left / enter from the right; backward slides are mirrored.
     /// </summary>
-    private void SlideSingleText(System.Windows.Controls.TextBlock live, Canvas container, string oldText, string newText, double travel, int msDuration, int staggerMs, bool hasOutgoing)
+    private void SlideSingleText(System.Windows.Controls.TextBlock live, Canvas container, string oldText, string newText, double travel, int msDuration, int staggerMs, bool hasOutgoing, bool slideBackwards)
     {
         if (live.RenderTransform is not TranslateTransform incomingTransform)
             return;
 
         incomingTransform.BeginAnimation(TranslateTransform.XProperty, null);
+
+        double exitTo = slideBackwards ? travel : -travel;
+        double enterFrom = slideBackwards ? -travel : travel;
 
         if (hasOutgoing && !string.IsNullOrEmpty(oldText))
         {
@@ -1365,7 +1395,7 @@ public partial class TaskbarWidgetControl : UserControl
             var exit = new DoubleAnimation
             {
                 From = 0,
-                To = -travel,
+                To = exitTo,
                 Duration = TimeSpan.FromMilliseconds(msDuration),
                 EasingFunction = GetEasing(false)
             };
@@ -1387,7 +1417,7 @@ public partial class TaskbarWidgetControl : UserControl
 
         var enter = new DoubleAnimation
         {
-            From = travel,
+            From = enterFrom,
             To = 0,
             Duration = TimeSpan.FromMilliseconds(msDuration),
             BeginTime = TimeSpan.FromMilliseconds(staggerMs),
@@ -1549,6 +1579,7 @@ public partial class TaskbarWidgetControl : UserControl
         var session = _mainWindow.GetTaskbarSession();
         if (session == null) return;
 
+        NoteTrackNavigation(forward: false);
         await session.ControlSession.TrySkipPreviousAsync();
     }
 
@@ -1569,6 +1600,7 @@ public partial class TaskbarWidgetControl : UserControl
         var session = _mainWindow.GetTaskbarSession();
         if (session == null) return;
 
+        NoteTrackNavigation(forward: true);
         await session.ControlSession.TrySkipNextAsync();
     }
 

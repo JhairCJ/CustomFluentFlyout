@@ -1411,6 +1411,7 @@ public partial class MainWindow : MicaWindow
         var activeSession = GetActiveMediaSession();
         if (activeSession == null) return;
 
+        taskbarWindow?.Widget?.NoteTrackNavigation(forward: false);
         await activeSession.ControlSession.TrySkipPreviousAsync();
     }
 
@@ -1427,6 +1428,7 @@ public partial class MainWindow : MicaWindow
         var activeSession = GetActiveMediaSession();
         if (activeSession == null) return;
 
+        taskbarWindow?.Widget?.NoteTrackNavigation(forward: true);
         await activeSession.ControlSession.TrySkipNextAsync();
     }
 
