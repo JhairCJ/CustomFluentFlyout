@@ -672,6 +672,13 @@ public partial class UserSettings : ObservableObject
     public partial bool TaskbarWidgetAnimated { get; set; }
 
     /// <summary>
+    /// Song-change animation style for the taskbar widget. 0: Crossfade (snapshot fade),
+    /// 1: Slide (old text slides out left, new text slides in from the right).
+    /// </summary>
+    [ObservableProperty]
+    public partial int TaskbarWidgetSongChangeAnimation { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether the taskbar widget scrolling text (marquee) is enabled for long titles.
     /// </summary>
     [ObservableProperty]
@@ -999,6 +1006,7 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetControlsEnabled = false;
         TaskbarWidgetControlsPosition = 1;
         TaskbarWidgetAnimated = true;
+        TaskbarWidgetSongChangeAnimation = 0;
         TaskbarWidgetScrollingEnabled = false;
         TaskbarWidgetScrollingTextSpeed = 20;
         TaskbarWidgetScrollingTextLoopForever = false;

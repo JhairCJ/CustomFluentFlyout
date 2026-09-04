@@ -136,6 +136,10 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="TaskbarWidgetControlsDescription">Muestra controles multimedia en el widget</system:String>
     <system:String x:Key="TaskbarWidgetAnimatedTitle">Animaciones del Widget</system:String>
     <system:String x:Key="TaskbarWidgetAnimatedDescription">Activa animaciones sutiles para el widget</system:String>
+    <system:String x:Key="TaskbarWidgetSongChangeAnimationTitle">Animación de cambio de canción</system:String>
+    <system:String x:Key="TaskbarWidgetSongChangeAnimationDescription">Elige cómo se animan la canción y el autor al cambiar de canción</system:String>
+    <system:String x:Key="TaskbarWidgetSongChangeAnimationCrossfade">Fundido</system:String>
+    <system:String x:Key="TaskbarWidgetSongChangeAnimationSlide">Deslizamiento (sale por la izquierda, entra por la derecha)</system:String>
     <system:String x:Key="BackgroundBlurOption2" xml:space="preserve"> Tipo 1 (Iluminado de la Portada)</system:String>
     <system:String x:Key="BackgroundBlurOption3" xml:space="preserve"> Tipo 2 (Iluminado Difuminado)</system:String>
     <system:String x:Key="BackgroundBlurOption4" xml:space="preserve"> Tipo 3 (Desenfoque)</system:String>

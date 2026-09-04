@@ -106,6 +106,10 @@ hides repeat, shuffle and player info</System:String>
     <System:String x:Key="PositionRight">Right</System:String>
     <System:String x:Key="TaskbarWidgetAnimatedTitle">Widget Animations</System:String>
     <System:String x:Key="TaskbarWidgetAnimatedDescription">Enable subtle animations for the widget</System:String>
+    <System:String x:Key="TaskbarWidgetSongChangeAnimationTitle">Song Change Animation</System:String>
+    <System:String x:Key="TaskbarWidgetSongChangeAnimationDescription">Choose how the title and artist animate when the song changes</System:String>
+    <System:String x:Key="TaskbarWidgetSongChangeAnimationCrossfade">Crossfade</System:String>
+    <System:String x:Key="TaskbarWidgetSongChangeAnimationSlide">Slide (out left, in from right)</System:String>
     <System:String x:Key="TaskbarVisualizerTitle">Taskbar Visualizer</System:String>
     <System:String x:Key="TaskbarVisualizerDescription">A real-time audio visualizer on your taskbar. Designed to have minimal performance impact on modern systems.</System:String>
     <System:String x:Key="TaskbarVisualizerEnabledTitle">Enable Taskbar Visualizer (Experimental)</System:String>

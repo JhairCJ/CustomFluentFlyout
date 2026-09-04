@@ -104,6 +104,13 @@ public partial class TaskbarWidgetControl : UserControl
     // pause overlay are only drawn over real cover art, not over the music-note placeholder.
     private bool _hasAlbumCover;
 
+    // Slide song-change animation state (style 1): while active, the outgoing ghost texts
+    // slide out to the left and the new texts slide in from the right. Marquee updates are
+    // suspended meanwhile so the scrolling clocks never steal the slide transforms.
+    private bool _songChangeSlideActive;
+    private int _songChangeSlideVersion;
+    private readonly List<System.Windows.Controls.TextBlock> _songChangeSlideGhosts = new();
+
     public TaskbarWidgetControl()
     {
         InitializeComponent();
@@ -639,7 +646,15 @@ public partial class TaskbarWidgetControl : UserControl
         BeginBackgroundDip(baked);
     }
 
-    public (double logicalWidth, double logicalHeight) CalculateSize(double dpiScale)
+    /// <summary>
+    /// Recomputes the cached text widths from <see cref="_actualTitle"/> /
+    /// <see cref="_actualArtist"/> and returns the logical widget width, mirroring the
+    /// sizing rules used by <see cref="CalculateSize"/>.
+    /// </summary>
+    /// <returns>
+    /// The logical width and whether the underlying text changed since the last call.
+    /// </returns>
+    private (double logicalWidth, bool textChanged) ComputeTextLogicalWidth()
     {
         // calculate widget width - use cached values if text hasn't changed
         string currentTitle = _actualTitle;
@@ -678,6 +693,17 @@ public partial class TaskbarWidgetControl : UserControl
             logicalWidth = Math.Min(logicalWidth, maxLogicalWidth);
         }
 
+        return (logicalWidth, textChanged);
+    }
+
+    /// <summary>
+    /// Applies the text container widths derived from <paramref name="logicalWidth"/>.
+    /// </summary>
+    /// <returns>True when any container width changed.</returns>
+    private bool SyncTextContainerWidths(double logicalWidth)
+    {
+        double coverImageReserved = SettingsManager.Current.TaskbarWidgetShowAlbumArt ? _coverImageMargin : _noCoverReservedMargin;
+
         double newTitleContainerWidth = Math.Max(logicalWidth - coverImageReserved, 0);
         double newArtistContainerWidth = Math.Max(logicalWidth - coverImageReserved, 0);
         bool widthChanged = false;
@@ -696,6 +722,14 @@ public partial class TaskbarWidgetControl : UserControl
             widthChanged = true;
         }
 
+        return widthChanged;
+    }
+
+    public (double logicalWidth, double logicalHeight) CalculateSize(double dpiScale)
+    {
+        var (logicalWidth, textChanged) = ComputeTextLogicalWidth();
+        bool widthChanged = SyncTextContainerWidths(logicalWidth);
+
         // Refresh animations if layout bounds or text contents change
         if (textChanged || widthChanged)
         {
@@ -713,15 +747,22 @@ public partial class TaskbarWidgetControl : UserControl
         return (logicalWidth, logicalHeight);
     }
 
-    public void UpdateMarquees()
+    public void UpdateMarquees(bool updateTitle = true, bool updateArtist = true)
     {
+        // A slide transition owns the text transforms while it runs; restarting the
+        // marquees here would snap the incoming text and strand the outgoing ghosts.
+        if (_songChangeSlideActive)
+            return;
+
         double titleAvailableWidth = double.IsNaN(SongTitleContainer.Width) ? 0 : SongTitleContainer.Width;
         double artistAvailableWidth = double.IsNaN(SongArtistContainer.Width) ? 0 : SongArtistContainer.Width;
 
         bool isScrollingEnabled = SettingsManager.Current.TaskbarWidgetScrollingEnabled;
 
-        UpdateMarquee(SongTitle, SongTitleContainer, _cachedTitleWidth, titleAvailableWidth, isScrollingEnabled);
-        UpdateMarquee(SongArtist, SongArtistContainer, _cachedArtistWidth, artistAvailableWidth, isScrollingEnabled);
+        if (updateTitle)
+            UpdateMarquee(SongTitle, SongTitleContainer, _cachedTitleWidth, titleAvailableWidth, isScrollingEnabled);
+        if (updateArtist)
+            UpdateMarquee(SongArtist, SongArtistContainer, _cachedArtistWidth, artistAvailableWidth, isScrollingEnabled);
     }
 
     private void UpdateMarquee(System.Windows.Controls.TextBlock textBlock, Canvas container, double textWidth, double availableWidth, bool isEnabled)
@@ -947,17 +988,36 @@ public partial class TaskbarWidgetControl : UserControl
 
             if (infoChanged || artChanged)
             {
-                // changed info
-                if (SettingsManager.Current.TaskbarWidgetAnimated)
-                {
-                    AnimateEntrance();
-                }
+                // Ghost texts must use the clean backing strings: the live TextBlocks may
+                // hold marquee-duplicated text (title + spacer + title) while looping.
+                string oldTitle = _actualTitle;
+                string oldArtist = _actualArtist;
 
                 _actualTitle = newTitle;
                 _actualArtist = newArtist;
 
-                SongTitle.Text = _actualTitle;
-                SongArtist.Text = _actualArtist;
+                // Slide and crossfade are mutually exclusive entrance styles: the slide owns
+                // the text swap (and the marquee restart), so the snapshot crossfade is skipped.
+                // Rows whose text did not change stay put (typically the artist when only
+                // the title changes between songs).
+                bool titleChanged = !string.Equals(oldTitle, newTitle, StringComparison.Ordinal);
+                bool artistChanged = !string.Equals(oldArtist, newArtist, StringComparison.Ordinal);
+
+                bool slid = infoChanged
+                    && SettingsManager.Current.TaskbarWidgetSongChangeAnimation == 1
+                    && TryAnimateSongChangeSlide(oldTitle, oldArtist, newTitle, newArtist, titleChanged, artistChanged);
+
+                if (!slid)
+                {
+                    // changed info
+                    if (SettingsManager.Current.TaskbarWidgetAnimated)
+                    {
+                        AnimateEntrance();
+                    }
+
+                    SongTitle.Text = _actualTitle;
+                    SongArtist.Text = _actualArtist;
+                }
             }
 
             // Update tooltip with song info (single allocation, no += chain)
@@ -1014,7 +1074,10 @@ public partial class TaskbarWidgetControl : UserControl
             UpdateAlbumArtOverlay();
 
             SongTitle.Visibility = Visibility.Visible;
-            SongArtist.Visibility = !string.IsNullOrEmpty(artist) ? Visibility.Visible : Visibility.Collapsed; // hide artist if it's not available
+            // While a slide is in flight the transition owns the artist row visibility
+            // (kept visible for the outgoing ghost, collapsed on completion if empty).
+            if (!_songChangeSlideActive)
+                SongArtist.Visibility = !string.IsNullOrEmpty(artist) ? Visibility.Visible : Visibility.Collapsed; // hide artist if it's not available
             SongInfoStackPanel.Visibility = Visibility.Visible;
             BackgroundImage.Visibility = SettingsManager.Current.TaskbarWidgetBackgroundBlur ? Visibility.Visible : Visibility.Collapsed;
 
@@ -1171,6 +1234,212 @@ public partial class TaskbarWidgetControl : UserControl
             onComplete();
         };
         BeginAnimation(OpacityProperty, fadeOutAnimation);
+    }
+
+    /// <summary>
+    /// Slides the song texts out to the left and the new ones in from the right when the
+    /// track changes (song-change style 1). Only rows whose text actually changed slide;
+    /// an unchanged row (typically the artist) stays put with its marquee untouched.
+    /// </summary>
+    /// <param name="oldTitle">Text currently displayed (slides out left).</param>
+    /// <param name="oldArtist">Artist currently displayed (slides out left).</param>
+    /// <param name="newTitle">Incoming title (slides in from the right).</param>
+    /// <param name="newArtist">Incoming artist (slides in from the right).</param>
+    /// <param name="animateTitle">Whether the title row changed and should slide.</param>
+    /// <param name="animateArtist">Whether the artist row changed and should slide.</param>
+    /// <returns>True when the slide was started and owns the text swap.</returns>
+    private bool TryAnimateSongChangeSlide(string oldTitle, string oldArtist, string newTitle, string newArtist, bool animateTitle, bool animateArtist)
+    {
+        try
+        {
+            if (!AreAnimationsEnabled || Visibility != Visibility.Visible || _isFadingOut)
+                return false;
+
+            // No laid-out containers yet (first paint): bail out before touching the width
+            // caches so the next CalculateSize tick still sees the pending change.
+            double currentTravel = double.IsNaN(SongTitleContainer.Width) ? 0 : SongTitleContainer.Width;
+            if (currentTravel <= 0)
+                return false;
+
+            // Invalidate any in-flight slide (rapid skips): the newest song wins, older
+            // ghosts are removed instantly instead of stacking up in the containers.
+            _songChangeSlideVersion++;
+            int version = _songChangeSlideVersion;
+            CleanupSongChangeSlideGhosts();
+
+            // Resize the text containers synchronously for the new strings (the caches are
+            // already synced via _actualTitle/_actualArtist) so the slide travels the final
+            // distance and the next CalculateSize tick sees no pending change to animate.
+            var (logicalWidth, _) = ComputeTextLogicalWidth();
+            SyncTextContainerWidths(logicalWidth);
+
+            double titleTravel = double.IsNaN(SongTitleContainer.Width) ? 0 : SongTitleContainer.Width;
+            double artistTravel = double.IsNaN(SongArtistContainer.Width) ? 0 : SongArtistContainer.Width;
+            if (titleTravel <= 0)
+                return false;
+
+            int msDuration = Math.Max(MainWindow.getDuration(), 1);
+
+            _songChangeSlideActive = true;
+
+            // Rows whose text did not change stay put: no ghost, no entrance, and a
+            // running marquee on that row is left untouched.
+            bool titleHasOutgoing = animateTitle && !string.IsNullOrEmpty(oldTitle);
+            bool artistHasOutgoing = animateArtist && !string.IsNullOrEmpty(oldArtist) && SongArtist.Visibility == Visibility.Visible;
+            bool titleHasIncoming = animateTitle && !string.IsNullOrEmpty(newTitle);
+            bool artistHasIncoming = animateArtist && !string.IsNullOrEmpty(newArtist);
+
+            if (animateTitle)
+                SongTitle.Visibility = Visibility.Visible;
+            if (animateArtist)
+            {
+                // The artist row must stay visible while its ghost slides out, and appear
+                // for the incoming text; it collapses again on completion when empty.
+                if (artistHasOutgoing || artistHasIncoming)
+                    SongArtist.Visibility = Visibility.Visible;
+
+                SlideSingleText(SongArtist, SongArtistContainer, oldArtist, newArtist, artistTravel, msDuration, 40, artistHasOutgoing);
+            }
+            if (animateTitle)
+                SlideSingleText(SongTitle, SongTitleContainer, oldTitle, newTitle, titleTravel, msDuration, 0, titleHasOutgoing);
+
+            // Settle once the longest-running entrance finishes: the artist enters with a
+            // small stagger so it finishes last when present, otherwise the title. Exits
+            // always start immediately, so they never outlast the entrances. The version
+            // check inside FinishSongChangeSlide drops stale timers from rapid skips.
+            // When nothing moves there is nothing to wait for: settle now.
+            bool anyMotion = titleHasOutgoing || artistHasOutgoing || titleHasIncoming || artistHasIncoming;
+            if (!anyMotion)
+            {
+                FinishSongChangeSlide(version, animateTitle, animateArtist, artistHasIncoming);
+                return true;
+            }
+
+            int settleMs = msDuration + (artistHasIncoming ? 40 : 0);
+            var settleTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(settleMs) };
+            settleTimer.Tick += (s, e) =>
+            {
+                settleTimer.Stop();
+                FinishSongChangeSlide(version, animateTitle, animateArtist, artistHasIncoming);
+            };
+            settleTimer.Start();
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Taskbar Widget error during song-change slide animation");
+            _songChangeSlideActive = false;
+            CleanupSongChangeSlideGhosts();
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Slides one text row: the outgoing ghost (old text) exits to the left while the live
+    /// <see cref="TextBlock"/> carrying the new text enters from the right, in parallel.
+    /// </summary>
+    private void SlideSingleText(System.Windows.Controls.TextBlock live, Canvas container, string oldText, string newText, double travel, int msDuration, int staggerMs, bool hasOutgoing)
+    {
+        if (live.RenderTransform is not TranslateTransform incomingTransform)
+            return;
+
+        incomingTransform.BeginAnimation(TranslateTransform.XProperty, null);
+
+        if (hasOutgoing && !string.IsNullOrEmpty(oldText))
+        {
+            var ghost = new System.Windows.Controls.TextBlock
+            {
+                Text = oldText,
+                Foreground = live.Foreground,
+                Opacity = live.Opacity,
+                FontWeight = live.FontWeight,
+                Width = live.Width,
+                TextTrimming = live.TextTrimming,
+                RenderTransform = new TranslateTransform()
+            };
+            container.Children.Add(ghost);
+            _songChangeSlideGhosts.Add(ghost);
+
+            var ghostTransform = (TranslateTransform)ghost.RenderTransform;
+            var exit = new DoubleAnimation
+            {
+                From = 0,
+                To = -travel,
+                Duration = TimeSpan.FromMilliseconds(msDuration),
+                EasingFunction = GetEasing(false)
+            };
+            ghostTransform.BeginAnimation(TranslateTransform.XProperty, exit);
+        }
+
+        if (string.IsNullOrEmpty(newText))
+        {
+            live.Text = string.Empty;
+            incomingTransform.X = 0;
+            return;
+        }
+
+        // Full text during the flight: trimming/ellipsis only applies once settled
+        // (UpdateMarquees restores it on completion).
+        live.Width = double.NaN;
+        live.TextTrimming = TextTrimming.None;
+        live.Text = newText;
+
+        var enter = new DoubleAnimation
+        {
+            From = travel,
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(msDuration),
+            BeginTime = TimeSpan.FromMilliseconds(staggerMs),
+            EasingFunction = GetEasing(true)
+        };
+        incomingTransform.BeginAnimation(TranslateTransform.XProperty, enter);
+    }
+
+    /// <summary>
+    /// Settles a finished slide: removes ghosts, parks the animated rows at rest and
+    /// resumes their marquee scrolling. Rows that did not change are left untouched.
+    /// Stale completions from superseded rapid-skip slides are ignored.
+    /// </summary>
+    private void FinishSongChangeSlide(int version, bool animateTitle, bool animateArtist, bool artistHasIncoming)
+    {
+        if (version != _songChangeSlideVersion)
+            return;
+
+        _songChangeSlideActive = false;
+        CleanupSongChangeSlideGhosts();
+
+        if (animateTitle && SongTitle.RenderTransform is TranslateTransform titleTransform)
+        {
+            titleTransform.BeginAnimation(TranslateTransform.XProperty, null);
+            titleTransform.X = 0;
+        }
+        if (animateArtist && SongArtist.RenderTransform is TranslateTransform artistTransform)
+        {
+            artistTransform.BeginAnimation(TranslateTransform.XProperty, null);
+            artistTransform.X = 0;
+        }
+
+        if (animateArtist && !artistHasIncoming)
+            SongArtist.Visibility = Visibility.Collapsed;
+
+        UpdateMarquees(animateTitle, animateArtist);
+    }
+
+    /// <summary>
+    /// Removes any outgoing ghost texts left by a previous (possibly superseded) slide.
+    /// </summary>
+    private void CleanupSongChangeSlideGhosts()
+    {
+        foreach (var ghost in _songChangeSlideGhosts)
+        {
+            if (ghost.RenderTransform is TranslateTransform transform)
+                transform.BeginAnimation(TranslateTransform.XProperty, null);
+
+            if (ghost.Parent is Canvas parent)
+                parent.Children.Remove(ghost);
+        }
+        _songChangeSlideGhosts.Clear();
     }
 
     private void AnimateEntrance()
