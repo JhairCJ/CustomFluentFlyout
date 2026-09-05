@@ -154,6 +154,12 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="TaskbarWidgetTextStyleSoft">Suave</system:String>
     <system:String x:Key="TaskbarWidgetTitleFontSizeTitle">Tamaño de la canción</system:String>
     <system:String x:Key="TaskbarWidgetArtistFontSizeTitle">Tamaño del autor</system:String>
+    <system:String x:Key="TaskbarWidgetSectionGeneralTitle">General</system:String>
+    <system:String x:Key="TaskbarWidgetSectionAppearanceTitle">Apariencia</system:String>
+    <system:String x:Key="TaskbarWidgetSectionContentTitle">Contenido</system:String>
+    <system:String x:Key="TaskbarWidgetSectionAnimationTitle">Animación</system:String>
+    <system:String x:Key="TaskbarWidgetBackgroundTitle">Fondo</system:String>
+    <system:String x:Key="TaskbarWidgetBackgroundDescription">Portada difuminada detrás del contenido del widget</system:String>
     <system:String x:Key="BackgroundBlurOption2" xml:space="preserve"> Tipo 1 (Iluminado de la Portada)</system:String>
     <system:String x:Key="BackgroundBlurOption3" xml:space="preserve"> Tipo 2 (Iluminado Difuminado)</system:String>
     <system:String x:Key="BackgroundBlurOption4" xml:space="preserve"> Tipo 3 (Desenfoque)</system:String>

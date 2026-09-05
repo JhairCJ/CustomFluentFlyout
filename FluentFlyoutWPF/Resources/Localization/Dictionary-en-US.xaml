@@ -124,6 +124,12 @@ hides repeat, shuffle and player info</System:String>
     <System:String x:Key="TaskbarWidgetTextStyleSoft">Soft</System:String>
     <System:String x:Key="TaskbarWidgetTitleFontSizeTitle">Song Title Size</System:String>
     <System:String x:Key="TaskbarWidgetArtistFontSizeTitle">Artist Size</System:String>
+    <System:String x:Key="TaskbarWidgetSectionGeneralTitle">General</System:String>
+    <System:String x:Key="TaskbarWidgetSectionAppearanceTitle">Appearance</System:String>
+    <System:String x:Key="TaskbarWidgetSectionContentTitle">Content</System:String>
+    <System:String x:Key="TaskbarWidgetSectionAnimationTitle">Animation</System:String>
+    <System:String x:Key="TaskbarWidgetBackgroundTitle">Background</System:String>
+    <System:String x:Key="TaskbarWidgetBackgroundDescription">Blurred album art behind the widget content</System:String>
     <System:String x:Key="TaskbarVisualizerTitle">Taskbar Visualizer</System:String>
     <System:String x:Key="TaskbarVisualizerDescription">A real-time audio visualizer on your taskbar. Designed to have minimal performance impact on modern systems.</System:String>
     <System:String x:Key="TaskbarVisualizerEnabledTitle">Enable Taskbar Visualizer (Experimental)</System:String>
