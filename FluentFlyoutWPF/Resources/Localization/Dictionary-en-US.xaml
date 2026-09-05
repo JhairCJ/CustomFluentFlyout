@@ -113,7 +113,9 @@ hides repeat, shuffle and player info</System:String>
     <System:String x:Key="TaskbarWidgetTypographyTitle">Typography &amp; Text Style</System:String>
     <System:String x:Key="TaskbarWidgetTypographyDescription">Fonts and styling for the song title and artist. Widget only.</System:String>
     <System:String x:Key="TaskbarWidgetFontFamilyTitle">Font</System:String>
-    <System:String x:Key="TaskbarWidgetFontFamilyDescription">Pick a curated font, or type the name of any font installed on your system</System:String>
+    <System:String x:Key="TaskbarWidgetFontFamilyDescription">Included fonts work on any PC. You can also pick a system font or type any installed font name</System:String>
+    <System:String x:Key="TaskbarWidgetFontGroupBundled">── Included fonts ──</System:String>
+    <System:String x:Key="TaskbarWidgetFontGroupSystem">── System fonts ──</System:String>
     <System:String x:Key="TaskbarWidgetTextStyleTitle">Song &amp; Artist Style</System:String>
     <System:String x:Key="TaskbarWidgetTextStyleDescription">Weight and presence of the two text rows (sizes stay independent below)</System:String>
     <System:String x:Key="TaskbarWidgetTextStyleModern">Modern (recommended)</System:String>

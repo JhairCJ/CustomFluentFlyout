@@ -9,7 +9,7 @@
              d:DataContext="{d:DesignInstance viewModels:UserSettings}"
              Height="40" Width="100"
               TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Ideal"
-              FontFamily="{Binding TaskbarWidgetFontFamily, FallbackValue='Segoe UI Variable'}"
+              FontFamily="{Binding TaskbarWidgetFontSource, FallbackValue='Segoe UI Variable'}"
               FlowDirection="{Binding FlowDirection}">
     <Border Name="MainBorder" CornerRadius="6" ClipToBounds="True">
         <Grid x:Name="RootGrid">

@@ -6,12 +6,14 @@ using FluentFlyout.Classes;
 using FluentFlyout.Classes.Settings;
 using FluentFlyout.Classes.Utils;
 using FluentFlyout.Controls;
+using FluentFlyout.Controls.TaskbarWidget;
 using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Models;
 using FluentFlyoutWPF.Windows;
 using System.Collections.ObjectModel;
 using System.Reflection;
 using System.Windows;
+using System.Windows.Media;
 using System.Xml.Serialization;
 
 namespace FluentFlyoutWPF.ViewModels;
@@ -680,11 +682,18 @@ public partial class UserSettings : ObservableObject
 
     /// <summary>
     /// Font family used only by the taskbar widget (song title and artist).
-    /// Any installed font name works; the settings ComboBox offers curated presets
-    /// and accepts custom typing.
+    /// Bundled display names (Inter, Manrope, …) work on any PC; anything else
+    /// is treated as a system font name and can be typed freely.
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TaskbarWidgetFontSource))]
     public partial string TaskbarWidgetFontFamily { get; set; }
+
+    /// <summary>
+    /// Resolved widget typeface for XAML bindings (pack URI for bundled fonts).
+    /// </summary>
+    [XmlIgnore]
+    public FontFamily TaskbarWidgetFontSource => WidgetFonts.Resolve(TaskbarWidgetFontFamily);
 
     /// <summary>
     /// Text style preset for the widget song/artist rows.

@@ -99,4 +99,8 @@
   <ItemGroup>
     <AdditionalFiles Include="Pages\**\*.xaml" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Bundled taskbar-widget typefaces (OFL): embedded so they work on any PC. -->
+    <Resource Include="Resources\Fonts\*.ttf" />
+  </ItemGroup>
 </Project>

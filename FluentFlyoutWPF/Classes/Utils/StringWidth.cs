@@ -47,7 +47,19 @@ namespace FluentFlyout.Classes.Utils
             string family = string.IsNullOrWhiteSpace(fontFamilyName)
                 ? "Segoe UI Variable"
                 : fontFamilyName;
-            string cacheKey = family + "|" + fontWeight + "|" + fontSize + "|" + text;
+            return GetStringWidth(text, new FontFamily(family), fontWeight, fontSize);
+        }
+
+        /// <summary>
+        /// Gets the width of the specified string rendered with an explicit
+        /// <see cref="FontFamily"/> (which may point at an embedded resource via a
+        /// pack URI), weight and size.
+        /// </summary>
+        public static double GetStringWidth(string? text, FontFamily family, int fontWeight = 500, int fontSize = 14)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
+
+            string cacheKey = family.Source + "|" + fontWeight + "|" + fontSize + "|" + text;
             lock (_widthCacheSync)
             {
                 if (_widthCache.TryGetValue(cacheKey, out double cached))
@@ -98,7 +110,12 @@ namespace FluentFlyout.Classes.Utils
 
         private static Typeface GetTypeface(string familyName, int fontWeight)
         {
-            string key = familyName + fontWeight;
+            return GetTypeface(new FontFamily(familyName), fontWeight);
+        }
+
+        private static Typeface GetTypeface(FontFamily family, int fontWeight)
+        {
+            string key = family.Source + fontWeight;
 
             _cachedTypefaces.TryGetValue(key, out var cachedTypeface);
 
@@ -109,7 +126,7 @@ namespace FluentFlyout.Classes.Utils
             }
             else
             {
-                var newTypeface = new Typeface(new FontFamily(familyName), new FontStyle(), ToFontWeight(fontWeight), FontStretches.Normal);
+                var newTypeface = new Typeface(family, new FontStyle(), ToFontWeight(fontWeight), FontStretches.Normal);
                 _cachedTypefaces[key] = newTypeface;
                 return newTypeface;
             }

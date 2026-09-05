@@ -238,12 +238,11 @@ public partial class TaskbarWidgetControl : UserControl
     }
 
     /// <summary>
-    /// Widget-only typeface name (any installed font works), with a safe fallback.
+    /// Widget-only typeface (bundled pack-URI fonts resolve here, anything else is
+    /// a system font name), with a safe fallback.
     /// </summary>
-    private static string WidgetFontFamilyName =>
-        string.IsNullOrWhiteSpace(SettingsManager.Current.TaskbarWidgetFontFamily)
-            ? "Segoe UI Variable"
-            : SettingsManager.Current.TaskbarWidgetFontFamily.Trim();
+    private static FontFamily WidgetFontFamily =>
+        WidgetFonts.Resolve(SettingsManager.Current.TaskbarWidgetFontFamily);
 
     private static int WidgetTitleFontSize =>
         Math.Clamp(SettingsManager.Current.TaskbarWidgetTitleFontSize, 10, 18);
@@ -294,15 +293,7 @@ public partial class TaskbarWidgetControl : UserControl
     /// </summary>
     public void ApplyTextStyle()
     {
-        FontFamily family;
-        try
-        {
-            family = new FontFamily(WidgetFontFamilyName);
-        }
-        catch
-        {
-            family = new FontFamily("Segoe UI Variable");
-        }
+        FontFamily family = WidgetFontFamily;
 
         int titleSize = WidgetTitleFontSize;
         int artistSize = WidgetArtistFontSize;
@@ -941,13 +932,13 @@ public partial class TaskbarWidgetControl : UserControl
 
         if (!string.Equals(currentTitle, _cachedTitleText, StringComparison.Ordinal))
         {
-            _cachedTitleWidth = Math.Round(StringWidth.GetStringWidth(currentTitle, WidgetFontFamilyName, WidgetTitleWeight, WidgetTitleFontSize), 2);
+            _cachedTitleWidth = Math.Round(StringWidth.GetStringWidth(currentTitle, WidgetFontFamily, WidgetTitleWeight, WidgetTitleFontSize), 2);
             _cachedTitleText = currentTitle;
             textChanged = true;
         }
         if (!string.Equals(currentArtist, _cachedArtistText, StringComparison.Ordinal))
         {
-            _cachedArtistWidth = Math.Round(StringWidth.GetStringWidth(currentArtist, WidgetFontFamilyName, WidgetArtistWeight, WidgetArtistFontSize), 2);
+            _cachedArtistWidth = Math.Round(StringWidth.GetStringWidth(currentArtist, WidgetFontFamily, WidgetArtistWeight, WidgetArtistFontSize), 2);
             _cachedArtistText = currentArtist;
             textChanged = true;
         }
@@ -1098,7 +1089,7 @@ public partial class TaskbarWidgetControl : UserControl
                 string spacer = "\u00A0\u00A0\u00A0\u00A0\u00A0";
                 textBlock.Text = origText + spacer + origText;
 
-                double spacerWidth = StringWidth.GetStringWidth(spacer, WidgetFontFamilyName, isTitle ? WidgetTitleWeight : WidgetArtistWeight, isTitle ? WidgetTitleFontSize : WidgetArtistFontSize);
+                double spacerWidth = StringWidth.GetStringWidth(spacer, WidgetFontFamily, isTitle ? WidgetTitleWeight : WidgetArtistWeight, isTitle ? WidgetTitleFontSize : WidgetArtistFontSize);
                 double scrollDistance = textWidth + spacerWidth;
 
                 double durationToScroll = scrollDistance / speed;
@@ -1827,7 +1818,7 @@ public partial class TaskbarWidgetControl : UserControl
         double renderedOldWidth = travel;
         if (hasOutgoing && !string.IsNullOrEmpty(oldText))
             renderedOldWidth = double.IsNaN(live.Width)
-                ? StringWidth.GetStringWidth(oldText, WidgetFontFamilyName, ghostIsTitle ? WidgetTitleWeight : WidgetArtistWeight, ghostIsTitle ? WidgetTitleFontSize : WidgetArtistFontSize) + distanceEpsilon
+                ? StringWidth.GetStringWidth(oldText, WidgetFontFamily, ghostIsTitle ? WidgetTitleWeight : WidgetArtistWeight, ghostIsTitle ? WidgetTitleFontSize : WidgetArtistFontSize) + distanceEpsilon
                 : Math.Max(live.Width, 0) + distanceEpsilon;
 
         double exitTo = slideBackwards ? renderedOldWidth : -renderedOldWidth;

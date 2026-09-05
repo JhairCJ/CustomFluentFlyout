@@ -361,21 +361,47 @@
                                 <TextBlock Text="{DynamicResource TaskbarWidgetFontFamilyDescription}" FontSize="12" Opacity="0.5" />
                             </StackPanel>
                         </ui:CardControl.Header>
-                        <ComboBox IsEditable="True" Text="{Binding TaskbarWidgetFontFamily, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="220">
+                        <ComboBox x:Name="TaskbarWidgetFontFamilyComboBox" IsEditable="True" Text="{Binding TaskbarWidgetFontFamily, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" SelectionChanged="TaskbarWidgetFontFamilyComboBox_SelectionChanged" Width="220">
+                            <ComboBoxItem Content="{DynamicResource TaskbarWidgetFontGroupBundled}" IsEnabled="False" />
+                            <ComboBoxItem Content="Inter" />
+                            <ComboBoxItem Content="Manrope" />
+                            <ComboBoxItem Content="Poppins" />
+                            <ComboBoxItem Content="Montserrat" />
+                            <ComboBoxItem Content="Nunito" />
+                            <ComboBoxItem Content="Space Grotesk" />
+                            <ComboBoxItem Content="Rubik" />
+                            <ComboBoxItem Content="Quicksand" />
+                            <ComboBoxItem Content="Comfortaa" />
+                            <ComboBoxItem Content="Caveat" />
+                            <ComboBoxItem Content="Baloo 2" />
+                            <ComboBoxItem Content="Fredoka" />
+                            <ComboBoxItem Content="Pacifico" />
+                            <ComboBoxItem Content="Permanent Marker" />
+                            <ComboBoxItem Content="Playfair Display" />
+                            <ComboBoxItem Content="DM Serif Display" />
+                            <ComboBoxItem Content="Lora" />
+                            <ComboBoxItem Content="Zilla Slab" />
+                            <ComboBoxItem Content="Fira Code" />
+                            <ComboBoxItem Content="JetBrains Mono" />
+                            <ComboBoxItem Content="Space Mono" />
+                            <ComboBoxItem Content="{DynamicResource TaskbarWidgetFontGroupSystem}" IsEnabled="False" />
                             <ComboBoxItem Content="Segoe UI Variable" />
                             <ComboBoxItem Content="Segoe UI" />
                             <ComboBoxItem Content="Bahnschrift" />
                             <ComboBoxItem Content="Calibri" />
                             <ComboBoxItem Content="Candara" />
+                            <ComboBoxItem Content="Century Gothic" />
+                            <ComboBoxItem Content="Constantia" />
+                            <ComboBoxItem Content="Copperplate Gothic Bold" />
                             <ComboBoxItem Content="Corbel" />
+                            <ComboBoxItem Content="Franklin Gothic Medium" />
+                            <ComboBoxItem Content="Gabriola" />
                             <ComboBoxItem Content="Georgia" />
+                            <ComboBoxItem Content="Palatino Linotype" />
+                            <ComboBoxItem Content="Segoe Script" />
                             <ComboBoxItem Content="Trebuchet MS" />
                             <ComboBoxItem Content="Verdana" />
                             <ComboBoxItem Content="Cascadia Mono" />
-                            <ComboBoxItem Content="Inter" />
-                            <ComboBoxItem Content="Manrope" />
-                            <ComboBoxItem Content="Montserrat" />
-                            <ComboBoxItem Content="Poppins" />
                         </ComboBox>
                     </ui:CardControl>
                     <ui:CardControl Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">

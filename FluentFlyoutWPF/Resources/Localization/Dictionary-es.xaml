@@ -143,7 +143,9 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="TaskbarWidgetTypographyTitle">Tipografía y estilo de texto</system:String>
     <system:String x:Key="TaskbarWidgetTypographyDescription">Fuentes y estilo de la canción y el autor. Solo afecta al widget.</system:String>
     <system:String x:Key="TaskbarWidgetFontFamilyTitle">Tipografía</system:String>
-    <system:String x:Key="TaskbarWidgetFontFamilyDescription">Elige una de la lista o escribe el nombre de cualquier fuente instalada en tu sistema</system:String>
+    <system:String x:Key="TaskbarWidgetFontFamilyDescription">Las incluidas funcionan en cualquier PC. También puedes elegir una del sistema o escribir cualquier fuente instalada</system:String>
+    <system:String x:Key="TaskbarWidgetFontGroupBundled">── Fuentes incluidas ──</system:String>
+    <system:String x:Key="TaskbarWidgetFontGroupSystem">── Fuentes del sistema ──</system:String>
     <system:String x:Key="TaskbarWidgetTextStyleTitle">Estilo de canción y autor</system:String>
     <system:String x:Key="TaskbarWidgetTextStyleDescription">Grosor y presencia de las dos líneas de texto (los tamaños van por separado abajo)</system:String>
     <system:String x:Key="TaskbarWidgetTextStyleModern">Moderno (recomendado)</system:String>
