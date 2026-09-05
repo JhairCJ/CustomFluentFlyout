@@ -1357,6 +1357,8 @@ public partial class TaskbarWidgetControl : UserControl
             Logger.Error(ex, "Taskbar Widget error during song-change slide animation");
             _songChangeSlideActive = false;
             CleanupSongChangeSlideGhosts();
+            // Reattach marquee masks/scrolling in case they were suspended mid-flight.
+            UpdateMarquees();
             return false;
         }
     }
@@ -1365,6 +1367,10 @@ public partial class TaskbarWidgetControl : UserControl
     /// Slides one text row: the outgoing ghost (old text) exits to one side while the live
     /// <see cref="TextBlock"/> carrying the new text enters from the other side, in parallel.
     /// Forward slides exit left / enter from the right; backward slides are mirrored.
+    /// Distances cover the full measured text width (not just the container), so a long
+    /// scrolling text exits completely instead of leaving its tail behind. The marquee's
+    /// edge-fade mask is suspended for the flight and restored by
+    /// <see cref="UpdateMarquees(bool, bool)"/> on completion.
     /// </summary>
     private void SlideSingleText(System.Windows.Controls.TextBlock live, Canvas container, string oldText, string newText, double travel, int msDuration, int staggerMs, bool hasOutgoing, bool slideBackwards)
     {
@@ -1373,8 +1379,31 @@ public partial class TaskbarWidgetControl : UserControl
 
         incomingTransform.BeginAnimation(TranslateTransform.XProperty, null);
 
-        double exitTo = slideBackwards ? travel : -travel;
-        double enterFrom = slideBackwards ? -travel : travel;
+        // Detach the stale marquee fade: its edge mask and forever-running gradient
+        // animations belong to the old scroll timeline and would fade the sliding texts.
+        bool isTitle = live == SongTitle;
+        ref LinearGradientBrush? cachedMask = ref (isTitle ? ref _cachedTitleOpacityMask : ref _cachedArtistOpacityMask);
+        if (cachedMask != null)
+        {
+            cachedMask.GradientStops[0].BeginAnimation(GradientStop.ColorProperty, null);
+            cachedMask.GradientStops[3].BeginAnimation(GradientStop.ColorProperty, null);
+        }
+        container.OpacityMask = null;
+
+        // Full text widths (same helper/weight as the layout caches): a text longer than
+        // its container (the marquee case) must travel its whole width to leave no remnant.
+        // A few extra pixels guard against measuring/rounding differences; overshooting is
+        // harmless (the containers clip), undershooting would strand a static tail.
+        const double distanceEpsilon = 8.0;
+        double exitDistance = travel;
+        if (hasOutgoing && !string.IsNullOrEmpty(oldText))
+            exitDistance = Math.Max(travel, StringWidth.GetStringWidth(oldText, 400) + distanceEpsilon);
+        double enterDistance = travel;
+        if (!string.IsNullOrEmpty(newText))
+            enterDistance = Math.Max(travel, StringWidth.GetStringWidth(newText, 400) + distanceEpsilon);
+
+        double exitTo = slideBackwards ? exitDistance : -exitDistance;
+        double enterFrom = slideBackwards ? -enterDistance : enterDistance;
 
         if (hasOutgoing && !string.IsNullOrEmpty(oldText))
         {
