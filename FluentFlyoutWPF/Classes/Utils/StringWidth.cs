@@ -13,6 +13,15 @@ namespace FluentFlyout.Classes.Utils
         private static string cachedFontFamily = string.Empty;
         private static Dictionary<string, Typeface> _cachedTypefaces = new();
 
+        // Measured-width cache: CalculateSize runs on every reposition tick and every
+        // metadata event, and each call used to build Throwaway FormattedText instances
+        // for title + artist (+ spacer + ghost). Widths only depend on
+        // (font family, weight, size, text), so memoize them. Bounded with a simple
+        // clear-on-overflow; song titles are a small working set in practice.
+        private static readonly Dictionary<string, double> _widthCache = new();
+        private static readonly object _widthCacheSync = new();
+        private const int WidthCacheLimit = 512;
+
         /// <summary>
         /// Gets the width of the specified string when rendered with the specified font weight.
         /// </summary>
@@ -22,7 +31,15 @@ namespace FluentFlyout.Classes.Utils
         /// <returns>The width of the specified text, in device-independent units (pixels), including a small padding.</returns>
         public static double GetStringWidth(string? text, int fontWeight = 500, int fontSize = 14)
         {
-            if (text == null) return 0;
+            if (string.IsNullOrEmpty(text)) return 0;
+
+            string currentFontFamily = SettingsManager.Current.FontFamily ?? "Segoe UI Variable, Microsoft YaHei UI, Yu Gothic UI, Malgun Gothic";
+            string cacheKey = currentFontFamily + "|" + fontWeight + "|" + fontSize + "|" + text;
+            lock (_widthCacheSync)
+            {
+                if (_widthCache.TryGetValue(cacheKey, out double cached))
+                    return cached;
+            }
 
             var formattedText = new FormattedText(
                 text,
@@ -34,7 +51,15 @@ namespace FluentFlyout.Classes.Utils
                 null,
                 1);
 
-            return formattedText.Width;
+            double width = formattedText.Width;
+            lock (_widthCacheSync)
+            {
+                if (_widthCache.Count >= WidthCacheLimit)
+                    _widthCache.Clear();
+                _widthCache[cacheKey] = width;
+            }
+
+            return width;
         }
 
         // Returns the current Typeface based on the font family and weight, caching it for performance.
@@ -48,6 +73,11 @@ namespace FluentFlyout.Classes.Utils
                 // get the current font family from user settings or use the default one
                 fontFamily = new FontFamily(currentFontFamily);
                 cachedFontFamily = currentFontFamily;
+                // Measured widths depend on the family: previously cached values are stale.
+                lock (_widthCacheSync)
+                {
+                    _widthCache.Clear();
+                }
             }
 
             _cachedTypefaces.TryGetValue(currentFontFamily + fontWeight, out var cachedTypeface);

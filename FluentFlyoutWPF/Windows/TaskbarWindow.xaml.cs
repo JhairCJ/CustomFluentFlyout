@@ -793,22 +793,18 @@ on_error:
     }
 
     /// <summary>
-    /// Whether widget animations are active: both the widget animation toggle and the
-    /// global flyout animation speed must be enabled, matching the main flyout behaviour.
+    /// Whether widget animations are active (shared with the widget control:
+    /// see <see cref="FluentFlyout.Controls.TaskbarWidget.TaskbarWidgetAnimationEnvironment"/>).
     /// </summary>
     private bool AreAnimationsEnabled =>
-        SettingsManager.Current.TaskbarWidgetAnimated && SettingsManager.Current.FlyoutAnimationSpeed != 0;
+        FluentFlyout.Controls.TaskbarWidget.TaskbarWidgetAnimationEnvironment.AreAnimationsEnabled;
 
     /// <summary>
     /// Returns the user's chosen easing function, or <see langword="null"/> for linear
     /// when "linear" is selected, mirroring the main flyout's behaviour.
     /// </summary>
-    private EasingFunctionBase? GetEasing(bool easeOut)
-    {
-        if (_mainWindow != null)
-            return _mainWindow.getEasingStyle(easeOut); // null means linear, as in the main flyout
-        return new CubicEase { EasingMode = easeOut ? EasingMode.EaseOut : EasingMode.EaseIn };
-    }
+    private EasingFunctionBase? GetEasing(bool easeOut) =>
+        FluentFlyout.Controls.TaskbarWidget.TaskbarWidgetAnimationEnvironment.GetEasing(_mainWindow, easeOut);
 
     /// <summary>
     /// Ensures the widget window is visible, fading it in when it was hidden (autohide,
@@ -835,7 +831,7 @@ on_error:
             {
                 From = 0.0,
                 To = 1.0,
-                Duration = TimeSpan.FromMilliseconds(Math.Max(MainWindow.getDuration(), 1)),
+                Duration = TimeSpan.FromMilliseconds(FluentFlyout.Controls.TaskbarWidget.TaskbarWidgetAnimationEnvironment.GetDurationMs()),
                 EasingFunction = GetEasing(true)
             };
             BeginAnimation(OpacityProperty, fadeInAnimation);
@@ -864,7 +860,7 @@ on_error:
         DoubleAnimation fadeOutAnimation = new()
         {
             To = 0.0,
-            Duration = TimeSpan.FromMilliseconds(Math.Max(MainWindow.getDuration(), 1)),
+            Duration = TimeSpan.FromMilliseconds(FluentFlyout.Controls.TaskbarWidget.TaskbarWidgetAnimationEnvironment.GetDurationMs()),
             EasingFunction = GetEasing(false)
         };
         fadeOutAnimation.Completed += (s, e) =>

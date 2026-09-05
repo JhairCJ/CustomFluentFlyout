@@ -100,10 +100,35 @@ internal static class BitmapHelper
     public static List<SolidColorBrush> SavedDominantColors => [AlbumAccent.Brush];
 
     /// <summary>
-    /// Fast non-cryptographic hash (FNV-1a) of the thumbnail stream, used for
+    /// Fast non-cryptographic hash (FNV-1a) of raw thumbnail bytes, used for
     /// cache lookup and change detection. Thumbnails are small; the previous
     /// SHA-256 over the full stream was pure overhead on the UI thread.
     /// </summary>
+    private static int HashThumbnailBytes(byte[] bytes, long streamLength)
+    {
+        const uint offsetBasis = 2166136261;
+        const uint prime = 16777619;
+        uint hash = offsetBasis;
+        hash ^= (uint)streamLength;
+        hash *= prime;
+
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            hash ^= bytes[i];
+            hash *= prime;
+        }
+        return unchecked((int)hash);
+    }
+
+    private static byte[] ReadThumbnailBytes(IRandomAccessStreamReference thumbnail, out long streamLength)
+    {
+        using Stream stream = thumbnail.OpenReadAsync().GetAwaiter().GetResult().AsStreamForRead();
+        using var copy = new MemoryStream((int)Math.Min(Math.Max(stream.Length, 0), 4 * 1024 * 1024));
+        stream.CopyTo(copy);
+        streamLength = stream.Length;
+        return copy.ToArray();
+    }
+
     public static int GetStableThumbnailHash(IRandomAccessStreamReference thumbnail)
     {
         if (thumbnail == null)
@@ -111,24 +136,8 @@ internal static class BitmapHelper
 
         try
         {
-            using Stream stream = thumbnail.OpenReadAsync().GetAwaiter().GetResult().AsStreamForRead();
-            const uint offsetBasis = 2166136261;
-            const uint prime = 16777619;
-            uint hash = offsetBasis;
-            hash ^= (uint)stream.Length;
-            hash *= prime;
-
-            byte[] buffer = new byte[4096];
-            int read;
-            while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
-            {
-                for (int i = 0; i < read; i++)
-                {
-                    hash ^= buffer[i];
-                    hash *= prime;
-                }
-            }
-            return unchecked((int)hash);
+            byte[] bytes = ReadThumbnailBytes(thumbnail, out long length);
+            return HashThumbnailBytes(bytes, length);
         }
         catch (Exception ex)
         {
@@ -142,9 +151,36 @@ internal static class BitmapHelper
         if (thumbnail == null)
             return null;
 
-        int hashCode = GetStableThumbnailHash(thumbnail);
+        // Single stream open: buffer the bytes once, hash them for the cache lookup,
+        // then decode from the same buffer. The previous code opened the thumbnail
+        // stream twice per song change (once to hash, once to decode).
+        byte[] bytes;
+        long streamLength;
+        try
+        {
+            bytes = ReadThumbnailBytes(thumbnail, out streamLength);
+        }
+        catch (Exception ex)
+        {
+            Logger.Info(ex, "Failed to read thumbnail stream");
+            return null;
+        }
+
+        int hashCode = HashThumbnailBytes(bytes, streamLength);
 
         if (hashCode == 0)
+            return null;
+
+        return GetThumbnailFromBytes(bytes, hashCode, maxThumbnailSize);
+    }
+
+    /// <summary>
+    /// Cache-hit path for callers that already hashed the thumbnail for change
+    /// detection (e.g. the media-property dedup): skips hashing a second time.
+    /// </summary>
+    internal static BitmapImage? GetThumbnailWithHash(IRandomAccessStreamReference? thumbnail, int hashCode, int maxThumbnailSize = _maxThumbnailSize)
+    {
+        if (thumbnail == null || hashCode == 0)
             return null;
 
         if (_thumbnailCache.TryGetValue(hashCode, out var cachedImage) && cachedImage != null)
@@ -153,8 +189,21 @@ internal static class BitmapHelper
             return cachedImage;
         }
 
+        // Cache miss with a known hash (thumbnail changed): fall back to the normal
+        // single-open path rather than decoding from a stale buffer.
+        return GetThumbnail(thumbnail, maxThumbnailSize);
+    }
+
+    private static BitmapImage? GetThumbnailFromBytes(byte[] bytes, int hashCode, int maxThumbnailSize)
+    {
+        if (_thumbnailCache.TryGetValue(hashCode, out var cachedImage) && cachedImage != null)
+        {
+            _latestThumbnailHash = hashCode;
+            return cachedImage;
+        }
+
         BitmapImage image = new();
-        using (var imageStream = thumbnail.OpenReadAsync().GetAwaiter().GetResult().AsStreamForRead())
+        using (var imageStream = new MemoryStream(bytes, writable: false))
         {
             // initialize the BitmapImage
             image.BeginInit();

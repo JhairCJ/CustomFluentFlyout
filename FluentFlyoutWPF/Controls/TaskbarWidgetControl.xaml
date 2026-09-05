@@ -22,6 +22,14 @@
                         <BlurEffect x:Name="BackgroundImageBlurEffect" Radius="{Binding TaskbarWidgetBackgroundBlurRadius}" />
                     </Image.Effect>
                 </Image>
+                <!-- Incoming background layer, rendered on top of BackgroundImage. Song changes
+                     crossfade by fading this layer 0 -> bound over the old disc underneath, so the
+                     transition never passes through transparent/black. Parked (Collapsed) at rest. -->
+                <Image x:Name="BackgroundImageNext" Stretch="UniformToFill" RenderTransformOrigin="0.5,0.5" Visibility="Collapsed" Opacity="{Binding TaskbarWidgetBackgroundBlurIntensity, Converter={StaticResource PercentageToOpacityConverter}}">
+                    <Image.Effect>
+                        <BlurEffect x:Name="BackgroundImageNextBlurEffect" Radius="{Binding TaskbarWidgetBackgroundBlurRadius}" />
+                    </Image.Effect>
+                </Image>
             </Canvas>
             <Border Name="TopBorder" BorderThickness="0,1.25,0,0" CornerRadius="5" Margin="0,0,0,1.25">
                 <Grid Name="MainGrid" HorizontalAlignment="Left" VerticalAlignment="Center" RenderTransformOrigin="0,0.5">

@@ -3,6 +3,7 @@
 
 using FluentFlyout.Classes.Settings;
 using FluentFlyout.Classes.Utils;
+using FluentFlyout.Controls.TaskbarWidget;
 using FluentFlyoutWPF;
 using System.Windows;
 using System.Windows.Controls;
@@ -75,9 +76,11 @@ public partial class TaskbarWidgetControl : UserControl
     private bool _backgroundRotationWasUp;
     private bool _backgroundRotationPaused;
     private double _pausedRotationAngle;
-    // Disc the running background dip (if any) is fading toward. Duplicate events for
-    // identical content must leave that dip alone instead of restarting/snapping it.
-    private BitmapSource? _dipTarget;
+    // Disc the running background crossfade (if any) is fading toward. Duplicate events
+    // for identical content must leave that crossfade alone instead of restarting or
+    // snapping it. Versioned like the slide so rapid skips collapse onto the latest art.
+    private BitmapSource? _bgCrossfadeTarget;
+    private int _bgCrossfadeVersion;
     // Bake currently running in UpdateBakedBackgroundAsync (icon + quantized side), so
     // burst events (duplicate metadata, resize ticks) don't stack parallel bakes.
     private BitmapImage? _bakingIcon;
@@ -126,6 +129,24 @@ public partial class TaskbarWidgetControl : UserControl
     private DateTime _slideDirectionNotedUtc = DateTime.MinValue;
     private static readonly TimeSpan SlideDirectionLifetime = TimeSpan.FromSeconds(3);
 
+    // Atomic song commit: a song change arrives as a burst (texts first, cover art in
+    // later events). A complete song (cover present) publishes synchronously in the same
+    // UI block that starts the text entrance, so letters and background crossfade start
+    // together; only an incomplete burst waits on the commit timer below. Each burst
+    // event re-arms the timer; the last one wins. Playback state (pause/controls/overlay)
+    // never waits: it is applied immediately in UpdateUi.
+    private const int SongCommitWaitMs = 350;
+    private DispatcherTimer? _commitTimer;
+    private bool _hasPendingSong;
+    private string _pendingTitle = string.Empty;
+    private string _pendingArtist = string.Empty;
+    private BitmapImage? _pendingIcon;
+
+    // Slide settle tracking: the slide finishes when its slowest enter animation
+    // completes (stagger of the artist row included), not on a wall-clock timer that
+    // can drift and cause the final "teleport" snap.
+    private int _slidePendingCompletions;
+
     /// <summary>
     /// Notes an explicit track navigation so the next song-change slide animates in the
     /// matching direction (forward: exit left / enter from right; backward: mirrored).
@@ -170,6 +191,10 @@ public partial class TaskbarWidgetControl : UserControl
         // A forever rotation clock burns CPU/GPU even when nobody can see it
         // (autohide, widget collapsed, no media). Freeze it while hidden.
         IsVisibleChanged += (s, e) => UpdateRotationPauseState();
+
+        // Release timers, clocks and ghost visuals when the host window goes away so
+        // the control never keeps itself (or its DispatcherTimers) alive after teardown.
+        Unloaded += (s, e) => CleanupWidgetResources();
     }
 
     public void ApplyCornerRadius()
@@ -268,12 +293,13 @@ public partial class TaskbarWidgetControl : UserControl
 
             // Static image needs no per-frame cache; drop it to save memory.
             BackgroundImage.CacheMode = null;
+            BackgroundImageNext.CacheMode = null;
 
             if (_currentIcon != null)
                 BackgroundImage.Source = _currentIcon;
         }
 
-        CancelBackgroundDip();
+        CancelBackgroundCrossfade();
 
         UpdateRotationPauseState();
     }
@@ -288,17 +314,25 @@ public partial class TaskbarWidgetControl : UserControl
         if (_backgroundRotateTransform == null)
         {
             _backgroundRotateTransform = new RotateTransform(0);
-            BackgroundImage.RenderTransform = _backgroundRotateTransform;
         }
+
+        // One shared angle owner for both background layers: the incoming layer fades in
+        // on top of the old disc at the exact same angle, so the crossfade never jumps.
+        // (A transform instance carries no parent, so sharing it is safe.)
+        BackgroundImage.RenderTransform = _backgroundRotateTransform;
+        BackgroundImageNext.RenderTransform = _backgroundRotateTransform;
 
         // blur is baked into the bitmap, so disable the live effect while rotating
         BackgroundImage.Effect = null;
+        BackgroundImageNext.Effect = null;
 
         // Cache the rotating subtree as a bitmap: each frame becomes a cheap texture
         // transform instead of a full resample + clip of the large disc. RenderAtScale
         // 0.5 matches the 256px baked texture, so nothing visible is lost (it's all blur).
         if (BackgroundImage.CacheMode is not BitmapCache)
             BackgroundImage.CacheMode = new BitmapCache(0.5);
+        if (BackgroundImageNext.CacheMode is not BitmapCache)
+            BackgroundImageNext.CacheMode = new BitmapCache(0.5);
 
         // The rotating square is about three times the widget's width - large enough that a
         // full viewport-width band always stays inside the rotating disc at every angle,
@@ -314,6 +348,7 @@ public partial class TaskbarWidgetControl : UserControl
         // centre so the centre of the album is never visible through the viewport.
         bool showLeftSide = SettingsManager.Current.TaskbarWidgetBackgroundRotateSide == 0;
         LayoutDiscLayer(BackgroundImage, width, height, discSide, offsetX, showLeftSide);
+        LayoutDiscLayer(BackgroundImageNext, width, height, discSide, offsetX, showLeftSide);
 
         if (_currentIcon != null)
             UpdateBakedBackgroundAsync(_currentIcon, discSide);
@@ -377,74 +412,126 @@ public partial class TaskbarWidgetControl : UserControl
     }
 
     /// <summary>
-    /// Fades the single background layer out, swaps to <paramref name="target"/>, and
-    /// fades back in. One layer, one clock: the rotation transform is never touched,
-    /// so the disc cannot jump position mid-transition. Restarting toward a newer
-    /// target kills the previous clock (removed clocks never complete), so rapid
-    /// skips collapse onto the latest art with no stuck states.
+    /// True crossfade between background discs: the incoming disc fades 0 -&gt; bound on the
+    /// top layer (<see cref="BackgroundImageNext"/>) while the old disc stays at bound
+    /// underneath, then the old layer adopts the new image (invisibly, fully covered) and
+    /// the top layer parks. The composite never passes through transparent/black, unlike
+    /// the old single-layer dip. Runs with the same duration/easing as the text entrance
+    /// started in the same commit, so letters and background land together.
+    /// Restarting toward a newer target kills the previous clock (removed clocks never
+    /// complete), so rapid skips collapse onto the latest art with no stuck states.
     /// </summary>
-    private void BeginBackgroundDip(BitmapSource target)
+    private void BeginBackgroundCrossfade(BitmapSource target, int durationMs)
     {
-        if (!_backgroundRotationActive || ReferenceEquals(BackgroundImage.Source, target))
+        // Nothing established yet (first paint): set directly, no fade from empty.
+        if (BackgroundImage.Source == null)
+        {
+            BackgroundImage.Source = target;
+            ParkBackgroundNextLayer();
+            return;
+        }
+
+        // Already showing exactly this with nothing in flight: park the top layer.
+        if (ReferenceEquals(BackgroundImage.Source, target) && _bgCrossfadeTarget == null)
+        {
+            ParkBackgroundNextLayer();
+            return;
+        }
+
+        // Already fading toward this exact disc: leave the running crossfade alone so it
+        // completes with easing instead of restarting, and never snap it mid-flight.
+        if (ReferenceEquals(_bgCrossfadeTarget, target))
             return;
 
-        // Already fading toward this exact disc (event burst with identical content):
-        // leave the running dip alone so it completes with easing instead of
-        // restarting, and never snap it back to full opacity mid-flight.
-        if (ReferenceEquals(_dipTarget, target))
-            return;
+        _bgCrossfadeVersion++;
+        int version = _bgCrossfadeVersion;
 
-        // Restart toward a newer target if one is already running (the killed clock
-        // never completes, so rapid skips collapse onto the latest art). Read the
-        // current animated value first so the new fade-out starts where the screen
-        // actually is instead of flashing back to full opacity.
-        double startOpacity = BackgroundImage.Opacity;
-        BackgroundImage.BeginAnimation(OpacityProperty, null);
+        // Read the live value first (a restart continues from the partial opacity).
+        double nextStart = BackgroundImageNext.Opacity;
+        bool nextWasVisible = BackgroundImageNext.Visibility == Visibility.Visible;
+        BackgroundImageNext.BeginAnimation(OpacityProperty, null);
 
         if (!AreAnimationsEnabled)
         {
             BackgroundImage.Source = target;
-            _dipTarget = null;
+            ParkBackgroundNextLayer();
             return;
         }
 
-        _dipTarget = target;
-        double bound = BackgroundImage.Opacity; // bound intensity value, restored afterwards
-
-        var dipOut = new DoubleAnimation
+        // Fading back to what is already underneath (rapid A -> B -> A): reveal the
+        // front layer instead of starting a new incoming fade.
+        if (ReferenceEquals(BackgroundImage.Source, target))
         {
-            From = startOpacity,
-            To = 0.0,
-            Duration = TimeSpan.FromMilliseconds(150),
-            EasingFunction = GetEasing(false)
-        };
-        dipOut.Completed += (s, e) =>
-        {
-            BackgroundImage.Source = target;
-
-            var dipIn = new DoubleAnimation
+            _bgCrossfadeTarget = target;
+            if (!nextWasVisible || nextStart <= 0.01)
             {
-                To = bound,
-                Duration = TimeSpan.FromMilliseconds(300),
+                ParkBackgroundNextLayer();
+                return;
+            }
+            BackgroundImageNext.Opacity = nextStart;
+            var fadeOut = new DoubleAnimation
+            {
+                From = nextStart,
+                To = 0.0,
+                Duration = TimeSpan.FromMilliseconds(durationMs),
                 EasingFunction = GetEasing(true)
             };
-            dipIn.Completed += (s2, e2) =>
+            fadeOut.Completed += (s, e) =>
             {
-                CancelBackgroundDip(); // binding resumes, value already matches
+                if (version != _bgCrossfadeVersion)
+                    return;
+                ParkBackgroundNextLayer();
             };
-            BackgroundImage.BeginAnimation(OpacityProperty, dipIn);
+            BackgroundImageNext.BeginAnimation(OpacityProperty, fadeOut);
+            return;
+        }
+
+        _bgCrossfadeTarget = target;
+        double bound = BackgroundImage.Opacity; // bound intensity both layers rest at
+        BackgroundImageNext.Source = target;
+        BackgroundImageNext.Visibility = Visibility.Visible;
+        // Fresh start from 0; a restart continues from its partial value (no snap).
+        BackgroundImageNext.Opacity = nextWasVisible ? nextStart : 0.0;
+
+        var fadeIn = new DoubleAnimation
+        {
+            From = BackgroundImageNext.Opacity,
+            To = bound,
+            Duration = TimeSpan.FromMilliseconds(durationMs),
+            EasingFunction = GetEasing(true)
         };
-        BackgroundImage.BeginAnimation(OpacityProperty, dipOut);
+        fadeIn.Completed += (s, e) =>
+        {
+            if (version != _bgCrossfadeVersion)
+                return;
+            // Fully covered by the top layer: adopt underneath (invisible change).
+            BackgroundImage.Source = target;
+            ParkBackgroundNextLayer();
+        };
+        BackgroundImageNext.BeginAnimation(OpacityProperty, fadeIn);
     }
 
     /// <summary>
-    /// Kills a running background dip, restoring the bound opacity.
-    /// Used when rotation stops or the widget is torn down.
+    /// Parks the incoming background layer and forgets any running crossfade target.
+    /// The front layer is never touched (it rests at the bound intensity), so this
+    /// cannot snap or flash. Used when rotation stops, the widget is torn down, or a
+    /// transition settles.
     /// </summary>
-    private void CancelBackgroundDip()
+    private void ParkBackgroundNextLayer()
     {
-        _dipTarget = null;
-        BackgroundImage.BeginAnimation(OpacityProperty, null);
+        _bgCrossfadeTarget = null;
+        BackgroundImageNext.BeginAnimation(OpacityProperty, null);
+        BackgroundImageNext.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Kills a running background crossfade (bumping the version so its completion is
+    /// ignored) and parks the incoming layer.
+    /// </summary>
+    private void CancelBackgroundCrossfade()
+    {
+        _bgCrossfadeVersion++;
+        ParkBackgroundNextLayer();
     }
 
     /// <summary>
@@ -530,9 +617,11 @@ public partial class TaskbarWidgetControl : UserControl
             _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, null);
             _backgroundRotateTransform.Angle = 0;
         }
-        CancelBackgroundDip();
+        CancelBackgroundCrossfade();
         BackgroundImage.CacheMode = null;
+        BackgroundImageNext.CacheMode = null;
         BackgroundImage.Effect = BackgroundImageBlurEffect;
+        BackgroundImageNext.Effect = BackgroundImageNextBlurEffect;
     }
 
     /// <summary>
@@ -547,12 +636,21 @@ public partial class TaskbarWidgetControl : UserControl
 
         double side = Math.Max(Math.Max(width, height), 1);
 
-        Canvas.SetLeft(BackgroundImage, (width - side) / 2);
-        Canvas.SetTop(BackgroundImage, (height - side) / 2);
-        BackgroundImage.Width = side;
-        BackgroundImage.Height = side;
-        BackgroundImage.Margin = new Thickness(0);
-        BackgroundImage.Stretch = Stretch.UniformToFill;
+        LayoutFillLayer(BackgroundImage, width, height, side);
+        LayoutFillLayer(BackgroundImageNext, width, height, side);
+    }
+
+    /// <summary>
+    /// Positions one static-mode background layer over the viewport.
+    /// </summary>
+    private static void LayoutFillLayer(System.Windows.Controls.Image layer, double width, double height, double side)
+    {
+        Canvas.SetLeft(layer, (width - side) / 2);
+        Canvas.SetTop(layer, (height - side) / 2);
+        layer.Width = side;
+        layer.Height = side;
+        layer.Margin = new Thickness(0);
+        layer.Stretch = Stretch.UniformToFill;
     }
 
     private void SetBackground(BitmapImage? icon)
@@ -565,6 +663,7 @@ public partial class TaskbarWidgetControl : UserControl
             Canvas.SetLeft(BackgroundImage, 0);
             Canvas.SetTop(BackgroundImage, 0);
             BackgroundImage.Source = null;
+            ParkBackgroundNextLayer();
             return;
         }
 
@@ -576,7 +675,10 @@ public partial class TaskbarWidgetControl : UserControl
         else
         {
             LayoutBackgroundToFillWidget();
-            BackgroundImage.Source = icon;
+            // Same song-change transition as the rotating disc (same duration/easing as
+            // the text entrance started in this commit), so background and letters move
+            // together instead of the background snapping or lagging behind.
+            BeginBackgroundCrossfade(icon, TaskbarWidgetAnimationEnvironment.GetDurationMs());
         }
     }
 
@@ -633,12 +735,10 @@ public partial class TaskbarWidgetControl : UserControl
 
         if (_bakedBackground != null && ReferenceEquals(_bakedIcon, icon) && Math.Abs(_bakedSideDip - bakeSide) < 0.5)
         {
-            // Identical content already baked: never snap or cancel here. Killing a
-            // running dip mid-fade snaps opacity back to full and the background
-            // "appears out of nowhere" with no ease. If the source doesn't show it yet,
-            // dip to it; a dip already heading there is left alone to finish.
-            if (!ReferenceEquals(BackgroundImage.Source, _bakedBackground))
-                BeginBackgroundDip(_bakedBackground);
+            // Identical content already baked: never snap or cancel here. A crossfade
+            // already heading there is left alone to finish with easing.
+            if (_backgroundRotationActive && !ReferenceEquals(BackgroundImage.Source, _bakedBackground))
+                BeginBackgroundCrossfade(_bakedBackground, TaskbarWidgetAnimationEnvironment.GetDurationMs());
             return;
         }
 
@@ -693,21 +793,13 @@ public partial class TaskbarWidgetControl : UserControl
             return;
 
 #if DEBUG
-        Logger.Debug($"Widget background baked in {bakeStopwatch.Elapsed.TotalMilliseconds} ms, overlay visible: {CrossfadeOverlay.Visibility == Visibility.Visible}");
+        Logger.Debug($"Widget background baked in {bakeStopwatch.Elapsed.TotalMilliseconds} ms, starting synced crossfade");
 #endif
 
-        if (CrossfadeOverlay.Visibility == Visibility.Visible)
-        {
-            // Covered by the song-change overlay: swap instantly underneath it, so the
-            // overlay's single fade reveals everything new together (texts, art, disc).
-            // Any stale dip is obsolete once we swap directly.
-            CancelBackgroundDip();
-            BackgroundImage.Source = baked;
-            return;
-        }
-
-        // Overlay already lifted (slow bake): dip-fade instead of snapping.
-        BeginBackgroundDip(baked);
+        // Start the disc crossfade now, in the same song change whose text entrance just
+        // started: same duration/easing, so background and letters land together. (The bake
+        // typically takes a few ms, so the offset is imperceptible.)
+        BeginBackgroundCrossfade(baked, TaskbarWidgetAnimationEnvironment.GetDurationMs());
     }
 
     /// <summary>
@@ -974,6 +1066,9 @@ public partial class TaskbarWidgetControl : UserControl
     {
         if (title == "-" && artist == "-")
         {
+            // Media truly stopped (or the transient gap while switching tracks).
+            // A pending atomic commit must never publish after the stop.
+            CancelPendingSong();
             // No media playing right now. This is often a transient gap while switching
             // tracks, so keep the last song visible instead of blinking to the music-note
             // placeholder; only collapse after a short debounce if media truly stopped.
@@ -1004,38 +1099,23 @@ public partial class TaskbarWidgetControl : UserControl
             return;
         }
 
-        _isPaused = false;
-        if (playbackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
-        {
-            _isPaused = true;
-        }
+        bool paused = playbackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
 
         // Single UI-thread hop with every change batched: each Dispatcher.Invoke is
         // a queue round-trip plus its own layout pass, so three of them per metadata
         // event is pure overhead.
         Dispatcher.Invoke(() =>
         {
-            // adjust UI based on available controls
-            if (SettingsManager.Current.TaskbarWidgetControlsEnabled && playbackControls != null)
-            {
-                PreviousButton.IsHitTestVisible = playbackControls.IsPreviousEnabled;
-                PlayPauseButton.IsHitTestVisible = playbackControls.IsPauseEnabled || playbackControls.IsPlayEnabled;
-                NextButton.IsHitTestVisible = playbackControls.IsNextEnabled;
+            // One snapshot per update: SettingsManager.Current is live, so re-reading it
+            // per property wastes work and can observe an inconsistent mix mid-update.
+            var settings = TaskbarWidgetSettingsSnapshot.Capture();
 
-                PreviousButton.Opacity = playbackControls.IsPreviousEnabled ? 1 : 0.5;
-                PlayPauseButton.Opacity = (playbackControls.IsPauseEnabled || playbackControls.IsPlayEnabled) ? 1 : 0.5;
-                NextButton.Opacity = playbackControls.IsNextEnabled ? 1 : 0.5;
-            }
-            else
-            {
-                PreviousButton.IsHitTestVisible = false;
-                PlayPauseButton.IsHitTestVisible = false;
-                NextButton.IsHitTestVisible = false;
+            _isPaused = paused;
 
-                PreviousButton.Opacity = 0.5;
-                NextButton.Opacity = 0.5;
-                PlayPauseButton.Opacity = 0.5;
-            }
+            // Playback state never waits for the commit: controls, glyph and rotation
+            // pause apply instantly; only identity (title/artist/cover/background)
+            // goes through the atomic commit below.
+            ApplyPlaybackControlsImmediate(playbackControls, settings);
 
             _noMediaDebounceTimer?.Stop();
             _noMediaDebounceTimer = null;
@@ -1043,128 +1123,298 @@ public partial class TaskbarWidgetControl : UserControl
             string newTitle = !string.IsNullOrEmpty(title) ? title : "-";
             string newArtist = !string.IsNullOrEmpty(artist) ? artist : "-";
 
-            // Title/artist and cover art arrive in separate events on song change:
-            // each half gets its own entrance so nothing pops in without a fade.
+            // NOTE: the navigation direction note is deliberately NOT consumed here.
+            // Intermediate same-song events (playback-state flaps caused by the button
+            // press itself) arrive before the new title; consuming here would eat the
+            // note and the real song change would default to forward. It is consumed
+            // once, in CommitPendingSong, when the new identity actually publishes.
+
             bool infoChanged = _actualTitle != newTitle || _actualArtist != newArtist;
             if (infoChanged)
                 _lastInfoChangeUtc = DateTime.UtcNow;
             bool artChanged = !ReferenceEquals(icon, _lastIcon);
 
-            if (infoChanged || artChanged)
+            bool pendingChanged = !_hasPendingSong
+                || _pendingTitle != newTitle
+                || _pendingArtist != newArtist
+                || !ReferenceEquals(_pendingIcon, icon);
+
+            if (!infoChanged && !artChanged && !pendingChanged)
             {
-                // Ghost texts must use the clean backing strings: the live TextBlocks may
-                // hold marquee-duplicated text (title + spacer + title) while looping.
-                string oldTitle = _actualTitle;
-                string oldArtist = _actualArtist;
-
-                _actualTitle = newTitle;
-                _actualArtist = newArtist;
-
-                // Slide and crossfade are mutually exclusive entrance styles: the slide owns
-                // the text swap (and the marquee restart), so the snapshot crossfade is skipped.
-                // Rows whose text did not change stay put (typically the artist when only
-                // the title changes between songs).
-                bool titleChanged = !string.Equals(oldTitle, newTitle, StringComparison.Ordinal);
-                bool artistChanged = !string.Equals(oldArtist, newArtist, StringComparison.Ordinal);
-
-                // Consume the pending navigation direction (if fresh) so it applies to this
-                // change only; anything later (e.g. auto-advance) defaults to forward.
-                bool slideBackwards = _slideBackwardsPending
-                    && (DateTime.UtcNow - _slideDirectionNotedUtc) <= SlideDirectionLifetime;
-                _slideBackwardsPending = false;
-
-                bool slid = infoChanged
-                    && SettingsManager.Current.TaskbarWidgetSongChangeAnimation == 1
-                    && TryAnimateSongChangeSlide(oldTitle, oldArtist, newTitle, newArtist, titleChanged, artistChanged, slideBackwards);
-
-                if (!slid)
-                {
-                    // changed info
-                    if (SettingsManager.Current.TaskbarWidgetAnimated)
-                    {
-                        AnimateEntrance();
-                    }
-
-                    SongTitle.Text = _actualTitle;
-                    SongArtist.Text = _actualArtist;
-                }
+                // Same song (e.g. pause toggle): no commit, just refresh the instant UI.
+                if (settings.ControlsEnabled)
+                    PlayPauseButton.Icon = _isPaused ? _playIcon : _pauseIcon;
+                SongImagePlaceholder.Foreground = AlbumAccent.Brush;
+                UpdateAlbumArtOverlay();
+                ApplyCommitTail(settings, artist);
+                UpdateRotationPauseState();
+                return;
             }
 
-            // Update tooltip with song info (single allocation, no += chain)
-            SongInfoStackPanel.ToolTip = string.IsNullOrEmpty(artist) ? title : title + "\n\n" + artist;
+            _pendingTitle = newTitle;
+            _pendingArtist = newArtist;
+            _pendingIcon = icon;
+            _hasPendingSong = true;
 
-            if (SettingsManager.Current.TaskbarWidgetControlsEnabled)
+            // Fast path: a complete song (cover present) publishes synchronously in this
+            // very block, so the text entrance and the background crossfade start in the
+            // same instant with the same duration/easing and land together. Only an
+            // incomplete burst (cover still on its way) waits on the timer; when the
+            // cover arrives it takes this same fast path and publishes immediately.
+            if (icon != null)
+            {
+                _commitTimer?.Stop();
+                CommitPendingSong();
+                return;
+            }
+
+            ArmCommitTimer();
+
+            if (settings.ControlsEnabled)
             {
                 PlayPauseButton.Icon = _isPaused ? _playIcon : _pauseIcon;
             }
 
             // change color of icon
-            SolidColorBrush brush = AlbumAccent.Brush;
-            SongImagePlaceholder.Foreground = brush;
-
-            bool freshTitle = (DateTime.UtcNow - _lastInfoChangeUtc).TotalMilliseconds < NoArtDebounceMs;
-            if (icon != null)
-            {
-                _noArtDebounceTimer?.Stop();
-                _noArtDebounceTimer = null;
-                _lastIcon = icon;
-                _hasAlbumCover = true;
-                SongImage.ImageSource = icon;
-                SetBackground(icon);
-                SongImageBorder.Margin = new Thickness(0, 0, 0, -2); // align image better when cover is present
-            }
-            else if (_hasAlbumCover && freshTitle)
-            {
-                // Cover not here yet for this new song: keep displaying the old one.
-                // _lastIcon intentionally stays at the old art so the arrival diffs
-                // and gets its own entrance; the timer falls back to the placeholder
-                // if no art ever comes.
-                if (_noArtDebounceTimer == null)
-                {
-                    _noArtDebounceTimer = new DispatcherTimer
-                    {
-                        Interval = TimeSpan.FromMilliseconds(NoArtDebounceMs)
-                    };
-                    _noArtDebounceTimer.Tick += (s, e) => ShowArtPlaceholder();
-                }
-
-                _noArtDebounceTimer.Stop();
-                _noArtDebounceTimer.Start();
-            }
-            else
-            {
-                _noArtDebounceTimer?.Stop();
-                _noArtDebounceTimer = null;
-                _lastIcon = null;
-                _hasAlbumCover = false;
-                SongImage.ImageSource = null;
-                SetBackground(null);
-            }
+            SongImagePlaceholder.Foreground = AlbumAccent.Brush;
 
             UpdateAlbumArtOverlay();
-
-            SongTitle.Visibility = Visibility.Visible;
-            // While a slide is in flight the transition owns the artist row visibility
-            // (kept visible for the outgoing ghost, collapsed on completion if empty).
-            if (!_songChangeSlideActive)
-                SongArtist.Visibility = !string.IsNullOrEmpty(artist) ? Visibility.Visible : Visibility.Collapsed; // hide artist if it's not available
-            SongInfoStackPanel.Visibility = Visibility.Visible;
-            BackgroundImage.Visibility = SettingsManager.Current.TaskbarWidgetBackgroundBlur ? Visibility.Visible : Visibility.Collapsed;
-
-            // on top of XAML visibility binding (XAML binding only hides when disabled in settings)
-            ControlsStackPanel.Visibility = SettingsManager.Current.TaskbarWidgetControlsEnabled
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-
             UpdateRotationPauseState();
-
-            // Fade the widget in when it is appearing (hidden or mid-fade-out), so the
-            // appear transition matches the song-change animation settings.
-            if (Visibility != Visibility.Visible || _isFadingOut)
-                AnimateFadeIn();
-            else
-                Visibility = Visibility.Visible;
         });
+    }
+
+    /// <summary>
+    /// Applies the playback-control enablement immediately (never waits for the song commit).
+    /// </summary>
+    private void ApplyPlaybackControlsImmediate(GlobalSystemMediaTransportControlsSessionPlaybackControls? playbackControls, TaskbarWidgetSettingsSnapshot settings)
+    {
+        // adjust UI based on available controls
+        if (settings.ControlsEnabled && playbackControls != null)
+        {
+            PreviousButton.IsHitTestVisible = playbackControls.IsPreviousEnabled;
+            PlayPauseButton.IsHitTestVisible = playbackControls.IsPauseEnabled || playbackControls.IsPlayEnabled;
+            NextButton.IsHitTestVisible = playbackControls.IsNextEnabled;
+
+            PreviousButton.Opacity = playbackControls.IsPreviousEnabled ? 1 : 0.5;
+            PlayPauseButton.Opacity = (playbackControls.IsPauseEnabled || playbackControls.IsPlayEnabled) ? 1 : 0.5;
+            NextButton.Opacity = playbackControls.IsNextEnabled ? 1 : 0.5;
+        }
+        else
+        {
+            PreviousButton.IsHitTestVisible = false;
+            PlayPauseButton.IsHitTestVisible = false;
+            NextButton.IsHitTestVisible = false;
+
+            PreviousButton.Opacity = 0.5;
+            NextButton.Opacity = 0.5;
+            PlayPauseButton.Opacity = 0.5;
+        }
+    }
+
+    /// <summary>
+    /// (Re)arms the atomic song-commit timer. Every burst event re-arms it, so the last
+    /// event wins and intermediate songs of rapid skips are never published.
+    /// </summary>
+    private void ArmCommitTimer()
+    {
+        if (_commitTimer == null)
+        {
+            _commitTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(SongCommitWaitMs)
+            };
+            _commitTimer.Tick += (s, e) =>
+            {
+                _commitTimer.Stop();
+                CommitPendingSong();
+            };
+        }
+
+        _commitTimer.Stop();
+        _commitTimer.Start();
+    }
+
+    /// <summary>
+    /// Drops a buffered song without publishing it (media stopped).
+    /// </summary>
+    private void CancelPendingSong()
+    {
+        _hasPendingSong = false;
+        _pendingIcon = null;
+        _slideBackwardsPending = false;
+        _commitTimer?.Stop();
+    }
+
+    /// <summary>
+    /// Publishes the buffered song as one atomic transition: texts, cover and
+    /// background change together. A commit without cover is definitive (placeholder
+    /// immediately); a late cover arrives as its own commit with its own entrance.
+    /// Must run on the UI thread.
+    /// </summary>
+    private void CommitPendingSong()
+    {
+        if (!_hasPendingSong)
+            return;
+
+        _hasPendingSong = false;
+        string newTitle = _pendingTitle;
+        string newArtist = _pendingArtist;
+        BitmapImage? icon = _pendingIcon;
+        _pendingIcon = null;
+
+        // Consume the pending navigation direction here — and only here — so it applies
+        // to the song change that actually publishes. Anything later (e.g. auto-advance
+        // long after a button press) defaults to forward. Intermediate same-song events
+        // between the press and the new title never touch the note.
+        bool slideBackwards = _slideBackwardsPending
+            && (DateTime.UtcNow - _slideDirectionNotedUtc) <= SlideDirectionLifetime;
+        _slideBackwardsPending = false;
+
+        var settings = TaskbarWidgetSettingsSnapshot.Capture();
+
+        // Title/artist and cover art arrive in separate events on song change:
+        // each half gets its own entrance so nothing pops in without a fade.
+        bool infoChanged = _actualTitle != newTitle || _actualArtist != newArtist;
+        bool artChanged = !ReferenceEquals(icon, _lastIcon);
+
+        if (infoChanged || artChanged)
+        {
+            // Ghost texts must use the clean backing strings: the live TextBlocks may
+            // hold marquee-duplicated text (title + spacer + title) while looping.
+            string oldTitle = _actualTitle;
+            string oldArtist = _actualArtist;
+
+            _actualTitle = newTitle;
+            _actualArtist = newArtist;
+
+            // Slide and crossfade are mutually exclusive entrance styles: the slide owns
+            // the text swap (and the marquee restart), so the snapshot crossfade is skipped.
+            // Rows whose text did not change stay put (typically the artist when only
+            // the title changes between songs).
+            bool titleChanged = !string.Equals(oldTitle, newTitle, StringComparison.Ordinal);
+            bool artistChanged = !string.Equals(oldArtist, newArtist, StringComparison.Ordinal);
+
+            bool slid = infoChanged
+                && settings.SongChangeAnimation == 1
+                && TryAnimateSongChangeSlide(oldTitle, oldArtist, newTitle, newArtist, titleChanged, artistChanged, slideBackwards);
+
+            if (!slid)
+            {
+                // changed info
+                if (settings.Animated)
+                {
+                    AnimateEntrance();
+                }
+
+                SongTitle.Text = _actualTitle;
+                SongArtist.Text = _actualArtist;
+            }
+        }
+
+        // Update tooltip with song info (single allocation, no += chain)
+        SongInfoStackPanel.ToolTip = string.IsNullOrEmpty(newArtist) ? newTitle : newTitle + "\n\n" + newArtist;
+
+        if (settings.ControlsEnabled)
+        {
+            PlayPauseButton.Icon = _isPaused ? _playIcon : _pauseIcon;
+        }
+
+        // change color of icon
+        SongImagePlaceholder.Foreground = AlbumAccent.Brush;
+
+        bool freshTitle = (DateTime.UtcNow - _lastInfoChangeUtc).TotalMilliseconds < NoArtDebounceMs;
+        if (icon != null)
+        {
+            _noArtDebounceTimer?.Stop();
+            _noArtDebounceTimer = null;
+            _lastIcon = icon;
+            _hasAlbumCover = true;
+            SongImage.ImageSource = icon;
+            SetBackground(icon);
+            SongImageBorder.Margin = new Thickness(0, 0, 0, -2); // align image better when cover is present
+        }
+        else if (_hasAlbumCover && freshTitle)
+        {
+            // Cover not here yet for this new song: keep displaying the old one.
+            // _lastIcon intentionally stays at the old art so the arrival diffs
+            // and gets its own entrance; the timer falls back to the placeholder
+            // if no art ever comes.
+            if (_noArtDebounceTimer == null)
+            {
+                _noArtDebounceTimer = new DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(NoArtDebounceMs)
+                };
+                _noArtDebounceTimer.Tick += (s, e) => ShowArtPlaceholder();
+            }
+
+            _noArtDebounceTimer.Stop();
+            _noArtDebounceTimer.Start();
+        }
+        else
+        {
+            _noArtDebounceTimer?.Stop();
+            _noArtDebounceTimer = null;
+            _lastIcon = null;
+            _hasAlbumCover = false;
+            SongImage.ImageSource = null;
+            SetBackground(null);
+        }
+
+        UpdateAlbumArtOverlay();
+        ApplyCommitTail(settings, newArtist);
+        UpdateRotationPauseState();
+    }
+
+    /// <summary>
+    /// Shared visibility tail for commits and same-song updates: row visibility,
+    /// background/controls visibility, and the appear fade when (re)showing.
+    /// </summary>
+    /// <param name="artist">Raw artist string, used for the empty-artist collapse.</param>
+    private void ApplyCommitTail(TaskbarWidgetSettingsSnapshot settings, string artist)
+    {
+        SongTitle.Visibility = Visibility.Visible;
+        // While a slide is in flight the transition owns the artist row visibility
+        // (kept visible for the outgoing ghost, collapsed on completion if empty).
+        if (!_songChangeSlideActive)
+            SongArtist.Visibility = !string.IsNullOrEmpty(artist) ? Visibility.Visible : Visibility.Collapsed; // hide artist if it's not available
+        SongInfoStackPanel.Visibility = Visibility.Visible;
+        // The canvas owns both background layers (front + incoming crossfade layer).
+        BackgroundCanvas.Visibility = settings.BackgroundBlur ? Visibility.Visible : Visibility.Collapsed;
+
+        // on top of XAML visibility binding (XAML binding only hides when disabled in settings)
+        ControlsStackPanel.Visibility = settings.ControlsEnabled
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        // Fade the widget in when it is appearing (hidden or mid-fade-out), so the
+        // appear transition matches the song-change animation settings.
+        if (Visibility != Visibility.Visible || _isFadingOut)
+            AnimateFadeIn();
+        else
+            Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// Stops timers/clocks and clears transient visuals so the control releases all
+    /// UI-thread resources when its host window goes away.
+    /// </summary>
+    private void CleanupWidgetResources()
+    {
+        CancelPendingSong();
+        _commitTimer = null;
+        _noMediaDebounceTimer?.Stop();
+        _noMediaDebounceTimer = null;
+        _noArtDebounceTimer?.Stop();
+        _noArtDebounceTimer = null;
+
+        _songChangeSlideActive = false;
+        _slidePendingCompletions = 0;
+        CleanupSongChangeSlideGhosts();
+        CancelBackgroundCrossfade();
+        if (_backgroundRotateTransform != null)
+            _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, null);
+        BeginAnimation(OpacityProperty, null);
     }
 
     /// <summary>
@@ -1231,19 +1481,14 @@ public partial class TaskbarWidgetControl : UserControl
     /// Whether widget animations are active: both the widget animation toggle and the
     /// global flyout animation speed must be enabled, matching the main flyout behaviour.
     /// </summary>
-    private bool AreAnimationsEnabled =>
-        SettingsManager.Current.TaskbarWidgetAnimated && SettingsManager.Current.FlyoutAnimationSpeed != 0;
+    private bool AreAnimationsEnabled => TaskbarWidgetAnimationEnvironment.AreAnimationsEnabled;
 
     /// <summary>
     /// Returns the user's chosen easing function, or <see langword="null"/> for linear
     /// when "linear" is selected, mirroring the main flyout's behaviour.
     /// </summary>
-    private EasingFunctionBase? GetEasing(bool easeOut)
-    {
-        if (_mainWindow != null)
-            return _mainWindow.getEasingStyle(easeOut); // null means linear, as in the main flyout
-        return new CubicEase { EasingMode = easeOut ? EasingMode.EaseOut : EasingMode.EaseIn };
-    }
+    private EasingFunctionBase? GetEasing(bool easeOut) =>
+        TaskbarWidgetAnimationEnvironment.GetEasing(_mainWindow, easeOut);
 
     /// <summary>
     /// Fades the widget in when it appears (e.g. media starts playing again after being
@@ -1264,7 +1509,7 @@ public partial class TaskbarWidgetControl : UserControl
         Visibility = Visibility.Visible;
         Opacity = 0;
 
-        int msDuration = Math.Max(MainWindow.getDuration(), 1);
+        int msDuration = TaskbarWidgetAnimationEnvironment.GetDurationMs();
         DoubleAnimation fadeInAnimation = new()
         {
             From = 0.0,
@@ -1289,7 +1534,7 @@ public partial class TaskbarWidgetControl : UserControl
 
         _isFadingOut = true;
 
-        int msDuration = Math.Max(MainWindow.getDuration(), 1);
+        int msDuration = TaskbarWidgetAnimationEnvironment.GetDurationMs();
         DoubleAnimation fadeOutAnimation = new()
         {
             To = 0.0,
@@ -1349,7 +1594,7 @@ public partial class TaskbarWidgetControl : UserControl
             if (titleTravel <= 0)
                 return false;
 
-            int msDuration = Math.Max(MainWindow.getDuration(), 1);
+            int msDuration = TaskbarWidgetAnimationEnvironment.GetDurationMs();
 
             _songChangeSlideActive = true;
 
@@ -1376,14 +1621,11 @@ public partial class TaskbarWidgetControl : UserControl
             int exitMs = Math.Max(msDuration / 2, 1);
             int enterMs = Math.Max(msDuration - exitMs, 1);
 
-            if (animateArtist)
-                SlideSingleText(SongArtist, SongArtistContainer, oldArtist, newArtist, artistTravel, exitMs, enterMs, 40, artistHasOutgoing, slideBackwards);
-            if (animateTitle)
-                SlideSingleText(SongTitle, SongTitleContainer, oldTitle, newTitle, titleTravel, exitMs, enterMs, 0, titleHasOutgoing, slideBackwards);
-
-            // Settle once the longest row finishes: exit + entrance plus the artist
-            // stagger when the artist row moves. The version check inside
-            // FinishSongChangeSlide drops stale timers from rapid skips.
+            // Exact settle: the slide ends when its slowest enter animation completes
+            // (artist stagger included), never on a wall-clock timer that can drift and
+            // cause the final "teleport" snap. Removed animation clocks never complete,
+            // so a superseded rapid-skip slide settles nothing; the version check in
+            // FinishSongChangeSlide is belt-and-braces.
             // When nothing moves there is nothing to wait for: settle now.
             bool anyMotion = titleHasOutgoing || artistHasOutgoing || titleHasIncoming || artistHasIncoming;
             if (!anyMotion)
@@ -1392,15 +1634,26 @@ public partial class TaskbarWidgetControl : UserControl
                 return true;
             }
 
-            bool artistMoves = animateArtist && (artistHasOutgoing || artistHasIncoming);
-            int settleMs = exitMs + enterMs + (artistMoves ? 40 : 0);
-            var settleTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(settleMs) };
-            settleTimer.Tick += (s, e) =>
+            int expectedCompletions = (titleHasIncoming ? 1 : 0) + (artistHasIncoming ? 1 : 0);
+            if (expectedCompletions == 0)
             {
-                settleTimer.Stop();
                 FinishSongChangeSlide(version, animateTitle, animateArtist, artistHasIncoming);
-            };
-            settleTimer.Start();
+                return true;
+            }
+
+            _slidePendingCompletions = expectedCompletions;
+            void OnRowEnterCompleted()
+            {
+                if (version != _songChangeSlideVersion)
+                    return;
+                if (--_slidePendingCompletions <= 0)
+                    FinishSongChangeSlide(version, animateTitle, animateArtist, artistHasIncoming);
+            }
+
+            if (animateArtist)
+                SlideSingleText(SongArtist, SongArtistContainer, oldArtist, newArtist, artistTravel, exitMs, enterMs, 40, artistHasOutgoing, slideBackwards, artistHasIncoming ? OnRowEnterCompleted : null);
+            if (animateTitle)
+                SlideSingleText(SongTitle, SongTitleContainer, oldTitle, newTitle, titleTravel, exitMs, enterMs, 0, titleHasOutgoing, slideBackwards, titleHasIncoming ? OnRowEnterCompleted : null);
 
             return true;
         }
@@ -1408,6 +1661,7 @@ public partial class TaskbarWidgetControl : UserControl
         {
             Logger.Error(ex, "Taskbar Widget error during song-change slide animation");
             _songChangeSlideActive = false;
+            _slidePendingCompletions = 0;
             CleanupSongChangeSlideGhosts();
             // Reattach marquee masks/scrolling in case they were suspended mid-flight.
             UpdateMarquees();
@@ -1423,7 +1677,8 @@ public partial class TaskbarWidgetControl : UserControl
     /// backward slides are mirrored. The marquee's edge-fade mask is suspended for the
     /// flight and restored by <see cref="UpdateMarquees(bool, bool)"/> on completion.
     /// </summary>
-    private void SlideSingleText(System.Windows.Controls.TextBlock live, Canvas container, string oldText, string newText, double travel, int exitMs, int enterMs, int staggerMs, bool hasOutgoing, bool slideBackwards)
+    /// <param name="onEnterCompleted">Fired when this row's enter animation completes; used for exact settle.</param>
+    private void SlideSingleText(System.Windows.Controls.TextBlock live, Canvas container, string oldText, string newText, double travel, int exitMs, int enterMs, int staggerMs, bool hasOutgoing, bool slideBackwards, Action? onEnterCompleted = null)
     {
         if (live.RenderTransform is not TranslateTransform incomingTransform)
             return;
@@ -1482,7 +1737,9 @@ public partial class TaskbarWidgetControl : UserControl
                 To = exitTo,
                 Duration = TimeSpan.FromMilliseconds(exitMs),
                 BeginTime = TimeSpan.FromMilliseconds(staggerMs),
-                EasingFunction = GetEasing(false)
+                // Ease-out (immediate start, soft landing) on exit: ease-in would leave
+                // the old text visibly stuck at the start of its run (AGENTS.md §3).
+                EasingFunction = GetEasing(true)
             };
             ghostTransform.BeginAnimation(TranslateTransform.XProperty, exit);
         }
@@ -1516,6 +1773,8 @@ public partial class TaskbarWidgetControl : UserControl
             BeginTime = TimeSpan.FromMilliseconds(staggerMs + (hasOutgoing ? exitMs : 0)),
             EasingFunction = GetEasing(true)
         };
+        if (onEnterCompleted != null)
+            enter.Completed += (s, e) => onEnterCompleted();
         incomingTransform.BeginAnimation(TranslateTransform.XProperty, enter);
     }
 
@@ -1530,6 +1789,7 @@ public partial class TaskbarWidgetControl : UserControl
             return;
 
         _songChangeSlideActive = false;
+        _slidePendingCompletions = 0;
         CleanupSongChangeSlideGhosts();
 
         if (animateTitle && SongTitle.RenderTransform is TranslateTransform titleTransform)
@@ -1575,7 +1835,7 @@ public partial class TaskbarWidgetControl : UserControl
             if (!AreAnimationsEnabled || Visibility != Visibility.Visible || _isFadingOut)
                 return;
 
-            int msDuration = Math.Max(MainWindow.getDuration(), 1);
+            int msDuration = TaskbarWidgetAnimationEnvironment.GetDurationMs();
 
             // Snapshot the current widget (old album) into the overlay and fade it out on
             // top of the new content underneath, so the artwork colours crossfade instead
