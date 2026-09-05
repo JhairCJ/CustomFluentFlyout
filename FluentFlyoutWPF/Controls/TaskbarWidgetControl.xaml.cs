@@ -75,6 +75,13 @@ public partial class TaskbarWidgetControl : UserControl
     private bool _backgroundRotationWasUp;
     private bool _backgroundRotationPaused;
     private double _pausedRotationAngle;
+    // Disc the running background dip (if any) is fading toward. Duplicate events for
+    // identical content must leave that dip alone instead of restarting/snapping it.
+    private BitmapSource? _dipTarget;
+    // Bake currently running in UpdateBakedBackgroundAsync (icon + quantized side), so
+    // burst events (duplicate metadata, resize ticks) don't stack parallel bakes.
+    private BitmapImage? _bakingIcon;
+    private double _bakingSide;
 
     // Debounce before collapsing to the "no media" placeholder so the widget does not
     // blink during the transient gap while switching tracks.
@@ -378,22 +385,35 @@ public partial class TaskbarWidgetControl : UserControl
     /// </summary>
     private void BeginBackgroundDip(BitmapSource target)
     {
-        // Restart toward the newest target if one is already running.
-        BackgroundImage.BeginAnimation(OpacityProperty, null);
-
         if (!_backgroundRotationActive || ReferenceEquals(BackgroundImage.Source, target))
             return;
+
+        // Already fading toward this exact disc (event burst with identical content):
+        // leave the running dip alone so it completes with easing instead of
+        // restarting, and never snap it back to full opacity mid-flight.
+        if (ReferenceEquals(_dipTarget, target))
+            return;
+
+        // Restart toward a newer target if one is already running (the killed clock
+        // never completes, so rapid skips collapse onto the latest art). Read the
+        // current animated value first so the new fade-out starts where the screen
+        // actually is instead of flashing back to full opacity.
+        double startOpacity = BackgroundImage.Opacity;
+        BackgroundImage.BeginAnimation(OpacityProperty, null);
 
         if (!AreAnimationsEnabled)
         {
             BackgroundImage.Source = target;
+            _dipTarget = null;
             return;
         }
 
+        _dipTarget = target;
         double bound = BackgroundImage.Opacity; // bound intensity value, restored afterwards
 
         var dipOut = new DoubleAnimation
         {
+            From = startOpacity,
             To = 0.0,
             Duration = TimeSpan.FromMilliseconds(150),
             EasingFunction = GetEasing(false)
@@ -410,7 +430,7 @@ public partial class TaskbarWidgetControl : UserControl
             };
             dipIn.Completed += (s2, e2) =>
             {
-                BackgroundImage.BeginAnimation(OpacityProperty, null); // binding resumes, value already matches
+                CancelBackgroundDip(); // binding resumes, value already matches
             };
             BackgroundImage.BeginAnimation(OpacityProperty, dipIn);
         };
@@ -423,6 +443,7 @@ public partial class TaskbarWidgetControl : UserControl
     /// </summary>
     private void CancelBackgroundDip()
     {
+        _dipTarget = null;
         BackgroundImage.BeginAnimation(OpacityProperty, null);
     }
 
@@ -604,12 +625,27 @@ public partial class TaskbarWidgetControl : UserControl
     /// </summary>
     private async void UpdateBakedBackgroundAsync(BitmapImage icon, double discSide)
     {
-        if (_bakedBackground != null && ReferenceEquals(_bakedIcon, icon) && Math.Abs(_bakedSideDip - discSide) < 0.5)
+        // Quantize the bake side: the baked texture is a fixed 256px blur where tiny
+        // side differences are invisible, so small widget resizes (the title changed
+        // length) must reuse the cached disc instead of rebaking and re-dipping.
+        // Layout still uses the exact discSide; only the bake is quantized.
+        double bakeSide = Math.Round(discSide / 16.0) * 16.0;
+
+        if (_bakedBackground != null && ReferenceEquals(_bakedIcon, icon) && Math.Abs(_bakedSideDip - bakeSide) < 0.5)
         {
-            CancelBackgroundDip();
-            BackgroundImage.Source = _bakedBackground;
+            // Identical content already baked: never snap or cancel here. Killing a
+            // running dip mid-fade snaps opacity back to full and the background
+            // "appears out of nowhere" with no ease. If the source doesn't show it yet,
+            // dip to it; a dip already heading there is left alone to finish.
+            if (!ReferenceEquals(BackgroundImage.Source, _bakedBackground))
+                BeginBackgroundDip(_bakedBackground);
             return;
         }
+
+        // Same bake already running (event burst / resize ticks): the in-flight task
+        // will deliver it, don't stack another one.
+        if (ReferenceEquals(_bakingIcon, icon) && Math.Abs(_bakingSide - bakeSide) < 0.5)
+            return;
 
         // First paint ever: show the raw artwork right away; otherwise keep the previous
         // baked background until the new one is ready.
@@ -619,22 +655,30 @@ public partial class TaskbarWidgetControl : UserControl
         double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         double blurRadiusDips = SettingsManager.Current.TaskbarWidgetBackgroundBlurRadius;
 
+        _bakingIcon = icon;
+        _bakingSide = bakeSide;
+
         BitmapSource? baked;
 #if DEBUG
         var bakeStopwatch = System.Diagnostics.Stopwatch.StartNew();
 #endif
         try
         {
-            baked = await Task.Run(() => BakeBlurredBackground(icon, discSide, dpi, blurRadiusDips));
+            baked = await Task.Run(() => BakeBlurredBackground(icon, bakeSide, dpi, blurRadiusDips));
         }
         catch (Exception ex)
         {
             Logger.Error(ex, "Failed to bake blurred taskbar widget background");
+            if (ReferenceEquals(_bakingIcon, icon))
+                _bakingIcon = null;
             return;
         }
 #if DEBUG
         bakeStopwatch.Stop();
 #endif
+
+        if (ReferenceEquals(_bakingIcon, icon) && Math.Abs(_bakingSide - bakeSide) < 0.5)
+            _bakingIcon = null;
 
         // A newer song may have arrived while baking; discard the stale result.
         if (baked == null || !ReferenceEquals(_currentIcon, icon))
@@ -642,7 +686,7 @@ public partial class TaskbarWidgetControl : UserControl
 
         _bakedIcon = icon;
         _bakedBackground = baked;
-        _bakedSideDip = discSide;
+        _bakedSideDip = bakeSide;
 
         // Rotation may have been disabled while baking; the static path owns the layer then.
         if (!_backgroundRotationActive)
@@ -656,7 +700,8 @@ public partial class TaskbarWidgetControl : UserControl
         {
             // Covered by the song-change overlay: swap instantly underneath it, so the
             // overlay's single fade reveals everything new together (texts, art, disc).
-            BackgroundImage.BeginAnimation(OpacityProperty, null);
+            // Any stale dip is obsolete once we swap directly.
+            CancelBackgroundDip();
             BackgroundImage.Source = baked;
             return;
         }
