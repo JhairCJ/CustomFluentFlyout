@@ -44,10 +44,37 @@ namespace FluentFlyoutWPF.Classes
 
         private readonly int _fftLength = 4096;
         private const int FftHop = 256; // overlapping FFT hop for smooth high-refresh updates
+        private const int FftOrder = 12; // log2(_fftLength); hoisted out of the per-FFT path
         private int _fftPos = 0;
         private int _samplesSinceFft = 0;
         private readonly Complex[] _fftBuffer;
         private readonly Complex[] _fftWork;
+
+        // Precomputed Hamming window: the previous code evaluated
+        // FastFourierTransform.HammingWindow(j) (a cosine) 4096 times per FFT, up to
+        // ~190 FFTs/s on the capture thread in high-refresh mode. Same values, ~0 cost.
+        private readonly float[] _windowTable;
+
+        // Precomputed per-bar FFT bin ranges + high-frequency boost. Rebuilt only when
+        // (bar count, sample rate, sensitivity, peak) changes; the per-FFT path then does
+        // no Math.Pow / Math.Log at all.
+        private struct BandRange
+        {
+            public int StartBin;
+            public int EndBin;
+            public float Boost;
+        }
+        private BandRange[] _bandTable = [];
+        private int _bandKeyBars;
+        private int _bandKeyRate;
+        private int _bandKeySens;
+        private int _bandKeyPeak;
+        private float _bandMinDb;
+        private float _bandMaxDb;
+
+        // FFT hop cached alongside the render-loop mode: read on every audio callback,
+        // so it must not go through SettingsManager per callback.
+        private int _fftHop;
 
         private System.Timers.Timer? _captureWatchdog;
         private DateTime _lastDataAvailableUtc = DateTime.MinValue;
@@ -104,6 +131,12 @@ namespace FluentFlyoutWPF.Classes
 
             _fftBuffer = new Complex[_fftLength];
             _fftWork = new Complex[_fftLength];
+
+            _windowTable = new float[_fftLength];
+            for (int i = 0; i < _fftLength; i++)
+                _windowTable[i] = (float)FastFourierTransform.HammingWindow(i, _fftLength);
+
+            _fftHop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHop : _fftLength;
 
             ResizeBarList(SettingsManager.Current.TaskbarVisualizerBarCount);
             AudioDeviceMonitor.Instance.DefaultDeviceChanged += OnDefaultDeviceChanged;
@@ -235,6 +268,7 @@ namespace FluentFlyoutWPF.Classes
             _barValues = new float[(int)barCount];
             _targetValues = new float[(int)barCount];
             _lastHasContent = false;
+            _fftHop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHop : _fftLength;
 
             try
             {
@@ -328,7 +362,8 @@ namespace FluentFlyoutWPF.Classes
 
             // In high-refresh mode use a small overlapping hop for frequent target updates.
             // In 30 FPS mode use a full-length hop to reproduce the original behavior.
-            int hop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHop : _fftLength;
+            // Cached field: the audio callback must not read settings per callback.
+            int hop = _fftHop;
 
             for (int i = 0; i < samplesRecorded; i++)
             {
@@ -356,14 +391,13 @@ namespace FluentFlyoutWPF.Classes
                 _samplesSinceFft = 0;
 
                 // Copy the sliding window into the work buffer (in chronological order),
-                // applying the Hamming window.
+                // applying the precomputed Hamming window (no per-sample trig).
                 for (int j = 0; j < _fftLength; j++)
                 {
                     int src = _fftPos + j;
                     if (src >= _fftLength)
                         src -= _fftLength;
-                    double w = FastFourierTransform.HammingWindow(j, _fftLength);
-                    _fftWork[j].X = (float)(_fftBuffer[src].X * w);
+                    _fftWork[j].X = _fftBuffer[src].X * _windowTable[j];
                     _fftWork[j].Y = 0;
                 }
 
@@ -392,30 +426,17 @@ namespace FluentFlyoutWPF.Classes
 
         private void ProcessFftData()
         {
-            FastFourierTransform.FFT(true, (int)Math.Log(_fftLength, 2.0), _fftWork);
+            FastFourierTransform.FFT(true, FftOrder, _fftWork);
 
             int sampleRate = _capture.WaveFormat.SampleRate;
-            double frequencyPerBin = (double)sampleRate / _fftLength;
+            EnsureBandTable(sampleRate);
 
-            double minFreq = 40;   // Hz
-            double maxFreq = 8000; // Hz
-            //double minFreq = 40;  // Hz // could be a setting to be bass only
-            //double maxFreq = 120; // Hz
-            float minDb = (SettingsManager.Current.TaskbarVisualizerAudioSensitivity * -10f) - 30f;
-            float maxDb = (SettingsManager.Current.TaskbarVisualizerAudioPeakLevel * 10f) - 30f;
-
-            int count = Math.Min(BarCount, _targetValues?.Length ?? 0);
+            int count = Math.Min(Math.Min(BarCount, _bandTable.Length), _targetValues?.Length ?? 0);
 
             for (int i = 0; i < count; i++)
             {
-                double startFreq = minFreq * Math.Pow(maxFreq / minFreq, (double)i / BarCount);
-                double endFreq = minFreq * Math.Pow(maxFreq / minFreq, (double)(i + 1) / BarCount);
-
-                int startBin = (int)(startFreq / frequencyPerBin);
-                int endBin = (int)(endFreq / frequencyPerBin);
-
-                if (endBin <= startBin) endBin = startBin + 1;
-                if (endBin >= _fftWork.Length / 2) endBin = _fftWork.Length / 2 - 1;
+                int startBin = _bandTable[i].StartBin;
+                int endBin = _bandTable[i].EndBin;
 
                 float maxAmplitude = 0;
 
@@ -427,19 +448,70 @@ namespace FluentFlyoutWPF.Classes
                         maxAmplitude = amplitude;
                 }
 
-                float progress = (float)i / BarCount;
-                float linearBoost = 1.0f + (progress * 75.0f);
-                maxAmplitude *= linearBoost;
+                maxAmplitude *= _bandTable[i].Boost;
 
                 if (maxAmplitude < 0.001f) maxAmplitude = 0.001f;
 
                 float db = 20f * (float)Math.Log10(maxAmplitude);
 
-                float intensity = (db - minDb) / (maxDb - minDb);
+                float intensity = (db - _bandMinDb) / (_bandMaxDb - _bandMinDb);
                 intensity = Math.Clamp(intensity, 0f, 1f);
 
                 _targetValues[i] = intensity;
             }
+        }
+
+        /// <summary>
+        /// Rebuilds the per-bar FFT bin ranges, boosts and dB range only when the inputs
+        /// change. The per-FFT path above then performs zero Math.Pow / Math.Log calls.
+        /// </summary>
+        private void EnsureBandTable(int sampleRate)
+        {
+            int bars = BarCount;
+            int sens = SettingsManager.Current.TaskbarVisualizerAudioSensitivity;
+            int peak = SettingsManager.Current.TaskbarVisualizerAudioPeakLevel;
+
+            if (_bandTable.Length == bars
+                && _bandKeyBars == bars
+                && _bandKeyRate == sampleRate
+                && _bandKeySens == sens
+                && _bandKeyPeak == peak)
+                return;
+
+            const double minFreq = 40;   // Hz
+            const double maxFreq = 8000; // Hz
+            double frequencyPerBin = (double)sampleRate / _fftLength;
+            double ratio = maxFreq / minFreq;
+
+            var table = new BandRange[Math.Max(bars, 0)];
+            for (int i = 0; i < table.Length; i++)
+            {
+                double startFreq = minFreq * Math.Pow(ratio, (double)i / bars);
+                double endFreq = minFreq * Math.Pow(ratio, (double)(i + 1) / bars);
+
+                int startBin = (int)(startFreq / frequencyPerBin);
+                int endBin = (int)(endFreq / frequencyPerBin);
+
+                if (endBin <= startBin) endBin = startBin + 1;
+                if (endBin >= _fftLength / 2) endBin = _fftLength / 2 - 1;
+                if (startBin < 0) startBin = 0;
+
+                float progress = bars > 0 ? (float)i / bars : 0f;
+                table[i] = new BandRange
+                {
+                    StartBin = startBin,
+                    EndBin = endBin,
+                    Boost = 1.0f + (progress * 75.0f)
+                };
+            }
+
+            _bandTable = table;
+            _bandKeyBars = bars;
+            _bandKeyRate = sampleRate;
+            _bandKeySens = sens;
+            _bandKeyPeak = peak;
+            _bandMinDb = (sens * -10f) - 30f;
+            _bandMaxDb = (peak * 10f) - 30f;
         }
 
         private void EnsureRenderLoop()
@@ -514,6 +586,9 @@ namespace FluentFlyoutWPF.Classes
             {
                 if (!_isRunning)
                     return;
+                // The high-refresh toggle changes the audio-thread hop: refresh the cached
+                // value together with the render loop so both switch atomically.
+                _fftHop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHop : _fftLength;
                 StopRenderLoopCore();
                 StartRenderLoopCore();
             });

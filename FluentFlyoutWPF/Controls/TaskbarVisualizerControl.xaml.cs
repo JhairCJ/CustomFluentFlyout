@@ -21,6 +21,34 @@ public partial class TaskbarVisualizerControl : UserControl
     // reference to main window for flyout functions
     private static readonly Visualizer visualizer = new();
 
+    // Hover animation objects, created once and reused: the previous code allocated two
+    // animations + two brushes per MouseEnter/Leave. Only their To values change.
+    private readonly ColorAnimation _hoverColorIn = new()
+    {
+        Duration = TimeSpan.FromMilliseconds(200),
+        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+    };
+    private readonly DoubleAnimation _hoverOpacityIn = new()
+    {
+        Duration = TimeSpan.FromMilliseconds(200),
+        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+    };
+    private readonly ColorAnimation _hoverColorOut = new()
+    {
+        To = Colors.Transparent,
+        Duration = TimeSpan.FromMilliseconds(200),
+        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+    };
+    private readonly DoubleAnimation _hoverOpacityOut = new()
+    {
+        To = 0,
+        Duration = TimeSpan.FromMilliseconds(200),
+        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+    };
+
+    private static readonly SolidColorBrush HoverBorderDark = new(Color.FromArgb(93, 255, 255, 255)) { Opacity = 0.25 };
+    private static readonly SolidColorBrush HoverBorderLight = new(Color.FromArgb(93, 255, 255, 255)) { Opacity = 1 };
+
     public TaskbarVisualizerControl()
     {
         InitializeComponent();
@@ -80,35 +108,21 @@ public partial class TaskbarVisualizerControl : UserControl
     {
         if (!SettingsManager.Current.TaskbarVisualizerClickable || !SettingsManager.Current.TaskbarVisualizerHasContent) return;
 
-        SolidColorBrush targetBackgroundBrush;
         // hover effects with animations, hard-coded colors because I can't find the resource brushes
         WindowsThemeDetector.GetWindowsTheme(out _, out var systemTheme);
         bool isDark = systemTheme == WindowsThemeDetector.ThemeMode.Dark;
         if (isDark)
         { // dark mode
-            targetBackgroundBrush = new SolidColorBrush(Color.FromArgb(197, 255, 255, 255)) { Opacity = 0.075 };
-            TopBorder.BorderBrush = new SolidColorBrush(Color.FromArgb(93, 255, 255, 255)) { Opacity = 0.25 };
+            _hoverColorIn.To = Color.FromArgb(197, 255, 255, 255);
+            _hoverOpacityIn.To = 0.075;
+            TopBorder.BorderBrush = HoverBorderDark;
         }
         else
         { // light mode
-            targetBackgroundBrush = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)) { Opacity = 0.6 };
-            TopBorder.BorderBrush = new SolidColorBrush(Color.FromArgb(93, 255, 255, 255)) { Opacity = 1 };
+            _hoverColorIn.To = Color.FromArgb(255, 255, 255, 255);
+            _hoverOpacityIn.To = 0.6;
+            TopBorder.BorderBrush = HoverBorderLight;
         }
-
-        // Animate background
-        var backgroundAnimation = new ColorAnimation
-        {
-            To = targetBackgroundBrush.Color,
-            Duration = TimeSpan.FromMilliseconds(200),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-        };
-
-        var backgroundOpacityAnimation = new DoubleAnimation
-        {
-            To = targetBackgroundBrush.Opacity,
-            Duration = TimeSpan.FromMilliseconds(200),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-        };
 
         // rare case where background is not a SolidColorBrush after SetupWindow
         if (MainBorder.Background is not SolidColorBrush)
@@ -117,31 +131,16 @@ public partial class TaskbarVisualizerControl : UserControl
             MainBorder.Background.Opacity = 0;
         }
 
-        MainBorder.Background.BeginAnimation(SolidColorBrush.ColorProperty, backgroundAnimation);
-        MainBorder.Background.BeginAnimation(SolidColorBrush.OpacityProperty, backgroundOpacityAnimation);
+        MainBorder.Background.BeginAnimation(SolidColorBrush.ColorProperty, _hoverColorIn);
+        MainBorder.Background.BeginAnimation(SolidColorBrush.OpacityProperty, _hoverOpacityIn);
     }
 
     private void Grid_MouseLeave(object sender, MouseEventArgs e)
     {
         if (!SettingsManager.Current.TaskbarVisualizerClickable || !SettingsManager.Current.TaskbarVisualizerHasContent) return;
 
-        // Animate back to transparent
-        var backgroundAnimation = new ColorAnimation
-        {
-            To = Colors.Transparent,
-            Duration = TimeSpan.FromMilliseconds(200),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
-        };
-
-        var backgroundOpacityAnimation = new DoubleAnimation
-        {
-            To = 0,
-            Duration = TimeSpan.FromMilliseconds(200),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
-        };
-
-        MainBorder.Background?.BeginAnimation(SolidColorBrush.ColorProperty, backgroundAnimation);
-        MainBorder.Background?.BeginAnimation(SolidColorBrush.OpacityProperty, backgroundOpacityAnimation);
+        MainBorder.Background?.BeginAnimation(SolidColorBrush.ColorProperty, _hoverColorOut);
+        MainBorder.Background?.BeginAnimation(SolidColorBrush.OpacityProperty, _hoverOpacityOut);
 
         TopBorder.BorderBrush = System.Windows.Media.Brushes.Transparent;
     }
