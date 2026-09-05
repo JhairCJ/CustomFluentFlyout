@@ -91,9 +91,13 @@ namespace FluentFlyoutWPF.Classes
         private bool _lastHasContent;
         private int _monitorRefreshRate;
 
-        // Frame-rate independent attack/release smoothing (seconds).
-        private const double AttackSeconds = 0.03;
-        private const double ReleaseSeconds = 0.35;
+        // Frame-rate independent attack/release smoothing (seconds). Driven by the
+        // TaskbarVisualizerSmoothing setting (0 = snappy, 100 = silky); resolved once
+        // per frame in EnsureSmoothing, never per bar.
+        private double _attackSeconds = 0.036;
+        private double _releaseSeconds = 0.49;
+        private float _targetAlpha = 0.575f;
+        private int _smoothingKey = -1;
 
         private readonly struct BarGeometry
         {
@@ -457,8 +461,33 @@ namespace FluentFlyoutWPF.Classes
                 float intensity = (db - _bandMinDb) / (_bandMaxDb - _bandMinDb);
                 intensity = Math.Clamp(intensity, 0f, 1f);
 
-                _targetValues[i] = intensity;
+                // Target-side EMA (audio thread): kills single-FFT spikes before they ever
+                // reach the render thread. One multiply-add per bar per FFT — negligible
+                // next to the FFT itself. Alpha comes from the smoothing setting.
+                float prev = _targetValues[i];
+                _targetValues[i] = prev + (intensity - prev) * _targetAlpha;
             }
+        }
+
+        /// <summary>
+        /// Resolves the smoothing setting (0-100) into time constants once per frame.
+        /// Slider feel: attack 12ms (instant punch) .. 60ms, release 80ms (lively) ..
+        /// 900ms (slow melt). Target EMA alpha 0.9 (raw) .. 0.25 (heavy). Defaults
+        /// (50) reproduce roughly the previous hardcoded 30ms / 350ms behaviour.
+        /// </summary>
+        private void EnsureSmoothing()
+        {
+            int s = SettingsManager.Current.TaskbarVisualizerSmoothing;
+            if (s < 0) s = 0;
+            else if (s > 100) s = 100;
+            if (s == _smoothingKey)
+                return;
+            _smoothingKey = s;
+
+            float t = s / 100f;
+            _attackSeconds = 0.012 + t * 0.048;
+            _releaseSeconds = 0.08 + t * 0.82;
+            _targetAlpha = 0.9f - t * 0.65f;
         }
 
         /// <summary>
@@ -635,6 +664,7 @@ namespace FluentFlyoutWPF.Classes
             if (dt <= 0 || dt > 1.0)
                 dt = 1.0 / 60.0;
 
+            EnsureSmoothing();
             SmoothBars(dt);
 
             // check if bars are all zero
@@ -682,8 +712,8 @@ namespace FluentFlyoutWPF.Classes
 
             int count = Math.Min(BarCount, Math.Min(_barValues.Length, _targetValues.Length));
 
-            float attackFactor = 1f - (float)Math.Exp(-dt / AttackSeconds);
-            float releaseFactor = 1f - (float)Math.Exp(-dt / ReleaseSeconds);
+            float attackFactor = 1f - (float)Math.Exp(-dt / _attackSeconds);
+            float releaseFactor = 1f - (float)Math.Exp(-dt / _releaseSeconds);
 
             for (int i = 0; i < count; i++)
             {

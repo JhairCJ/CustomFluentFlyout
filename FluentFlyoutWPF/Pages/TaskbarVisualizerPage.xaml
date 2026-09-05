@@ -159,6 +159,22 @@
                 </StackPanel>
             </ui:CardControl>
 
+            <ui:CardControl x:Name="TaskbarVisualizerSmoothingTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon SlideTransition24}" Margin="0,0,0,3">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{DynamicResource TaskbarVisualizerSmoothingTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock Text="{DynamicResource TaskbarVisualizerSmoothingDescription}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <StackPanel Orientation="Horizontal" >
+                    <Slider Minimum="0" Maximum="100" Value="{Binding TaskbarVisualizerSmoothing, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150"
+                            IsMoveToPointEnabled="True" />
+                    <ui:TextBlock Text="{Binding TaskbarVisualizerSmoothing}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
+                </StackPanel>
+            </ui:CardControl>
+
             <ui:CardControl x:Name="TaskbarVisualizerOutputDeviceCard" Tag="Indexable" Icon="{ui:SymbolIcon Speaker224}" Margin="0,0,0,12">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">

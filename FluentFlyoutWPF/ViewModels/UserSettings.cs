@@ -855,6 +855,13 @@ public partial class UserSettings : ObservableObject
     public partial int TaskbarVisualizerAudioPeakLevel { get; set; }
 
     /// <summary>
+    /// Motion smoothing for the taskbar visualizer bars, 0 (snappy) to 100 (silky).
+    /// Drives the attack/release time constants and the target-side EMA alpha.
+    /// </summary>
+    [ObservableProperty]
+    public partial int TaskbarVisualizerSmoothing { get; set; }
+
+    /// <summary>
     /// Gets or sets the opacity level of the acrylic blur effect.
     /// </summary>
     [ObservableProperty]
@@ -976,6 +983,7 @@ public partial class UserSettings : ObservableObject
         TaskbarVisualizerBaseline = false;
         TaskbarVisualizerAudioSensitivity = 2;
         TaskbarVisualizerAudioPeakLevel = 3;
+        TaskbarVisualizerSmoothing = 50;
         TaskbarVisualizerBaselineAutoHide = false;
         TaskbarVisualizerHighRefreshRate = false;
         VolumeControlEnabled = false;

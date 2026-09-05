@@ -128,6 +128,8 @@ hides repeat, shuffle and player info</System:String>
     <System:String x:Key="TaskbarVisualizerAudioSensitivityDescription">How loud audio must be before the bars start moving</System:String>
     <System:String x:Key="TaskbarVisualizerAudioPeakLevelTitle">Audio Peak Threshold</System:String>
     <System:String x:Key="TaskbarVisualizerAudioPeakLevelDescription">How loud audio must be for the bars to reach their maximum height</System:String>
+    <System:String x:Key="TaskbarVisualizerSmoothingTitle">Motion Smoothing</System:String>
+    <System:String x:Key="TaskbarVisualizerSmoothingDescription">How silky the bar motion is, from snappy (0) to slow melt (100)</System:String>
     <System:String x:Key="TaskbarVisualizerOutputDeviceTitle">Output Device</System:String>
     <System:String x:Key="TaskbarVisualizerOutputDeviceDescription">Change what the visualizer listens to by switching FluentFlyout's output device.</System:String>
     <System:String x:Key="TaskbarVisualizerClickableTitle">Click to open Settings</System:String>
