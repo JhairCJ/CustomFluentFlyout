@@ -31,10 +31,23 @@ namespace FluentFlyout.Classes.Utils
         /// <returns>The width of the specified text, in device-independent units (pixels), including a small padding.</returns>
         public static double GetStringWidth(string? text, int fontWeight = 500, int fontSize = 14)
         {
+            string currentFontFamily = SettingsManager.Current.FontFamily ?? "Segoe UI Variable, Microsoft YaHei UI, Yu Gothic UI, Malgun Gothic";
+            return GetStringWidth(text, currentFontFamily, fontWeight, fontSize);
+        }
+
+        /// <summary>
+        /// Gets the width of the specified string rendered with an explicit font family,
+        /// weight and size. Used by the taskbar widget, which has its own typeface
+        /// settings independent from the global <c>FontFamily</c>.
+        /// </summary>
+        public static double GetStringWidth(string? text, string fontFamilyName, int fontWeight = 500, int fontSize = 14)
+        {
             if (string.IsNullOrEmpty(text)) return 0;
 
-            string currentFontFamily = SettingsManager.Current.FontFamily ?? "Segoe UI Variable, Microsoft YaHei UI, Yu Gothic UI, Malgun Gothic";
-            string cacheKey = currentFontFamily + "|" + fontWeight + "|" + fontSize + "|" + text;
+            string family = string.IsNullOrWhiteSpace(fontFamilyName)
+                ? "Segoe UI Variable"
+                : fontFamilyName;
+            string cacheKey = family + "|" + fontWeight + "|" + fontSize + "|" + text;
             lock (_widthCacheSync)
             {
                 if (_widthCache.TryGetValue(cacheKey, out double cached))
@@ -45,7 +58,7 @@ namespace FluentFlyout.Classes.Utils
                 text,
                 System.Globalization.CultureInfo.CurrentCulture,
                 FlowDirection.LeftToRight,
-                GetCurrentTypeface(fontWeight),
+                GetTypeface(family, fontWeight),
                 fontSize,
                 Brushes.Black,
                 null,
@@ -80,7 +93,14 @@ namespace FluentFlyout.Classes.Utils
                 }
             }
 
-            _cachedTypefaces.TryGetValue(currentFontFamily + fontWeight, out var cachedTypeface);
+            return GetTypeface(currentFontFamily, fontWeight);
+        }
+
+        private static Typeface GetTypeface(string familyName, int fontWeight)
+        {
+            string key = familyName + fontWeight;
+
+            _cachedTypefaces.TryGetValue(key, out var cachedTypeface);
 
             // if exists, return the cached typeface. Otherwise, create a new one and cache it.
             if (cachedTypeface != null)
@@ -89,10 +109,18 @@ namespace FluentFlyout.Classes.Utils
             }
             else
             {
-                var newTypeface = new Typeface(fontFamily, new FontStyle(), fontWeight == 400 ? FontWeights.Normal : FontWeights.Medium, FontStretches.Normal);
-                _cachedTypefaces[currentFontFamily + fontWeight] = newTypeface;
+                var newTypeface = new Typeface(new FontFamily(familyName), new FontStyle(), ToFontWeight(fontWeight), FontStretches.Normal);
+                _cachedTypefaces[key] = newTypeface;
                 return newTypeface;
             }
         }
+
+        private static FontWeight ToFontWeight(int weight) => weight switch
+        {
+            >= 700 => FontWeights.Bold,
+            >= 600 => FontWeights.SemiBold,
+            >= 500 => FontWeights.Medium,
+            _ => FontWeights.Normal,
+        };
     }
 }

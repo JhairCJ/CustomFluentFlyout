@@ -179,6 +179,7 @@ public partial class TaskbarWidgetControl : UserControl
         };
         ApplyCornerRadius();
         ApplyButtonHoverRadius();
+        ApplyTextStyle();
 
         Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0));
 
@@ -234,6 +235,126 @@ public partial class TaskbarWidgetControl : UserControl
             MainStackPanel.Children.Add(ControlsStackPanel);
             ControlsStackPanel.Margin = new Thickness(8, 0, 0, 0);
         }
+    }
+
+    /// <summary>
+    /// Widget-only typeface name (any installed font works), with a safe fallback.
+    /// </summary>
+    private static string WidgetFontFamilyName =>
+        string.IsNullOrWhiteSpace(SettingsManager.Current.TaskbarWidgetFontFamily)
+            ? "Segoe UI Variable"
+            : SettingsManager.Current.TaskbarWidgetFontFamily.Trim();
+
+    private static int WidgetTitleFontSize =>
+        Math.Clamp(SettingsManager.Current.TaskbarWidgetTitleFontSize, 10, 18);
+
+    private static int WidgetArtistFontSize =>
+        Math.Clamp(SettingsManager.Current.TaskbarWidgetArtistFontSize, 10, 16);
+
+    /// <summary>
+    /// Title weight for the current text style preset (0 Modern: 600, 1 Classic: 400,
+    /// 2 Bold: 700, 3 Soft: 500).
+    /// </summary>
+    private static int WidgetTitleWeight => SettingsManager.Current.TaskbarWidgetTextStyle switch
+    {
+        1 => 400,
+        2 => 700,
+        3 => 500,
+        _ => 600,
+    };
+
+    private static int WidgetArtistWeight =>
+        SettingsManager.Current.TaskbarWidgetTextStyle == 2 ? 600 : 400;
+
+    private static double WidgetArtistOpacity => SettingsManager.Current.TaskbarWidgetTextStyle switch
+    {
+        1 => 0.5,
+        2 => 0.85,
+        3 => 0.6,
+        _ => 0.65,
+    };
+
+    private static bool WidgetArtistItalic =>
+        SettingsManager.Current.TaskbarWidgetTextStyle == 3;
+
+    private static FontWeight ToWidgetFontWeight(int weight) => weight switch
+    {
+        >= 700 => FontWeights.Bold,
+        >= 600 => FontWeights.SemiBold,
+        >= 500 => FontWeights.Medium,
+        _ => FontWeights.Normal,
+    };
+
+    /// <summary>
+    /// Applies the widget-only typography (font family, sizes and the text style
+    /// preset) to the song/artist rows. Called on load and live whenever one of the
+    /// <c>TaskbarWidgetFont*</c> / <c>TaskbarWidgetText*</c> settings changes.
+    /// Width caches are dropped so the next <see cref="CalculateSize"/> remeasures
+    /// with the new metrics, and marquees restart under the new typeface.
+    /// </summary>
+    public void ApplyTextStyle()
+    {
+        FontFamily family;
+        try
+        {
+            family = new FontFamily(WidgetFontFamilyName);
+        }
+        catch
+        {
+            family = new FontFamily("Segoe UI Variable");
+        }
+
+        int titleSize = WidgetTitleFontSize;
+        int artistSize = WidgetArtistFontSize;
+
+        SongTitle.FontFamily = family;
+        SongArtist.FontFamily = family;
+        SongTitle.FontSize = titleSize;
+        SongArtist.FontSize = artistSize;
+        SongTitle.FontWeight = ToWidgetFontWeight(WidgetTitleWeight);
+        SongArtist.FontWeight = ToWidgetFontWeight(WidgetArtistWeight);
+        SongArtist.FontStyle = WidgetArtistItalic ? FontStyles.Italic : FontStyles.Normal;
+        // While no slide transition owns the rows, the artist opacity belongs to the preset.
+        if (!_songChangeSlideActive)
+            SongArtist.Opacity = WidgetArtistOpacity;
+
+        SongTitleContainer.Height = Math.Ceiling(titleSize * 1.5);
+        SongArtistContainer.Height = Math.Ceiling(artistSize * 1.5);
+
+        // The rows live in top-anchored Canvases (needed for the slide/marquee X
+        // transforms), so without an explicit offset the glyphs hug the top edge and
+        // the text looks bottom-heavy. Center each line in its container instead.
+        CenterTextRow(SongTitle, SongTitleContainer);
+        CenterTextRow(SongArtist, SongArtistContainer);
+
+        _cachedTitleText = string.Empty;
+        _cachedArtistText = string.Empty;
+        _cachedTitleContainerWidth = -1;
+        _cachedArtistContainerWidth = -1;
+
+        UpdateMarquees();
+    }
+
+    /// <summary>
+    /// Vertically centers a text row inside its <see cref="Canvas"/> container by
+    /// offsetting <see cref="Canvas.Top"/> with the real line height of the current
+    /// typeface, so any font/size/weight combination stays optically centered.
+    /// Only the Y offset is touched: slide and marquee own the X transform.
+    /// </summary>
+    private static void CenterTextRow(System.Windows.Controls.TextBlock live, Canvas container)
+    {
+        var typeface = new Typeface(live.FontFamily, live.FontStyle, live.FontWeight, live.FontStretch);
+        var probe = new FormattedText(
+            "Ag",
+            System.Globalization.CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            typeface,
+            live.FontSize,
+            Brushes.Black,
+            null,
+            1);
+        double top = (container.Height - probe.Height) / 2;
+        Canvas.SetTop(live, Math.Max(0, top));
     }
 
     public void SetVerticalMode(bool isVertical)
@@ -820,13 +941,13 @@ public partial class TaskbarWidgetControl : UserControl
 
         if (!string.Equals(currentTitle, _cachedTitleText, StringComparison.Ordinal))
         {
-            _cachedTitleWidth = Math.Round(StringWidth.GetStringWidth(currentTitle, 400), 2);
+            _cachedTitleWidth = Math.Round(StringWidth.GetStringWidth(currentTitle, WidgetFontFamilyName, WidgetTitleWeight, WidgetTitleFontSize), 2);
             _cachedTitleText = currentTitle;
             textChanged = true;
         }
         if (!string.Equals(currentArtist, _cachedArtistText, StringComparison.Ordinal))
         {
-            _cachedArtistWidth = Math.Round(StringWidth.GetStringWidth(currentArtist, 400), 2);
+            _cachedArtistWidth = Math.Round(StringWidth.GetStringWidth(currentArtist, WidgetFontFamilyName, WidgetArtistWeight, WidgetArtistFontSize), 2);
             _cachedArtistText = currentArtist;
             textChanged = true;
         }
@@ -977,7 +1098,7 @@ public partial class TaskbarWidgetControl : UserControl
                 string spacer = "\u00A0\u00A0\u00A0\u00A0\u00A0";
                 textBlock.Text = origText + spacer + origText;
 
-                double spacerWidth = StringWidth.GetStringWidth(spacer, 400);
+                double spacerWidth = StringWidth.GetStringWidth(spacer, WidgetFontFamilyName, isTitle ? WidgetTitleWeight : WidgetArtistWeight, isTitle ? WidgetTitleFontSize : WidgetArtistFontSize);
                 double scrollDistance = textWidth + spacerWidth;
 
                 double durationToScroll = scrollDistance / speed;
@@ -1702,10 +1823,11 @@ public partial class TaskbarWidgetControl : UserControl
         // no tail is left behind; overshooting is harmless (the containers clip).
         const double distanceEpsilon = 8.0;
         bool hasIncoming = !string.IsNullOrEmpty(newText);
+        bool ghostIsTitle = live == SongTitle;
         double renderedOldWidth = travel;
         if (hasOutgoing && !string.IsNullOrEmpty(oldText))
             renderedOldWidth = double.IsNaN(live.Width)
-                ? StringWidth.GetStringWidth(oldText, 400) + distanceEpsilon
+                ? StringWidth.GetStringWidth(oldText, WidgetFontFamilyName, ghostIsTitle ? WidgetTitleWeight : WidgetArtistWeight, ghostIsTitle ? WidgetTitleFontSize : WidgetArtistFontSize) + distanceEpsilon
                 : Math.Max(live.Width, 0) + distanceEpsilon;
 
         double exitTo = slideBackwards ? renderedOldWidth : -renderedOldWidth;
@@ -1722,11 +1844,18 @@ public partial class TaskbarWidgetControl : UserControl
                 Text = oldText,
                 Foreground = live.Foreground,
                 Opacity = live.Opacity,
+                FontFamily = live.FontFamily,
+                FontSize = live.FontSize,
+                FontStyle = live.FontStyle,
+                FontStretch = live.FontStretch,
                 FontWeight = live.FontWeight,
                 Width = live.Width,
                 TextTrimming = live.TextTrimming,
                 RenderTransform = new TranslateTransform()
             };
+            // Same baseline as the live row: without this the outgoing text would
+            // jump to the container top as soon as the slide starts.
+            Canvas.SetTop(ghost, Canvas.GetTop(live));
             container.Children.Add(ghost);
             _songChangeSlideGhosts.Add(ghost);
 

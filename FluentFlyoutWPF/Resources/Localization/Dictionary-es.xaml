@@ -140,6 +140,18 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="TaskbarWidgetSongChangeAnimationDescription">Elige cómo se animan la canción y el autor al cambiar de canción</system:String>
     <system:String x:Key="TaskbarWidgetSongChangeAnimationCrossfade">Fundido</system:String>
     <system:String x:Key="TaskbarWidgetSongChangeAnimationSlide">Deslizamiento (sale por la izquierda, entra por la derecha)</system:String>
+    <system:String x:Key="TaskbarWidgetTypographyTitle">Tipografía y estilo de texto</system:String>
+    <system:String x:Key="TaskbarWidgetTypographyDescription">Fuentes y estilo de la canción y el autor. Solo afecta al widget.</system:String>
+    <system:String x:Key="TaskbarWidgetFontFamilyTitle">Tipografía</system:String>
+    <system:String x:Key="TaskbarWidgetFontFamilyDescription">Elige una de la lista o escribe el nombre de cualquier fuente instalada en tu sistema</system:String>
+    <system:String x:Key="TaskbarWidgetTextStyleTitle">Estilo de canción y autor</system:String>
+    <system:String x:Key="TaskbarWidgetTextStyleDescription">Grosor y presencia de las dos líneas de texto (los tamaños van por separado abajo)</system:String>
+    <system:String x:Key="TaskbarWidgetTextStyleModern">Moderno (recomendado)</system:String>
+    <system:String x:Key="TaskbarWidgetTextStyleClassic">Clásico</system:String>
+    <system:String x:Key="TaskbarWidgetTextStyleBold">Audaz</system:String>
+    <system:String x:Key="TaskbarWidgetTextStyleSoft">Suave</system:String>
+    <system:String x:Key="TaskbarWidgetTitleFontSizeTitle">Tamaño de la canción</system:String>
+    <system:String x:Key="TaskbarWidgetArtistFontSizeTitle">Tamaño del autor</system:String>
     <system:String x:Key="BackgroundBlurOption2" xml:space="preserve"> Tipo 1 (Iluminado de la Portada)</system:String>
     <system:String x:Key="BackgroundBlurOption3" xml:space="preserve"> Tipo 2 (Iluminado Difuminado)</system:String>
     <system:String x:Key="BackgroundBlurOption4" xml:space="preserve"> Tipo 3 (Desenfoque)</system:String>

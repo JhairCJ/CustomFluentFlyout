@@ -8,9 +8,9 @@
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance viewModels:UserSettings}"
              Height="40" Width="100"
-             TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Ideal"
-             FontFamily="{Binding FontFamily}"
-             FlowDirection="{Binding FlowDirection}">
+              TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Ideal"
+              FontFamily="{Binding TaskbarWidgetFontFamily, FallbackValue='Segoe UI Variable'}"
+              FlowDirection="{Binding FlowDirection}">
     <Border Name="MainBorder" CornerRadius="6" ClipToBounds="True">
         <Grid x:Name="RootGrid">
             <!-- The rotating background lives in a Canvas so it is arranged at its exact
@@ -60,15 +60,15 @@
                                     ToolTipService.InitialShowDelay="800"
                                     ToolTipService.Placement="RelativePoint"
                                     ToolTipService.VerticalOffset="-16">
-                            <Canvas x:Name="SongTitleContainer" ClipToBounds="True" Height="19">
-                                <TextBlock x:Name="SongTitle" Text="" FontWeight="Normal">
+                            <Canvas x:Name="SongTitleContainer" ClipToBounds="True" Height="20">
+                                <TextBlock x:Name="SongTitle" Text="" FontSize="13" FontWeight="SemiBold">
                                     <TextBlock.RenderTransform>
                                         <TranslateTransform />
                                     </TextBlock.RenderTransform>
                                 </TextBlock>
                             </Canvas>
-                            <Canvas x:Name="SongArtistContainer" ClipToBounds="True" Margin="0,-1.5,0,0" Height="19">
-                                <TextBlock x:Name="SongArtist" Text="" FontWeight="Normal" Opacity="0.5">
+                            <Canvas x:Name="SongArtistContainer" ClipToBounds="True" Margin="0,-1,0,0" Height="18">
+                                <TextBlock x:Name="SongArtist" Text="" FontSize="12" FontWeight="Normal" Opacity="0.65">
                                     <TextBlock.RenderTransform>
                                         <TranslateTransform />
                                     </TextBlock.RenderTransform>

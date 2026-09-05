@@ -679,6 +679,36 @@ public partial class UserSettings : ObservableObject
     public partial int TaskbarWidgetSongChangeAnimation { get; set; }
 
     /// <summary>
+    /// Font family used only by the taskbar widget (song title and artist).
+    /// Any installed font name works; the settings ComboBox offers curated presets
+    /// and accepts custom typing.
+    /// </summary>
+    [ObservableProperty]
+    public partial string TaskbarWidgetFontFamily { get; set; }
+
+    /// <summary>
+    /// Text style preset for the widget song/artist rows.
+    /// 0: Modern (semibold title, soft artist), 1: Classic, 2: Bold, 3: Soft italic artist.
+    /// Sizes stay independent (<see cref="TaskbarWidgetTitleFontSize"/> /
+    /// <see cref="TaskbarWidgetArtistFontSize"/>); the preset only sets weights,
+    /// artist opacity and artist italic.
+    /// </summary>
+    [ObservableProperty]
+    public partial int TaskbarWidgetTextStyle { get; set; }
+
+    /// <summary>
+    /// Song title font size (DIPs) in the taskbar widget.
+    /// </summary>
+    [ObservableProperty]
+    public partial int TaskbarWidgetTitleFontSize { get; set; }
+
+    /// <summary>
+    /// Artist font size (DIPs) in the taskbar widget.
+    /// </summary>
+    [ObservableProperty]
+    public partial int TaskbarWidgetArtistFontSize { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether the taskbar widget scrolling text (marquee) is enabled for long titles.
     /// </summary>
     [ObservableProperty]
@@ -970,6 +1000,10 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetControlsPosition = 1;
         TaskbarWidgetAnimated = true;
         TaskbarWidgetSongChangeAnimation = 0;
+        TaskbarWidgetFontFamily = "Segoe UI Variable";
+        TaskbarWidgetTextStyle = 0;
+        TaskbarWidgetTitleFontSize = 13;
+        TaskbarWidgetArtistFontSize = 12;
         TaskbarWidgetScrollingEnabled = false;
         TaskbarWidgetScrollingTextSpeed = 20;
         TaskbarWidgetScrollingTextLoopForever = false;
@@ -1268,6 +1302,47 @@ public partial class UserSettings : ObservableObject
         var widget = mainWindow.taskbarWindow?.Widget;
         if (widget == null) return;
         widget.Dispatcher.Invoke(widget.UpdateMarquees);
+    }
+
+    partial void OnTaskbarWidgetFontFamilyChanged(string oldValue, string newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        ApplyTaskbarTextStyle();
+    }
+
+    partial void OnTaskbarWidgetTextStyleChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        ApplyTaskbarTextStyle();
+    }
+
+    partial void OnTaskbarWidgetTitleFontSizeChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        TaskbarWidgetTitleFontSize = Math.Clamp(newValue, 10, 18);
+        ApplyTaskbarTextStyle();
+    }
+
+    partial void OnTaskbarWidgetArtistFontSizeChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        TaskbarWidgetArtistFontSize = Math.Clamp(newValue, 10, 16);
+        ApplyTaskbarTextStyle();
+    }
+
+    /// <summary>
+    /// Restyles the widget song/artist rows live and reflows the widget width.
+    /// </summary>
+    private void ApplyTaskbarTextStyle()
+    {
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        var widget = mainWindow.taskbarWindow?.Widget;
+        if (widget == null) return;
+        widget.Dispatcher.Invoke(() =>
+        {
+            widget.ApplyTextStyle();
+            mainWindow.UpdateTaskbar();
+        });
     }
 
     partial void OnTaskbarVisualizerEnabledChanged(bool oldValue, bool newValue)
