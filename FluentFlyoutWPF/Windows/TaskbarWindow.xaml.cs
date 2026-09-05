@@ -300,8 +300,8 @@ on_error:
             return;
         }
 
-        // Check premium status before allowing widget to be displayed
-        if (!SettingsManager.Current.TaskbarWidgetEnabled || !SettingsManager.Current.IsPremiumUnlocked)
+        // Widget is only displayed when enabled
+        if (!SettingsManager.Current.TaskbarWidgetEnabled)
             return;
 
         try
@@ -737,8 +737,7 @@ on_error:
 
     public void UpdateUi(string title, string artist, BitmapImage? icon, GlobalSystemMediaTransportControlsSessionPlaybackStatus? playbackStatus, GlobalSystemMediaTransportControlsSessionPlaybackControls? playbackControls = null)
     {
-        // Check premium status - hide widget if not unlocked
-        if ((!SettingsManager.Current.TaskbarWidgetEnabled || !SettingsManager.Current.IsPremiumUnlocked))
+        if (!SettingsManager.Current.TaskbarWidgetEnabled)
         {
             if (_timer.IsEnabled) // pause timer to save resources
                 _timer.Stop();

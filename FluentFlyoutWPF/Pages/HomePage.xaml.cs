@@ -3,7 +3,6 @@
 
 using FluentFlyout.Classes;
 using FluentFlyout.Classes.Settings;
-using FluentFlyoutWPF.Classes.Services;
 using FluentFlyoutWPF.Classes.Utils;
 using FluentFlyoutWPF.ViewModels;
 using NLog;
@@ -35,100 +34,11 @@ public partial class HomePage : Page
         {
             VersionTextBlock.Text = "debug version";
         }
-
-        UpdateLastCheckedText();
-    }
-
-    private void UpdateLastCheckedText()
-    {
-        if (UpdateState.Current.LastUpdateCheck != default)
-        {
-            LastCheckedText.Text = string.Format(
-                Application.Current.FindResource("LastChecked")?.ToString(),
-                UpdateState.Current.LastCheckedText);
-        }
-        else
-        {
-            LastCheckedText.Text = string.Empty;
-        }
     }
 
     private void ViewUpdates_Click(object sender, RoutedEventArgs e)
     {
         Notifications.OpenChangelogInBrowser();
-    }
-
-    private long _lastChecked = 0;
-
-    private async void CheckForUpdates_Click(object sender, RoutedEventArgs e)
-    {
-        // prevent multiple clicks within 1 second
-        if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - _lastChecked < 1)
-        {
-            return;
-        }
-
-        _lastChecked = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-        if (UpdateState.Current.IsUpdateAvailable)
-        {
-            string url = !string.IsNullOrEmpty(UpdateState.Current.UpdateUrl) ? UpdateState.Current.UpdateUrl : "https://fluentflyout.com/changelog/";
-            UpdateCheckerService.OpenUpdateUrl(url);
-        }
-        else
-        {
-            await CheckForUpdatesAsync();
-        }
-    }
-
-    private async Task CheckForUpdatesAsync()
-    {
-        try
-        {
-            UpdateStatusText.Text = Application.Current.FindResource("CheckingForUpdates")?.ToString();
-
-            var result = await UpdateCheckerService.CheckForUpdatesAsync(SettingsManager.Current.LastKnownVersion);
-
-            if (result.Success)
-            {
-                UpdateState.Current.IsUpdateAvailable = result.IsUpdateAvailable;
-                UpdateState.Current.NewestVersion = result.NewestVersion;
-                UpdateState.Current.UpdateUrl = result.UpdateUrl;
-                UpdateState.Current.LastUpdateCheck = result.CheckedAt;
-
-                UpdateLastCheckedText();
-
-                _ = Dispatcher.InvokeAsync(async () =>
-                {
-                    try
-                    {
-                        await Task.Delay(500); // slight delay for better UX
-
-                        if (result.IsUpdateAvailable)
-                        {
-                            UpdateStatusText.Text = Application.Current.FindResource("UpdateAvailableNotificationTitle")?.ToString();
-                        }
-                        else
-                        {
-                            UpdateStatusText.Text = Application.Current.FindResource("UpToDate")?.ToString();
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error(ex, "Error while updating update status text on UI thread");
-                    }
-                });
-            }
-            else
-            {
-                UpdateStatusText.Text = Application.Current.FindResource("UpToDate")?.ToString();
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "Failed to check for updates from HomePage");
-            UpdateStatusText.Text = "Unable to check for updates"; // not localized
-        }
     }
 
     private void MediaFlyout_Click(object sender, System.Windows.RoutedEventArgs e)
@@ -164,28 +74,6 @@ public partial class HomePage : Page
     private void System_Click(object sender, System.Windows.RoutedEventArgs e)
     {
         SettingsWindow.NavigateToPage(typeof(SystemPage));
-    }
-
-    // same as in AboutPage.xaml.cs
-    private async void UnlockPremiumButton_Click(object sender, System.Windows.RoutedEventArgs e)
-    {
-        LicenseManager.UnlockPremium(sender);
-    }
-
-    private void ViewMicrosoftStore_Click(object sender, System.Windows.RoutedEventArgs e)
-    {
-        try
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "https://apps.microsoft.com/detail/9N45NSM4TNBP",
-                UseShellExecute = true
-            });
-        }
-        catch
-        {
-            Logger.Error("Failed to open Microsoft Store page");
-        }
     }
 
     private void ViewLogs_Click(object sender, System.Windows.RoutedEventArgs e)

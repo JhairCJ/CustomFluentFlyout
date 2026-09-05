@@ -577,13 +577,13 @@ public partial class UserSettings : ObservableObject
     public string TaskbarWidgetBackgroundRotateSizeText => $"{TaskbarWidgetBackgroundRotateSize}%";
 
     [XmlIgnore]
-    public bool TaskbarWidgetBackgroundBlurIntensityEnabled => TaskbarWidgetBackgroundBlur && IsPremiumUnlocked;
+    public bool TaskbarWidgetBackgroundBlurIntensityEnabled => TaskbarWidgetBackgroundBlur;
 
     [XmlIgnore]
-    public bool TaskbarWidgetBackgroundBlurRadiusEnabled => TaskbarWidgetBackgroundBlur && IsPremiumUnlocked;
+    public bool TaskbarWidgetBackgroundBlurRadiusEnabled => TaskbarWidgetBackgroundBlur;
 
     [XmlIgnore]
-    public bool TaskbarWidgetBackgroundRotateEnabled => TaskbarWidgetBackgroundBlur && IsPremiumUnlocked;
+    public bool TaskbarWidgetBackgroundRotateEnabled => TaskbarWidgetBackgroundBlur;
 
     /// <summary>
     /// Gets or sets a value indicating whether the taskbar widget should be completely hidden from view when no media is playing.
@@ -632,7 +632,7 @@ public partial class UserSettings : ObservableObject
     }
 
     [XmlIgnore]
-    public bool TaskbarWidgetFixedWidthPxEnabled => TaskbarWidgetFixedWidth && IsPremiumUnlocked;
+    public bool TaskbarWidgetFixedWidthPxEnabled => TaskbarWidgetFixedWidth;
 
     /// <summary>
     /// Gets or sets a value indicating whether the album art thumbnail next to the song
@@ -724,7 +724,6 @@ public partial class UserSettings : ObservableObject
     /// <summary>
     /// Gets or sets a value indicating whether the taskbar visualizer is enabled.
     /// </summary>
-    /// <remarks>For now, this requires Premium and Taskbar Widget to be enabled.</remarks>
     [ObservableProperty]
     public partial bool TaskbarVisualizerEnabled { get; set; }
 
@@ -856,17 +855,6 @@ public partial class UserSettings : ObservableObject
     public partial int TaskbarVisualizerAudioPeakLevel { get; set; }
 
     /// <summary>
-    /// Gets whether premium features are unlocked (runtime only, not persisted)
-    /// </summary>
-    [XmlIgnore]
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(TaskbarWidgetFixedWidthPxEnabled))]
-    [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundBlurIntensityEnabled))]
-    [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundBlurRadiusEnabled))]
-    [NotifyPropertyChangedFor(nameof(TaskbarWidgetBackgroundRotateEnabled))]
-    public partial bool IsPremiumUnlocked { get; set; }
-
-    /// <summary>
     /// Gets or sets the opacity level of the acrylic blur effect.
     /// </summary>
     [ObservableProperty]
@@ -892,42 +880,10 @@ public partial class UserSettings : ObservableObject
     public partial uint AlbumAccentDesaturationAmount { get; set; }
 
     /// <summary>
-    /// Gets whether this is a Store version. Once false, always false (only if last known version was not null).
-    /// </summary>
-    [ObservableProperty]
-    public partial bool IsStoreVersion { get; set; }
-
-    [XmlIgnore]
-    [ObservableProperty]
-    public partial string PremiumPrice { get; set; }
-
-    /// <summary>
-    /// Last time the program has sent an update notification in Unix seconds.
-    /// </summary>
-    [ObservableProperty]
-    public partial long LastUpdateNotificationUnixSeconds { get; set; }
-
-    /// <summary>
-    /// Determines whether user will get Windows notifications when a new update is available.
-    /// </summary>
-    [ObservableProperty]
-    public partial bool ShowUpdateNotifications { get; set; }
-
-    /// <summary>
     /// Determines whether to use the legacy method for calculating taskbar width for widget positioning for compatibility with other taskbar mods
     /// </summary>
     [ObservableProperty]
     public partial bool LegacyTaskbarWidthEnabled { get; set; }
-
-    [ObservableProperty]
-    public partial Guid Uuid { get; set; }
-
-    [XmlIgnore]
-    [ObservableProperty]
-    public partial Guid SessionId { get; set; } = Guid.NewGuid();
-
-    [ObservableProperty]
-    public partial bool AnonymousTelemetryAllowed { get; set; }
 
     [XmlIgnore]
     private bool _initializing = true;
@@ -1031,11 +987,7 @@ public partial class UserSettings : ObservableObject
         UseAlbumArtAsAccentColor = false;
         AlbumAccentDesaturationThreshold = 65;
         AlbumAccentDesaturationAmount = 0;
-        LastUpdateNotificationUnixSeconds = 0;
-        ShowUpdateNotifications = true;
         LegacyTaskbarWidthEnabled = false;
-        Uuid = Guid.NewGuid();
-        AnonymousTelemetryAllowed = true;
         AllowedApps = [];
         BlockedApps = [];
 
@@ -1136,14 +1088,6 @@ public partial class UserSettings : ObservableObject
     partial void OnTaskbarWidgetEnabledChanged(bool oldValue, bool newValue)
     {
         if (oldValue == newValue || _initializing) return;
-
-        // Check premium status before allowing widget to be enabled
-        if (newValue && !SettingsManager.Current.IsPremiumUnlocked)
-        {
-            // Revert the change if premium is not unlocked
-            TaskbarWidgetEnabled = false;
-            return;
-        }
 
         UpdateTaskbar();
     }
@@ -1406,18 +1350,6 @@ public partial class UserSettings : ObservableObject
 
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
         mainWindow?.RefreshFilteredMedia();
-    }
-
-    partial void OnVolumeMixerHighlightActiveAppsChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-
-        // Check premium status before allowing highlight to be enabled
-        if (newValue && !SettingsManager.Current.IsPremiumUnlocked)
-        {
-            VolumeMixerHighlightActiveApps = false;
-            return;
-        }
     }
 
     partial void OnVolumeControlEnabledChanged(bool oldValue, bool newValue)

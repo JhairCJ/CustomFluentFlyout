@@ -1,7 +1,6 @@
 // Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-using FluentFlyout.Classes;
 using FluentFlyout.Classes.Settings;
 using FluentFlyoutWPF.Pages;
 using System.Text.RegularExpressions;
@@ -191,8 +190,6 @@ public partial class SettingsWindow : FluentWindow
         RootNavigation.IsPaneOpen = true;
         await Task.Delay(10);
         RootNavigation.IsPaneOpen = false;
-
-        LicenseManager.GetPremiumProductInfo();
 
         RootNavigation.Navigated += (s, args) =>
         {

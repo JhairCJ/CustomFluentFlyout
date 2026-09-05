@@ -1,7 +1,6 @@
 // Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-using FluentFlyoutWPF.Classes.Services;
 using FluentFlyoutWPF.ViewModels;
 using MicaWPF.Controls;
 using System.ComponentModel;
@@ -144,8 +143,6 @@ public partial class OnboardingWindow : MicaWindow
         {
             new OnboardingWindow().Show();
             instance?.Activate();
-
-            _ = TelemetryService.SendTelemetryEventAsync("onboarding_started", "onboarding");
         }
         else
         {
@@ -161,15 +158,7 @@ public partial class OnboardingWindow : MicaWindow
 
     private void OnOnboardingCompleted(object? sender, EventArgs e)
     {
-        _ = TelemetryService.SendTelemetryEventAsync("onboarding_completed", "onboarding");
-
         SettingsWindow.ShowInstance();
         Close();
-    }
-
-    // same as in AboutPage.xaml.cs
-    private async void UnlockPremiumButton_Click(object sender, RoutedEventArgs e)
-    {
-        FluentFlyout.Classes.LicenseManager.UnlockPremium(sender);
     }
 }

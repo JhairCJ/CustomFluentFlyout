@@ -7,7 +7,6 @@ using FluentFlyout.Classes.Utils;
 using FluentFlyout.Controls;
 using FluentFlyout.Windows;
 using FluentFlyoutWPF.Classes;
-using FluentFlyoutWPF.Classes.Services;
 using FluentFlyoutWPF.Classes.Utils;
 using FluentFlyoutWPF.ViewModels;
 using FluentFlyoutWPF.Windows;
@@ -187,7 +186,7 @@ public partial class MainWindow : MicaWindow
         }
 
         string previousVersion = SettingsManager.Current.LastKnownVersion;
-        _ = CheckForExperimentsOnStartupAsync(previousVersion);
+        ShowOnboardingIfFirstRun(previousVersion);
 
         // apply other things on new thread
         Dispatcher.Invoke(() =>
@@ -208,61 +207,15 @@ public partial class MainWindow : MicaWindow
 
             Notifications.ShowFirstOrUpdateNotification(previousVersion, SettingsManager.Current.LastKnownVersion);
             FlowDirection = SettingsManager.Current.FlowDirection;
-
-            // check for updates on startup
-            _ = CheckForUpdatesOnStartupAsync();
         });
     }
 
-    private async Task CheckForExperimentsOnStartupAsync(string previousVersion)
-    {
-        await ExperimentsService.GetExperimentsAsync();
-
-        OnboardingExperiment(previousVersion);
-    }
-
-    private void OnboardingExperiment(string previousVersion)
+    private void ShowOnboardingIfFirstRun(string previousVersion)
     {
         // show onboarding to new users (no previous version stored = user has never run the app before)
         if (string.IsNullOrEmpty(previousVersion))
         {
-            if (ExperimentsService.HasExperiments)
-            {
-                if (ExperimentsService.CheckUuidInExperiment("onboarding") == "A")
-                    OnboardingWindow.ShowInstance();
-                else
-                {
-                    SettingsWindow.ShowInstance();
-                    _ = TelemetryService.SendTelemetryEventAsync("onboarding_completed", "onboarding");
-                }
-            }
-            else
-                OnboardingWindow.ShowInstance();
-        }
-    }
-
-    private async Task CheckForUpdatesOnStartupAsync()
-    {
-        try
-        {
-            var result = await UpdateCheckerService.CheckForUpdatesAsync(SettingsManager.Current.LastKnownVersion);
-
-            if (result.Success)
-            {
-                UpdateState.Current.IsUpdateAvailable = result.IsUpdateAvailable;
-                UpdateState.Current.NewestVersion = result.NewestVersion;
-                UpdateState.Current.UpdateUrl = result.UpdateUrl;
-                UpdateState.Current.LastUpdateCheck = result.CheckedAt;
-
-                if (result.IsUpdateAvailable)
-                {
-                    Notifications.ShowUpdateAvailableNotification(result.NewestVersion, result.UpdateUrl);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "Failed to check for updates on startup");
+            OnboardingWindow.ShowInstance();
         }
     }
 
@@ -647,7 +600,7 @@ public partial class MainWindow : MicaWindow
     public void UpdateTaskbar()
     {
         // Taskbar widget window is only created when the widget is enabled
-        if (!SettingsManager.Current.TaskbarWidgetEnabled || !SettingsManager.Current.IsPremiumUnlocked)
+        if (!SettingsManager.Current.TaskbarWidgetEnabled)
         {
             if (taskbarWindow != null)
             {
@@ -1802,7 +1755,7 @@ public partial class MainWindow : MicaWindow
         }
     }
 
-    private async void MicaWindow_Loaded(object sender, RoutedEventArgs e)
+    private void MicaWindow_Loaded(object sender, RoutedEventArgs e)
     {
         Hide();
         UpdateUILayout();
@@ -1821,25 +1774,6 @@ public partial class MainWindow : MicaWindow
         {
             Logger.Error(ex, "Failed to initialize tray icon");
         }
-
-        try
-        {
-            await LicenseManager.Instance.InitializeAsync();
-
-            // Sync license status from LicenseManager to SettingsManager
-            SettingsManager.Current.IsPremiumUnlocked = LicenseManager.Instance.IsPremiumUnlocked;
-            SettingsManager.Current.IsStoreVersion = LicenseManager.Instance.IsStoreVersion;
-            SettingsManager.SaveSettings();
-
-            Logger.Info($"License synced on startup - Store: {SettingsManager.Current.IsStoreVersion}, Premium: {SettingsManager.Current.IsPremiumUnlocked}");
-        }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "Failed to initialize license");
-        }
-
-        // Add the experiments loading here
-        await ExperimentsService.GetExperimentsAsync();
 
         BitmapHelper.GetDominantColors();
         UpdateTaskbar();
@@ -1862,7 +1796,7 @@ public partial class MainWindow : MicaWindow
                 taskbarWindow = null;
             }
 
-            if (!SettingsManager.Current.TaskbarWidgetEnabled || !SettingsManager.Current.IsPremiumUnlocked)
+            if (!SettingsManager.Current.TaskbarWidgetEnabled)
                 return;
 
             taskbarWindow = new();

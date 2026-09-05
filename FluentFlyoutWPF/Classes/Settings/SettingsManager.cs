@@ -28,12 +28,7 @@ public class SettingsManager
     {
         if (_exportSerializer == null)
         {
-            XmlAttributeOverrides overrides = new XmlAttributeOverrides();
-            XmlAttributes ignoreAttrs = new XmlAttributes();
-            ignoreAttrs.XmlIgnore = true;
-            overrides.Add(typeof(UserSettings), "Uuid", ignoreAttrs);
-            overrides.Add(typeof(UserSettings), "IsStoreVersion", ignoreAttrs);
-            _exportSerializer = new XmlSerializer(typeof(UserSettings), overrides);
+            _exportSerializer = new XmlSerializer(typeof(UserSettings));
         }
         return _exportSerializer;
     }
@@ -71,7 +66,6 @@ public class SettingsManager
     /// <returns>The restored settings.</returns>
     public static UserSettings RestoreSettings(string? filePath = null)
     {
-        bool isImport = filePath != null;
         filePath ??= SettingsFilePath;
         string backupPath = filePath + ".bak";
 
@@ -79,12 +73,6 @@ public class SettingsManager
         {
             if (DeserializeSettings(filePath, out var loadedSettings) && loadedSettings != null)
             {
-                if (isImport && _current != null)
-                {
-                    loadedSettings.Uuid = _current.Uuid;
-                    loadedSettings.IsStoreVersion = _current.IsStoreVersion;
-                }
-
                 _current = loadedSettings;
                 _current.CompleteInitialization();
 

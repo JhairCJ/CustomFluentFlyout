@@ -50,7 +50,7 @@ internal static class Notifications
 
     public static void OpenChangelogInBrowser()
     {
-        OpenUrlInBrowser("https://fluentflyout.com/changelog/");
+        OpenUrlInBrowser("https://github.com/unchihugo/FluentFlyout/releases");
     }
 
     /// <summary>
@@ -89,51 +89,6 @@ internal static class Notifications
                 Logger.Error(ex, "Failed to show update notification");
                 return;
             }
-        }
-    }
-
-    /// <summary>
-    /// Show a Windows notification when an update is available
-    /// </summary>
-    /// <param name="newVersion">The new version available</param>
-    /// <param name="updateUrl">The URL to download the update (can be empty)</param>
-    public static void ShowUpdateAvailableNotification(string newVersion, string updateUrl)
-    {
-        if (!SettingsManager.Current.ShowUpdateNotifications) return;
-
-        long currentUnixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-        if (currentUnixSeconds - SettingsManager.Current.LastUpdateNotificationUnixSeconds < TimeSpan.FromDays(5).TotalSeconds) // 5 days cooldown
-        {
-            return;
-        }
-
-        try
-        {
-            var builder = new ToastContentBuilder()
-                .AddText(Application.Current.FindResource("UpdateAvailableNotificationTitle").ToString())
-                .AddText(string.Format(Application.Current.FindResource("UpdateAvailableNotificationMessage").ToString(), newVersion))
-                .AddArgument("action", "downloadUpdate");
-
-            // only add download button if URL is available
-            if (!string.IsNullOrEmpty(updateUrl))
-            {
-                builder.AddButton(new ToastButton()
-                    .SetContent(Application.Current.FindResource("UpdateAvailableNotificationButton").ToString())
-                    .AddArgument("action", "downloadUpdate")
-                    .AddArgument("url", updateUrl)
-                    .SetBackgroundActivation());
-            }
-
-            builder.Show();
-
-            SettingsManager.Current.LastUpdateNotificationUnixSeconds = currentUnixSeconds;
-
-            Logger.Info($"Displayed update available notification for {newVersion}");
-        }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "Failed to show update available notification");
         }
     }
 
