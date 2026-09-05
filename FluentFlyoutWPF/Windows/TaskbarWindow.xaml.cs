@@ -53,6 +53,12 @@ public partial class TaskbarWindow : Window
     private GlobalSystemMediaTransportControlsSessionPlaybackStatus? _lastPlaybackStatus;
     private DispatcherTimer? _autoHideTimer;
 
+    // Startup gating: the window must never flash the idle placeholder (music note +
+    // controls) in a corner while Explorer is still settling. It stays hidden until a
+    // real song has been published AND a good position has been computed at least once.
+    private bool _hasPublishedMedia;
+    private bool _hasEverBeenPositioned;
+
     public TaskbarWindow()
     {
         WindowHelper.SetNoActivate(this);
@@ -67,7 +73,12 @@ public partial class TaskbarWindow : Window
         _timer.Tick += (s, e) => UpdatePosition();
         _timer.Start();
 
+        // Show once so Loaded fires (SetupWindow parenting + MainWindow wiring), then hide
+        // again in the same synchronous tick: nothing reaches the screen before Hide, so
+        // startup never flashes the music-note placeholder in a corner. The window only
+        // reappears via EnsureWindowVisible once real media arrives (see UpdateUi).
         Show();
+        Visibility = Visibility.Collapsed;
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -446,17 +457,22 @@ on_error:
             POINT containerPos = new() { X = taskbarRect.Left, Y = taskbarRect.Top };
             ScreenToClient(taskbarHandle, ref containerPos);
 
-            // Apply using SetWindowPos (Bypassing WPF layout engine)
+            // Apply using SetWindowPos (Bypassing WPF layout engine).
+            // Never show the window from here before the startup gate passes (first real
+            // media + first good position): resurrecting it early is exactly the
+            // corner-placeholder flash this gating exists to prevent.
+            uint showFlag = _hasPublishedMedia ? SWP_SHOWWINDOW : SWP_HIDEWINDOW;
             SetWindowPos(taskbarWindowHandle, 0,
                      containerPos.X, containerPos.Y,
                      containerWidth, containerHeight,
-                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS | SWP_SHOWWINDOW);
+                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS | showFlag);
             var wRect = PositionWidget(taskbarHandle, taskbarRect, dpiScale, isMainTaskbarSelected, isVertical);
             var vRect = PositionVisualizer(taskbarHandle, taskbarRect, dpiScale, isMainTaskbarSelected, isVertical);
 
             UpdateWindowRegion(taskbarWindowHandle, wRect, vRect);
 
             _lastSelectedMonitor = SettingsManager.Current.TaskbarWidgetSelectedMonitor;
+            _hasEverBeenPositioned = true;
         }
         finally
         {
@@ -731,6 +747,18 @@ on_error:
             return;
         }
 
+        // Belt and braces: if Loaded wiring hasn't run yet, wire it now so controls work.
+        if (_mainWindow == null && Application.Current?.MainWindow is MainWindow mw)
+        {
+            _mainWindow = mw;
+            Widget.SetMainWindow(mw);
+        }
+
+        // First real song ever: from here on the window is allowed to be visible.
+        // Pure stop/idle events before that keep it hidden (no startup placeholder flash).
+        if (title != "-" || artist != "-")
+            _hasPublishedMedia = true;
+
         // Autohide - Widget hides when playback is paused
         _lastPlaybackStatus = playbackStatus;
 
@@ -740,8 +768,8 @@ on_error:
             {
                 _autoHideTimer?.Stop();
                 _autoHideTimer = null;
-
-                Dispatcher.Invoke(EnsureWindowVisible);
+                // Showing is handled by the single gated block below (after positioning),
+                // so resume never flashes an unpositioned window.
             }
             else
             {
@@ -780,8 +808,15 @@ on_error:
         // Update position after UI change
         Dispatcher.BeginInvoke(() => UpdatePosition(true), DispatcherPriority.Background);
 
-        Dispatcher.Invoke(() =>
+        // Queued AFTER the position update (same priority = FIFO), so the window is only
+        // ever shown once positioned: no first-frame-in-the-corner. Gated on real media
+        // + first good position, so startup stays hidden instead of flashing the idle
+        // music-note placeholder.
+        Dispatcher.BeginInvoke(() =>
         {
+            if (!_hasPublishedMedia || !_hasEverBeenPositioned)
+                return;
+
             // When autohide is on and playback is paused, the delayed-hide timer owns the
             // window's visibility; force-showing here would cancel its fade-out.
             if (SettingsManager.Current.TaskbarWidgetAutoHide &&
@@ -789,7 +824,7 @@ on_error:
                 return;
 
             EnsureWindowVisible();
-        });
+        }, DispatcherPriority.Background);
     }
 
     /// <summary>
