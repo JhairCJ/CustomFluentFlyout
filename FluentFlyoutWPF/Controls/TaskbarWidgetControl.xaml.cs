@@ -1323,16 +1323,22 @@ public partial class TaskbarWidgetControl : UserControl
                 // for the incoming text; it collapses again on completion when empty.
                 if (artistHasOutgoing || artistHasIncoming)
                     SongArtist.Visibility = Visibility.Visible;
-
-                SlideSingleText(SongArtist, SongArtistContainer, oldArtist, newArtist, artistTravel, msDuration, 40, artistHasOutgoing, slideBackwards);
             }
-            if (animateTitle)
-                SlideSingleText(SongTitle, SongTitleContainer, oldTitle, newTitle, titleTravel, msDuration, 0, titleHasOutgoing, slideBackwards);
 
-            // Settle once the longest-running entrance finishes: the artist enters with a
-            // small stagger so it finishes last when present, otherwise the title. Exits
-            // always start immediately, so they never outlast the entrances. The version
-            // check inside FinishSongChangeSlide drops stale timers from rapid skips.
+            // Sequential phases within the same total time: the old text fully exits
+            // first, then the new one enters, so they never share the screen and cannot
+            // overlap no matter how long the texts are.
+            int exitMs = Math.Max(msDuration / 2, 1);
+            int enterMs = Math.Max(msDuration - exitMs, 1);
+
+            if (animateArtist)
+                SlideSingleText(SongArtist, SongArtistContainer, oldArtist, newArtist, artistTravel, exitMs, enterMs, 40, artistHasOutgoing, slideBackwards);
+            if (animateTitle)
+                SlideSingleText(SongTitle, SongTitleContainer, oldTitle, newTitle, titleTravel, exitMs, enterMs, 0, titleHasOutgoing, slideBackwards);
+
+            // Settle once the longest row finishes: exit + entrance plus the artist
+            // stagger when the artist row moves. The version check inside
+            // FinishSongChangeSlide drops stale timers from rapid skips.
             // When nothing moves there is nothing to wait for: settle now.
             bool anyMotion = titleHasOutgoing || artistHasOutgoing || titleHasIncoming || artistHasIncoming;
             if (!anyMotion)
@@ -1341,7 +1347,8 @@ public partial class TaskbarWidgetControl : UserControl
                 return true;
             }
 
-            int settleMs = msDuration + (artistHasIncoming ? 40 : 0);
+            bool artistMoves = animateArtist && (artistHasOutgoing || artistHasIncoming);
+            int settleMs = exitMs + enterMs + (artistMoves ? 40 : 0);
             var settleTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(settleMs) };
             settleTimer.Tick += (s, e) =>
             {
@@ -1364,15 +1371,14 @@ public partial class TaskbarWidgetControl : UserControl
     }
 
     /// <summary>
-    /// Slides one text row: the outgoing ghost (old text) exits to one side while the live
-    /// <see cref="TextBlock"/> carrying the new text enters from the other side, in parallel.
-    /// Forward slides exit left / enter from the right; backward slides are mirrored.
-    /// Distances cover the full measured text width (not just the container), so a long
-    /// scrolling text exits completely instead of leaving its tail behind. The marquee's
-    /// edge-fade mask is suspended for the flight and restored by
-    /// <see cref="UpdateMarquees(bool, bool)"/> on completion.
+    /// Slides one text row in two sequential phases: the outgoing ghost (old text) fully
+    /// exits first, then the live <see cref="TextBlock"/> carrying the new text enters.
+    /// The phases never overlap in time, so old and new text cannot share the screen no
+    /// matter how long they are. Forward slides exit left / enter from the right;
+    /// backward slides are mirrored. The marquee's edge-fade mask is suspended for the
+    /// flight and restored by <see cref="UpdateMarquees(bool, bool)"/> on completion.
     /// </summary>
-    private void SlideSingleText(System.Windows.Controls.TextBlock live, Canvas container, string oldText, string newText, double travel, int msDuration, int staggerMs, bool hasOutgoing, bool slideBackwards)
+    private void SlideSingleText(System.Windows.Controls.TextBlock live, Canvas container, string oldText, string newText, double travel, int exitMs, int enterMs, int staggerMs, bool hasOutgoing, bool slideBackwards)
     {
         if (live.RenderTransform is not TranslateTransform incomingTransform)
             return;
@@ -1390,20 +1396,24 @@ public partial class TaskbarWidgetControl : UserControl
         }
         container.OpacityMask = null;
 
-        // Full text widths (same helper/weight as the layout caches): a text longer than
-        // its container (the marquee case) must travel its whole width to leave no remnant.
-        // A few extra pixels guard against measuring/rounding differences; overshooting is
-        // harmless (the containers clip), undershooting would strand a static tail.
+        // The ghost renders exactly what was displayed: a scrolling text at full width,
+        // a static one at its laid-out width. Either way it must travel its whole
+        // rendered width (plus a few pixels against measuring/rounding differences) so
+        // no tail is left behind; overshooting is harmless (the containers clip).
         const double distanceEpsilon = 8.0;
-        double exitDistance = travel;
+        bool hasIncoming = !string.IsNullOrEmpty(newText);
+        double renderedOldWidth = travel;
         if (hasOutgoing && !string.IsNullOrEmpty(oldText))
-            exitDistance = Math.Max(travel, StringWidth.GetStringWidth(oldText, 400) + distanceEpsilon);
-        double enterDistance = travel;
-        if (!string.IsNullOrEmpty(newText))
-            enterDistance = Math.Max(travel, StringWidth.GetStringWidth(newText, 400) + distanceEpsilon);
+            renderedOldWidth = double.IsNaN(live.Width)
+                ? StringWidth.GetStringWidth(oldText, 400) + distanceEpsilon
+                : Math.Max(live.Width, 0) + distanceEpsilon;
 
-        double exitTo = slideBackwards ? exitDistance : -exitDistance;
-        double enterFrom = slideBackwards ? -enterDistance : enterDistance;
+        double exitTo = slideBackwards ? renderedOldWidth : -renderedOldWidth;
+        // The old text is fully out when the entrance starts, so the new text can begin
+        // with its head right at the container edge: it enters immediately, with no dead
+        // off-screen travel and no empty-container gap.
+        const double edgeEpsilon = 4.0;
+        double enterFrom = slideBackwards ? -(travel + edgeEpsilon) : travel + edgeEpsilon;
 
         if (hasOutgoing && !string.IsNullOrEmpty(oldText))
         {
@@ -1425,13 +1435,14 @@ public partial class TaskbarWidgetControl : UserControl
             {
                 From = 0,
                 To = exitTo,
-                Duration = TimeSpan.FromMilliseconds(msDuration),
+                Duration = TimeSpan.FromMilliseconds(exitMs),
+                BeginTime = TimeSpan.FromMilliseconds(staggerMs),
                 EasingFunction = GetEasing(false)
             };
             ghostTransform.BeginAnimation(TranslateTransform.XProperty, exit);
         }
 
-        if (string.IsNullOrEmpty(newText))
+        if (!hasIncoming)
         {
             live.Text = string.Empty;
             incomingTransform.X = 0;
@@ -1444,12 +1455,20 @@ public partial class TaskbarWidgetControl : UserControl
         live.TextTrimming = TextTrimming.None;
         live.Text = newText;
 
+        // Park the new text off-screen at its entry point BEFORE the clock starts: while
+        // the entrance waits out its BeginTime (the exit phase), the property holds this
+        // base value instead of 0, so the incoming text never sits visible in place.
+        // When the clock kicks in, From matches the base value and there is no jump.
+        incomingTransform.X = enterFrom;
+
         var enter = new DoubleAnimation
         {
             From = enterFrom,
             To = 0,
-            Duration = TimeSpan.FromMilliseconds(msDuration),
-            BeginTime = TimeSpan.FromMilliseconds(staggerMs),
+            Duration = TimeSpan.FromMilliseconds(enterMs),
+            // The entrance waits for the exit (plus the row stagger), so both texts are
+            // never visible at once; with no outgoing text it starts right away.
+            BeginTime = TimeSpan.FromMilliseconds(staggerMs + (hasOutgoing ? exitMs : 0)),
             EasingFunction = GetEasing(true)
         };
         incomingTransform.BeginAnimation(TranslateTransform.XProperty, enter);
