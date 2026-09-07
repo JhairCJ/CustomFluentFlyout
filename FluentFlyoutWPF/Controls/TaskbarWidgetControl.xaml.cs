@@ -148,6 +148,67 @@ public partial class TaskbarWidgetControl : UserControl
     private int _slidePendingCompletions;
 
     /// <summary>
+    /// Song identity commit counter: bumped whenever a commit publishes a new
+    /// title/artist pair (cover-only arrivals don't count — they never change the
+    /// width). The host window watches it to morph the outer widget width in sync
+    /// with the song-change entrance instead of snapping it.
+    /// </summary>
+    public int SongCommitVersion { get; private set; }
+
+    /// <summary>
+    /// Rides the playback-controls block from <paramref name="from"/> to 0 while the
+    /// host window morphs the outer widget width. The text containers snap to the
+    /// final width at commit time, so a controls block sitting after the text would
+    /// teleport to its final X while the edge is still travelling; this offset tracks
+    /// W(t) - W_new exactly (same duration/easing instance as the width clock), so for
+    /// every anchor nothing jumps: left-anchored the album stays put while the controls
+    /// glide, right-anchored the controls end up ~static while the album rides the
+    /// moving edge. Only applies when the controls sit after the text and are visible
+    /// (controls-first needs nothing: nothing sits after the growing text); anything
+    /// else parks the offset. Must run on the UI thread.
+    /// </summary>
+    public void AnimateControlsFollow(double from, int durationMs, EasingFunctionBase? easing)
+    {
+        if (!SettingsManager.Current.TaskbarWidgetControlsEnabled
+            || SettingsManager.Current.TaskbarWidgetControlsPosition == 0
+            || ControlsStackPanel.Visibility != Visibility.Visible
+            || Math.Abs(from) <= 0.5)
+        {
+            ParkControlsFollow();
+            return;
+        }
+
+        if (ControlsStackPanel.RenderTransform is not TranslateTransform transform)
+        {
+            transform = new TranslateTransform();
+            ControlsStackPanel.RenderTransform = transform;
+        }
+
+        transform.BeginAnimation(TranslateTransform.XProperty, null);
+        transform.X = from;
+        transform.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation
+        {
+            From = from,
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(durationMs),
+            EasingFunction = easing
+        });
+    }
+
+    /// <summary>
+    /// Parks the controls-follow offset: kills its clock and resets it to 0 so the
+    /// controls block rests exactly where the layout puts it.
+    /// </summary>
+    public void ParkControlsFollow()
+    {
+        if (ControlsStackPanel.RenderTransform is TranslateTransform transform)
+        {
+            transform.BeginAnimation(TranslateTransform.XProperty, null);
+            transform.X = 0;
+        }
+    }
+
+    /// <summary>
     /// Notes an explicit track navigation so the next song-change slide animates in the
     /// matching direction (forward: exit left / enter from right; backward: mirrored).
     /// </summary>
@@ -1398,6 +1459,11 @@ public partial class TaskbarWidgetControl : UserControl
 
             _actualTitle = newTitle;
             _actualArtist = newArtist;
+
+            // Cover-only arrivals (late art) never change the width: only identity
+            // changes arm the host window's resize morph.
+            if (infoChanged)
+                SongCommitVersion++;
 
             // Slide and crossfade are mutually exclusive entrance styles: the slide owns
             // the text swap (and the marquee restart), so the snapshot crossfade is skipped.

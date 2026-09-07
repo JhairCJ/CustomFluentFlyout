@@ -681,6 +681,13 @@ public partial class UserSettings : ObservableObject
     public partial int TaskbarWidgetSongChangeAnimation { get; set; }
 
     /// <summary>
+    /// Whether the taskbar widget smoothly morphs its width when the song changes.
+    /// When false, width changes snap instantly (interior and exterior together).
+    /// </summary>
+    [ObservableProperty]
+    public partial bool TaskbarWidgetResizeAnimated { get; set; }
+
+    /// <summary>
     /// Font family used only by the taskbar widget (song title and artist).
     /// Bundled display names (Inter, Manrope, …) work on any PC; anything else
     /// is treated as a system font name and can be typed freely.
@@ -1009,6 +1016,7 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetControlsPosition = 1;
         TaskbarWidgetAnimated = true;
         TaskbarWidgetSongChangeAnimation = 0;
+        TaskbarWidgetResizeAnimated = true;
         TaskbarWidgetFontFamily = "Segoe UI Variable";
         TaskbarWidgetTextStyle = 0;
         TaskbarWidgetTitleFontSize = 13;

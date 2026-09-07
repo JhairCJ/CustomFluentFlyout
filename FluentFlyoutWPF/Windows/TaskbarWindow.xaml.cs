@@ -50,6 +50,32 @@ public partial class TaskbarWindow : Window
     private bool? _lastWidgetIsVertical;
     private bool? _lastVisualizerIsVertical;
 
+    // Animated song-change resize: the widget width follows the song text, so a new
+    // song means a new width. Instead of snapping, the outer Width (+ anchored
+    // Left/Top, so the position setting stays the anchor) morphs with the same
+    // duration/easing as the text/background entrance inside the widget.
+    // Versioned like the background crossfade: rapid songs collapse onto the latest
+    // target (removed clocks never complete). Only song-identity commits animate;
+    // timer ticks, settings changes and the first paint apply instantly.
+    private int _widgetResizeVersion;
+    private bool _widgetResizeRunning;
+    private int _lastSeenSongCommitVersion;
+    private double _widgetResizeTargetWidth = double.NaN;
+    private double _widgetResizeTargetLeft = double.NaN;
+    private double _widgetResizeTargetTop = double.NaN;
+    // Latest widget targets in DIPs, published by PositionWidget for PositionVisualizer
+    // (which runs next, while the widget may still be mid-flight on stale base values).
+    private double _widgetTargetLeftDips;
+    private double _widgetTargetTopDips;
+    private double _widgetTargetWidthDips;
+    private double _vizResizeTargetLeft = double.NaN;
+    private double _vizResizeTargetTop = double.NaN;
+    private Rect _widgetResizeUnionRect;
+    private Rect _vizResizeUnionRect;
+    private Rect _widgetResizeFinalRect;
+    private Rect _vizResizeFinalRect;
+    private IntPtr _widgetResizeWindowHandle;
+
     private GlobalSystemMediaTransportControlsSessionPlaybackStatus? _lastPlaybackStatus;
     private DispatcherTimer? _autoHideTimer;
 
@@ -466,8 +492,16 @@ on_error:
                      containerPos.X, containerPos.Y,
                      containerWidth, containerHeight,
                      SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS | showFlag);
-            var wRect = PositionWidget(taskbarHandle, taskbarRect, dpiScale, isMainTaskbarSelected, isVertical);
-            var vRect = PositionVisualizer(taskbarHandle, taskbarRect, dpiScale, isMainTaskbarSelected, isVertical);
+            _widgetResizeWindowHandle = taskbarWindowHandle;
+            // A new song-identity commit means a new width: morph to it in sync with the
+            // text/background entrance. Every other path (timer ticks, setup, settings)
+            // sees an unchanged version and applies instantly.
+            int songVersion = Widget.SongCommitVersion;
+            bool songChanged = songVersion != _lastSeenSongCommitVersion;
+            _lastSeenSongCommitVersion = songVersion;
+
+            var wRect = PositionWidget(taskbarHandle, taskbarRect, dpiScale, isMainTaskbarSelected, isVertical, songChanged);
+            var vRect = PositionVisualizer(taskbarHandle, taskbarRect, dpiScale, isMainTaskbarSelected, isVertical, songChanged);
 
             UpdateWindowRegion(taskbarWindowHandle, wRect, vRect);
 
@@ -480,7 +514,7 @@ on_error:
         }
     }
 
-    private Rect PositionWidget(IntPtr taskbarHandle, RECT taskbarRect, double dpiScale, bool isMainTaskbarSelected, bool isVertical)
+    private Rect PositionWidget(IntPtr taskbarHandle, RECT taskbarRect, double dpiScale, bool isMainTaskbarSelected, bool isVertical, bool animateResize)
     {
         if (!SettingsManager.Current.TaskbarWidgetEnabled)
             return Rect.Empty;
@@ -496,6 +530,8 @@ on_error:
 
         // Apply orientation transform only when it flips: LayoutTransform forces a
         // full measure/arrange of the whole subtree, and this runs per reposition tick.
+        // A flip also forces the instant path below (no morph across a rotation).
+        bool orientationJustFlipped = _lastWidgetIsVertical != isVertical;
         if (_lastWidgetIsVertical != isVertical)
         {
             Widget.LayoutTransform = isVertical ? new System.Windows.Media.RotateTransform(90) : null;
@@ -665,26 +701,187 @@ on_error:
 
         primaryPos += SettingsManager.Current.TaskbarWidgetManualPadding;
 
-        // Set widget position within canvas
-        // primaryPos → left (horizontal) or top (vertical); crossPos → top (horizontal) or left (vertical)
-        Canvas.SetLeft(Widget, (isVertical ? crossPos : primaryPos) / dpiScale);
-        Canvas.SetTop(Widget, (isVertical ? primaryPos : crossPos) / dpiScale);
-        Widget.Width = physicalWidth / dpiScale;
-        Widget.Height = physicalHeight / dpiScale;
+        double targetLeftDips = (isVertical ? crossPos : primaryPos) / dpiScale;
+        double targetTopDips = (isVertical ? primaryPos : crossPos) / dpiScale;
+        double targetWidthDips = physicalWidth / dpiScale;
+        double targetHeightDips = physicalHeight / dpiScale;
+
+        // The visualizer positions itself against these targets (it runs next, while
+        // the widget may still be mid-flight holding stale base values).
+        _widgetTargetLeftDips = targetLeftDips;
+        _widgetTargetTopDips = targetTopDips;
+        _widgetTargetWidthDips = targetWidthDips;
 
         // After 90° LayoutTransform the visual bounding rect has swapped dimensions
         double rectW = isVertical ? physicalHeight : physicalWidth;
         double rectH = isVertical ? physicalWidth : physicalHeight;
-        return new Rect(Canvas.GetLeft(Widget) * dpiScale, Canvas.GetTop(Widget) * dpiScale, rectW, rectH);
+        var finalRect = new Rect(targetLeftDips * dpiScale, targetTopDips * dpiScale, rectW, rectH);
+
+        // Live values (mid-flight reads return the animated value, so a retarget
+        // continues from the partial width instead of snapping). NaN = never laid
+        // out yet (first paint): treat as already at target.
+        double curLeft = Canvas.GetLeft(Widget);
+        if (double.IsNaN(curLeft)) curLeft = targetLeftDips;
+        double curTop = Canvas.GetTop(Widget);
+        if (double.IsNaN(curTop)) curTop = targetTopDips;
+        double curWidth = Widget.Width;
+        if (double.IsNaN(curWidth)) curWidth = targetWidthDips;
+
+        bool sameTarget = _widgetResizeRunning
+            && Math.Abs(_widgetResizeTargetWidth - targetWidthDips) <= 0.5
+            && Math.Abs(_widgetResizeTargetLeft - targetLeftDips) <= 0.5
+            && Math.Abs(_widgetResizeTargetTop - targetTopDips) <= 0.5;
+
+        // A reposition tick while the morph is still heading at the same target
+        // (timer, late cover event): leave the running clocks alone and keep the
+        // union region so the flight is never clipped mid-way.
+        if (sameTarget)
+            return _widgetResizeUnionRect;
+
+        bool canAnimate = animateResize
+            && AreAnimationsEnabled
+            && SettingsManager.Current.TaskbarWidgetResizeAnimated
+            && Visibility == Visibility.Visible
+            && !orientationJustFlipped
+            && Math.Abs(targetWidthDips - curWidth) > 0.5;
+
+        if (!canAnimate)
+        {
+            // Instant path (also the killer of a superseded morph heading elsewhere):
+            // removed clocks never complete, so a stale completion can never park here.
+            _widgetResizeVersion++;
+            _widgetResizeRunning = false;
+            Widget.BeginAnimation(Canvas.LeftProperty, null);
+            Widget.BeginAnimation(Canvas.TopProperty, null);
+            Widget.BeginAnimation(WidthProperty, null);
+            Widget.ParkControlsFollow();
+            // Set widget position within canvas
+            // primaryPos → left (horizontal) or top (vertical); crossPos → top (horizontal) or left (vertical)
+            Canvas.SetLeft(Widget, targetLeftDips);
+            Canvas.SetTop(Widget, targetTopDips);
+            Widget.Width = targetWidthDips;
+            Widget.Height = targetHeightDips;
+            _widgetResizeTargetWidth = targetWidthDips;
+            _widgetResizeTargetLeft = targetLeftDips;
+            _widgetResizeTargetTop = targetTopDips;
+            return finalRect;
+        }
+
+        // Animated morph: same duration/easing as the song-change text entrance started
+        // in the same commit, so letters, background disc and outer width land together.
+        // Left/Top ride along so the position setting stays the anchor (left grows
+        // rightward, center grows both ways, right grows leftward).
+        _widgetResizeVersion++;
+        int version = _widgetResizeVersion;
+        _widgetResizeRunning = true;
+        _widgetResizeTargetWidth = targetWidthDips;
+        _widgetResizeTargetLeft = targetLeftDips;
+        _widgetResizeTargetTop = targetTopDips;
+        _widgetResizeFinalRect = finalRect;
+
+        // The window region must cover the whole flight (union of start + final):
+        // parking it at the final size upfront would clip a shrinking widget and hide
+        // the morph. It shrinks back to the final rect when the Width clock completes.
+        var startRect = new Rect(curLeft * dpiScale, curTop * dpiScale,
+            isVertical ? physicalHeight : curWidth * dpiScale,
+            isVertical ? curWidth * dpiScale : physicalHeight);
+        startRect.Union(finalRect);
+        _widgetResizeUnionRect = startRect;
+
+        int msDuration = FluentFlyout.Controls.TaskbarWidget.TaskbarWidgetAnimationEnvironment.GetDurationMs();
+        var easing = GetEasing(true);
+
+        // Rebase in one UI block (drop old clocks, hold the live values as base), then
+        // animate: no flash, no snap, seamless mid-flight retargets.
+        Widget.BeginAnimation(Canvas.LeftProperty, null);
+        Widget.BeginAnimation(Canvas.TopProperty, null);
+        Widget.BeginAnimation(WidthProperty, null);
+        Canvas.SetLeft(Widget, curLeft);
+        Canvas.SetTop(Widget, curTop);
+        Widget.Width = curWidth;
+        Widget.Height = targetHeightDips;
+
+        DoubleAnimation widthAnimation = new()
+        {
+            From = curWidth,
+            To = targetWidthDips,
+            Duration = TimeSpan.FromMilliseconds(msDuration),
+            EasingFunction = easing
+        };
+        widthAnimation.Completed += (s, e) =>
+        {
+            if (version != _widgetResizeVersion)
+                return;
+            _widgetResizeRunning = false;
+            // Exact settle: park widget + visualizer (which shares this version) and
+            // shrink the region from the flight union down to the final rects.
+            Widget.BeginAnimation(Canvas.LeftProperty, null);
+            Widget.BeginAnimation(Canvas.TopProperty, null);
+            Widget.BeginAnimation(WidthProperty, null);
+            Canvas.SetLeft(Widget, _widgetResizeTargetLeft);
+            Canvas.SetTop(Widget, _widgetResizeTargetTop);
+            Widget.Width = _widgetResizeTargetWidth;
+            TaskbarVisualizer.BeginAnimation(Canvas.LeftProperty, null);
+            TaskbarVisualizer.BeginAnimation(Canvas.TopProperty, null);
+            if (!double.IsNaN(_vizResizeTargetLeft))
+                Canvas.SetLeft(TaskbarVisualizer, _vizResizeTargetLeft);
+            if (!double.IsNaN(_vizResizeTargetTop))
+                Canvas.SetTop(TaskbarVisualizer, _vizResizeTargetTop);
+            Widget.ParkControlsFollow();
+            try
+            {
+                if (_widgetResizeWindowHandle != IntPtr.Zero)
+                    UpdateWindowRegion(_widgetResizeWindowHandle, _widgetResizeFinalRect, _vizResizeFinalRect);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Taskbar Widget error settling resize region");
+            }
+        };
+        Widget.BeginAnimation(WidthProperty, widthAnimation);
+
+        if (Math.Abs(targetLeftDips - curLeft) > 0.5)
+        {
+            Widget.BeginAnimation(Canvas.LeftProperty, new DoubleAnimation
+            {
+                From = curLeft,
+                To = targetLeftDips,
+                Duration = TimeSpan.FromMilliseconds(msDuration),
+                EasingFunction = easing
+            });
+        }
+        if (Math.Abs(targetTopDips - curTop) > 0.5)
+        {
+            Widget.BeginAnimation(Canvas.TopProperty, new DoubleAnimation
+            {
+                From = curTop,
+                To = targetTopDips,
+                Duration = TimeSpan.FromMilliseconds(msDuration),
+                EasingFunction = easing
+            });
+        }
+
+        // Interior follow: the text containers already snapped to the final width, so a
+        // controls block sitting after the text would teleport to its final X while the
+        // outer edge is still morphing. The control rides it (cur - target) -> 0 with the
+        // same duration/easing instance, tracking W(t) - W_new exactly for every anchor.
+        Widget.AnimateControlsFollow(curWidth - targetWidthDips, msDuration, easing);
+
+        return _widgetResizeUnionRect;
     }
 
-    private Rect PositionVisualizer(IntPtr taskbarHandle, RECT taskbarRect, double dpiScale, bool isMainTaskbarSelected, bool isVertical)
+    private Rect PositionVisualizer(IntPtr taskbarHandle, RECT taskbarRect, double dpiScale, bool isMainTaskbarSelected, bool isVertical, bool animateResize)
     {
         if (!SettingsManager.Current.TaskbarVisualizerEnabled)
+        {
+            _vizResizeFinalRect = Rect.Empty;
+            _vizResizeUnionRect = Rect.Empty;
             return Rect.Empty;
+        }
 
         // Rotate visualizer 90° on vertical taskbar so it fits the slim width.
         // Guarded like the widget transform above: LayoutTransform is a full layout pass.
+        bool vizOrientationJustFlipped = _lastVisualizerIsVertical != isVertical;
         if (_lastVisualizerIsVertical != isVertical)
         {
             TaskbarVisualizer.LayoutTransform = isVertical ? new System.Windows.Media.RotateTransform(90) : null;
@@ -704,8 +901,10 @@ on_error:
         // TaskbarVisualizer.Width (84) is the primary-axis extent for both orientations:
         //   horizontal: actual width = 84
         //   vertical:   visual height after rotation = 84
-        // Position adjacent to the widget along the primary axis
-        double widgetPrimaryStart = isVertical ? Canvas.GetTop(Widget) : Canvas.GetLeft(Widget);
+        // Position adjacent to the widget along the primary axis. Uses the widget's
+        // just-computed targets (not its live Canvas values, which may be mid-flight).
+        double widgetPrimaryStart = isVertical ? _widgetTargetTopDips : _widgetTargetLeftDips;
+        double widgetWidthDips = _widgetTargetWidthDips;
         int primaryPos;
 
         switch (SettingsManager.Current.TaskbarVisualizerPosition)
@@ -716,7 +915,7 @@ on_error:
 
             case 1: // after widget (right for horizontal, below for vertical)
                 // Widget.Width holds the logical width; after 90° rotation its visual height = Widget.Width * dpiScale
-                primaryPos = (int)(widgetPrimaryStart * dpiScale) + (int)(Widget.Width * dpiScale);
+                primaryPos = (int)(widgetPrimaryStart * dpiScale) + (int)(widgetWidthDips * dpiScale);
                 break;
 
             default:
@@ -724,15 +923,84 @@ on_error:
                 break;
         }
 
-        // Set visualizer position within canvas
-        // primaryPos → left (horizontal) or top (vertical); crossPos → top (horizontal) or left (vertical)
-        Canvas.SetLeft(TaskbarVisualizer, (isVertical ? crossPos : primaryPos) / dpiScale);
-        Canvas.SetTop(TaskbarVisualizer, (isVertical ? primaryPos : crossPos) / dpiScale);
+        double targetVizLeftDips = (isVertical ? crossPos : primaryPos) / dpiScale;
+        double targetVizTopDips = (isVertical ? primaryPos : crossPos) / dpiScale;
 
         // After 90° LayoutTransform the visual bounding rect has swapped dimensions
         double rectW = isVertical ? TaskbarVisualizer.Height * dpiScale : TaskbarVisualizer.Width * dpiScale;
         double rectH = isVertical ? TaskbarVisualizer.Width * dpiScale : TaskbarVisualizer.Height * dpiScale;
-        return new Rect(Canvas.GetLeft(TaskbarVisualizer) * dpiScale, Canvas.GetTop(TaskbarVisualizer) * dpiScale, rectW, rectH);
+        var finalVizRect = new Rect(targetVizLeftDips * dpiScale, targetVizTopDips * dpiScale, rectW, rectH);
+        _vizResizeFinalRect = finalVizRect;
+
+        double curVizLeft = Canvas.GetLeft(TaskbarVisualizer);
+        if (double.IsNaN(curVizLeft)) curVizLeft = targetVizLeftDips;
+        double curVizTop = Canvas.GetTop(TaskbarVisualizer);
+        if (double.IsNaN(curVizTop)) curVizTop = targetVizTopDips;
+
+        // Same-target tick while the widget morph flies: don't touch anything, keep
+        // the union region. (Shares the widget's version; parked by its completion.)
+        bool vizSameTarget = _widgetResizeRunning
+            && Math.Abs(_vizResizeTargetLeft - targetVizLeftDips) <= 0.5
+            && Math.Abs(_vizResizeTargetTop - targetVizTopDips) <= 0.5;
+        if (vizSameTarget)
+            return _vizResizeUnionRect;
+
+        // The visualizer only ever rides along a running widget morph (its position is
+        // a pure function of the widget's): any other pass applies it instantly.
+        bool vizCanAnimate = animateResize
+            && _widgetResizeRunning
+            && AreAnimationsEnabled
+            && Visibility == Visibility.Visible
+            && !vizOrientationJustFlipped
+            && (Math.Abs(targetVizLeftDips - curVizLeft) > 0.5 || Math.Abs(targetVizTopDips - curVizTop) > 0.5);
+
+        if (!vizCanAnimate)
+        {
+            TaskbarVisualizer.BeginAnimation(Canvas.LeftProperty, null);
+            TaskbarVisualizer.BeginAnimation(Canvas.TopProperty, null);
+            // Set visualizer position within canvas
+            // primaryPos → left (horizontal) or top (vertical); crossPos → top (horizontal) or left (vertical)
+            Canvas.SetLeft(TaskbarVisualizer, targetVizLeftDips);
+            Canvas.SetTop(TaskbarVisualizer, targetVizTopDips);
+            _vizResizeTargetLeft = targetVizLeftDips;
+            _vizResizeTargetTop = targetVizTopDips;
+            return finalVizRect;
+        }
+
+        _vizResizeTargetLeft = targetVizLeftDips;
+        _vizResizeTargetTop = targetVizTopDips;
+        var startVizRect = new Rect(curVizLeft * dpiScale, curVizTop * dpiScale, rectW, rectH);
+        startVizRect.Union(finalVizRect);
+        _vizResizeUnionRect = startVizRect;
+
+        int vizMs = FluentFlyout.Controls.TaskbarWidget.TaskbarWidgetAnimationEnvironment.GetDurationMs();
+        var vizEasing = GetEasing(true);
+        TaskbarVisualizer.BeginAnimation(Canvas.LeftProperty, null);
+        TaskbarVisualizer.BeginAnimation(Canvas.TopProperty, null);
+        Canvas.SetLeft(TaskbarVisualizer, curVizLeft);
+        Canvas.SetTop(TaskbarVisualizer, curVizTop);
+        if (Math.Abs(targetVizLeftDips - curVizLeft) > 0.5)
+        {
+            TaskbarVisualizer.BeginAnimation(Canvas.LeftProperty, new DoubleAnimation
+            {
+                From = curVizLeft,
+                To = targetVizLeftDips,
+                Duration = TimeSpan.FromMilliseconds(vizMs),
+                EasingFunction = vizEasing
+            });
+        }
+        if (Math.Abs(targetVizTopDips - curVizTop) > 0.5)
+        {
+            TaskbarVisualizer.BeginAnimation(Canvas.TopProperty, new DoubleAnimation
+            {
+                From = curVizTop,
+                To = targetVizTopDips,
+                Duration = TimeSpan.FromMilliseconds(vizMs),
+                EasingFunction = vizEasing
+            });
+        }
+
+        return _vizResizeUnionRect;
     }
 
     public void UpdateUi(string title, string artist, BitmapImage? icon, GlobalSystemMediaTransportControlsSessionPlaybackStatus? playbackStatus, GlobalSystemMediaTransportControlsSessionPlaybackControls? playbackControls = null)

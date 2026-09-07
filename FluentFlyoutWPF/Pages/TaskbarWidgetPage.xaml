@@ -495,7 +495,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding TaskbarWidgetAnimated, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="TaskbarWidgetSongChangeAnimationTitleCard" Tag="Indexable" Grid.Row="13" Icon="{ui:SymbolIcon SlideArrowRight24}" Margin="0,0,0,76">
+            <ui:CardControl x:Name="TaskbarWidgetSongChangeAnimationTitleCard" Tag="Indexable" Grid.Row="13" Icon="{ui:SymbolIcon SlideArrowRight24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource TaskbarWidgetSongChangeAnimationTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -506,6 +506,15 @@
                     <ComboBoxItem Content="{DynamicResource TaskbarWidgetSongChangeAnimationCrossfade}" />
                     <ComboBoxItem Content="{DynamicResource TaskbarWidgetSongChangeAnimationSlide}" />
                 </ComboBox>
+            </ui:CardControl>
+            <ui:CardControl x:Name="TaskbarWidgetResizeAnimationTitleCard" Tag="Indexable" Grid.Row="13" Icon="{ui:SymbolIcon ArrowAutofitWidth24}" Margin="0,0,0,76">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="{DynamicResource TaskbarWidgetResizeAnimationTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="{DynamicResource TaskbarWidgetResizeAnimationDescription}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:ToggleSwitch IsChecked="{Binding TaskbarWidgetResizeAnimated, Mode=TwoWay}" />
             </ui:CardControl>
         </StackPanel>
     </StackPanel>
