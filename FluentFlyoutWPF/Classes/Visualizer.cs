@@ -91,6 +91,14 @@ namespace FluentFlyoutWPF.Classes
         private bool _lastHasContent;
         private int _monitorRefreshRate;
 
+        // Last time the bars carried real content (UI thread, updated in RenderFrame).
+        // A song change brings a brief audio gap: without this, the bars decay to zero
+        // during the gap and the widget collapses for ~300 ms on every track change.
+        // The grace period below keeps the container visible (flat bars) through
+        // transient gaps; only sustained silence collapses it and stops the loop.
+        private DateTime _lastContentUtc = DateTime.MinValue;
+        private const int SilenceGraceMs = 1500;
+
         // Frame-rate independent attack/release smoothing (seconds). Driven by the
         // TaskbarVisualizerSmoothing setting (0 = snappy, 100 = silky); resolved once
         // per frame in EnsureSmoothing, never per bar.
@@ -272,6 +280,7 @@ namespace FluentFlyoutWPF.Classes
             _barValues = new float[(int)barCount];
             _targetValues = new float[(int)barCount];
             _lastHasContent = false;
+            _lastContentUtc = DateTime.UtcNow;
             _fftHop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHop : _fftLength;
 
             try
@@ -682,6 +691,14 @@ namespace FluentFlyoutWPF.Classes
 
             if (allZero && !forcedBaseline)
             {
+                // Transient gap (e.g. song change): keep the container visible with
+                // flat bars and the loop alive; collapse only on sustained silence.
+                if ((DateTime.UtcNow - _lastContentUtc).TotalMilliseconds < SilenceGraceMs)
+                {
+                    UpdateBitmap();
+                    return;
+                }
+
                 // update bars if they have content
                 if (_lastHasContent)
                 {
@@ -695,6 +712,7 @@ namespace FluentFlyoutWPF.Classes
                 return;
             }
 
+            _lastContentUtc = DateTime.UtcNow;
             if (!_lastHasContent)
             {
                 _lastHasContent = true;
