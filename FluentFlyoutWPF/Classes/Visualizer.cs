@@ -43,7 +43,7 @@ namespace FluentFlyoutWPF.Classes
         private const int ImageHeight = 32 * 3;
         private const int BarSpacing = 2 * 3;
 
-        private WasapiLoopbackCapture? _capture;
+        private WasapiRecorder? _capture;
         private MMDevice? _renderDevice;
         private static float[]? _barValues;
         private static float[]? _targetValues;
@@ -348,7 +348,10 @@ namespace FluentFlyoutWPF.Classes
                     return;
                 }
 
-                _capture = new WasapiLoopbackCapture(_renderDevice);
+                _capture = new WasapiRecorderBuilder()
+                    .WithDevice(_renderDevice)
+                    .WithLoopbackCapture()
+                    .Build();
                 _bytesPerSample = _capture.WaveFormat.BitsPerSample / 8;
                 _sampleRate = _capture.WaveFormat.SampleRate;
                 _capture.DataAvailable += OnDataAvailable;
@@ -442,7 +445,7 @@ namespace FluentFlyoutWPF.Classes
         // Capture thread: samples in, bar targets out. Nothing else.
         // -------------------------------------------------------------------
 
-        private void OnDataAvailable(object? sender, WaveInEventArgs e)
+        private void OnDataAvailable(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition)
         {
             if (!_isRunning)
                 return;
@@ -450,24 +453,34 @@ namespace FluentFlyoutWPF.Classes
             // Any callback — even an empty one — proves the capture is alive.
             _lastDataAvailableUtc = DateTime.UtcNow;
 
-            if (e.BytesRecorded <= 0)
+            if (buffer.IsEmpty)
                 return;
+
+            // WASAPI flags the packet Silent when the endpoint renders nothing:
+            // feed true zeros so the silence gate answers immediately instead
+            // of measuring whatever stale bytes the buffer holds.
+            if ((flags & AudioClientBufferFlags.Silent) != 0)
+            {
+                int silentSamples = buffer.Length / Math.Max(_bytesPerSample, 1);
+                for (int i = 0; i < silentSamples; i++)
+                    PushSample(0f);
+                return;
+            }
 
             // Note on channels: every sample advances the ring, including the
             // right channel of an interleaved stereo stream. That deliberate
             // quirk preserves the band response this visualizer was tuned with
             // (bin mapping, boosts); a mono downmix would shift everything an
             // octave up and overdrive the boosted top bars.
-            int bytesRecorded = e.BytesRecorded;
             if (_bytesPerSample == 4)
             {
-                var samples = MemoryMarshal.Cast<byte, float>(e.Buffer.AsSpan(0, bytesRecorded));
+                var samples = MemoryMarshal.Cast<byte, float>(buffer);
                 for (int i = 0; i < samples.Length; i++)
                     PushSample(samples[i]);
             }
             else if (_bytesPerSample == 2)
             {
-                var samples = MemoryMarshal.Cast<byte, short>(e.Buffer.AsSpan(0, bytesRecorded));
+                var samples = MemoryMarshal.Cast<byte, short>(buffer);
                 for (int i = 0; i < samples.Length; i++)
                     PushSample(samples[i] * (1f / 32768f));
             }
