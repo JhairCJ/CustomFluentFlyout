@@ -1764,14 +1764,20 @@ public partial class TaskbarWidgetControl : UserControl
             int version = _songChangeSlideVersion;
             CleanupSongChangeSlideGhosts();
 
-            // Resize the text containers synchronously for the new strings (the caches are
-            // already synced via _actualTitle/_actualArtist) so the slide travels the final
-            // distance and the next CalculateSize tick sees no pending change to animate.
+            // Refresh the width caches for the new strings (via _actualTitle /
+            // _actualArtist) WITHOUT snapping the containers yet: the snap happens
+            // in CalculateSize inside PositionWidget, in the same synchronous UI
+            // block that starts the outer morph and the controls-follow offset.
+            // Snapping here would let one frame render (~10 ms) with the text
+            // containers already at the final width while the controls block still
+            // sits uncompensated, i.e. the buttons teleporting left/right for a
+            // frame on every song change. Travel below mirrors the final widths
+            // with the same formula SyncTextContainerWidths uses.
             var (logicalWidth, _) = ComputeTextLogicalWidth();
-            SyncTextContainerWidths(logicalWidth);
 
-            double titleTravel = double.IsNaN(SongTitleContainer.Width) ? 0 : SongTitleContainer.Width;
-            double artistTravel = double.IsNaN(SongArtistContainer.Width) ? 0 : SongArtistContainer.Width;
+            double textReserved = SettingsManager.Current.TaskbarWidgetShowAlbumArt ? _coverImageMargin : _noCoverReservedMargin;
+            double titleTravel = Math.Max(logicalWidth - textReserved, 0);
+            double artistTravel = Math.Max(logicalWidth - textReserved, 0);
             if (titleTravel <= 0)
                 return false;
 
