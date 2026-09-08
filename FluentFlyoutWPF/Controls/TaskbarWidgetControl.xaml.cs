@@ -114,12 +114,15 @@ public partial class TaskbarWidgetControl : UserControl
     // pause overlay are only drawn over real cover art, not over the music-note placeholder.
     private bool _hasAlbumCover;
 
-    // Slide song-change animation state (style 1): while active, the outgoing ghost texts
-    // slide out to the left and the new texts slide in from the right. Marquee updates are
+    // Slide song-change animation state (style 1): sequential per row — the old text
+    // slides out fully first, then the new text slides in. Marquee updates are
     // suspended meanwhile so the scrolling clocks never steal the slide transforms.
     private bool _songChangeSlideActive;
     private int _songChangeSlideVersion;
-    private readonly List<System.Windows.Controls.TextBlock> _songChangeSlideGhosts = new();
+    // Rows owned by the currently running slide (used to park a superseded slide's
+    // rows when a rapid skip arrives and they are no longer animated).
+    private bool _slideAnimatedTitle;
+    private bool _slideAnimatedArtist;
 
     // Pending slide direction for the next song change: set when the user explicitly
     // navigates (previous/next buttons) so a backward step animates mirrored (old text
@@ -254,7 +257,7 @@ public partial class TaskbarWidgetControl : UserControl
         // (autohide, widget collapsed, no media). Freeze it while hidden.
         IsVisibleChanged += (s, e) => UpdateRotationPauseState();
 
-        // Release timers, clocks and ghost visuals when the host window goes away so
+        // Release timers, clocks and slide state when the host window goes away so
         // the control never keeps itself (or its DispatcherTimers) alive after teardown.
         Unloaded += (s, e) => CleanupWidgetResources();
     }
@@ -1079,7 +1082,7 @@ public partial class TaskbarWidgetControl : UserControl
     public void UpdateMarquees(bool updateTitle = true, bool updateArtist = true)
     {
         // A slide transition owns the text transforms while it runs; restarting the
-        // marquees here would snap the incoming text and strand the outgoing ghosts.
+        // marquees here would snap the sliding text mid-flight.
         if (_songChangeSlideActive)
             return;
 
@@ -1452,7 +1455,7 @@ public partial class TaskbarWidgetControl : UserControl
 
         if (infoChanged || artChanged)
         {
-            // Ghost texts must use the clean backing strings: the live TextBlocks may
+            // The slide-out phase must use the clean backing strings: the live TextBlocks may
             // hold marquee-duplicated text (title + spacer + title) while looping.
             string oldTitle = _actualTitle;
             string oldArtist = _actualArtist;
@@ -1553,7 +1556,7 @@ public partial class TaskbarWidgetControl : UserControl
     {
         SongTitle.Visibility = Visibility.Visible;
         // While a slide is in flight the transition owns the artist row visibility
-        // (kept visible for the outgoing ghost, collapsed on completion if empty).
+        // (kept visible for the outgoing text, collapsed on completion if empty).
         if (!_songChangeSlideActive)
             SongArtist.Visibility = !string.IsNullOrEmpty(artist) ? Visibility.Visible : Visibility.Collapsed; // hide artist if it's not available
         SongInfoStackPanel.Visibility = Visibility.Visible;
@@ -1587,8 +1590,11 @@ public partial class TaskbarWidgetControl : UserControl
         _noArtDebounceTimer = null;
 
         _songChangeSlideActive = false;
+        _slideAnimatedTitle = false;
+        _slideAnimatedArtist = false;
         _slidePendingCompletions = 0;
-        CleanupSongChangeSlideGhosts();
+        ParkSlideRow(SongTitle, _actualTitle);
+        ParkSlideRow(SongArtist, _actualArtist);
         CancelBackgroundCrossfade();
         if (_backgroundRotateTransform != null)
             _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, null);
@@ -1730,20 +1736,21 @@ public partial class TaskbarWidgetControl : UserControl
     }
 
     /// <summary>
-    /// Slides the new song texts in from the right when the track changes
-    /// (song-change style 1), simultaneously with the outer width morph and the
-    /// background crossfade. The old text is dropped instantly at commit so a
-    /// short song is never seen inside the already-grown frame of a long song.
-    /// Only rows whose text actually changed slide; an unchanged row (typically
-    /// the artist) stays put with its marquee untouched.
+    /// Sequential slide for a song change (song-change style 1): each changed row first
+    /// slides its old text fully out, then slides the new text in. The two phases never
+    /// overlap, so old and new letters never collide. Both phases together last exactly
+    /// the user-configured animation duration (exit + enter at double speed per phase).
+    /// Forward: old exits left, new enters from the right. Backward (explicit previous
+    /// navigation): mirrored. Only rows whose text actually changed move; an unchanged
+    /// row (typically the artist) stays put with its marquee untouched.
     /// </summary>
-    /// <param name="oldTitle">Previous text (dropped instantly, never animated).</param>
-    /// <param name="oldArtist">Previous artist (dropped instantly, never animated).</param>
-    /// <param name="newTitle">Incoming title (slides in from the right).</param>
-    /// <param name="newArtist">Incoming artist (slides in from the right).</param>
+    /// <param name="oldTitle">Previous title (slides out, never shown together with the new).</param>
+    /// <param name="oldArtist">Previous artist (slides out, never shown together with the new).</param>
+    /// <param name="newTitle">Incoming title (slides in after the old one left).</param>
+    /// <param name="newArtist">Incoming artist (slides in after the old one left).</param>
     /// <param name="animateTitle">Whether the title row changed and should slide.</param>
     /// <param name="animateArtist">Whether the artist row changed and should slide.</param>
-    /// <param name="slideBackwards">True to mirror the direction (enter from left).</param>
+    /// <param name="slideBackwards">True to mirror the direction (exit right / enter from left).</param>
     /// <returns>True when the slide was started and owns the text swap.</returns>
     private bool TryAnimateSongChangeSlide(string oldTitle, string oldArtist, string newTitle, string newArtist, bool animateTitle, bool animateArtist, bool slideBackwards)
     {
@@ -1757,12 +1764,6 @@ public partial class TaskbarWidgetControl : UserControl
             double currentTravel = double.IsNaN(SongTitleContainer.Width) ? 0 : SongTitleContainer.Width;
             if (currentTravel <= 0)
                 return false;
-
-            // Invalidate any in-flight slide (rapid skips): the newest song wins, older
-            // ghosts are removed instantly instead of stacking up in the containers.
-            _songChangeSlideVersion++;
-            int version = _songChangeSlideVersion;
-            CleanupSongChangeSlideGhosts();
 
             // Refresh the width caches for the new strings (via _actualTitle /
             // _actualArtist) WITHOUT snapping the containers yet: the snap happens
@@ -1781,12 +1782,26 @@ public partial class TaskbarWidgetControl : UserControl
             if (titleTravel <= 0)
                 return false;
 
+            // Take over: invalidate any in-flight slide (rapid skips). The newest song
+            // wins; removed clocks never complete, so a superseded slide settles nothing.
+            // (Bails above run before the bump, so an abandoned in-flight slide always
+            // keeps its own version and settles itself.)
+            _songChangeSlideVersion++;
+            int version = _songChangeSlideVersion;
+            bool wasActive = _songChangeSlideActive;
+            bool prevAnimatedTitle = _slideAnimatedTitle;
+            bool prevAnimatedArtist = _slideAnimatedArtist;
+
             int msDuration = TaskbarWidgetAnimationEnvironment.GetDurationMs();
 
             _songChangeSlideActive = true;
+            _slideAnimatedTitle = animateTitle;
+            _slideAnimatedArtist = animateArtist;
 
             // Rows whose text did not change stay put: no entrance, and a
-            // running marquee on that row is left untouched.
+            // running marquee on that row is left untouched — unless the row is
+            // stranded mid-flight by the superseded slide above, in which case it is
+            // parked back at rest now and its marquee restarts on completion.
             bool titleHasIncoming = animateTitle && !string.IsNullOrEmpty(newTitle);
             bool artistHasIncoming = animateArtist && !string.IsNullOrEmpty(newArtist);
 
@@ -1800,47 +1815,37 @@ public partial class TaskbarWidgetControl : UserControl
                     SongArtist.Visibility = Visibility.Visible;
             }
 
-            // Simultaneous entrance: the old text is dropped instantly at commit
-            // (no outgoing ghost), and the new text slides in while the outer
-            // widget width morphs and the background crossfades — everything
-            // starts in the same UI block with the same duration/easing and
-            // lands together. This way a short old song is never seen inside
-            // the already-grown frame of a long new song.
+            bool parkTitle = !animateTitle && wasActive && prevAnimatedTitle;
+            bool parkArtist = !animateArtist && wasActive && prevAnimatedArtist;
+            if (parkTitle)
+                ParkSlideRow(SongTitle, _actualTitle);
+            if (parkArtist)
+                ParkSlideRow(SongArtist, _actualArtist);
 
-            // Exact settle: the slide ends when its slowest enter animation completes
-            // (artist stagger included), never on a wall-clock timer that can drift and
-            // cause the final "teleport" snap. Removed animation clocks never complete,
-            // so a superseded rapid-skip slide settles nothing; the version check in
-            // FinishSongChangeSlide is belt-and-braces.
-            // When nothing enters there is nothing to wait for: settle now.
-            // (The old text was already dropped instantly above.)
-            bool anyMotion = titleHasIncoming || artistHasIncoming;
-            if (!anyMotion)
-            {
-                FinishSongChangeSlide(version, animateTitle, animateArtist, artistHasIncoming);
-                return true;
-            }
+            bool restartTitle = animateTitle || parkTitle;
+            bool restartArtist = animateArtist || parkArtist;
+            bool collapseArtist = animateArtist && !artistHasIncoming;
 
-            int expectedCompletions = (titleHasIncoming ? 1 : 0) + (artistHasIncoming ? 1 : 0);
-            if (expectedCompletions == 0)
-            {
-                FinishSongChangeSlide(version, animateTitle, animateArtist, artistHasIncoming);
-                return true;
-            }
-
-            _slidePendingCompletions = expectedCompletions;
-            void OnRowEnterCompleted()
+            // Exact settle: the slide ends when its slowest row completes (artist
+            // stagger included), never on a wall-clock timer that can drift and
+            // cause the final "teleport" snap.
+            _slidePendingCompletions = (animateTitle ? 1 : 0) + (animateArtist ? 1 : 0);
+            void OnRowCompleted()
             {
                 if (version != _songChangeSlideVersion)
                     return;
                 if (--_slidePendingCompletions <= 0)
-                    FinishSongChangeSlide(version, animateTitle, animateArtist, artistHasIncoming);
+                    FinishSongChangeSlide(version, restartTitle, restartArtist, collapseArtist);
             }
 
             if (animateArtist)
-                SlideSingleText(SongArtist, SongArtistContainer, newArtist, artistTravel, msDuration, 40, slideBackwards, artistHasIncoming ? OnRowEnterCompleted : null);
+                SlideSingleText(SongArtist, SongArtistContainer, oldArtist, newArtist,
+                    _cachedArtistWidth, SongArtistContainer.Width, artistTravel,
+                    msDuration, 40, slideBackwards, version, OnRowCompleted);
             if (animateTitle)
-                SlideSingleText(SongTitle, SongTitleContainer, newTitle, titleTravel, msDuration, 0, slideBackwards, titleHasIncoming ? OnRowEnterCompleted : null);
+                SlideSingleText(SongTitle, SongTitleContainer, oldTitle, newTitle,
+                    _cachedTitleWidth, SongTitleContainer.Width, titleTravel,
+                    msDuration, 0, slideBackwards, version, OnRowCompleted);
 
             return true;
         }
@@ -1848,8 +1853,11 @@ public partial class TaskbarWidgetControl : UserControl
         {
             Logger.Error(ex, "Taskbar Widget error during song-change slide animation");
             _songChangeSlideActive = false;
+            _slideAnimatedTitle = false;
+            _slideAnimatedArtist = false;
             _slidePendingCompletions = 0;
-            CleanupSongChangeSlideGhosts();
+            ParkSlideRow(SongTitle, _actualTitle);
+            ParkSlideRow(SongArtist, _actualArtist);
             // Reattach marquee masks/scrolling in case they were suspended mid-flight.
             UpdateMarquees();
             return false;
@@ -1857,25 +1865,43 @@ public partial class TaskbarWidgetControl : UserControl
     }
 
     /// <summary>
-    /// Slides one text row in: the old text was already dropped instantly at commit,
-    /// so the live <see cref="TextBlock"/> carrying the new text enters from the edge
-    /// while the outer width morphs and the background crossfades — all simultaneous,
-    /// same duration/easing, landing together. Forward slides enter from the right;
-    /// backward slides are mirrored. The marquee's edge-fade mask is suspended for the
-    /// flight and restored by <see cref="UpdateMarquees(bool, bool)"/> on completion.
+    /// Slides one text row sequentially: the old text slides fully out first, then the
+    /// new text slides in — never together, so letters never collide. Both phases share
+    /// the row's time budget (<paramref name="durationMs"/> minus <paramref name="staggerMs"/>),
+    /// so the whole row lands exactly within the user-configured animation duration.
+    /// Forward: exit left, enter from the right with the head parked at the container edge
+    /// (no dead off-screen travel, no empty gap). Backward: mirrored, with the incoming
+    /// text parked a full text width away so a long title's tail never peeks early.
+    /// The marquee's edge-fade mask is suspended for the flight and restored by
+    /// <see cref="UpdateMarquees(bool, bool)"/> on completion.
     /// </summary>
-    /// <param name="onEnterCompleted">Fired when this row's enter animation completes; used for exact settle.</param>
-    private void SlideSingleText(System.Windows.Controls.TextBlock live, Canvas container, string newText, double travel, int durationMs, int staggerMs, bool slideBackwards, Action? onEnterCompleted = null)
+    /// <param name="newTextWidth">Measured width of <paramref name="newText"/> (cached).</param>
+    /// <param name="oldContainerWidth">Container width before the commit (exit distance).</param>
+    /// <param name="newContainerWidth">Container width after the commit (entry parking).</param>
+    /// <param name="onCompleted">Fired once when this row fully settles; used for exact settle.</param>
+    private void SlideSingleText(System.Windows.Controls.TextBlock live, Canvas container, string oldText, string newText, double newTextWidth, double oldContainerWidth, double newContainerWidth, int durationMs, int staggerMs, bool slideBackwards, int version, Action? onCompleted = null)
     {
-        if (live.RenderTransform is not TranslateTransform incomingTransform)
+        if (live.RenderTransform is not TranslateTransform transform)
             return;
 
-        incomingTransform.BeginAnimation(TranslateTransform.XProperty, null);
+        bool isTitleRow = live == SongTitle;
+        bool hasOld = !string.IsNullOrEmpty(oldText);
+        bool hasNew = !string.IsNullOrEmpty(newText);
+
+        // The caller only animates changed rows, so at least one side is non-empty.
+        // Anything else parks the row at rest.
+        if (!hasOld && !hasNew)
+        {
+            ParkSlideRow(live, string.Empty);
+            onCompleted?.Invoke();
+            return;
+        }
+
+        transform.BeginAnimation(TranslateTransform.XProperty, null);
 
         // Detach the stale marquee fade: its edge mask and forever-running gradient
         // animations belong to the old scroll timeline and would fade the sliding texts.
-        bool isTitle = live == SongTitle;
-        ref LinearGradientBrush? cachedMask = ref (isTitle ? ref _cachedTitleOpacityMask : ref _cachedArtistOpacityMask);
+        ref LinearGradientBrush? cachedMask = ref (isTitleRow ? ref _cachedTitleOpacityMask : ref _cachedArtistOpacityMask);
         if (cachedMask != null)
         {
             cachedMask.GradientStops[0].BeginAnimation(GradientStop.ColorProperty, null);
@@ -1883,92 +1909,172 @@ public partial class TaskbarWidgetControl : UserControl
         }
         container.OpacityMask = null;
 
-        bool hasIncoming = !string.IsNullOrEmpty(newText);
-
-        // The new text starts with its head right at the container edge: it enters
-        // immediately, with no dead off-screen travel and no empty-container gap.
-        const double edgeEpsilon = 4.0;
-        double enterFrom = slideBackwards ? -(travel + edgeEpsilon) : travel + edgeEpsilon;
-
-        if (!hasIncoming)
-        {
-            live.Text = string.Empty;
-            incomingTransform.X = 0;
-            return;
-        }
-
         // Full text during the flight: trimming/ellipsis only applies once settled
         // (UpdateMarquees restores it on completion).
         live.Width = double.NaN;
         live.TextTrimming = TextTrimming.None;
-        live.Text = newText;
 
-        // Park the new text off-screen at its entry point BEFORE the clock starts: while
-        // the entrance waits out its stagger, the property holds this base value
-        // instead of 0, so the incoming text never sits visible in place.
-        // When the clock kicks in, From matches the base value and there is no jump.
-        incomingTransform.X = enterFrom;
+        // Fit the whole row (stagger + phases) in the user-configured duration.
+        int stagger = staggerMs >= durationMs ? 0 : staggerMs;
+        bool twoPhase = hasOld && hasNew;
+        int phaseMs = twoPhase
+            ? Math.Max((durationMs - stagger) / 2, 1)
+            : Math.Max(durationMs - stagger, 1);
 
-        var enter = new DoubleAnimation
+        // Distances: the outgoing text must travel until it is fully out of the
+        // clipped container (its full rendered width + margin when exiting left;
+        // a container width + margin suffices when exiting right). Overshooting is
+        // harmless (the container clips); falling short strands a visible remnant.
+        const double exitMargin = 8.0;
+        const double enterEpsilon = 4.0;
+        double oldTextWidth = hasOld
+            ? StringWidth.GetStringWidth(oldText, WidgetFontFamily, isTitleRow ? WidgetTitleWeight : WidgetArtistWeight, isTitleRow ? WidgetTitleFontSize : WidgetArtistFontSize)
+            : 0;
+        double exitTo = slideBackwards
+            ? Math.Max(oldContainerWidth, newContainerWidth) + exitMargin
+            : -(Math.Max(oldTextWidth, oldContainerWidth) + exitMargin);
+        double enterFrom = slideBackwards
+            ? -(newTextWidth + enterEpsilon)
+            : newContainerWidth + enterEpsilon;
+
+        var easing = GetEasing(true); // ease-out on both phases: instant start, soft landing
+
+        if (twoPhase)
         {
-            From = enterFrom,
-            To = 0,
-            Duration = TimeSpan.FromMilliseconds(Math.Max(durationMs - staggerMs, 1)),
-            // The entrance starts with the outer width morph and the background
-            // crossfade (same commit, same easing) so everything lands together.
-            BeginTime = TimeSpan.FromMilliseconds(staggerMs),
-            EasingFunction = GetEasing(true)
+            // Phase 1: old text out (from rest). The incoming text is parked
+            // off-screen the moment the exit finishes, so the handoff has neither
+            // overlap nor an empty-container gap.
+            live.Text = oldText;
+            transform.X = 0;
+            var exit = new DoubleAnimation
+            {
+                From = 0,
+                To = exitTo,
+                Duration = TimeSpan.FromMilliseconds(phaseMs),
+                BeginTime = TimeSpan.FromMilliseconds(stagger),
+                EasingFunction = easing
+            };
+            exit.Completed += (s, e) =>
+            {
+                if (version != _songChangeSlideVersion)
+                    return;
+                // Phase 2: new text in, starting exactly where the old one left off.
+                transform.BeginAnimation(TranslateTransform.XProperty, null);
+                live.Text = newText;
+                transform.X = enterFrom;
+                var enter = new DoubleAnimation
+                {
+                    From = enterFrom,
+                    To = 0,
+                    Duration = TimeSpan.FromMilliseconds(phaseMs),
+                    EasingFunction = easing
+                };
+                if (onCompleted != null)
+                    enter.Completed += (s2, e2) =>
+                    {
+                        if (version != _songChangeSlideVersion)
+                            return;
+                        onCompleted();
+                    };
+                transform.BeginAnimation(TranslateTransform.XProperty, enter);
+            };
+            transform.BeginAnimation(TranslateTransform.XProperty, exit);
+            return;
+        }
+
+        if (hasNew)
+        {
+            // Nothing to push out (e.g. artist was empty): only the entrance,
+            // parked off-screen before the clock starts so it never flashes in place.
+            live.Text = newText;
+            transform.X = enterFrom;
+            var enter = new DoubleAnimation
+            {
+                From = enterFrom,
+                To = 0,
+                Duration = TimeSpan.FromMilliseconds(phaseMs),
+                BeginTime = TimeSpan.FromMilliseconds(stagger),
+                EasingFunction = easing
+            };
+            if (onCompleted != null)
+                enter.Completed += (s, e) =>
+                {
+                    if (version != _songChangeSlideVersion)
+                        return;
+                    onCompleted();
+                };
+            transform.BeginAnimation(TranslateTransform.XProperty, enter);
+            return;
+        }
+
+        // Nothing incoming (e.g. artist removed): only the exit, then settle.
+        live.Text = oldText;
+        transform.X = 0;
+        var exitOnly = new DoubleAnimation
+        {
+            From = 0,
+            To = exitTo,
+            Duration = TimeSpan.FromMilliseconds(phaseMs),
+            BeginTime = TimeSpan.FromMilliseconds(stagger),
+            EasingFunction = easing
         };
-        if (onEnterCompleted != null)
-            enter.Completed += (s, e) => onEnterCompleted();
-        incomingTransform.BeginAnimation(TranslateTransform.XProperty, enter);
+        exitOnly.Completed += (s, e) =>
+        {
+            if (version != _songChangeSlideVersion)
+                return;
+            transform.BeginAnimation(TranslateTransform.XProperty, null);
+            live.Text = string.Empty;
+            transform.X = 0;
+            onCompleted?.Invoke();
+        };
+        transform.BeginAnimation(TranslateTransform.XProperty, exitOnly);
     }
 
     /// <summary>
-    /// Settles a finished slide: removes ghosts, parks the animated rows at rest and
-    /// resumes their marquee scrolling. Rows that did not change are left untouched.
-    /// Stale completions from superseded rapid-skip slides are ignored.
+    /// Parks a text row at rest: kills its clock, resets the offset and sets its text.
+    /// Marquee/trimming restoration is left to <see cref="UpdateMarquees(bool, bool)"/>.
     /// </summary>
-    private void FinishSongChangeSlide(int version, bool animateTitle, bool animateArtist, bool artistHasIncoming)
+    private static void ParkSlideRow(System.Windows.Controls.TextBlock live, string text)
+    {
+        if (live.RenderTransform is TranslateTransform transform)
+        {
+            transform.BeginAnimation(TranslateTransform.XProperty, null);
+            transform.X = 0;
+        }
+        live.Text = text;
+    }
+
+    /// <summary>
+    /// Settles a finished slide: parks the touched rows at rest and resumes their
+    /// marquee scrolling. Rows that did not change (and were not stranded by a
+    /// superseded slide) are left untouched. Stale completions from superseded
+    /// rapid-skip slides are ignored.
+    /// </summary>
+    private void FinishSongChangeSlide(int version, bool restartTitle, bool restartArtist, bool collapseArtist)
     {
         if (version != _songChangeSlideVersion)
             return;
 
         _songChangeSlideActive = false;
+        _slideAnimatedTitle = false;
+        _slideAnimatedArtist = false;
         _slidePendingCompletions = 0;
-        CleanupSongChangeSlideGhosts();
 
-        if (animateTitle && SongTitle.RenderTransform is TranslateTransform titleTransform)
+        if (restartTitle && SongTitle.RenderTransform is TranslateTransform titleTransform)
         {
             titleTransform.BeginAnimation(TranslateTransform.XProperty, null);
             titleTransform.X = 0;
         }
-        if (animateArtist && SongArtist.RenderTransform is TranslateTransform artistTransform)
+        if (restartArtist && SongArtist.RenderTransform is TranslateTransform artistTransform)
         {
             artistTransform.BeginAnimation(TranslateTransform.XProperty, null);
             artistTransform.X = 0;
         }
 
-        if (animateArtist && !artistHasIncoming)
+        if (collapseArtist)
             SongArtist.Visibility = Visibility.Collapsed;
 
-        UpdateMarquees(animateTitle, animateArtist);
-    }
-
-    /// <summary>
-    /// Removes any outgoing ghost texts left by a previous (possibly superseded) slide.
-    /// </summary>
-    private void CleanupSongChangeSlideGhosts()
-    {
-        foreach (var ghost in _songChangeSlideGhosts)
-        {
-            if (ghost.RenderTransform is TranslateTransform transform)
-                transform.BeginAnimation(TranslateTransform.XProperty, null);
-
-            if (ghost.Parent is Canvas parent)
-                parent.Children.Remove(ghost);
-        }
-        _songChangeSlideGhosts.Clear();
+        UpdateMarquees(restartTitle, restartArtist);
     }
 
     private void AnimateEntrance()
