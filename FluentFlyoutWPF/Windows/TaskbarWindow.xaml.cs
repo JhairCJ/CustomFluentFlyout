@@ -964,6 +964,11 @@ on_error:
             Canvas.SetTop(TaskbarVisualizer, targetVizTopDips);
             _vizResizeTargetLeft = targetVizLeftDips;
             _vizResizeTargetTop = targetVizTopDips;
+            // A static visualizer's flight union IS its final rect. It must be stored:
+            // a same-target tick during a widget morph returns the stored union, and
+            // the never-computed default (0,0,0,0) clipped the visualizer out of the
+            // window region for the whole morph on every song change.
+            _vizResizeUnionRect = finalVizRect;
             return finalVizRect;
         }
 

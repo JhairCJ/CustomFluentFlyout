@@ -3,6 +3,7 @@
 
 using FluentFlyout.Classes.Settings;
 using FluentFlyout.Classes.Utils;
+using FluentFlyout.Controls.TaskbarWidget;
 using FluentFlyout.Windows;
 using FluentFlyoutWPF.Classes.Utils;
 using Microsoft.Win32;
@@ -41,6 +42,14 @@ namespace FluentFlyoutWPF.Classes
         private int[] _prevBarY = [];
         private int[] _prevBarEndY = [];
         private int _prevBarsArgb = -1;
+
+        // Accent color transition: the bars ease from the previous album color to
+        // the new one over the same duration as the other song-change animations
+        // instead of snapping. A retarget mid-flight restarts from the currently
+        // displayed color, so rapid song changes never jump.
+        private int _colorAnimFromArgb = -1;
+        private int _colorAnimToArgb = -1;
+        private DateTime _colorAnimStartUtc = DateTime.MinValue;
 
         private readonly int _fftLength = 4096;
         private const int FftHop = 256; // overlapping FFT hop for smooth high-refresh updates
@@ -91,12 +100,14 @@ namespace FluentFlyoutWPF.Classes
         private bool _lastHasContent;
         private int _monitorRefreshRate;
 
-        // Last time the bars carried real content (UI thread, updated in RenderFrame).
-        // A song change brings a brief audio gap: without this, the bars decay to zero
-        // during the gap and the widget collapses for ~300 ms on every track change.
-        // The grace period below keeps the container visible (flat bars) through
-        // transient gaps; only sustained silence collapses it and stops the loop.
+        // Last time the audio targets carried real content (stamped on the capture
+        // thread in OnDataAvailable). Drives both the fall-hold below and the
+        // collapse grace: it must track TARGETS, not bars — stamping from bars
+        // would refresh itself while held and freeze forever.
         private DateTime _lastContentUtc = DateTime.MinValue;
+        // Huecos cortos (cambio de cancion/fuente): las barras se quedan quietas
+        // en vez de caer, asi el ecualizador no parpadea en el hueco.
+        private const int FreezeMs = 600;
         private const int SilenceGraceMs = 1500;
 
         // Frame-rate independent attack/release smoothing (seconds). Driven by the
@@ -314,12 +325,13 @@ namespace FluentFlyoutWPF.Classes
                 {
                     if (_isRunning)
                     {
-                        // Zero the targets; the render loop (if active) draws the bars falling to zero.
+                        // No loopback callbacks for 500 ms (e.g. switching playback
+                        // apps while the device idles): drop only the targets so the
+                        // render loop draws the bars falling smoothly to zero. Never
+                        // snap _barValues or clear HasContent here — the collapse is
+                        // governed solely by the silence grace in RenderFrame, so a
+                        // source switch doesn't blink the equalizer.
                         if (_targetValues != null) Array.Clear(_targetValues, 0, _targetValues.Length);
-                        if (_barValues != null) Array.Clear(_barValues, 0, _barValues.Length);
-
-                        if (!SettingsManager.Current.TaskbarVisualizerBaseline || SettingsManager.Current.TaskbarVisualizerBaselineAutoHide) // if baseline is enabled and autohide is off, condition is false
-                            SettingsManager.Current.TaskbarVisualizerHasContent = false;
 
                         // If we stop receiving loopback callbacks entirely (common after lock/unlock + device changes),
                         // the timer fires once and then never again. Use it as a recovery trigger.
@@ -432,6 +444,8 @@ namespace FluentFlyoutWPF.Classes
 
             if (hasContent || (SettingsManager.Current.TaskbarVisualizerBaseline && !SettingsManager.Current.TaskbarVisualizerBaselineAutoHide))
             {
+                if (hasContent)
+                    _lastContentUtc = DateTime.UtcNow; // silence clock runs on real target content
                 EnsureRenderLoop();
                 SettingsManager.Current.TaskbarVisualizerHasContent = true;
             }
@@ -674,7 +688,28 @@ namespace FluentFlyoutWPF.Classes
                 dt = 1.0 / 60.0;
 
             EnsureSmoothing();
-            SmoothBars(dt);
+
+            // Short silence right after content (song/source switch): hold the bars
+            // so the equalizer doesn't dip or blink through the gap. Rises are never
+            // held, so waking audio picks up instantly from the held heights with no
+            // reappearance lag. Falls resume (and the collapse grace below still
+            // applies) if the silence persists.
+            double silenceMs = (DateTime.UtcNow - _lastContentUtc).TotalMilliseconds;
+            bool targetsAlive = false;
+            var targetsSnapshot = _targetValues;
+            if (targetsSnapshot != null)
+            {
+                int targetCount = Math.Min(BarCount, targetsSnapshot.Length);
+                for (int j = 0; j < targetCount; j++)
+                {
+                    if (targetsSnapshot[j] > 0.01f)
+                    {
+                        targetsAlive = true;
+                        break;
+                    }
+                }
+            }
+            SmoothBars(dt, holdFalls: !targetsAlive && silenceMs < FreezeMs);
 
             // check if bars are all zero
             bool allZero = true;
@@ -691,9 +726,10 @@ namespace FluentFlyoutWPF.Classes
 
             if (allZero && !forcedBaseline)
             {
+                double collapseSilenceMs = (DateTime.UtcNow - _lastContentUtc).TotalMilliseconds;
                 // Transient gap (e.g. song change): keep the container visible with
                 // flat bars and the loop alive; collapse only on sustained silence.
-                if ((DateTime.UtcNow - _lastContentUtc).TotalMilliseconds < SilenceGraceMs)
+                if (collapseSilenceMs < SilenceGraceMs)
                 {
                     UpdateBitmap();
                     return;
@@ -712,7 +748,9 @@ namespace FluentFlyoutWPF.Classes
                 return;
             }
 
-            _lastContentUtc = DateTime.UtcNow;
+            // Note: _lastContentUtc is stamped on the capture thread (see
+            // OnDataAvailable), never here: stamping from bars would refresh
+            // itself while held and freeze forever.
             if (!_lastHasContent)
             {
                 _lastHasContent = true;
@@ -723,7 +761,8 @@ namespace FluentFlyoutWPF.Classes
         }
 
         // Frame-rate independent attack/release interpolation toward the audio thread's targets.
-        private void SmoothBars(double dt)
+        // With holdFalls, bars may rise but never fall this frame (short-gap freeze).
+        private void SmoothBars(double dt, bool holdFalls)
         {
             if (_barValues == null || _targetValues == null)
                 return;
@@ -743,7 +782,7 @@ namespace FluentFlyoutWPF.Classes
                     // Jump up quickly
                     _barValues[i] = current + (target - current) * attackFactor;
                 }
-                else
+                else if (!holdFalls)
                 {
                     // Fall down slowly
                     _barValues[i] = current + (target - current) * releaseFactor;
@@ -787,6 +826,50 @@ namespace FluentFlyoutWPF.Classes
         }
 
         /// <summary>
+        /// Resolves the bar color for this frame, easing toward <paramref name="targetArgb"/>
+        /// over the shared song-change animation duration. Snaps instantly when widget
+        /// animations are disabled. Runs on the UI thread (render loop).
+        /// </summary>
+        private int ResolveBarColor(int targetArgb)
+        {
+            if (!TaskbarWidgetAnimationEnvironment.AreAnimationsEnabled)
+            {
+                _colorAnimToArgb = targetArgb;
+                _colorAnimFromArgb = targetArgb;
+                return targetArgb;
+            }
+
+            if (targetArgb != _colorAnimToArgb)
+            {
+                _colorAnimFromArgb = _prevBarsArgb < 0 ? targetArgb : _prevBarsArgb;
+                _colorAnimToArgb = targetArgb;
+                _colorAnimStartUtc = DateTime.UtcNow;
+            }
+
+            if (_prevBarsArgb == _colorAnimToArgb)
+                return _colorAnimToArgb;
+
+            double totalMs = Math.Max(TaskbarWidgetAnimationEnvironment.GetDurationMs(), 1);
+            double t = (DateTime.UtcNow - _colorAnimStartUtc).TotalMilliseconds / totalMs;
+            if (t >= 1)
+                return _colorAnimToArgb;
+
+            // Ease-out cubic, matching the song-change entrances elsewhere.
+            t = 1 - Math.Pow(1 - t, 3);
+            return LerpRgb(_colorAnimFromArgb, _colorAnimToArgb, t);
+        }
+
+        private static int LerpRgb(int fromArgb, int toArgb, double t)
+        {
+            int fr = (fromArgb >> 16) & 0xFF, fg = (fromArgb >> 8) & 0xFF, fb = fromArgb & 0xFF;
+            int tr = (toArgb >> 16) & 0xFF, tg = (toArgb >> 8) & 0xFF, tb = toArgb & 0xFF;
+            int r = (int)Math.Round(fr + (tr - fr) * t);
+            int g = (int)Math.Round(fg + (tg - fg) * t);
+            int b = (int)Math.Round(fb + (tb - fb) * t);
+            return (r << 16) | (g << 8) | b;
+        }
+
+        /// <summary>
         /// Draws bars whose rect or color changed since the last frame, clearing only
         /// their old+new area. Returns whether anything changed plus the bounding box
         /// of all touched pixels for a single dirty rect.
@@ -795,13 +878,15 @@ namespace FluentFlyoutWPF.Classes
         {
             dirtyX = dirtyY = dirtyW = dirtyH = 0;
 
-            // Resolve brush once 
+            // Resolve brush once
             SolidColorBrush brush = AlbumAccent.Brush;
 
-            byte b = brush.Color.B;
-            byte g = brush.Color.G;
-            byte r = brush.Color.R;
-            int argb = (r << 16) | (g << 8) | b;
+            int targetArgb = (brush.Color.R << 16) | (brush.Color.G << 8) | brush.Color.B;
+            // Smooth accent transition instead of an instant snap (see ResolveBarColor).
+            int argb = ResolveBarColor(targetArgb);
+            byte b = (byte)(argb & 0xFF);
+            byte g = (byte)((argb >> 8) & 0xFF);
+            byte r = (byte)((argb >> 16) & 0xFF);
 
             bool centeredBars = SettingsManager.Current.TaskbarVisualizerCenteredBars;
             int barBaseline = SettingsManager.Current.TaskbarVisualizerBaseline ? 4 : 0;
@@ -1046,6 +1131,16 @@ namespace FluentFlyoutWPF.Classes
             if (e.Exception != null)
             {
                 Logger.Error(e.Exception, "Visualizer recording stopped due to an error");
+                RequestRestart("recording stopped with error");
+            }
+            else if (_isRunning && SettingsManager.Current.TaskbarVisualizerEnabled)
+            {
+                // Unexpected stop without an error (e.g. the endpoint reconfigured
+                // when the playback app changed format between tracks or sources).
+                // Our own Stop() detaches this handler first, so any call arriving
+                // here means the capture died on its own: revive it, otherwise the
+                // equalizer stays dead until a device event or manual toggle.
+                RequestRestart("recording stopped unexpectedly");
             }
         }
 
