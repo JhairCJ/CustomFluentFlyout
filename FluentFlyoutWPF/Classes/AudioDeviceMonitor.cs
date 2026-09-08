@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using NAudio.CoreAudioApi;
-using NAudio.CoreAudioApi.Interfaces;
 
 namespace FluentFlyoutWPF.Classes;
 
@@ -13,7 +12,7 @@ public class AudioDeviceMonitor : IDisposable
     private static readonly object _instanceLock = new();
 
     private MMDeviceEnumerator? _deviceEnumerator;
-    private AudioDeviceNotificationClient? _notificationClient;
+    private MMDeviceNotificationClient? _notificationClient;
 
     public event EventHandler<DefaultDeviceChangedEventArgs>? DefaultDeviceChanged;
 
@@ -42,9 +41,11 @@ public class AudioDeviceMonitor : IDisposable
         try
         {
             _deviceEnumerator = new MMDeviceEnumerator();
-            _notificationClient = new AudioDeviceNotificationClient();
+            // NAudio 3: event-based notifications (the raw IMMNotificationClient
+            // COM interface is internal now). Events arrive on the captured
+            // SynchronizationContext, so handlers can touch UI state directly.
+            _notificationClient = _deviceEnumerator.CreateNotificationClient();
             _notificationClient.DefaultDeviceChanged += OnDefaultDeviceChanged;
-            _deviceEnumerator.RegisterEndpointNotificationCallback(_notificationClient);
 
             Logger.Info("Audio device monitoring initialized");
         }
@@ -57,7 +58,7 @@ public class AudioDeviceMonitor : IDisposable
     private void OnDefaultDeviceChanged(object? sender, DefaultDeviceChangedEventArgs e)
     {
         // Render devices are output devices, no e.Role check because roles are quite often randomly assigned
-        if (e.DataFlow != DataFlow.Render)
+        if (e.Flow != DataFlow.Render)
             return;
 
         Logger.Info("Default audio output device changed");
@@ -79,8 +80,10 @@ public class AudioDeviceMonitor : IDisposable
         }
     }
 
-    public MMDevice? GetDeviceById(string deviceId)
+    public MMDevice? GetDeviceById(string? deviceId)
     {
+        if (string.IsNullOrWhiteSpace(deviceId))
+            return null;
         try
         {
             var device = _deviceEnumerator?.GetDevice(deviceId);
@@ -97,17 +100,21 @@ public class AudioDeviceMonitor : IDisposable
 
     public void Dispose()
     {
-        _notificationClient?.DefaultDeviceChanged -= OnDefaultDeviceChanged;
-
-        if (_deviceEnumerator != null && _notificationClient != null)
+        if (_notificationClient != null)
         {
             try
             {
-                _deviceEnumerator.UnregisterEndpointNotificationCallback(_notificationClient);
+                _notificationClient.DefaultDeviceChanged -= OnDefaultDeviceChanged;
+                // Disposing unregisters from endpoint notifications.
+                _notificationClient.Dispose();
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "Failed to unregister device notification callback");
+                Logger.Error(ex, "Failed to dispose device notification client");
+            }
+            finally
+            {
+                _notificationClient = null;
             }
         }
 
@@ -127,31 +134,6 @@ public class AudioDeviceMonitor : IDisposable
             }
         }
 
-        _notificationClient = null;
-
         GC.SuppressFinalize(this);
     }
-}
-
-// classes to handle audio device notifications
-public class AudioDeviceNotificationClient : IMMNotificationClient
-{
-    public event EventHandler<DefaultDeviceChangedEventArgs>? DefaultDeviceChanged;
-
-    public void OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId)
-    {
-        DefaultDeviceChanged?.Invoke(this, new DefaultDeviceChangedEventArgs(flow, role, defaultDeviceId));
-    }
-
-    public void OnDeviceStateChanged(string deviceId, DeviceState newState) { }
-    public void OnDeviceAdded(string pwstrDeviceId) { }
-    public void OnDeviceRemoved(string deviceId) { }
-    public void OnPropertyValueChanged(string pwstrDeviceId, PropertyKey key) { }
-}
-
-public class DefaultDeviceChangedEventArgs(DataFlow dataFlow, Role role, string deviceId) : EventArgs
-{
-    public DataFlow DataFlow { get; } = dataFlow;
-    public Role Role { get; } = role;
-    public string DeviceId { get; } = deviceId;
 }
