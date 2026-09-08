@@ -53,6 +53,13 @@ internal static class WidgetFonts
     /// <summary>Display names of the bundled fonts, in settings order.</summary>
     public static IEnumerable<string> BundledNames => BundledFamilies.Keys;
 
+    // Resolve() runs on every text measure (CalculateSize per tick/event) and a
+    // pack-URI FontFamily construction is not free: memoize by cleaned name.
+    // The working set is one font in practice; bounded with clear-on-overflow.
+    private static readonly Dictionary<string, FontFamily> _resolvedCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object _resolvedCacheSync = new();
+    private const int ResolvedCacheLimit = 32;
+
     /// <summary>
     /// Resolves a widget font setting value to a usable <see cref="FontFamily"/>:
     /// bundled display names become pack URIs, anything else is passed through
@@ -61,6 +68,23 @@ internal static class WidgetFonts
     public static FontFamily Resolve(string? name)
     {
         string clean = string.IsNullOrWhiteSpace(name) ? FallbackName : name.Trim();
+        lock (_resolvedCacheSync)
+        {
+            if (_resolvedCache.TryGetValue(clean, out FontFamily? cached))
+                return cached;
+        }
+        FontFamily resolved = ResolveUncached(clean);
+        lock (_resolvedCacheSync)
+        {
+            if (_resolvedCache.Count >= ResolvedCacheLimit)
+                _resolvedCache.Clear();
+            _resolvedCache[clean] = resolved;
+        }
+        return resolved;
+    }
+
+    private static FontFamily ResolveUncached(string clean)
+    {
         if (BundledFamilies.TryGetValue(clean, out string? fragment))
         {
             // NOTE: the two-arg ctor is required here. The single-string form

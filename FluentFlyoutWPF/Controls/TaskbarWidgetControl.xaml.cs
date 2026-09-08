@@ -70,6 +70,12 @@ public partial class TaskbarWidgetControl : UserControl
     private BitmapImage? _bakedIcon;
     private BitmapSource? _bakedBackground;
     private double _bakedSideDip;
+    // Small LRU of baked discs: skipping back and forth between recent albums
+    // reuses the baked texture instantly instead of rebaking + redipping.
+    // Keyed by artwork instance (thumbnails come from the cache, so reference
+    // identity is exact); side is quantized to 16 DIPs, one entry per side.
+    private readonly Dictionary<(BitmapImage icon, double side), BitmapSource> _bakedBackgroundCache = [];
+    private const int BakedBackgroundCacheLimit = 6;
     private RotateTransform? _backgroundRotateTransform;
     private bool _backgroundRotationActive;
     private bool _backgroundRotationAnimationRunning;
@@ -149,6 +155,10 @@ public partial class TaskbarWidgetControl : UserControl
     // completes (stagger of the artist row included), not on a wall-clock timer that
     // can drift and cause the final "teleport" snap.
     private int _slidePendingCompletions;
+
+    // Pooled overlay brush: one ImageBrush for the whole lifetime instead of a new
+    // one per song change (one less GPU resource churn per commit).
+    private ImageBrush? _crossfadeBrush;
 
     /// <summary>
     /// Song identity commit counter: bumped whenever a commit publishes a new
@@ -918,6 +928,18 @@ public partial class TaskbarWidgetControl : UserControl
             return;
         }
 
+        // Recent album revisited (A -> B -> A): adopt the cached disc with the same
+        // synced crossfade, no worker bake, no dip.
+        if (_bakedBackgroundCache.TryGetValue((icon, bakeSide), out BitmapSource? cachedBaked))
+        {
+            _bakedIcon = icon;
+            _bakedBackground = cachedBaked;
+            _bakedSideDip = bakeSide;
+            if (_backgroundRotationActive)
+                BeginBackgroundCrossfade(cachedBaked, TaskbarWidgetAnimationEnvironment.GetDurationMs());
+            return;
+        }
+
         // Same bake already running (event burst / resize ticks): the in-flight task
         // will deliver it, don't stack another one.
         if (ReferenceEquals(_bakingIcon, icon) && Math.Abs(_bakingSide - bakeSide) < 0.5)
@@ -963,6 +985,9 @@ public partial class TaskbarWidgetControl : UserControl
         _bakedIcon = icon;
         _bakedBackground = baked;
         _bakedSideDip = bakeSide;
+        if (_bakedBackgroundCache.Count >= BakedBackgroundCacheLimit)
+            _bakedBackgroundCache.Clear();
+        _bakedBackgroundCache[(icon, bakeSide)] = baked;
 
         // Rotation may have been disabled while baking; the static path owns the layer then.
         if (!_backgroundRotationActive)
@@ -1164,6 +1189,8 @@ public partial class TaskbarWidgetControl : UserControl
                     Duration = TimeSpan.FromSeconds(durationToScroll),
                     RepeatBehavior = RepeatBehavior.Forever
                 };
+                // Slow constant scroll: 30 FPS is visually identical, half the ticks.
+                Timeline.SetDesiredFrameRate(animation, 30);
 
                 transform.BeginAnimation(TranslateTransform.XProperty, animation);
             }
@@ -1182,8 +1209,9 @@ public partial class TaskbarWidgetControl : UserControl
                 double tScrollBackEnd = tWaitEnd + durationSeconds;
                 double tTotalCycle = tScrollBackEnd + pauseDuration;
 
-                var animation = new DoubleAnimationUsingKeyFrames { RepeatBehavior = RepeatBehavior.Forever };
+                                var animation = new DoubleAnimationUsingKeyFrames { RepeatBehavior = RepeatBehavior.Forever };
                 animation.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+
                 animation.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(tWaitStart))));
                 animation.KeyFrames.Add(new LinearDoubleKeyFrame(-scrollDistance, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(tScrollEnd))));
                 animation.KeyFrames.Add(new LinearDoubleKeyFrame(-scrollDistance, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(tWaitEnd))));
@@ -1216,6 +1244,12 @@ public partial class TaskbarWidgetControl : UserControl
 
                 cachedMask.GradientStops[0].BeginAnimation(GradientStop.ColorProperty, leftColorAnim);
                 cachedMask.GradientStops[3].BeginAnimation(GradientStop.ColorProperty, rightColorAnim);
+
+                // Ping-pong scroll + synced edge fades: 30 FPS is visually identical
+                // at these speeds and halves the forever-clock tick rate.
+                Timeline.SetDesiredFrameRate(animation, 30);
+                Timeline.SetDesiredFrameRate(leftColorAnim, 30);
+                Timeline.SetDesiredFrameRate(rightColorAnim, 30);
 
                 transform.BeginAnimation(TranslateTransform.XProperty, animation);
             }
@@ -2130,6 +2164,9 @@ public partial class TaskbarWidgetControl : UserControl
                 CrossfadeOverlay.BeginAnimation(OpacityProperty, null);
                 CrossfadeOverlay.Visibility = Visibility.Collapsed;
                 CrossfadeOverlay.Background = null;
+                // Release the snapshot pixels; the pooled brush itself survives.
+                if (_crossfadeBrush != null)
+                    _crossfadeBrush.ImageSource = null;
             };
 
             CrossfadeOverlay.BeginAnimation(OpacityProperty, fadeOutAnimation);
@@ -2152,9 +2189,10 @@ public partial class TaskbarWidgetControl : UserControl
             if (CrossfadeOverlay == null || RootGrid.ActualWidth <= 0 || RootGrid.ActualHeight <= 0)
                 return false;
 
-            // Cap the snapshot resolution: the widget is tiny and the crossfade brief, so
-            // rendering at full DPI is unnecessary and adds UI-thread work per song change.
-            double dpi = Math.Min(VisualTreeHelper.GetDpi(this).PixelsPerDip, 1.5);
+            // Cap the snapshot resolution at 1.0 DPI: the widget is tiny and the
+            // crossfade brief, so rendering above 1.0 is invisible work on the UI
+            // thread per song change (1.5 DPI = 2.25x the pixels for zero gain).
+            double dpi = Math.Min(VisualTreeHelper.GetDpi(this).PixelsPerDip, 1.0);
             int pixelWidth = Math.Max(1, (int)Math.Round(RootGrid.ActualWidth * dpi));
             int pixelHeight = Math.Max(1, (int)Math.Round(RootGrid.ActualHeight * dpi));
 
@@ -2164,7 +2202,9 @@ public partial class TaskbarWidgetControl : UserControl
 
             CrossfadeOverlay.Width = RootGrid.ActualWidth;
             CrossfadeOverlay.Height = RootGrid.ActualHeight;
-            CrossfadeOverlay.Background = new ImageBrush(rtb) { Stretch = Stretch.Fill };
+            _crossfadeBrush ??= new ImageBrush { Stretch = Stretch.Fill };
+            _crossfadeBrush.ImageSource = rtb;
+            CrossfadeOverlay.Background = _crossfadeBrush;
             CrossfadeOverlay.Visibility = Visibility.Visible;
             CrossfadeOverlay.Opacity = 1.0;
             return true;

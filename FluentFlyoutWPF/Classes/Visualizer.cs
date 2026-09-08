@@ -61,7 +61,10 @@ namespace FluentFlyoutWPF.Classes
         // samples are windowed into _fftWork and transformed.
         private const int FftLength = 4096;
         private const int FftOrder = 12; // log2(FftLength)
-        private const int FftHopHighRefresh = 256; // overlapping hop in high-refresh mode
+        // Overlapping hop in high-refresh mode. 512 (~94 FFT/s @48kHz) is plenty:
+        // the render-thread attack/release smoothing (tens/hundreds of ms) dominates
+        // what the eye sees, so 256 would double FFT + sqrt CPU for zero visual gain.
+        private const int FftHopHighRefresh = 512;
         private readonly float[] _ring = new float[FftLength];
         private readonly Complex[] _fftWork = new Complex[FftLength];
         private int _ringPos;
@@ -781,7 +784,9 @@ namespace FluentFlyoutWPF.Classes
             // restart gap), targets are read as zero so the bars glide to rest
             // instead of freezing on stale values. Live silence never reaches
             // this branch — the gate has already zeroed the targets themselves.
-            bool dataStale = (DateTime.UtcNow - _lastDataAvailableUtc).TotalMilliseconds > DataStallMs;
+            // Single clock read per frame: the stall and grace checks share it.
+            DateTime frameUtc = DateTime.UtcNow;
+            bool dataStale = (frameUtc - _lastDataAvailableUtc).TotalMilliseconds > DataStallMs;
 
             float attackFactor = 1f - (float)Math.Exp(-dt / _attackSeconds);
             float releaseFactor = 1f - (float)Math.Exp(-dt / _releaseSeconds);
@@ -814,8 +819,21 @@ namespace FluentFlyoutWPF.Classes
             // frame after audio returns.
             bool autoHides = SettingsManager.Current.TaskbarVisualizerBaseline
                 && SettingsManager.Current.TaskbarVisualizerBaselineAutoHide;
-            bool audibleRecently = (DateTime.UtcNow - _lastAudibleUtc).TotalMilliseconds < AutoHideGraceMs;
+            bool audibleRecently = (frameUtc - _lastAudibleUtc).TotalMilliseconds < AutoHideGraceMs;
             SetHasContent(!autoHides || audibleRecently || !resting);
+
+            // Idle fast path: every bar settled and the on-screen color already
+            // matches the accent — DrawBars would touch nothing, so skip the
+            // bitmap Lock/Unlock round-trip entirely (the dominant cost of a
+            // quiet frame). Any new audio, height or color change takes the
+            // normal path below on the very next frame.
+            if (resting)
+            {
+                SolidColorBrush idleBrush = AlbumAccent.Brush;
+                int idleArgb = (idleBrush.Color.R << 16) | (idleBrush.Color.G << 8) | idleBrush.Color.B;
+                if (idleArgb == _drawnArgb)
+                    return;
+            }
 
             UpdateBitmap();
         }
@@ -1107,57 +1125,82 @@ namespace FluentFlyoutWPF.Classes
             float innerTop = top + radius;
             float innerBottom = bottom - radius;
 
-            for (int y = barY; y < barEndY && y < ImageHeight && y >= 0; y++)
+            // Packed BGRA for the solid spans: identical bytes to WritePixel(..., 255).
+            int packed = b | (g << 8) | (r << 16) | (255 << 24);
+
+            int xEnd = barX + barWidth;
+            int xs = Math.Max(barX, 0);
+            int xe = Math.Min(xEnd, ImageWidth);
+            // Integer span covered by the center fast path (same predicate as the
+            // per-pixel version: x >= innerLeft && x <= innerRight).
+            int solidXs = Math.Max(xs, (int)Math.Ceiling(innerLeft));
+            int solidXe = Math.Min(xe, (int)Math.Floor(innerRight) + 1);
+
+            fixed (byte* ptr = buffer)
             {
-                int row = y * stride;
-
-                for (int x = barX; x < barX + barWidth && x < ImageWidth; x++)
+                for (int y = barY; y < barEndY && y < ImageHeight && y >= 0; y++)
                 {
-                    int index = row + (x << 2); // x * 4 (bitshift faster)
-                    if (index + 3 >= buffer.Length)
-                        continue;
+                    int* row32 = (int*)(ptr + y * stride);
 
-                    // CENTER
-                    if (x >= innerLeft && x <= innerRight)
+                    // Fully straight rows (sides / flat bottom): the whole span is
+                    // solid, no corner math at all.
+                    if ((y >= innerTop && y <= innerBottom) || (!centeredBars && y >= innerBottom))
                     {
-                        WritePixel(buffer, index, b, g, r, 255);
+                        for (int x = xs; x < xe; x++)
+                            row32[x] = packed;
                         continue;
                     }
 
-                    // SIDES
-                    if (y >= innerTop && y <= innerBottom)
-                    {
-                        WritePixel(buffer, index, b, g, r, 255);
-                        continue;
-                    }
+                    // Corner row: bulk-fill the straight middle, SDF only the edges.
+                    for (int x = solidXs; x < solidXe; x++)
+                        row32[x] = packed;
 
-                    // FLAT BOTTOM
-                    if (!centeredBars && y >= innerBottom)
-                    {
-                        WritePixel(buffer, index, b, g, r, 255);
-                        continue;
-                    }
-
-                    // CORNERS
-                    float cx = x < innerLeft ? innerLeft : (x > innerRight ? innerRight : x);
-                    float cy = y < innerTop ? innerTop : (y > innerBottom ? innerBottom : y);
-
-                    float dx = x - cx;
-                    float dy = y - cy;
-
-                    float distSq = dx * dx + dy * dy;
-                    float sdf = (distSq - radiusSq) / (2f * radius);
-
-                    float alpha = 0.5f - sdf * invAA;
-
-                    if (alpha <= 0f)
-                        continue;
-
-                    if (alpha > 1f) alpha = 1f;
-
-                    WritePixel(buffer, index, b, g, r, (byte)(255 * alpha));
+                    for (int x = xs; x < solidXs; x++)
+                        WriteCornerPixel(buffer, stride, x, y, innerLeft, innerRight, innerTop, innerBottom,
+                            radius, radiusSq, invAA, b, g, r);
+                    for (int x = solidXe; x < xe; x++)
+                        WriteCornerPixel(buffer, stride, x, y, innerLeft, innerRight, innerTop, innerBottom,
+                            radius, radiusSq, invAA, b, g, r);
                 }
             }
+        }
+
+        private static void WriteCornerPixel(
+            Span<byte> buffer,
+            int stride,
+            int x,
+            int y,
+            float innerLeft,
+            float innerRight,
+            float innerTop,
+            float innerBottom,
+            float radius,
+            float radiusSq,
+            float invAA,
+            byte b, byte g, byte r)
+        {
+            // CORNERS (same SDF math as before, pixel-identical output)
+            float cx = x < innerLeft ? innerLeft : (x > innerRight ? innerRight : x);
+            float cy = y < innerTop ? innerTop : (y > innerBottom ? innerBottom : y);
+
+            float dx = x - cx;
+            float dy = y - cy;
+
+            float distSq = dx * dx + dy * dy;
+            float sdf = (distSq - radiusSq) / (2f * radius);
+
+            float alpha = 0.5f - sdf * invAA;
+
+            if (alpha <= 0f)
+                return;
+
+            if (alpha > 1f) alpha = 1f;
+
+            int index = y * stride + (x << 2); // x * 4 (bitshift faster)
+            if (index + 3 >= buffer.Length)
+                return;
+
+            WritePixel(buffer, index, b, g, r, (byte)(255 * alpha));
         }
 
         private static void WritePixel(Span<byte> buffer, int index, byte b, byte g, byte r, byte a)

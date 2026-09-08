@@ -35,6 +35,11 @@ public partial class TaskbarWindow : Window
     private AutomationElement? _widgetElement;
     private AutomationElement? _trayElement;
     private AutomationElement? _taskbarFrameElement;
+    // Bounds cache: every forced reposition (each metadata event in a song-change
+    // burst) used to round-trip COM on the UI thread with blocking Waits. Bounds
+    // move with the taskbar itself, so a short TTL is visually identical.
+    private readonly Dictionary<string, (Rect rect, DateTime utc)> _automationBoundsCache = [];
+    private static readonly TimeSpan AutomationBoundsTtl = TimeSpan.FromSeconds(3);
     // reference to main window for flyout functions
     private MainWindow? _mainWindow;
     private int _lastSelectedMonitor = -1;
@@ -1077,15 +1082,14 @@ on_error:
         // Delegate UI update to widget control
         Widget.UpdateUi(title, artist, icon, playbackStatus, playbackControls);
 
-        // Update position after UI change
-        Dispatcher.BeginInvoke(() => UpdatePosition(true), DispatcherPriority.Background);
-
-        // Queued AFTER the position update (same priority = FIFO), so the window is only
-        // ever shown once positioned: no first-frame-in-the-corner. Gated on real media
-        // + first good position, so startup stays hidden instead of flashing the idle
-        // music-note placeholder.
+        // Single queued block per metadata event (same Background priority = FIFO):
+        // position first, then show only once positioned — no first-frame-in-the-
+        // corner. Previously two separate BeginInvokes per event (two queue hops
+        // plus two layout passes per event in a song-change burst).
         Dispatcher.BeginInvoke(() =>
         {
+            UpdatePosition(true);
+
             if (!_hasPublishedMedia || !_hasEverBeenPositioned)
                 return;
 
@@ -1188,7 +1192,20 @@ on_error:
         {
             // reset if monitor changed
             if (_lastSelectedMonitor != SettingsManager.Current.TaskbarWidgetSelectedMonitor)
+            {
                 elementCache = null;
+                _automationBoundsCache.Remove(elementName);
+                _automationBoundsCache.Clear();
+            }
+
+            // Fresh bounds: serve from cache, no COM round-trip on the UI thread.
+            if (elementCache != null
+                && _automationBoundsCache.TryGetValue(elementName, out var cached)
+                && DateTime.UtcNow - cached.utc < AutomationBoundsTtl
+                && cached.rect != Rect.Empty)
+            {
+                return (true, cached.rect);
+            }
 
             // find widget in XAML
             if (elementCache == null)
@@ -1224,6 +1241,7 @@ on_error:
                 if (_pendingAutomationTasks.TryGetValue(elementName, out var pendingTask) && !pendingTask.IsCompleted)
                 {
                     elementCache = null;
+                _automationBoundsCache.Remove(elementName);
                     return (false, Rect.Empty);
                 }
 
@@ -1235,6 +1253,7 @@ on_error:
                 {
                     Logger.Warn("Timeout getting bounds for taskbar XAML element: " + elementName);
                     elementCache = null;
+                _automationBoundsCache.Remove(elementName);
                     return (false, Rect.Empty);
                 }
 
@@ -1242,10 +1261,13 @@ on_error:
 
                 if (elementRect == Rect.Empty) // widget shown before but most likely disabled now
                 {
-                    elementCache = null; // reset cache
+                    elementCache = null;
+                _automationBoundsCache.Remove(elementName); // reset cache
+                    _automationBoundsCache.Remove(elementName);
                     return (false, Rect.Empty);
                 }
 
+                _automationBoundsCache[elementName] = (elementRect, DateTime.UtcNow);
                 return (true, elementRect);
             }
             catch (ElementNotAvailableException)
@@ -1253,6 +1275,7 @@ on_error:
                 // element became stale, reset cache
                 Logger.Warn("Taskbar XAML element became stale, resetting cache: " + elementName);
                 elementCache = null;
+                _automationBoundsCache.Remove(elementName);
                 return (false, Rect.Empty);
             }
         }
