@@ -4,36 +4,51 @@
 using FluentFlyout.Classes.Settings;
 using FluentFlyout.Classes.Utils;
 using FluentFlyout.Controls.TaskbarWidget;
-using FluentFlyout.Windows;
-using FluentFlyoutWPF.Classes.Utils;
 using Microsoft.Win32;
 using NAudio.CoreAudioApi;
 using NAudio.Dsp;
 using NAudio.Wave;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace FluentFlyoutWPF.Classes
 {
+    /// <summary>
+    /// Loopback spectrum engine behind the taskbar equalizer.
+    ///
+    /// Two threads, one hand-off each way:
+    ///   capture thread: WASAPI loopback -> ring buffer -> silence gate ->
+    ///     FFT (skipped while the gate says quiet) -> writes <see cref="_targetValues"/>.
+    ///     Targets are the ONLY thing the capture thread owns, and it writes them
+    ///     raw (no EMA, no decay): silence writes zeros there within ~1-2 ms of
+    ///     the audio actually stopping, so the bars start falling on the very
+    ///     next frame — there is no hold, no freeze window, no stale buffer
+    ///     path. That immediacy is what kills the old "hangs ~200 ms on
+    ///     silence" behaviour for good.
+    ///   render thread (UI): eases <see cref="_barValues"/> toward the targets
+    ///     with frame-rate-independent attack/release (the ONLY smoothing in
+    ///     the pipeline), eases the bar color toward the album accent over the
+    ///     rasterizes only the bars that changed into the WriteableBitmap.
+    /// </summary>
     public class Visualizer : IDisposable
     {
         private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
         public static int BarCount = 10;
-        private readonly int ImageWidth = 76 * 3;
-        private readonly int ImageHeight = 32 * 3;
-        private readonly int BarSpacing = 2 * 3;
+        private const int ImageWidth = 76 * 3;
+        private const int ImageHeight = 32 * 3;
+        private const int BarSpacing = 2 * 3;
 
         private WasapiLoopbackCapture? _capture;
         private MMDevice? _renderDevice;
         private static float[]? _barValues;
         private static float[]? _targetValues;
         private WriteableBitmap? _bitmap;
-        private bool _isRunning;
+        private volatile bool _isRunning;
         private readonly object _lock = new();
 
         // Last drawn rect per bar, so static bars are skipped entirely instead of
@@ -41,32 +56,40 @@ namespace FluentFlyoutWPF.Classes
         // marked dirty. Reset (empty) whenever the bar count changes.
         private int[] _prevBarY = [];
         private int[] _prevBarEndY = [];
-        private int _prevBarsArgb = -1;
 
-        // Accent color transition: the bars ease from the previous album color to
-        // the new one over the same duration as the other song-change animations
-        // instead of snapping. A retarget mid-flight restarts from the currently
-        // displayed color, so rapid song changes never jump.
-        private int _colorAnimFromArgb = -1;
-        private int _colorAnimToArgb = -1;
-        private DateTime _colorAnimStartUtc = DateTime.MinValue;
+        // FFT layout. The ring holds raw samples; each hop the last FftLength
+        // samples are windowed into _fftWork and transformed.
+        private const int FftLength = 4096;
+        private const int FftOrder = 12; // log2(FftLength)
+        private const int FftHopHighRefresh = 256; // overlapping hop in high-refresh mode
+        private readonly float[] _ring = new float[FftLength];
+        private readonly Complex[] _fftWork = new Complex[FftLength];
+        private int _ringPos;
+        private int _samplesSinceHop;
+        private int _fftHop;
 
-        private readonly int _fftLength = 4096;
-        private const int FftHop = 256; // overlapping FFT hop for smooth high-refresh updates
-        private const int FftOrder = 12; // log2(_fftLength); hoisted out of the per-FFT path
-        private int _fftPos = 0;
-        private int _samplesSinceFft = 0;
-        private readonly Complex[] _fftBuffer;
-        private readonly Complex[] _fftWork;
+        // Precomputed Hamming window: evaluating FastFourierTransform.HammingWindow
+        // (a cosine) 4096 times per FFT costs more than this table's memory.
+        private readonly float[] _windowTable = new float[FftLength];
 
-        // Precomputed Hamming window: the previous code evaluated
-        // FastFourierTransform.HammingWindow(j) (a cosine) 4096 times per FFT, up to
-        // ~190 FFTs/s on the capture thread in high-refresh mode. Same values, ~0 cost.
-        private readonly float[] _windowTable;
+        // Silence gate: RMS over the newest GateWindow samples (~5 ms at 48 kHz),
+        // re-evaluated every GateTick samples. True loopback silence (pause,
+        // stopped player) is exact zeros, so a -80 dBFS cut is unambiguous.
+        // The gate answers within one tick (~1.3 ms) instead of waiting for
+        // the 85 ms FFT window to drain, and the FFT is skipped outright
+        // while the gate says quiet.
+        private const int GateWindow = 256; // power of two, ~5.3 ms at 48 kHz
+        private const int GateTick = 64; // re-evaluate every ~1.3 ms
+        private const float SilenceRms = 1e-4f; // ~ -80 dBFS
+        private readonly float[] _gateSquares = new float[GateWindow];
+        private float _gateSum;
+        private int _gatePos;
+        private int _samplesSinceGate;
+        private volatile bool _gateSilent = true;
 
-        // Precomputed per-bar FFT bin ranges + high-frequency boost. Rebuilt only when
-        // (bar count, sample rate, sensitivity, peak) changes; the per-FFT path then does
-        // no Math.Pow / Math.Log at all.
+        // Precomputed per-bar FFT bin ranges + high-frequency boost. Rebuilt only
+        // when (bar count, sample rate, sensitivity, peak) changes; the per-FFT
+        // path then does no Math.Pow at all.
         private struct BandRange
         {
             public int StartBin;
@@ -74,68 +97,64 @@ namespace FluentFlyoutWPF.Classes
             public float Boost;
         }
         private BandRange[] _bandTable = [];
-        private int _bandKeyBars;
-        private int _bandKeyRate;
-        private int _bandKeySens;
-        private int _bandKeyPeak;
+        private int _bandKeyBars = -1;
+        private int _bandKeyRate = -1;
+        private int _bandKeySens = -1;
+        private int _bandKeyPeak = -1;
         private float _bandMinDb;
         private float _bandMaxDb;
 
-        // FFT hop cached alongside the render-loop mode: read on every audio callback,
-        // so it must not go through SettingsManager per callback.
-        private int _fftHop;
+        // Cached at Start so the audio callback never dereferences _capture
+        // (which StopCapture can null mid-callback) and never touches settings.
+        private int _bytesPerSample;
+        private int _sampleRate;
 
         private System.Timers.Timer? _captureWatchdog;
         private DateTime _lastDataAvailableUtc = DateTime.MinValue;
         private int _restartInProgress; // 0=false, 1=true (Interlocked)
         private string? _deviceId; // track current device ID for restart logic
 
-        // Render loop, driven either by CompositionTarget.Rendering (monitor refresh rate)
-        // or by a 30 FPS DispatcherTimer when high refresh rate is disabled.
+        // Render loop, driven either by CompositionTarget.Rendering (monitor
+        // refresh rate) or by a 30 FPS DispatcherTimer when high refresh rate
+        // is disabled.
         private DispatcherTimer? _renderTimer;
         private volatile bool _renderLoopActive;
         private int _renderLoopRequested; // 0=false, 1=true (Interlocked)
         private readonly Stopwatch _renderStopwatch = new();
         private double _lastRenderTime;
-        private bool _lastHasContent;
-        private int _monitorRefreshRate;
 
-        // Last time the audio targets carried real content (stamped on the capture
-        // thread in OnDataAvailable). Drives both the fall-hold below and the
-        // collapse grace: it must track TARGETS, not bars — stamping from bars
-        // would refresh itself while held and freeze forever.
-        private DateTime _lastContentUtc = DateTime.MinValue;
-        // Huecos cortos (cambio de cancion/fuente): las barras se quedan quietas
-        // en vez de caer, asi el ecualizador no parpadea en el hueco.
-        private const int FreezeMs = 600;
-        private const int SilenceGraceMs = 1500;
+        // Last time a spectrum window held real, measurable signal (stamped on
+        // the capture thread). Only the auto-hide grace below reads it — the
+        // bars themselves react to silence instantly through the gate.
+        private DateTime _lastAudibleUtc = DateTime.MinValue;
+        // Grace before the baseline auto-hide actually hides, so quiet passages
+        // in a song don't flicker the container off and on.
+        private const int AutoHideGraceMs = 800;
+        private bool _hasContent;
+        // Once the last callback is older than this, the pipe is considered dead
+        // and the render thread treats targets as zero until callbacks resume.
+        private const int DataStallMs = 150;
+        private bool _disposed;
 
-        // Frame-rate independent attack/release smoothing (seconds). Driven by the
-        // TaskbarVisualizerSmoothing setting (0 = snappy, 100 = silky); resolved once
-        // per frame in EnsureSmoothing, never per bar.
+        // Frame-rate independent attack/release smoothing (seconds). Driven by
+        // the TaskbarVisualizerSmoothing setting (0 = snappy, 100 = silky);
+        // resolved once per change in EnsureSmoothing, never per bar. This is
+        // the ONLY smoothing in the pipeline: the capture thread writes raw
+        // per-FFT intensities straight into the targets.
         private double _attackSeconds = 0.036;
         private double _releaseSeconds = 0.49;
-        private float _targetAlpha = 0.575f;
         private int _smoothingKey = -1;
 
-        private readonly struct BarGeometry
-        {
-            public readonly float Left, Right, Top, Bottom;
-            public readonly float InnerLeft, InnerRight, InnerTop, InnerBottom;
-
-            public BarGeometry(int x, int width, int y, int endY, float radius)
-            {
-                Left = x;
-                Right = x + width;
-                Top = y;
-                Bottom = endY;
-
-                InnerLeft = Left + radius;
-                InnerRight = Right - radius;
-                InnerTop = Top + radius;
-                InnerBottom = Bottom - radius;
-            }
-        }
+        // Accent color transition: the bars ease from the previous album color
+        // to the new one over the same duration as the other song-change
+        // animations instead of snapping. A retarget mid-flight restarts from
+        // the color actually on screen, so rapid song changes never jump.
+        // _drawnArgb doubles as the dirty-check color: a frame whose resolved
+        // color differs repaints every bar.
+        private int _drawnArgb = -1;
+        private int _colorFromArgb = -1;
+        private int _colorToArgb = -1;
+        private DateTime _colorAnimStartUtc = DateTime.MinValue;
 
         public WriteableBitmap? Bitmap
         {
@@ -152,14 +171,10 @@ namespace FluentFlyoutWPF.Classes
         {
             InitializeBitmap();
 
-            _fftBuffer = new Complex[_fftLength];
-            _fftWork = new Complex[_fftLength];
+            for (int i = 0; i < FftLength; i++)
+                _windowTable[i] = (float)FastFourierTransform.HammingWindow(i, FftLength);
 
-            _windowTable = new float[_fftLength];
-            for (int i = 0; i < _fftLength; i++)
-                _windowTable[i] = (float)FastFourierTransform.HammingWindow(i, _fftLength);
-
-            _fftHop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHop : _fftLength;
+            _fftHop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHopHighRefresh : FftLength;
 
             ResizeBarList(SettingsManager.Current.TaskbarVisualizerBarCount);
             AudioDeviceMonitor.Instance.DefaultDeviceChanged += OnDefaultDeviceChanged;
@@ -253,15 +268,22 @@ namespace FluentFlyoutWPF.Classes
             {
                 try
                 {
-                    Stop();
+                    // Capture-only teardown: the loop and the bars survive the
+                    // gap (pause/track change must not alter the visualizer).
+                    StopCapture();
 
-                    for (int attempt = 0; attempt < 5; attempt++)
+                    // Retry with backoff for as long as the visualizer stays
+                    // enabled and alive: giving up after N attempts left the last
+                    // frame frozen on screen forever.
+                    int attempt = 0;
+                    while (!_isRunning && !_disposed && SettingsManager.Current.TaskbarVisualizerEnabled)
                     {
-                        await Task.Delay(500);
+                        await Task.Delay(Math.Min(500 * (1 << Math.Min(attempt, 4)), 5000));
+                        attempt++;
                         Start();
                         if (_isRunning)
                             return;
-                        Logger.Warn($"Visualizer restart attempt {attempt + 1} failed, retrying...");
+                        Logger.Warn($"Visualizer restart attempt {attempt} failed, retrying...");
                     }
                 }
                 catch (Exception ex)
@@ -287,12 +309,26 @@ namespace FluentFlyoutWPF.Classes
             if (_isRunning)
                 return;
 
-            float barCount = BarCount >= 0 ? BarCount : 8;
-            _barValues = new float[(int)barCount];
-            _targetValues = new float[(int)barCount];
-            _lastHasContent = false;
-            _lastContentUtc = DateTime.UtcNow;
-            _fftHop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHop : _fftLength;
+            // Reallocate only on a count change: restart gaps (device reconfigure)
+            // must not blank the bars mid-song.
+            if (_barValues == null || _barValues.Length != BarCount
+                || _targetValues == null || _targetValues.Length != BarCount)
+            {
+                ResizeBarList(BarCount);
+            }
+
+            // Fresh capture state: any audio still sitting in the ring from a
+            // previous session would otherwise ghost into the first windows.
+            Array.Clear(_ring, 0, _ring.Length);
+            Array.Clear(_gateSquares, 0, _gateSquares.Length);
+            _ringPos = 0;
+            _samplesSinceHop = 0;
+            _gateSum = 0;
+            _gatePos = 0;
+            _samplesSinceGate = 0;
+            _gateSilent = true;
+            _lastAudibleUtc = DateTime.MinValue;
+            _fftHop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHopHighRefresh : FftLength;
 
             try
             {
@@ -310,38 +346,45 @@ namespace FluentFlyoutWPF.Classes
                 }
 
                 _capture = new WasapiLoopbackCapture(_renderDevice);
+                _bytesPerSample = _capture.WaveFormat.BitsPerSample / 8;
+                _sampleRate = _capture.WaveFormat.SampleRate;
                 _capture.DataAvailable += OnDataAvailable;
                 _capture.RecordingStopped += OnRecordingStopped;
                 _capture.StartRecording();
                 _isRunning = true;
                 _lastDataAvailableUtc = DateTime.UtcNow;
 
-                // automatic update timer in case audio data is not updated
-                _captureWatchdog = new(500)
+                // Dead-capture watchdog: ticks every second and only restarts
+                // capture — it never touches visuals (bars rest at zero through
+                // the data-stall fallback in RenderFrame). Published via
+                // Interlocked.Exchange so a concurrent StopCapture can never
+                // miss it (the old callback-then-assign race leaked a running
+                // timer that kept restarting a stopped capture).
+                var watchdog = new System.Timers.Timer(1000)
                 {
-                    AutoReset = false
+                    AutoReset = true
                 };
-                _captureWatchdog.Elapsed += (_, _) =>
+                watchdog.Elapsed += (_, _) =>
                 {
-                    if (_isRunning)
+                    if (_isRunning && !_disposed
+                        && SettingsManager.Current.TaskbarVisualizerEnabled
+                        && DateTime.UtcNow - _lastDataAvailableUtc > TimeSpan.FromSeconds(2))
                     {
-                        // No loopback callbacks for 500 ms (e.g. switching playback
-                        // apps while the device idles): drop only the targets so the
-                        // render loop draws the bars falling smoothly to zero. Never
-                        // snap _barValues or clear HasContent here — the collapse is
-                        // governed solely by the silence grace in RenderFrame, so a
-                        // source switch doesn't blink the equalizer.
-                        if (_targetValues != null) Array.Clear(_targetValues, 0, _targetValues.Length);
-
-                        // If we stop receiving loopback callbacks entirely (common after lock/unlock + device changes),
-                        // the timer fires once and then never again. Use it as a recovery trigger.
-                        var silenceFor = DateTime.UtcNow - _lastDataAvailableUtc;
-                        if (silenceFor > TimeSpan.FromSeconds(2))
-                        {
-                            RequestRestart($"no audio callbacks for {silenceFor.TotalSeconds:0.0}s");
-                        }
+                        RequestRestart("no capture callbacks for over 2s");
                     }
                 };
+                watchdog.Start();
+                var previousWatchdog = Interlocked.Exchange(ref _captureWatchdog, watchdog);
+                previousWatchdog?.Stop();
+                previousWatchdog?.Dispose();
+
+                // Pinned baseline (baseline without auto-hide) is visible from
+                // the start, even before the first audio frame arrives.
+                if (SettingsManager.Current.TaskbarVisualizerBaseline
+                    && !SettingsManager.Current.TaskbarVisualizerBaselineAutoHide)
+                {
+                    EnsureRenderLoop();
+                }
             }
             catch (Exception ex)
             {
@@ -354,111 +397,155 @@ namespace FluentFlyoutWPF.Classes
             if (!_isRunning)
                 return;
 
-            _isRunning = false;
+            StopCapture();
 
             StopRenderLoop();
 
+            // Park the visuals (disable path only — never on restart gaps, so a
+            // reconfigure never blanks or freezes the bars mid-song).
+            if (_barValues != null) Array.Clear(_barValues, 0, _barValues.Length);
+            if (_targetValues != null) Array.Clear(_targetValues, 0, _targetValues.Length);
+            SetHasContent(false);
+        }
+
+        /// <summary>
+        /// Tears down capture only, keeping the render loop and the last visuals:
+        /// restart gaps (e.g. endpoint reconfigure on track change) glide to rest
+        /// through the data-stall fallback instead of blanking or freezing mid-song.
+        /// </summary>
+        private void StopCapture()
+        {
+            _isRunning = false;
+
             _capture?.DataAvailable -= OnDataAvailable;
             _capture?.RecordingStopped -= OnRecordingStopped;
-            _capture?.StopRecording();
             _capture?.Dispose();
             _capture = null;
 
             _renderDevice?.Dispose();
             _renderDevice = null;
 
-            _captureWatchdog?.Stop();
-            _captureWatchdog?.Dispose();
-            _captureWatchdog = null;
+            // Atomic take: pairs with the Exchange publish in Start so neither
+            // side can lose the timer, whichever thread wins the race.
+            var watchdog = Interlocked.Exchange(ref _captureWatchdog, null);
+            if (watchdog != null)
+            {
+                watchdog.Stop();
+                watchdog.Dispose();
+            }
         }
+
+        // -------------------------------------------------------------------
+        // Capture thread: samples in, bar targets out. Nothing else.
+        // -------------------------------------------------------------------
 
         private void OnDataAvailable(object? sender, WaveInEventArgs e)
         {
-            if (!_isRunning || e.BytesRecorded == 0)
+            if (!_isRunning)
                 return;
 
+            // Any callback — even an empty one — proves the capture is alive.
             _lastDataAvailableUtc = DateTime.UtcNow;
 
-            _captureWatchdog.Stop();
-            _captureWatchdog.Start();
+            if (e.BytesRecorded <= 0)
+                return;
 
-            int bytesPerSample = _capture!.WaveFormat.BitsPerSample / 8;
-            int samplesRecorded = e.BytesRecorded / bytesPerSample;
-
-            // In high-refresh mode use a small overlapping hop for frequent target updates.
-            // In 30 FPS mode use a full-length hop to reproduce the original behavior.
-            // Cached field: the audio callback must not read settings per callback.
-            int hop = _fftHop;
-
-            for (int i = 0; i < samplesRecorded; i++)
+            // Note on channels: every sample advances the ring, including the
+            // right channel of an interleaved stereo stream. That deliberate
+            // quirk preserves the band response this visualizer was tuned with
+            // (bin mapping, boosts); a mono downmix would shift everything an
+            // octave up and overdrive the boosted top bars.
+            int bytesRecorded = e.BytesRecorded;
+            if (_bytesPerSample == 4)
             {
-                float sampleValue = 0;
-                if (bytesPerSample == 4)
-                {
-                    sampleValue = BitConverter.ToSingle(e.Buffer, i * 4);
-                }
-                else if (bytesPerSample == 2)
-                {
-                    sampleValue = BitConverter.ToInt16(e.Buffer, i * 2) / 32768f;
-                }
+                var samples = MemoryMarshal.Cast<byte, float>(e.Buffer.AsSpan(0, bytesRecorded));
+                for (int i = 0; i < samples.Length; i++)
+                    PushSample(samples[i]);
+            }
+            else if (_bytesPerSample == 2)
+            {
+                var samples = MemoryMarshal.Cast<byte, short>(e.Buffer.AsSpan(0, bytesRecorded));
+                for (int i = 0; i < samples.Length; i++)
+                    PushSample(samples[i] * (1f / 32768f));
+            }
+            // Unknown sample format: leave targets untouched rather than spin
+            // garbage into the ring; the watchdog restarts a broken capture.
+        }
 
-                _fftBuffer[_fftPos].X = sampleValue;
-                _fftBuffer[_fftPos].Y = 0;
-                _fftPos++;
+        private void PushSample(float s)
+        {
+            _ring[_ringPos] = s;
+            _ringPos = (_ringPos + 1) & (FftLength - 1);
 
-                // Wrap around to keep a sliding window of the last _fftLength samples.
-                if (_fftPos >= _fftLength)
-                    _fftPos = 0;
+            // Sliding gate energy over the newest GateWindow samples: O(1) per
+            // sample, no per-window rescan.
+            float sq = s * s;
+            _gateSum -= _gateSquares[_gatePos];
+            _gateSquares[_gatePos] = sq;
+            _gateSum += sq;
+            _gatePos = (_gatePos + 1) & (GateWindow - 1);
 
-                _samplesSinceFft++;
-                if (_samplesSinceFft < hop)
-                    continue;
-                _samplesSinceFft = 0;
-
-                // Copy the sliding window into the work buffer (in chronological order),
-                // applying the precomputed Hamming window (no per-sample trig).
-                for (int j = 0; j < _fftLength; j++)
-                {
-                    int src = _fftPos + j;
-                    if (src >= _fftLength)
-                        src -= _fftLength;
-                    _fftWork[j].X = _fftBuffer[src].X * _windowTable[j];
-                    _fftWork[j].Y = 0;
-                }
-
-                // perform FFT
-                ProcessFftData();
+            if (++_samplesSinceGate >= GateTick)
+            {
+                _samplesSinceGate = 0;
+                EvaluateGate();
             }
 
-            // Wake up the render loop when there is content to display.
-            bool hasContent = false;
-            int targetCount = _targetValues?.Length ?? 0;
-            for (int j = 0; j < Math.Min(BarCount, targetCount); j++)
+            if (++_samplesSinceHop >= _fftHop)
             {
-                if (_targetValues[j] > 0.01f)
-                {
-                    hasContent = true;
-                    break;
-                }
-            }
-
-            if (hasContent || (SettingsManager.Current.TaskbarVisualizerBaseline && !SettingsManager.Current.TaskbarVisualizerBaselineAutoHide))
-            {
-                if (hasContent)
-                    _lastContentUtc = DateTime.UtcNow; // silence clock runs on real target content
-                EnsureRenderLoop();
-                SettingsManager.Current.TaskbarVisualizerHasContent = true;
+                _samplesSinceHop = 0;
+                RunSpectrum();
             }
         }
 
-        private void ProcessFftData()
+        /// <summary>
+        /// The silence gate is authoritative and immediate: the moment the recent
+        /// audio is quiet, targets go to zero and the FFT stops running until
+        /// sound returns. Bars therefore start falling one frame after real
+        /// silence — no hold, no drain lag, no 200 ms hang. No hashes, no
+        /// clocks: just the short-window RMS. A dead pipe that keeps calling
+        /// back is covered by the data-stall fallback in RenderFrame plus the
+        /// capture watchdog, not here.
+        /// </summary>
+        private void EvaluateGate()
         {
+            float rms = (float)Math.Sqrt(Math.Max(_gateSum, 0f) / GateWindow);
+
+            _gateSilent = rms < SilenceRms;
+
+            if (_gateSilent && _targetValues != null)
+                Array.Clear(_targetValues, 0, _targetValues.Length);
+        }
+
+        private void RunSpectrum()
+        {
+            // Quiet gate: targets are already zero and there is nothing new to
+            // measure — the FFT (~85 ms window still draining old music) must
+            // not resurrect stale targets over the zeros.
+            if (_gateSilent)
+                return;
+
+            // Copy the sliding window into the work buffer (in chronological
+            // order), applying the precomputed Hamming window.
+            for (int j = 0; j < FftLength; j++)
+            {
+                int src = _ringPos + j;
+                if (src >= FftLength) src -= FftLength;
+                _fftWork[j].X = _ring[src] * _windowTable[j];
+                _fftWork[j].Y = 0;
+            }
+
             FastFourierTransform.FFT(true, FftOrder, _fftWork);
 
-            int sampleRate = _capture.WaveFormat.SampleRate;
-            EnsureBandTable(sampleRate);
+            EnsureSmoothing();
+            EnsureBandTable(_sampleRate);
 
-            int count = Math.Min(Math.Min(BarCount, _bandTable.Length), _targetValues?.Length ?? 0);
+            var targets = _targetValues;
+            if (targets == null)
+                return;
+
+            int count = Math.Min(Math.Min(BarCount, _bandTable.Length), targets.Length);
+            bool audible = false;
 
             for (int i = 0; i < count; i++)
             {
@@ -466,8 +553,6 @@ namespace FluentFlyoutWPF.Classes
                 int endBin = _bandTable[i].EndBin;
 
                 float maxAmplitude = 0;
-
-                // Find max amplitude
                 for (int j = startBin; j < endBin; j++)
                 {
                     float amplitude = (float)Math.Sqrt(_fftWork[j].X * _fftWork[j].X + _fftWork[j].Y * _fftWork[j].Y);
@@ -484,19 +569,27 @@ namespace FluentFlyoutWPF.Classes
                 float intensity = (db - _bandMinDb) / (_bandMaxDb - _bandMinDb);
                 intensity = Math.Clamp(intensity, 0f, 1f);
 
-                // Target-side EMA (audio thread): kills single-FFT spikes before they ever
-                // reach the render thread. One multiply-add per bar per FFT — negligible
-                // next to the FFT itself. Alpha comes from the smoothing setting.
-                float prev = _targetValues[i];
-                _targetValues[i] = prev + (intensity - prev) * _targetAlpha;
+                // Single source of truth: raw intensity goes straight to the
+                // target. All smoothing lives in the render thread
+                // (attack/release in RenderFrame) — no second EMA here that
+                // would stack release times and hang the fall.
+                targets[i] = intensity;
+                if (intensity > 0.01f)
+                    audible = true;
+            }
+
+            if (audible)
+            {
+                _lastAudibleUtc = DateTime.UtcNow;
+                EnsureRenderLoop();
             }
         }
 
         /// <summary>
-        /// Resolves the smoothing setting (0-100) into time constants once per frame.
-        /// Slider feel: attack 12ms (instant punch) .. 60ms, release 80ms (lively) ..
-        /// 900ms (slow melt). Target EMA alpha 0.9 (raw) .. 0.25 (heavy). Defaults
-        /// (50) reproduce roughly the previous hardcoded 30ms / 350ms behaviour.
+        /// Resolves the smoothing setting (0-100) into time constants once per
+        /// change. Slider feel: attack 12ms (instant punch) .. 60ms, release
+        /// 80ms (lively) .. 900ms (slow melt). Default (50) is roughly 36ms
+        /// attack / 490ms release. Idempotent and safe to call from either thread.
         /// </summary>
         private void EnsureSmoothing()
         {
@@ -510,12 +603,11 @@ namespace FluentFlyoutWPF.Classes
             float t = s / 100f;
             _attackSeconds = 0.012 + t * 0.048;
             _releaseSeconds = 0.08 + t * 0.82;
-            _targetAlpha = 0.9f - t * 0.65f;
         }
 
         /// <summary>
-        /// Rebuilds the per-bar FFT bin ranges, boosts and dB range only when the inputs
-        /// change. The per-FFT path above then performs zero Math.Pow / Math.Log calls.
+        /// Rebuilds the per-bar FFT bin ranges, boosts and dB range only when the
+        /// inputs change. The per-FFT path above then performs zero Math.Pow calls.
         /// </summary>
         private void EnsureBandTable(int sampleRate)
         {
@@ -532,7 +624,7 @@ namespace FluentFlyoutWPF.Classes
 
             const double minFreq = 40;   // Hz
             const double maxFreq = 8000; // Hz
-            double frequencyPerBin = (double)sampleRate / _fftLength;
+            double frequencyPerBin = (double)sampleRate / FftLength;
             double ratio = maxFreq / minFreq;
 
             var table = new BandRange[Math.Max(bars, 0)];
@@ -545,7 +637,7 @@ namespace FluentFlyoutWPF.Classes
                 int endBin = (int)(endFreq / frequencyPerBin);
 
                 if (endBin <= startBin) endBin = startBin + 1;
-                if (endBin >= _fftLength / 2) endBin = _fftLength / 2 - 1;
+                if (endBin >= FftLength / 2) endBin = FftLength / 2 - 1;
                 if (startBin < 0) startBin = 0;
 
                 float progress = bars > 0 ? (float)i / bars : 0f;
@@ -565,6 +657,10 @@ namespace FluentFlyoutWPF.Classes
             _bandMinDb = (sens * -10f) - 30f;
             _bandMaxDb = (peak * 10f) - 30f;
         }
+
+        // -------------------------------------------------------------------
+        // Render thread (UI): targets in, pixels out.
+        // -------------------------------------------------------------------
 
         private void EnsureRenderLoop()
         {
@@ -597,22 +693,8 @@ namespace FluentFlyoutWPF.Classes
 
             if (SettingsManager.Current.TaskbarVisualizerHighRefreshRate)
             {
-                if (_monitorRefreshRate <= 0)
-                {
-                    var taskbarWindow = Application.Current.Windows.OfType<TaskbarWindow>().FirstOrDefault();
-                    if (taskbarWindow != null)
-                    {
-                        IntPtr hwnd = new WindowInteropHelper(taskbarWindow).Handle;
-                        if (hwnd != IntPtr.Zero)
-                            _monitorRefreshRate = MonitorUtil.GetRefreshRate(hwnd);
-                    }
-                    if (_monitorRefreshRate <= 0)
-                        _monitorRefreshRate = MonitorUtil.GetRefreshRate();
-                    if (_monitorRefreshRate <= 0)
-                        _monitorRefreshRate = 60;
-                }
-
-                // CompositionTarget.Rendering fires once per composited frame, i.e. at the monitor's refresh rate.
+                // CompositionTarget.Rendering fires once per composited frame,
+                // i.e. at the monitor's refresh rate.
                 CompositionTarget.Rendering += OnRenderingFrame;
             }
             else
@@ -638,9 +720,9 @@ namespace FluentFlyoutWPF.Classes
             {
                 if (!_isRunning)
                     return;
-                // The high-refresh toggle changes the audio-thread hop: refresh the cached
-                // value together with the render loop so both switch atomically.
-                _fftHop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHop : _fftLength;
+                // The high-refresh toggle changes the audio-thread hop: refresh the
+                // cached value together with the render loop so both switch atomically.
+                _fftHop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHopHighRefresh : FftLength;
                 StopRenderLoopCore();
                 StartRenderLoopCore();
             });
@@ -684,110 +766,66 @@ namespace FluentFlyoutWPF.Classes
             double now = _renderStopwatch.Elapsed.TotalSeconds;
             double dt = now - _lastRenderTime;
             _lastRenderTime = now;
-            if (dt <= 0 || dt > 1.0)
+            if (dt <= 0 || dt > 0.25)
                 dt = 1.0 / 60.0;
 
             EnsureSmoothing();
 
-            // Short silence right after content (song/source switch): hold the bars
-            // so the equalizer doesn't dip or blink through the gap. Rises are never
-            // held, so waking audio picks up instantly from the held heights with no
-            // reappearance lag. Falls resume (and the collapse grace below still
-            // applies) if the silence persists.
-            double silenceMs = (DateTime.UtcNow - _lastContentUtc).TotalMilliseconds;
-            bool targetsAlive = false;
-            var targetsSnapshot = _targetValues;
-            if (targetsSnapshot != null)
-            {
-                int targetCount = Math.Min(BarCount, targetsSnapshot.Length);
-                for (int j = 0; j < targetCount; j++)
-                {
-                    if (targetsSnapshot[j] > 0.01f)
-                    {
-                        targetsAlive = true;
-                        break;
-                    }
-                }
-            }
-            SmoothBars(dt, holdFalls: !targetsAlive && silenceMs < FreezeMs);
+            var bars = _barValues;
+            var targets = _targetValues;
+            int count = bars == null || targets == null
+                ? 0
+                : Math.Min(BarCount, Math.Min(bars.Length, targets.Length));
 
-            // check if bars are all zero
-            bool allZero = true;
-            for (int j = 0; j < Math.Min(BarCount, _barValues?.Length ?? 0); j++)
-            {
-                if (_barValues[j] > 0.01f)
-                {
-                    allZero = false;
-                    break;
-                }
-            }
-
-            bool forcedBaseline = SettingsManager.Current.TaskbarVisualizerBaseline && !SettingsManager.Current.TaskbarVisualizerBaselineAutoHide;
-
-            if (allZero && !forcedBaseline)
-            {
-                double collapseSilenceMs = (DateTime.UtcNow - _lastContentUtc).TotalMilliseconds;
-                // Transient gap (e.g. song change): keep the container visible with
-                // flat bars and the loop alive; collapse only on sustained silence.
-                if (collapseSilenceMs < SilenceGraceMs)
-                {
-                    UpdateBitmap();
-                    return;
-                }
-
-                // update bars if they have content
-                if (_lastHasContent)
-                {
-                    _lastHasContent = false;
-                    SettingsManager.Current.TaskbarVisualizerHasContent = false;
-                }
-
-                // draw one final empty frame, then stop the render loop to save CPU
-                UpdateBitmap();
-                StopRenderLoop();
-                return;
-            }
-
-            // Note: _lastContentUtc is stamped on the capture thread (see
-            // OnDataAvailable), never here: stamping from bars would refresh
-            // itself while held and freeze forever.
-            if (!_lastHasContent)
-            {
-                _lastHasContent = true;
-                SettingsManager.Current.TaskbarVisualizerHasContent = true;
-            }
-
-            UpdateBitmap();
-        }
-
-        // Frame-rate independent attack/release interpolation toward the audio thread's targets.
-        // With holdFalls, bars may rise but never fall this frame (short-gap freeze).
-        private void SmoothBars(double dt, bool holdFalls)
-        {
-            if (_barValues == null || _targetValues == null)
-                return;
-
-            int count = Math.Min(BarCount, Math.Min(_barValues.Length, _targetValues.Length));
+            // Dead-capture fallback: with no callbacks at all (device stall,
+            // restart gap), targets are read as zero so the bars glide to rest
+            // instead of freezing on stale values. Live silence never reaches
+            // this branch — the gate has already zeroed the targets themselves.
+            bool dataStale = (DateTime.UtcNow - _lastDataAvailableUtc).TotalMilliseconds > DataStallMs;
 
             float attackFactor = 1f - (float)Math.Exp(-dt / _attackSeconds);
             float releaseFactor = 1f - (float)Math.Exp(-dt / _releaseSeconds);
 
+            bool resting = true;
             for (int i = 0; i < count; i++)
             {
-                float target = _targetValues[i];
-                float current = _barValues[i];
+                float target = dataStale ? 0f : targets[i];
+                float current = bars![i];
 
-                if (target > current)
-                {
-                    // Jump up quickly
-                    _barValues[i] = current + (target - current) * attackFactor;
-                }
-                else if (!holdFalls)
-                {
-                    // Fall down slowly
-                    _barValues[i] = current + (target - current) * releaseFactor;
-                }
+                float next = target > current
+                    ? current + (target - current) * attackFactor
+                    : current + (target - current) * releaseFactor;
+
+                // Settle exactly at zero instead of crawling asymptotically
+                // forever and keeping the "resting" check (and the auto-hide)
+                // from ever firing.
+                if (next is < 0.0005f and > -0.0005f)
+                    next = 0f;
+
+                bars[i] = next;
+                if (next > 0.01f)
+                    resting = false;
             }
+
+            // Container visibility. Without auto-hide the visualizer never
+            // collapses once shown (pause and track gaps keep flat bars, not a
+            // hide/show jump). With baseline auto-hide it hides once the bars
+            // have visibly settled and the grace has elapsed, and reappears the
+            // frame after audio returns.
+            bool autoHides = SettingsManager.Current.TaskbarVisualizerBaseline
+                && SettingsManager.Current.TaskbarVisualizerBaselineAutoHide;
+            bool audibleRecently = (DateTime.UtcNow - _lastAudibleUtc).TotalMilliseconds < AutoHideGraceMs;
+            SetHasContent(!autoHides || audibleRecently || !resting);
+
+            UpdateBitmap();
+        }
+
+        private void SetHasContent(bool value)
+        {
+            if (_hasContent == value)
+                return;
+            _hasContent = value;
+            SettingsManager.Current.TaskbarVisualizerHasContent = value;
         }
 
         private void UpdateBitmap()
@@ -827,36 +865,39 @@ namespace FluentFlyoutWPF.Classes
 
         /// <summary>
         /// Resolves the bar color for this frame, easing toward <paramref name="targetArgb"/>
-        /// over the shared song-change animation duration. Snaps instantly when widget
+        /// over the shared song-change animation duration, so the equalizer's color
+        /// transitions between songs instead of snapping. Snaps instantly when widget
         /// animations are disabled. Runs on the UI thread (render loop).
         /// </summary>
         private int ResolveBarColor(int targetArgb)
         {
             if (!TaskbarWidgetAnimationEnvironment.AreAnimationsEnabled)
             {
-                _colorAnimToArgb = targetArgb;
-                _colorAnimFromArgb = targetArgb;
+                _colorToArgb = targetArgb;
+                _colorFromArgb = targetArgb;
                 return targetArgb;
             }
 
-            if (targetArgb != _colorAnimToArgb)
+            if (targetArgb != _colorToArgb)
             {
-                _colorAnimFromArgb = _prevBarsArgb < 0 ? targetArgb : _prevBarsArgb;
-                _colorAnimToArgb = targetArgb;
+                // Retarget mid-flight from the color actually on screen right
+                // now, so rapid song changes never jump.
+                _colorFromArgb = _drawnArgb < 0 ? targetArgb : _drawnArgb;
+                _colorToArgb = targetArgb;
                 _colorAnimStartUtc = DateTime.UtcNow;
             }
 
-            if (_prevBarsArgb == _colorAnimToArgb)
-                return _colorAnimToArgb;
+            if (_drawnArgb == _colorToArgb)
+                return _colorToArgb;
 
             double totalMs = Math.Max(TaskbarWidgetAnimationEnvironment.GetDurationMs(), 1);
             double t = (DateTime.UtcNow - _colorAnimStartUtc).TotalMilliseconds / totalMs;
             if (t >= 1)
-                return _colorAnimToArgb;
+                return _colorToArgb;
 
             // Ease-out cubic, matching the song-change entrances elsewhere.
             t = 1 - Math.Pow(1 - t, 3);
-            return LerpRgb(_colorAnimFromArgb, _colorAnimToArgb, t);
+            return LerpRgb(_colorFromArgb, _colorToArgb, t);
         }
 
         private static int LerpRgb(int fromArgb, int toArgb, double t)
@@ -893,15 +934,15 @@ namespace FluentFlyoutWPF.Classes
 
             int centerY = ImageHeight / 2;
 
-            // Horizontal layout 
+            // Horizontal layout
             ComputeLayout(ImageWidth, BarCount, BarSpacing,
                 out int barWidth,
                 out int offsetX);
 
-            // Radius 
+            // Radius
             float baseRadius = GetCornerRadius();
 
-            // AA constants 
+            // AA constants
             const float aa = 1.25f;
             float invAA = 1f / aa;
 
@@ -914,11 +955,11 @@ namespace FluentFlyoutWPF.Classes
                 buffer.Clear();
                 _prevBarY = new int[count];
                 _prevBarEndY = new int[count];
-                _prevBarsArgb = argb;
+                _drawnArgb = -1; // force a full repaint below
             }
 
-            bool colorChanged = argb != _prevBarsArgb;
-            _prevBarsArgb = argb;
+            bool colorChanged = argb != _drawnArgb;
+            _drawnArgb = argb;
 
             int minX = ImageWidth, minY = ImageHeight, maxX = 0, maxY = 0;
 
@@ -1031,6 +1072,7 @@ namespace FluentFlyoutWPF.Classes
         {
             return Math.Max((int)(Math.Clamp(value, 0f, 1f) * ImageHeight), baseline);
         }
+
         private static float GetCornerRadius()
         {
             return 6f / MathF.Max(1f, SettingsManager.Current.TaskbarVisualizerBarCount / 10f);
@@ -1146,6 +1188,7 @@ namespace FluentFlyoutWPF.Classes
 
         public void Dispose()
         {
+            _disposed = true;
             Stop();
 
             StopRenderLoop();
