@@ -2184,6 +2184,10 @@ public partial class TaskbarWidgetControl : UserControl
         var session = _mainWindow.GetTaskbarSession();
         if (session == null) return;
 
+        // Stick the widget to the controlled session before the command: pausing or
+        // skipping moves the OS focus elsewhere as a side effect, and the widget must
+        // keep showing this session instead of jumping to the next active media.
+        _mainWindow.PinTaskbarSession(session);
         NoteTrackNavigation(forward: false);
         await session.ControlSession.TrySkipPreviousAsync();
     }
@@ -2195,6 +2199,10 @@ public partial class TaskbarWidgetControl : UserControl
         var session = _mainWindow.GetTaskbarSession();
         if (session == null) return;
 
+        // Same stickiness as above: without it, pausing moves the OS focus to the
+        // next active session, so the following play press would hit the wrong
+        // session (and jump the widget to it) instead of resuming this one.
+        _mainWindow.PinTaskbarSession(session);
         await session.ControlSession.TryTogglePlayPauseAsync();
     }
 
@@ -2205,6 +2213,7 @@ public partial class TaskbarWidgetControl : UserControl
         var session = _mainWindow.GetTaskbarSession();
         if (session == null) return;
 
+        _mainWindow.PinTaskbarSession(session);
         NoteTrackNavigation(forward: true);
         await session.ControlSession.TrySkipNextAsync();
     }
