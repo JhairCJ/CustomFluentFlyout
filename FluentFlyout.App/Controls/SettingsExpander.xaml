@@ -1,0 +1,15 @@
+<UserControl x:Class="FluentFlyout.App.Controls.SettingsExpander"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Background="{ThemeResource AppSurfaceBrush}" CornerRadius="14" Padding="18">
+        <StackPanel Spacing="12">
+            <Button x:Name="HeaderButton" HorizontalContentAlignment="Stretch" Click="HeaderButton_Click">
+                <Grid>
+                    <TextBlock x:Name="TitleText" FontWeight="SemiBold"/>
+                    <FontIcon Glyph="&#xE70D;" HorizontalAlignment="Right"/>
+                </Grid>
+            </Button>
+            <ContentPresenter x:Name="ContentHost" Visibility="Collapsed"/>
+        </StackPanel>
+    </Border>
+</UserControl>

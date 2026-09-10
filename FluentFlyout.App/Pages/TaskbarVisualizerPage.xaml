@@ -1,0 +1,29 @@
+<Page
+    x:Class="FluentFlyout.App.Pages.TaskbarVisualizerPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer>
+        <StackPanel Spacing="16" Margin="32,28,40,40" MaxWidth="800">
+            <TextBlock Text="SIGNAL" FontSize="11" CharacterSpacing="140" Opacity="0.7" />
+            <TextBlock Text="Audio Visualizer" FontSize="28" FontWeight="SemiBold" />
+            <TextBlock Text="A live spectrum next to the widget that reacts to whatever the system is playing."
+                       FontSize="14" Opacity="0.75" TextWrapping="Wrap" />
+
+            <ToggleSwitch x:Name="EnableToggle" Header="Enable visualizer" Toggled="OnChanged" />
+            <ToggleSwitch x:Name="HighRefreshToggle" Header="High refresh rate" Toggled="OnChanged" />
+            <ToggleSwitch x:Name="ClickableToggle" Header="Clickable (opens these settings)" Toggled="OnChanged" />
+
+            <TextBlock Text="Bars" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,0" />
+            <Slider x:Name="BarCountSlider" Header="Bar count" Minimum="4" Maximum="32" StepFrequency="1" ValueChanged="OnSliderChanged" />
+            <Slider x:Name="SensitivitySlider" Header="Audio sensitivity (0-10)" Minimum="0" Maximum="10" StepFrequency="1" ValueChanged="OnSliderChanged" />
+            <Slider x:Name="PeakSlider" Header="Peak level (0-10)" Minimum="0" Maximum="10" StepFrequency="1" ValueChanged="OnSliderChanged" />
+            <Slider x:Name="SmoothingSlider" Header="Smoothing (0 = snappy, 100 = silky)" Minimum="0" Maximum="100" StepFrequency="1" ValueChanged="OnSliderChanged" />
+
+            <TextBlock Text="Shape" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,0" />
+            <ToggleSwitch x:Name="CenteredToggle" Header="Centered bars" Toggled="OnChanged" />
+            <ToggleSwitch x:Name="BaselineToggle" Header="Show baseline" Toggled="OnChanged" />
+            <ToggleSwitch x:Name="BaselineAutoHideToggle" Header="Auto-hide when silent" Toggled="OnChanged" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

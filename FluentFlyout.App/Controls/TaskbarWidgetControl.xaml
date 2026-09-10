@@ -1,0 +1,68 @@
+<UserControl
+    x:Class="FluentFlyout.App.Controls.TaskbarWidgetControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Border x:Name="MainBorder" CornerRadius="6" SizeChanged="MainBorder_SizeChanged">
+        <Grid x:Name="ClipGrid">
+            <!-- The rotating background lives in a Canvas so it is arranged at its exact
+                 square size, independent of the widget's rectangular layout slot. The
+                 widget viewport (ClipGrid, geometry clip) reveals a band of the disc. -->
+            <Canvas x:Name="BackgroundCanvas" IsHitTestVisible="False">
+                <Image x:Name="BackgroundImage"
+                       Stretch="Fill"
+                       RenderTransformOrigin="0.5,0.5"
+                       Opacity="0.65"
+                       Visibility="Collapsed" />
+                <!-- Incoming layer, rendered on top. Song changes crossfade by fading
+                     this layer 0 -> bound over the old disc underneath. -->
+                <Image x:Name="BackgroundImageNext"
+                       Stretch="Fill"
+                       RenderTransformOrigin="0.5,0.5"
+                       Opacity="0.65"
+                       Visibility="Collapsed" />
+            </Canvas>
+
+            <Grid x:Name="MainGrid" HorizontalAlignment="Left" VerticalAlignment="Center">
+                <StackPanel x:Name="MainStackPanel" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                    <Border x:Name="SongImageBorder"
+                            CornerRadius="5"
+                            Width="36" Height="36"
+                            Margin="4,0,0,0"
+                            Tapped="SongImage_Tapped">
+                        <Grid>
+                            <FontIcon x:Name="SongImagePlaceholder" Glyph="&#xE8D6;" FontSize="24" Visibility="Visible" />
+                            <Border x:Name="SongImageBorderInner" CornerRadius="5" Visibility="Collapsed">
+                                <Image x:Name="SongImage" Stretch="UniformToFill" />
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <StackPanel x:Name="SongInfoStackPanel" Orientation="Vertical" VerticalAlignment="Center" Margin="8,0,0,0">
+                        <Canvas x:Name="SongTitleContainer" Height="20" Width="150">
+                            <TextBlock x:Name="SongTitle" Text="" FontSize="13" FontWeight="SemiBold" />
+                        </Canvas>
+                        <Canvas x:Name="SongArtistContainer" Margin="0,-1,0,0" Height="18" Width="150">
+                            <TextBlock x:Name="SongArtist" Text="" FontSize="12" FontWeight="Normal" Opacity="0.65" />
+                        </Canvas>
+                    </StackPanel>
+
+                    <StackPanel x:Name="ControlsStackPanel" Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0" Visibility="Collapsed">
+                        <Button x:Name="PreviousButton" Style="{StaticResource IconButtonStyle}" Width="30" Height="30" Padding="2" Click="Previous_Click">
+                            <FontIcon Glyph="&#xE892;" FontSize="13" />
+                        </Button>
+                        <Button x:Name="PlayPauseButton" Style="{StaticResource IconButtonStyle}" Width="30" Height="30" Padding="2" Click="PlayPause_Click">
+                            <FontIcon x:Name="PlayPauseIcon" Glyph="&#xE768;" FontSize="14" />
+                        </Button>
+                        <Button x:Name="NextButton" Style="{StaticResource IconButtonStyle}" Width="30" Height="30" Padding="2" Click="Next_Click">
+                            <FontIcon Glyph="&#xE893;" FontSize="13" />
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

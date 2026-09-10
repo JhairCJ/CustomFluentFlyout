@@ -1,0 +1,37 @@
+<Page
+    x:Class="FluentFlyout.App.Pages.AdvancedPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:FluentFlyout.App.Controls"
+    mc:Ignorable="d">
+
+    <ScrollViewer>
+        <StackPanel Spacing="16" Margin="32,28,40,40" MaxWidth="800">
+            <TextBlock Text="PREFERENCES" FontSize="11" CharacterSpacing="140" Opacity="0.7" />
+            <TextBlock Text="Advanced Settings" FontSize="28" FontWeight="SemiBold" />
+            <TextBlock Text="Fullscreen suppression, configuration backups, and maintenance." FontSize="14" Opacity="0.75" />
+
+            <controls:SettingsCard Title="Disable in Fullscreen Apps" Description="Suppress flyouts when playing fullscreen DirectX games or movies">
+                <controls:SettingsCard.CardContent>
+                    <ToggleSwitch x:Name="FullscreenToggle" Toggled="FullscreenToggle_Toggled" />
+                </controls:SettingsCard.CardContent>
+            </controls:SettingsCard>
+
+            <controls:SettingsCard Title="Export Configuration" Description="Save your current FluentFlyout settings to an XML file">
+                <controls:SettingsCard.CardContent>
+                    <Button Content="Export" Click="ExportButton_Click" />
+                </controls:SettingsCard.CardContent>
+            </controls:SettingsCard>
+
+            <controls:SettingsCard Title="Import Configuration" Description="Restore FluentFlyout settings from a previously saved file">
+                <controls:SettingsCard.CardContent>
+                    <Button Content="Import" Click="ImportButton_Click" />
+                </controls:SettingsCard.CardContent>
+            </controls:SettingsCard>
+
+            <InfoBar x:Name="StatusInfoBar" IsOpen="False" Margin="0,12,0,0" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

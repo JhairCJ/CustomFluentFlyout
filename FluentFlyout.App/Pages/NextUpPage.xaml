@@ -1,0 +1,29 @@
+<Page
+    x:Class="FluentFlyout.App.Pages.NextUpPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:FluentFlyout.App.Controls"
+    mc:Ignorable="d">
+
+    <ScrollViewer>
+        <StackPanel Spacing="16" Margin="32,28,40,40" MaxWidth="800">
+            <TextBlock Text="NOTIFICATION" FontSize="11" CharacterSpacing="140" Opacity="0.7" />
+            <TextBlock Text="Next Up" FontSize="28" FontWeight="SemiBold" />
+            <TextBlock Text="Show a subtle track banner when a new song starts playing." FontSize="14" Opacity="0.75" />
+
+            <controls:SettingsCard Title="Enable Next Up" Description="Show notification when the currently playing track changes">
+                <controls:SettingsCard.CardContent>
+                    <ToggleSwitch x:Name="NextUpToggle" Toggled="SettingChanged" />
+                </controls:SettingsCard.CardContent>
+            </controls:SettingsCard>
+
+            <controls:SettingsCard Title="Banner Duration" Description="Time the Next Up popup stays visible in milliseconds">
+                <controls:SettingsCard.CardContent>
+                    <Slider x:Name="DurationSlider" Width="180" Minimum="1000" Maximum="6000" StepFrequency="500" ValueChanged="SliderChanged" />
+                </controls:SettingsCard.CardContent>
+            </controls:SettingsCard>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

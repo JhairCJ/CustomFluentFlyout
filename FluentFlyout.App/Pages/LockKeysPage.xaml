@@ -1,0 +1,29 @@
+<Page
+    x:Class="FluentFlyout.App.Pages.LockKeysPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:FluentFlyout.App.Controls"
+    mc:Ignorable="d">
+
+    <ScrollViewer>
+        <StackPanel Spacing="16" Margin="32,28,40,40" MaxWidth="800">
+            <TextBlock Text="KEYBOARD" FontSize="11" CharacterSpacing="140" Opacity="0.7" />
+            <TextBlock Text="Lock Keys Flyout" FontSize="28" FontWeight="SemiBold" />
+            <TextBlock Text="Display status indicators when Caps Lock, Num Lock, or Scroll Lock is pressed." FontSize="14" Opacity="0.75" />
+
+            <controls:SettingsCard Title="Enable Lock Keys Indicator" Description="Show flyout on toggle of Caps, Num, or Scroll lock">
+                <controls:SettingsCard.CardContent>
+                    <ToggleSwitch x:Name="LockKeysToggle" Toggled="SettingChanged" />
+                </controls:SettingsCard.CardContent>
+            </controls:SettingsCard>
+
+            <controls:SettingsCard Title="Indicator Stay Duration" Description="Time the indicator stays visible in milliseconds">
+                <controls:SettingsCard.CardContent>
+                    <Slider x:Name="DurationSlider" Width="180" Minimum="500" Maximum="5000" StepFrequency="250" ValueChanged="SliderChanged" />
+                </controls:SettingsCard.CardContent>
+            </controls:SettingsCard>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

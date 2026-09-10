@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Xml.Linq;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace FluentFlyout.SourceGenerators
 {
@@ -16,6 +17,8 @@ namespace FluentFlyout.SourceGenerators
         public void Execute(GeneratorExecutionContext context)
         {
             var searchItems = new List<(string pageType, string resourceKey, string elementId)>();
+            var isWinUi = context.ParseOptions is CSharpParseOptions csharpParseOptions
+                && csharpParseOptions.PreprocessorSymbolNames.Contains("FLUENTFLYOUT_WINUI");
 
             foreach (var file in context.AdditionalFiles.Where(f => f.Path.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) && f.Path.Replace('\\', '/').IndexOf("/Pages/", StringComparison.OrdinalIgnoreCase) >= 0))
             {
@@ -32,11 +35,16 @@ namespace FluentFlyout.SourceGenerators
                         var tagAttr = element.Attributes().FirstOrDefault(a => a.Name.LocalName == "Tag");
                         if (tagAttr != null && tagAttr.Value == "Indexable")
                         {
-                            // Find the first TextBlock with a DynamicResource binding
+                            // WinUI uses SearchIndex.ResourceKey or x:Uid. Keep DynamicResource
+                            // parsing for the WPF branch while both implementations coexist.
                             var textBlocks = element.Descendants().Where(e => e.Name.LocalName == "TextBlock");
                             string? resourceKey = null;
+                            var explicitResource = element.Attributes().FirstOrDefault(a => a.Name.LocalName == "ResourceKey");
+                            var uid = element.Attributes().FirstOrDefault(a => a.Name.LocalName == "Uid");
+                            resourceKey = explicitResource?.Value ?? uid?.Value;
                             foreach (var tb in textBlocks)
                             {
+                                if (resourceKey != null) break;
                                 var textAttr = tb.Attributes().FirstOrDefault(a => a.Name.LocalName == "Text");
                                 if (textAttr != null && textAttr.Value.StartsWith("{DynamicResource ") && textAttr.Value.EndsWith("}"))
                                 {
@@ -89,6 +97,25 @@ namespace FluentFlyout.SourceGenerators
             sb.AppendLine("        };");
             sb.AppendLine("    }");
             sb.AppendLine("}");
+            if (isWinUi)
+            {
+                sb.AppendLine();
+                sb.AppendLine("namespace FluentFlyout.App");
+                sb.AppendLine("{");
+                sb.AppendLine("    public static class GeneratedSearchIndex");
+                sb.AppendLine("    {");
+                sb.AppendLine("        public static readonly global::FluentFlyout.Core.SearchIndexEntry[] SearchItems = new global::FluentFlyout.Core.SearchIndexEntry[]");
+                sb.AppendLine("        {");
+                foreach (var item in searchItems)
+                {
+                    var escapedKey = item.resourceKey.Replace("\\", "\\\\").Replace("\"", "\\\"");
+                    var escapedId = item.elementId.Replace("\\", "\\\\").Replace("\"", "\\\"");
+                    sb.AppendLine($"            new(\"{escapedId}\", \"{escapedKey}\", new[] {{ \"{escapedKey}\" }}),");
+                }
+                sb.AppendLine("        };");
+                sb.AppendLine("    }");
+                sb.AppendLine("}");
+            }
 
             context.AddSource("SearchItems.g.cs", sb.ToString());
         }

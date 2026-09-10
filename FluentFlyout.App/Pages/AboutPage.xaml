@@ -1,0 +1,3 @@
+<Page x:Class="FluentFlyout.App.Pages.AboutPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Spacing="16" Margin="32,28,40,40"><TextBlock Text="ABOUT" FontSize="11" CharacterSpacing="140" Opacity="0.7" /><TextBlock Text="FluentFlyout" FontSize="30" FontWeight="SemiBold" /><TextBlock Text="A focused audio surface for Windows 11." FontSize="16" Opacity="0.8" /><TextBlock Text="WinUI 3 migration shell" Opacity="0.65" /><HyperlinkButton Content="Project repository" NavigateUri="https://github.com/unchihugo/FluentFlyout" HorizontalAlignment="Left" /></StackPanel>
+</Page>

@@ -1,0 +1,19 @@
+<Page x:Class="FluentFlyout.App.Pages.HomePage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer>
+        <StackPanel Spacing="16" Margin="32,28,40,40">
+            <TextBlock Text="CONTROL ROOM" FontSize="11" CharacterSpacing="140" Opacity="0.7" />
+            <TextBlock Text="Make the taskbar yours" FontSize="30" FontWeight="SemiBold" />
+            <TextBlock Text="Tune every signal, surface and shortcut without leaving your flow." FontSize="14" Opacity="0.75" TextWrapping="Wrap" />
+            <Grid Margin="0,18,0,0" ColumnSpacing="12" RowSpacing="12">
+                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                <Border Grid.Column="0" Background="{ThemeResource AppSurfaceBrush}" CornerRadius="16" Padding="20" MinHeight="150">
+                    <StackPanel Spacing="8"><TextBlock Text="Media flyout" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="Playback, artwork, seekbar and session controls." Opacity="0.72" TextWrapping="Wrap" /><Button Content="Configure" HorizontalAlignment="Left" /></StackPanel>
+                </Border>
+                <Border Grid.Column="1" Background="{ThemeResource AppSurfaceBrush}" CornerRadius="16" Padding="20" MinHeight="150">
+                    <StackPanel Spacing="8"><TextBlock Text="Taskbar presence" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="A compact media surface that belongs beside your system controls." Opacity="0.72" TextWrapping="Wrap" /><Button Content="Configure" HorizontalAlignment="Left" /></StackPanel>
+                </Border>
+            </Grid>
+            <InfoBar IsOpen="True" Severity="Informational" Title="WinUI 3 migration" Message="This settings shell is now running on the new WinUI surface." />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

@@ -1,0 +1,1031 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <data name="TitleText" xml:space="preserve">
+    <value>FluentFlyout Settings</value>
+  </data>
+  <data name="HomeTitle" xml:space="preserve">
+    <value>Home</value>
+  </data>
+  <data name="Enabled" xml:space="preserve">
+    <value>Enabled</value>
+  </data>
+  <data name="Disabled" xml:space="preserve">
+    <value>Disabled</value>
+  </data>
+  <data name="Back" xml:space="preserve">
+    <value>Back</value>
+  </data>
+  <data name="Next" xml:space="preserve">
+    <value>Next</value>
+  </data>
+  <data name="Finish" xml:space="preserve">
+    <value>Finish</value>
+  </data>
+  <data name="OnboardingStepsCounter" xml:space="preserve">
+    <value>Step {0} of {1}</value>
+  </data>
+  <data name="MediaFlyoutTitle" xml:space="preserve">
+    <value>Media Flyout</value>
+  </data>
+  <data name="MediaFlyoutDescription" xml:space="preserve">
+    <value>When listening to media, press any media or volume key (play/pause, volume up/down, etc.) on your keyboard to display the flyout. Displays media info, along with playback controls and more.</value>
+  </data>
+  <data name="TextBlockText1" xml:space="preserve">
+    <value>Enable Media Flyout</value>
+  </data>
+  <data name="TextBlockText3" xml:space="preserve">
+    <value>Display a flyout when you press a media key</value>
+  </data>
+  <data name="MediaFlyoutExcludeVolumeTitle" xml:space="preserve">
+    <value>Exclude Volume Keys</value>
+  </data>
+  <data name="MediaFlyoutExcludeVolumeDescription" xml:space="preserve">
+    <value>Do not display the flyout when pressing volume up/down/mute</value>
+  </data>
+  <data name="TextBlockText2" xml:space="preserve">
+    <value>Choose from a preset of modern background blur styles</value>
+  </data>
+  <data name="BackgroundBlurOption1" xml:space="preserve">
+    <value> None</value>
+  </data>
+  <data name="BackgroundBlurOption2" xml:space="preserve">
+    <value> Style 1 (Cover Glow)</value>
+  </data>
+  <data name="BackgroundBlurOption3" xml:space="preserve">
+    <value> Style 2 (Rising Glow)</value>
+  </data>
+  <data name="BackgroundBlurOption4" xml:space="preserve">
+    <value> Style 3 (Blur)</value>
+  </data>
+  <data name="BackgroundBlurTitle" xml:space="preserve">
+    <value>Background Blur</value>
+  </data>
+  <data name="AcrylicWindowTitle" xml:space="preserve">
+    <value>Acrylic Flyouts</value>
+  </data>
+  <data name="AcrylicWindowDescription" xml:space="preserve">
+    <value>Apply transparent acrylic blur effect to the flyouts</value>
+  </data>
+  <data name="CompactLayoutTitle" xml:space="preserve">
+    <value>Compact Layout</value>
+  </data>
+  <data name="CompactLayoutDescription" xml:space="preserve">
+    <value>Slimmer and less intrusive layout
+hides repeat, shuffle and player info</value>
+  </data>
+  <data name="SelectedMonitorTitle" xml:space="preserve">
+    <value>Flyout Target Display</value>
+  </data>
+  <data name="FlyoutPositionTitle" xml:space="preserve">
+    <value>Flyout Position</value>
+  </data>
+  <data name="PositionBottomLeft" xml:space="preserve">
+    <value> Bottom Left</value>
+  </data>
+  <data name="PositionBottomCenter" xml:space="preserve">
+    <value> Bottom Center</value>
+  </data>
+  <data name="PositionBottomRight" xml:space="preserve">
+    <value> Bottom Right</value>
+  </data>
+  <data name="PositionTopLeft" xml:space="preserve">
+    <value> Top Left</value>
+  </data>
+  <data name="PositionTopCenter" xml:space="preserve">
+    <value> Top Center</value>
+  </data>
+  <data name="PositionTopRight" xml:space="preserve">
+    <value> Top Right</value>
+  </data>
+  <data name="FlyoutStayDurationTitle" xml:space="preserve">
+    <value>Flyout Stay Duration</value>
+  </data>
+  <data name="FlyoutStayDurationDescription" xml:space="preserve">
+    <value>(default: 3000 ms)</value>
+  </data>
+  <data name="MillisecondsUnit" xml:space="preserve">
+    <value>ms</value>
+  </data>
+  <data name="MediaFlyoutAlwaysDisplay" xml:space="preserve">
+    <value>Always Display</value>
+  </data>
+  <data name="MediaFlyoutAlwaysDisplayDescription" xml:space="preserve">
+    <value>The flyout stays open until you click the close button</value>
+  </data>
+  <data name="CenterTitleArtistTitle" xml:space="preserve">
+    <value>Center Title and Artist</value>
+  </data>
+  <data name="CenterTitleArtistDescription" xml:space="preserve">
+    <value>Align text to the center instead of the left</value>
+  </data>
+  <data name="ShowMediaPlayerNameTitle" xml:space="preserve">
+    <value>Show Media Player name</value>
+  </data>
+  <data name="RepeatButtonTitle" xml:space="preserve">
+    <value>Repeat Button*</value>
+  </data>
+  <data name="RepeatButtonDescription" xml:space="preserve">
+    <value>Choose between repeat all or repeat one, increases flyout width</value>
+  </data>
+  <data name="ShuffleButtonTitle" xml:space="preserve">
+    <value>Shuffle Button*</value>
+  </data>
+  <data name="ShuffleButtonDescription" xml:space="preserve">
+    <value>Increases flyout width</value>
+  </data>
+  <data name="ShowSeekbarTitle" xml:space="preserve">
+    <value>Show Seekbar*</value>
+  </data>
+  <data name="ShowSeekbarDescription" xml:space="preserve">
+    <value>An interactable seekbar will automatically display if the player supports it</value>
+  </data>
+  <data name="UnsupportedControlsWarning" xml:space="preserve">
+    <value>*Some browsers/players do not support repeat, shuffle and seekbar control.</value>
+  </data>
+  <data name="PauseOtherMediaTitle" xml:space="preserve">
+    <value>Pause Other Media Automatically</value>
+  </data>
+  <data name="PauseOtherMediaDescription" xml:space="preserve">
+    <value>When you play or focus on new media, other active sessions are automatically paused</value>
+  </data>
+  <data name="TaskbarWidgetCustomizationTitle" xml:space="preserve">
+    <value>Taskbar Widget</value>
+  </data>
+  <data name="TaskbarWidgetDescription" xml:space="preserve">
+    <value>A compact, built-in widget that lives right on your Windows Taskbar for instant access to your media. Click the widget to expand the full Media Flyout.</value>
+  </data>
+  <data name="TaskbarWidgetEnabledTitle" xml:space="preserve">
+    <value>Enable Taskbar Widget</value>
+  </data>
+  <data name="TaskbarWidgetEnabledDescription" xml:space="preserve">
+    <value>Show a compact media widget on the taskbar</value>
+  </data>
+  <data name="TaskbarWidgetVisualIssuesWarning" xml:space="preserve">
+    <value>Configure the options below if you experience visual issues.</value>
+  </data>
+  <data name="TaskbarWidgetSelectedMonitorTitle" xml:space="preserve">
+    <value>Widget Target Display</value>
+  </data>
+  <data name="TaskbarWidgetPosition" xml:space="preserve">
+    <value>Widget Position</value>
+  </data>
+  <data name="TaskbarWidgetPaddingSettingsTitle" xml:space="preserve">
+    <value>Widget Padding Settings</value>
+  </data>
+  <data name="TaskbarWidgetPaddingSettingsDescription" xml:space="preserve">
+    <value>Adjust the padding around the widget to fit your taskbar style</value>
+  </data>
+  <data name="TaskbarWidgetPaddingTitle" xml:space="preserve">
+    <value>Automatic Padding for Windows Widgets button</value>
+  </data>
+  <data name="TaskbarWidgetPaddingDescription" xml:space="preserve">
+    <value>Turn this feature on if you have Windows Widgets enabled</value>
+  </data>
+  <data name="TaskbarWidgetManualPaddingTitle" xml:space="preserve">
+    <value>Custom Padding</value>
+  </data>
+  <data name="TaskbarWidgetManualPaddingDescription" xml:space="preserve">
+    <value>Add extra padding (default: 0px)</value>
+  </data>
+  <data name="TaskbarWidgetBorderRadiusTitle" xml:space="preserve">
+    <value>Corner Radius</value>
+  </data>
+  <data name="TaskbarWidgetBorderRadiusDescription" xml:space="preserve">
+    <value>Adjust the roundness of the widget corners (default: 6px)</value>
+  </data>
+  <data name="TaskbarWidgetAlbumArtRadiusTitle" xml:space="preserve">
+    <value>Album Art Corner Radius</value>
+  </data>
+  <data name="TaskbarWidgetAlbumArtRadiusDescription" xml:space="preserve">
+    <value>Adjust the roundness of the album art corners (default: 5px)</value>
+  </data>
+  <data name="TaskbarWidgetButtonHoverRadiusTitle" xml:space="preserve">
+    <value>Media Buttons Hover Radius</value>
+  </data>
+  <data name="TaskbarWidgetButtonHoverRadiusDescription" xml:space="preserve">
+    <value>Adjust the roundness of the hover background of the media buttons (default: 6px)</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundBlurTitle" xml:space="preserve">
+    <value>Background Blur</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundBlurDescription" xml:space="preserve">
+    <value>Add background blur effect to the taskbar widget</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundBlurIntensityTitle" xml:space="preserve">
+    <value>Blurred Background Intensity</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundBlurIntensityDescription" xml:space="preserve">
+    <value>Adjust how intense the blurred background color appears</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundBlurRadiusTitle" xml:space="preserve">
+    <value>Background Blur Amount</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundBlurRadiusDescription" xml:space="preserve">
+    <value>Adjust how blurred (or sharp) the background image appears</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundRotateTitle" xml:space="preserve">
+    <value>Animated Rotating Background</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundRotateDescription" xml:space="preserve">
+    <value>Slowly rotate the blurred album art behind the widget (AVOID IF YOU HAVE AUTO HIDE TASKBAR)</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundRotateSideTitle" xml:space="preserve">
+    <value>Album Art Side</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundRotateSideDescription" xml:space="preserve">
+    <value>Show the left or right side of the spinning album disc</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundRotateDirectionTitle" xml:space="preserve">
+    <value>Rotation Direction</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundRotateDirectionDescription" xml:space="preserve">
+    <value>Spin the album art down or up</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundRotateDurationTitle" xml:space="preserve">
+    <value>Rotation Time</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundRotateDurationDescription" xml:space="preserve">
+    <value>How many seconds one full rotation takes</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundRotateSizeTitle" xml:space="preserve">
+    <value>Disc Size</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundRotateSizeDescription" xml:space="preserve">
+    <value>How large the rotating album disc is relative to the widget (default: 300%)</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundRotateHighRefreshRateTitle" xml:space="preserve">
+    <value>High Refresh Rate Mode</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundRotateHighRefreshRateDescription" xml:space="preserve">
+    <value>Run the rotation at the monitor's refresh rate. When off, the animation is capped at 30 FPS to reduce GPU/CPU cost.</value>
+  </data>
+  <data name="PositionDown" xml:space="preserve">
+    <value>Down</value>
+  </data>
+  <data name="PositionUp" xml:space="preserve">
+    <value>Up</value>
+  </data>
+  <data name="TaskbarWidgetHideCompletelyTitle" xml:space="preserve">
+    <value>Hide Completely When No Media Is Present</value>
+  </data>
+  <data name="TaskbarWidgetHideCompletelyDescription" xml:space="preserve">
+    <value>Hides the entire widget when no media is available, instead of displaying a media icon</value>
+  </data>
+  <data name="TaskbarWidgetFixedWidthTitle" xml:space="preserve">
+    <value>Fixed Widget Width</value>
+  </data>
+  <data name="TaskbarWidgetFixedWidthDescription" xml:space="preserve">
+    <value>Keep the widget at a fixed width instead of resizing to fit the title and artist text</value>
+  </data>
+  <data name="TaskbarWidgetAutoHideTitle" xml:space="preserve">
+    <value>Autohide Widget</value>
+  </data>
+  <data name="TaskbarWidgetAutoHideDescription" xml:space="preserve">
+    <value>Hides the widget automatically when media is paused</value>
+  </data>
+  <data name="TaskbarWidgetShowPauseOverlayTitle" xml:space="preserve">
+    <value>Show Pause Icon Overlay</value>
+  </data>
+  <data name="TaskbarWidgetShowPauseOverlayDescription" xml:space="preserve">
+    <value>When media is paused, display a pause icon over the album art</value>
+  </data>
+  <data name="TaskbarWidgetShowAlbumArtTitle" xml:space="preserve">
+    <value>Show Album Art</value>
+  </data>
+  <data name="TaskbarWidgetShowAlbumArtDescription" xml:space="preserve">
+    <value>Display the album cover thumbnail next to the song title and artist</value>
+  </data>
+  <data name="TaskbarWidgetControlsTitle" xml:space="preserve">
+    <value>Widget Media Controls</value>
+  </data>
+  <data name="TaskbarWidgetControlsDescription" xml:space="preserve">
+    <value>Show media control buttons on the widget</value>
+  </data>
+  <data name="TaskbarWidgetControlsPositionTitle" xml:space="preserve">
+    <value>Media Controls Position</value>
+  </data>
+  <data name="TaskbarWidgetControlsPositionDescription" xml:space="preserve">
+    <value>Choose where to display the media control buttons</value>
+  </data>
+  <data name="PositionLeft" xml:space="preserve">
+    <value>Left</value>
+  </data>
+  <data name="PositionRight" xml:space="preserve">
+    <value>Right</value>
+  </data>
+  <data name="TaskbarWidgetAnimatedTitle" xml:space="preserve">
+    <value>Widget Animations</value>
+  </data>
+  <data name="TaskbarWidgetAnimatedDescription" xml:space="preserve">
+    <value>Enable subtle animations for the widget</value>
+  </data>
+  <data name="TaskbarWidgetSongChangeAnimationTitle" xml:space="preserve">
+    <value>Song Change Animation</value>
+  </data>
+  <data name="TaskbarWidgetSongChangeAnimationDescription" xml:space="preserve">
+    <value>Choose how the title and artist animate when the song changes</value>
+  </data>
+  <data name="TaskbarWidgetSongChangeAnimationCrossfade" xml:space="preserve">
+    <value>Crossfade</value>
+  </data>
+  <data name="TaskbarWidgetSongChangeAnimationSlide" xml:space="preserve">
+    <value>Slide (out left, in from right)</value>
+  </data>
+  <data name="TaskbarWidgetResizeAnimationTitle" xml:space="preserve">
+    <value>Smooth Width Resizing</value>
+  </data>
+  <data name="TaskbarWidgetResizeAnimationDescription" xml:space="preserve">
+    <value>Morph the widget width when the song changes instead of snapping to the new size</value>
+  </data>
+  <data name="TaskbarWidgetTypographyTitle" xml:space="preserve">
+    <value>Typography &amp; Text Style</value>
+  </data>
+  <data name="TaskbarWidgetTypographyDescription" xml:space="preserve">
+    <value>Fonts and styling for the song title and artist. Widget only.</value>
+  </data>
+  <data name="TaskbarWidgetFontFamilyTitle" xml:space="preserve">
+    <value>Font</value>
+  </data>
+  <data name="TaskbarWidgetFontFamilyDescription" xml:space="preserve">
+    <value>Included fonts work on any PC. You can also pick a system font or type any installed font name</value>
+  </data>
+  <data name="TaskbarWidgetFontGroupBundled" xml:space="preserve">
+    <value>â”€â”€ Included fonts â”€â”€</value>
+  </data>
+  <data name="TaskbarWidgetFontGroupSystem" xml:space="preserve">
+    <value>â”€â”€ System fonts â”€â”€</value>
+  </data>
+  <data name="TaskbarWidgetTextStyleTitle" xml:space="preserve">
+    <value>Song &amp; Artist Style</value>
+  </data>
+  <data name="TaskbarWidgetTextStyleDescription" xml:space="preserve">
+    <value>Weight and presence of the two text rows (sizes stay independent below)</value>
+  </data>
+  <data name="TaskbarWidgetTextStyleModern" xml:space="preserve">
+    <value>Modern (recommended)</value>
+  </data>
+  <data name="TaskbarWidgetTextStyleClassic" xml:space="preserve">
+    <value>Classic</value>
+  </data>
+  <data name="TaskbarWidgetTextStyleBold" xml:space="preserve">
+    <value>Bold</value>
+  </data>
+  <data name="TaskbarWidgetTextStyleSoft" xml:space="preserve">
+    <value>Soft</value>
+  </data>
+  <data name="TaskbarWidgetTitleFontSizeTitle" xml:space="preserve">
+    <value>Song Title Size</value>
+  </data>
+  <data name="TaskbarWidgetArtistFontSizeTitle" xml:space="preserve">
+    <value>Artist Size</value>
+  </data>
+  <data name="TaskbarWidgetSectionGeneralTitle" xml:space="preserve">
+    <value>General</value>
+  </data>
+  <data name="TaskbarWidgetSectionAppearanceTitle" xml:space="preserve">
+    <value>Appearance</value>
+  </data>
+  <data name="TaskbarWidgetSectionContentTitle" xml:space="preserve">
+    <value>Content</value>
+  </data>
+  <data name="TaskbarWidgetSectionAnimationTitle" xml:space="preserve">
+    <value>Animation</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundTitle" xml:space="preserve">
+    <value>Background</value>
+  </data>
+  <data name="TaskbarWidgetBackgroundDescription" xml:space="preserve">
+    <value>Blurred album art behind the widget content</value>
+  </data>
+  <data name="TaskbarVisualizerTitle" xml:space="preserve">
+    <value>Taskbar Visualizer</value>
+  </data>
+  <data name="TaskbarVisualizerDescription" xml:space="preserve">
+    <value>A real-time audio visualizer on your taskbar. Designed to have minimal performance impact on modern systems.</value>
+  </data>
+  <data name="TaskbarVisualizerEnabledTitle" xml:space="preserve">
+    <value>Enable Taskbar Visualizer (Experimental)</value>
+  </data>
+  <data name="TaskbarVisualizerEnabledDescription" xml:space="preserve">
+    <value>Experimental: This feature will only work if the Taskbar Widget is enabled</value>
+  </data>
+  <data name="TaskbarVisualizerHighRefreshRateTitle" xml:space="preserve">
+    <value>High Refresh Rate Mode</value>
+  </data>
+  <data name="TaskbarVisualizerHighRefreshRateDescription" xml:space="preserve">
+    <value>Render at the monitor's refresh rate for smoother animation. When off, the visualizer is capped at 30 FPS.</value>
+  </data>
+  <data name="TaskbarVisualizerPositionTitle" xml:space="preserve">
+    <value>Visualizer Position Relative to Taskbar Widget</value>
+  </data>
+  <data name="TaskbarVisualizerBarCountTitle" xml:space="preserve">
+    <value>Bar Count</value>
+  </data>
+  <data name="TaskbarVisualizerBarCountDescription" xml:space="preserve">
+    <value>The amount of visualizer bars</value>
+  </data>
+  <data name="TaskbarVisualizerCenteredBarsTitle" xml:space="preserve">
+    <value>Centered Bars</value>
+  </data>
+  <data name="TaskbarVisualizerCenteredBarsDescription" xml:space="preserve">
+    <value>Bars that expand symmetrically from the center instead of rising from the bottom</value>
+  </data>
+  <data name="TaskbarVisualizerBaselineTitle" xml:space="preserve">
+    <value>Show Baseline</value>
+  </data>
+  <data name="TaskbarVisualizerBaselineDescription" xml:space="preserve">
+    <value>Displays a thin line when audio levels are at zero</value>
+  </data>
+  <data name="TaskbarVisualizerBaselineAutoHideDescription" xml:space="preserve">
+    <value>Automatically hides the baseline when no audio is playing</value>
+  </data>
+  <data name="TaskbarVisualizerAudioSensitivityTitle" xml:space="preserve">
+    <value>Audio Sensitivity</value>
+  </data>
+  <data name="TaskbarVisualizerAudioSensitivityDescription" xml:space="preserve">
+    <value>How loud audio must be before the bars start moving</value>
+  </data>
+  <data name="TaskbarVisualizerAudioPeakLevelTitle" xml:space="preserve">
+    <value>Audio Peak Threshold</value>
+  </data>
+  <data name="TaskbarVisualizerAudioPeakLevelDescription" xml:space="preserve">
+    <value>How loud audio must be for the bars to reach their maximum height</value>
+  </data>
+  <data name="TaskbarVisualizerSmoothingTitle" xml:space="preserve">
+    <value>Motion Smoothing</value>
+  </data>
+  <data name="TaskbarVisualizerSmoothingDescription" xml:space="preserve">
+    <value>How silky the bar motion is, from snappy (0) to slow melt (100)</value>
+  </data>
+  <data name="TaskbarVisualizerOutputDeviceTitle" xml:space="preserve">
+    <value>Output Device</value>
+  </data>
+  <data name="TaskbarVisualizerOutputDeviceDescription" xml:space="preserve">
+    <value>Change what the visualizer listens to by switching FluentFlyout's output device.</value>
+  </data>
+  <data name="TaskbarVisualizerClickableTitle" xml:space="preserve">
+    <value>Click to open Settings</value>
+  </data>
+  <data name="TaskbarVisualizerClickableDescription" xml:space="preserve">
+    <value>Clicking the visualizer will open its settings page</value>
+  </data>
+  <data name="PremiumFeatureTitle" xml:space="preserve">
+    <value>Premium Feature</value>
+  </data>
+  <data name="PremiumFeatureDescription" xml:space="preserve">
+    <value>Your one-time contribution helps me keep FluentFlyout alive and updated. It instantly unlocks all premium customization features, forever.
+        
+Note: As an open-source project, these features are also available for free via the manual installer on GitHub. The only trade-off is that updates and installation must be done manually.</value>
+  </data>
+  <data name="PremiumLockedMessage" xml:space="preserve">
+    <value>This feature is part of the premium package</value>
+  </data>
+  <data name="PremiumUnlockedMessage" xml:space="preserve">
+    <value>Premium features unlocked. Thank you for your support!</value>
+  </data>
+  <data name="PremiumGitHubMessage" xml:space="preserve">
+    <value>Premium features are unlocked for GitHub/self-compiled versions</value>
+  </data>
+  <data name="UnlockPremiumButton" xml:space="preserve">
+    <value>Unlock Premium</value>
+  </data>
+  <data name="PremiumPurchaseSuccess" xml:space="preserve">
+    <value>Premium unlocked successfully!</value>
+  </data>
+  <data name="PremiumPurchaseFailed" xml:space="preserve">
+    <value>Purchase failed. Please try again.</value>
+  </data>
+  <data name="PremiumPurchaseCancelled" xml:space="preserve">
+    <value>Purchase cancelled.</value>
+  </data>
+  <data name="UnlockFullExperienceText" xml:space="preserve">
+    <value>Unlock the full FluentFlyout experience:</value>
+  </data>
+  <data name="TaskbarWidgetCustomizationPerk" xml:space="preserve">
+    <value>Enable the Taskbar Widget and Visualizer</value>
+  </data>
+  <data name="AcrylicBlurOpacityPerk" xml:space="preserve">
+    <value>Adjust the Acrylic blur effect</value>
+  </data>
+  <data name="HideTrayIconPerk" xml:space="preserve">
+    <value>Hide the tray icon</value>
+  </data>
+  <data name="VolumeMixerHighlightPerk" xml:space="preserve">
+    <value>Highlight active apps in the Volume Mixer</value>
+  </data>
+  <data name="AllFuturePremiumFeatures" xml:space="preserve">
+    <value>All future Premium features</value>
+  </data>
+  <data name="NextUpCustomizationTitle" xml:space="preserve">
+    <value>Next Up Flyout</value>
+  </data>
+  <data name="NextUpDescription" xml:space="preserve">
+    <value>A flyout shows what's next when a song/video ends. Only appears if the next item plays automatically, if next/previous is pressed manually, the main flyout appears instead.</value>
+  </data>
+  <data name="EnableNextUpTitle" xml:space="preserve">
+    <value>Enable Next Up Flyout</value>
+  </data>
+  <data name="EnableNextUpDescription" xml:space="preserve">
+    <value>Shows what's next when a song/video ends</value>
+  </data>
+  <data name="NextUpStayDurationTitle" xml:space="preserve">
+    <value>Next Up Stay Duration</value>
+  </data>
+  <data name="NextUpStayDurationDescription" xml:space="preserve">
+    <value>(default: 2000 ms)</value>
+  </data>
+  <data name="LockKeysCustomizationTitle" xml:space="preserve">
+    <value>Lock Keys Flyout</value>
+  </data>
+  <data name="LockKeysDescription" xml:space="preserve">
+    <value>Check your lock key status at a glance. Appears after pressing Caps Lock, Num Lock or Scroll Lock. Convenient for laptops/keyboards without lock key indicators.</value>
+  </data>
+  <data name="EnableLockKeysTitle" xml:space="preserve">
+    <value>Enable Lock Keys Flyout</value>
+  </data>
+  <data name="EnableLockKeysDescription" xml:space="preserve">
+    <value>Displays whether the specified lock key is on or off</value>
+  </data>
+  <data name="EnableCapsTitle" xml:space="preserve">
+    <value>Enable Caps Lock indicator</value>
+  </data>
+  <data name="EnableCapsDescription" xml:space="preserve">
+    <value>Shows when the Caps Lock key is pressed</value>
+  </data>
+  <data name="EnableNumTitle" xml:space="preserve">
+    <value>Enable Num Lock indicator</value>
+  </data>
+  <data name="EnableNumDescription" xml:space="preserve">
+    <value>Shows when the Num Lock key is pressed</value>
+  </data>
+  <data name="EnableScrollTitle" xml:space="preserve">
+    <value>Enable Scroll Lock indicator</value>
+  </data>
+  <data name="EnableScrollDescription" xml:space="preserve">
+    <value>Shows when the Scroll Lock key is pressed</value>
+  </data>
+  <data name="LockKeysStayDurationTitle" xml:space="preserve">
+    <value>Lock Keys Stay Duration</value>
+  </data>
+  <data name="LockKeysStayDurationDescription" xml:space="preserve">
+    <value>(default: 2000 ms)</value>
+  </data>
+  <data name="LockKeysBoldUITitle" xml:space="preserve">
+    <value>Bold Symbol and Font</value>
+  </data>
+  <data name="LockKeysBoldUIDescription" xml:space="preserve">
+    <value>Emphasizes the flyout symbol and font</value>
+  </data>
+  <data name="LockKeysCursorUITitle" xml:space="preserve">
+    <value>Preferred Target Display</value>
+  </data>
+  <data name="LockKeysCursorUIDescription" xml:space="preserve">
+    <value>Choose which monitor to display the flyout.</value>
+  </data>
+  <data name="DefaultLockLayoutPosition" xml:space="preserve">
+    <value>Default (Flyout Target Display)</value>
+  </data>
+  <data name="MonitorWithFocusedWindow" xml:space="preserve">
+    <value>Monitor with focused window</value>
+  </data>
+  <data name="MonitorWithCursor" xml:space="preserve">
+    <value>Monitor with cursor</value>
+  </data>
+  <data name="EnableInsertKeyTitle" xml:space="preserve">
+    <value>Enable Insert Key Popup</value>
+  </data>
+  <data name="EnableInsertKeyDescription" xml:space="preserve">
+    <value>Determines whether pressing insert/overwrite will show the flyout</value>
+  </data>
+  <data name="LockKeysAnimatedTitle" xml:space="preserve">
+    <value>Indicator Animations</value>
+  </data>
+  <data name="LockKeysAnimatedDescription" xml:space="preserve">
+    <value>Enable subtle animations for the lock key indicator</value>
+  </data>
+  <data name="SystemSettingsTitle" xml:space="preserve">
+    <value>System</value>
+  </data>
+  <data name="LaunchOnStartupTitle" xml:space="preserve">
+    <value>Launch on Startup</value>
+  </data>
+  <data name="LaunchOnStartupDescription" xml:space="preserve">
+    <value>Start minimized to tray when you log in to Windows</value>
+  </data>
+  <data name="StartupAppsHyperlinkText" xml:space="preserve">
+    <value>Startup Apps</value>
+  </data>
+  <data name="StartupAppsSettingsInfo" xml:space="preserve">
+    <value>If this setting does not work as expected, check</value>
+  </data>
+  <data name="AnonymousUsageDataTitle" xml:space="preserve">
+    <value>Send Anonymous Usage Data</value>
+  </data>
+  <data name="AnonymousUsageDataDescription" xml:space="preserve">
+    <value>Help improve the app by sending anonymous, non-identifiable usage data</value>
+  </data>
+  <data name="AppThemeTitle" xml:space="preserve">
+    <value>App Theme</value>
+  </data>
+  <data name="AppThemeDefault" xml:space="preserve">
+    <value> Windows Default</value>
+  </data>
+  <data name="AppThemeLight" xml:space="preserve">
+    <value> Light</value>
+  </data>
+  <data name="AppThemeDark" xml:space="preserve">
+    <value> Dark</value>
+  </data>
+  <data name="UseAlbumArtAccentColorTitle" xml:space="preserve">
+    <value>Use Album Art as Accent Color</value>
+  </data>
+  <data name="UseAlbumArtAccentColorDescription" xml:space="preserve">
+    <value>Some UI elements will use the album art color instead of the system theme</value>
+  </data>
+  <data name="AlbumAccentDesaturationTitle" xml:space="preserve">
+    <value>Accent Color Desaturation</value>
+  </data>
+  <data name="AlbumAccentDesaturationDescription" xml:space="preserve">
+    <value>Tames overly intense album colors. Desaturating reduces color intensity toward gray without changing brightness.</value>
+  </data>
+  <data name="AlbumAccentDesaturationThresholdTitle" xml:space="preserve">
+    <value>Threshold</value>
+  </data>
+  <data name="AlbumAccentDesaturationAmountTitle" xml:space="preserve">
+    <value>Amount</value>
+  </data>
+  <data name="AlbumAccentDesaturationAmountDescription" xml:space="preserve">
+    <value>How much to tone down saturation above the threshold. 0 keeps the original color, 100 flattens everything above the threshold down to it. Colors below the threshold are left untouched.</value>
+  </data>
+  <data name="TrayIconLeftClickBehaviorTitle" xml:space="preserve">
+    <value>Tray Icon Left Click Behavior</value>
+  </data>
+  <data name="TrayIconLeftClickBehaviorDescription" xml:space="preserve">
+    <value>Choose what happens when you left click the tray icon</value>
+  </data>
+  <data name="TrayIconLeftClickOption1" xml:space="preserve">
+    <value> Open Settings</value>
+  </data>
+  <data name="TrayIconLeftClickOption2" xml:space="preserve">
+    <value> Show Media Flyout</value>
+  </data>
+  <data name="Win11TrayIconTitle" xml:space="preserve">
+    <value>Windows 11-like Tray Icon</value>
+  </data>
+  <data name="Win11TrayIconDescription" xml:space="preserve">
+    <value>Use a tray icon that matches Windows 11 (toggle to refresh theme)</value>
+  </data>
+  <data name="HideTrayIconTitle" xml:space="preserve">
+    <value>Hide Tray Icon Completely</value>
+  </data>
+  <data name="HideTrayIconDescription" xml:space="preserve">
+    <value>Access settings from launching the program twice</value>
+  </data>
+  <data name="AnimationSettingsTitle" xml:space="preserve">
+    <value>Animation Settings</value>
+  </data>
+  <data name="AnimationSettingsDescription" xml:space="preserve">
+    <value>Tweak the animations to your liking</value>
+  </data>
+  <data name="AnimationDurationScaleTitle" xml:space="preserve">
+    <value>Animation Duration Scale</value>
+  </data>
+  <data name="AnimationDurationScaleDescription" xml:space="preserve">
+    <value>Faster or slower flyout animation speed (default: 1x)</value>
+  </data>
+  <data name="AnimationSpeedOff" xml:space="preserve">
+    <value>Off</value>
+  </data>
+  <data name="AnimationEasingStyleTitle" xml:space="preserve">
+    <value>Animation Easing Style</value>
+  </data>
+  <data name="AnimationEasingStyleDescription" xml:space="preserve">
+    <value>(default: Quadratic)</value>
+  </data>
+  <data name="EasingLinear" xml:space="preserve">
+    <value> Linear</value>
+  </data>
+  <data name="EasingSine" xml:space="preserve">
+    <value> Sine</value>
+  </data>
+  <data name="EasingQuadratic" xml:space="preserve">
+    <value> Quadratic</value>
+  </data>
+  <data name="EasingCubic" xml:space="preserve">
+    <value> Cubic</value>
+  </data>
+  <data name="NativeExperienceInfo" xml:space="preserve">
+    <value>For the native Windows 11 experience, the settings should be kept at default.</value>
+  </data>
+  <data name="DisableOnFullscreenTitle" xml:space="preserve">
+    <value>Disable Flyouts if DirectX fullscreen program is detected</value>
+  </data>
+  <data name="DisableOnFullscreenDescription" xml:space="preserve">
+    <value>Prevents DirectX games in exclusive fullscreen from minimizing if a flyout pops up</value>
+  </data>
+  <data name="AcrylicBlurOpacityTitle" xml:space="preserve">
+    <value>Acrylic Blur Opacity</value>
+  </data>
+  <data name="AcrylicBlurOpacityDescription" xml:space="preserve">
+    <value>Adjust the see-through effect on Acrylic flyouts (default: 175)</value>
+  </data>
+  <data name="HomeUpdateDescription" xml:space="preserve">
+    <value>Learn what's new</value>
+  </data>
+  <data name="HomeDashboardTitle" xml:space="preserve">
+    <value>Dashboard</value>
+  </data>
+  <data name="AppearanceBehaviorSectionTitle" xml:space="preserve">
+    <value>Appearance &amp; behavior</value>
+  </data>
+  <data name="TrayIconSectionTitle" xml:space="preserve">
+    <value>Tray Icon</value>
+  </data>
+  <data name="UpdatesSectionTitle" xml:space="preserve">
+    <value>Updates</value>
+  </data>
+  <data name="SystemConfigure" xml:space="preserve">
+    <value>Configure</value>
+  </data>
+  <data name="AppFilteringTitle" xml:space="preserve">
+    <value>App Filtering</value>
+  </data>
+  <data name="AppFilteringRulesDescription" xml:space="preserve">
+    <value>Control which applications can display media</value>
+  </data>
+  <data name="EnableAppFilteringTitle" xml:space="preserve">
+    <value>Enable Filtering</value>
+  </data>
+  <data name="AppFilteringModeTitle" xml:space="preserve">
+    <value>Filtering Mode</value>
+  </data>
+  <data name="AppFilteringModeDescription" xml:space="preserve">
+    <value>Choose whether listed apps are allowed or blocked</value>
+  </data>
+  <data name="AppFilteringModeBlacklist" xml:space="preserve">
+    <value>Block List</value>
+  </data>
+  <data name="AppFilteringModeWhitelist" xml:space="preserve">
+    <value>Allow List</value>
+  </data>
+  <data name="AllowedAppsTitle" xml:space="preserve">
+    <value>Allowed Apps</value>
+  </data>
+  <data name="AllowedAppsDescription" xml:space="preserve">
+    <value>If any applications are listed here, only their media will be shown.</value>
+  </data>
+  <data name="BlockedAppsTitle" xml:space="preserve">
+    <value>Excluded Apps</value>
+  </data>
+  <data name="BlockedAppsDescription" xml:space="preserve">
+    <value>Excludes an application from being displayed</value>
+  </data>
+  <data name="AddAppManuallyText" xml:space="preserve">
+    <value>Can't find your app? Type it below:</value>
+  </data>
+  <data name="AppFilteringPlaceholderSpotify" xml:space="preserve">
+    <value>e.g. Spotify.exe</value>
+  </data>
+  <data name="AppFilteringPlaceholderChrome" xml:space="preserve">
+    <value>e.g. Chrome.exe</value>
+  </data>
+  <data name="AppFilteringComboBoxHint" xml:space="preserve">
+    <value>Select a currently playing app to add</value>
+  </data>
+  <data name="AddButton" xml:space="preserve">
+    <value>Add</value>
+  </data>
+  <data name="RemoveButton" xml:space="preserve">
+    <value>Remove</value>
+  </data>
+  <data name="AboutTitle" xml:space="preserve">
+    <value>About</value>
+  </data>
+  <data name="AboutContributorsTitle" xml:space="preserve">
+    <value>â¤ï¸ Meet Our Contributors</value>
+  </data>
+  <data name="AboutContributorsDescription" xml:space="preserve">
+    <value>A big thank you to all the amazing people who have contributed to FluentFlyout's development and success!</value>
+  </data>
+  <data name="DevelopersTitle" xml:space="preserve">
+    <value>Developers</value>
+  </data>
+  <data name="TranslatorsTitle" xml:space="preserve">
+    <value>Translators</value>
+  </data>
+  <data name="AboutPremiumTitle" xml:space="preserve">
+    <value>About Premium</value>
+  </data>
+  <data name="AboutOpenSourceLicensesTitle" xml:space="preserve">
+    <value>Open Source Licenses</value>
+  </data>
+  <data name="AboutOpenSourceLicensesDescription" xml:space="preserve">
+    <value>FluentFlyout is built with the following open source packages:</value>
+  </data>
+  <data name="EnjoyingAppText" xml:space="preserve">
+    <value>Enjoying the app? Star it on GitHub,
+or leave a review on Microsoft Store!</value>
+  </data>
+  <data name="GitHubRepoLink" xml:space="preserve">
+    <value>GitHub Repository</value>
+  </data>
+  <data name="SponsorMeLink" xml:space="preserve">
+    <value>Sponsor me</value>
+  </data>
+  <data name="BuyMeCoffeeLink" xml:space="preserve">
+    <value>Buy me a coffee</value>
+  </data>
+  <data name="CloseButton" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="AppLanguageTitle" xml:space="preserve">
+    <value>App Language</value>
+  </data>
+  <data name="AppLanguageDescription" xml:space="preserve">
+    <value>If your language is not listed or incomplete, it will default to English.
+You can help contribute translations on</value>
+  </data>
+  <data name="AppLanguageDescriptionLink" xml:space="preserve">
+    <value>Weblate</value>
+  </data>
+  <data name="LockWindow_CapsLock" xml:space="preserve">
+    <value>Caps Lock</value>
+  </data>
+  <data name="LockWindow_NumLock" xml:space="preserve">
+    <value>Num Lock</value>
+  </data>
+  <data name="LockWindow_ScrollLock" xml:space="preserve">
+    <value>Scroll Lock</value>
+  </data>
+  <data name="LockWindow_InsertPressed" xml:space="preserve">
+    <value>Insert Pressed</value>
+  </data>
+  <data name="LockWindow_LockOn" xml:space="preserve">
+    <value>on</value>
+  </data>
+  <data name="LockWindow_LockOff" xml:space="preserve">
+    <value>off</value>
+  </data>
+  <data name="NextUpWindow_UpNextText" xml:space="preserve">
+    <value>Up next:</value>
+  </data>
+  <data name="TrayIcon_SettingsOption" xml:space="preserve">
+    <value>Settings</value>
+  </data>
+  <data name="TrayIcon_GitHubRepositoryOption" xml:space="preserve">
+    <value>Repository</value>
+  </data>
+  <data name="TrayIcon_ViewLogsOption" xml:space="preserve">
+    <value>View logs</value>
+  </data>
+  <data name="TrayIcon_ReportBugOption" xml:space="preserve">
+    <value>Report bug</value>
+  </data>
+  <data name="TrayIcon_QuitOption" xml:space="preserve">
+    <value>Quit FluentFlyout</value>
+  </data>
+  <data name="PixelsUnit" xml:space="preserve">
+    <value>px</value>
+  </data>
+  <data name="UpdateToastTitle" xml:space="preserve">
+    <value>FluentFlyout has been updated!</value>
+  </data>
+  <data name="UpdateToastMessage" xml:space="preserve">
+    <value>You are now on {0}.</value>
+  </data>
+  <data name="UpdateToastButton" xml:space="preserve">
+    <value>View Updates</value>
+  </data>
+  <data name="SearchSettings" xml:space="preserve">
+    <value>Search settings</value>
+  </data>
+  <data name="UpdateAvailable" xml:space="preserve">
+    <value>Update available</value>
+  </data>
+  <data name="UpToDate" xml:space="preserve">
+    <value>Up to date</value>
+  </data>
+  <data name="LastChecked" xml:space="preserve">
+    <value>Last checked: {0}</value>
+  </data>
+  <data name="CheckingForUpdates" xml:space="preserve">
+    <value>Checking...</value>
+  </data>
+  <data name="UpdateAvailableNotificationTitle" xml:space="preserve">
+    <value>Update Available!</value>
+  </data>
+  <data name="UpdateAvailableNotificationMessage" xml:space="preserve">
+    <value>A new version ({0}) is available.</value>
+  </data>
+  <data name="UpdateAvailableNotificationButton" xml:space="preserve">
+    <value>Download Update</value>
+  </data>
+  <data name="ShowUpdateNotificationsTitle" xml:space="preserve">
+    <value>Show notifications for new updates</value>
+  </data>
+  <data name="BackupRestoreSectionTitle" xml:space="preserve">
+    <value>Back up &amp; restore</value>
+  </data>
+  <data name="BackupRestoreCardTitle" xml:space="preserve">
+    <value>Back up and restore your settings</value>
+  </data>
+  <data name="ExportSettings" xml:space="preserve">
+    <value>Export Settings</value>
+  </data>
+  <data name="ImportSettings" xml:space="preserve">
+    <value>Import Settings</value>
+  </data>
+  <data name="ExportSuccessful" xml:space="preserve">
+    <value>Export Successful</value>
+  </data>
+  <data name="ExportFailed" xml:space="preserve">
+    <value>Export Failed</value>
+  </data>
+  <data name="ImportSuccessful" xml:space="preserve">
+    <value>Import Successful</value>
+  </data>
+  <data name="ImportFailed" xml:space="preserve">
+    <value>Import Failed</value>
+  </data>
+  <data name="SettingsExportedSuccessfully" xml:space="preserve">
+    <value>Settings exported successfully!</value>
+  </data>
+  <data name="FailedToExportSettings" xml:space="preserve">
+    <value>Failed to export settings. Check the logs for details.</value>
+  </data>
+  <data name="SettingsImportedSuccessfully" xml:space="preserve">
+    <value>Settings imported successfully! The application will now restart to apply changes.</value>
+  </data>
+  <data name="ImportSettingsWarning" xml:space="preserve">
+    <value>This will replace all your current settings. Continue?</value>
+  </data>
+  <data name="FailedToImportSettings" xml:space="preserve">
+    <value>Failed to import settings. Check the logs for details.</value>
+  </data>
+  <data name="AdvancedSettingsTitle" xml:space="preserve">
+    <value>Advanced Settings</value>
+  </data>
+  <data name="LegacyTaskbarWidthTitle" xml:space="preserve">
+    <value>Legacy Taskbar Width System</value>
+  </data>
+  <data name="LegacyTaskbarWidthDescription" xml:space="preserve">
+    <value>Use the legacy Taskbar width system for Taskbar Widgets</value>
+  </data>
+  <data name="TaskbarWidgetScrollingTextTitle" xml:space="preserve">
+    <value>Scrolling Text</value>
+  </data>
+  <data name="TaskbarWidgetScrollingTitle" xml:space="preserve">
+    <value>Enable Scrolling</value>
+  </data>
+  <data name="TaskbarWidgetScrollingTextDescription" xml:space="preserve">
+    <value>Automatically scroll long text that doesn't fit</value>
+  </data>
+  <data name="TaskbarWidgetScrollingTextLoopForeverTitle" xml:space="preserve">
+    <value>Continuous Scrolling</value>
+  </data>
+  <data name="TaskbarWidgetScrollingTextLoopForeverDescription" xml:space="preserve">
+    <value>Infinitely loop the text in one direction instead of scrolling back and forth.</value>
+  </data>
+  <data name="TaskbarWidgetScrollingTextSpeedTitle" xml:space="preserve">
+    <value>Scroll Speed</value>
+  </data>
+  <data name="TaskbarWidgetScrollingTextSpeedDescription" xml:space="preserve">
+    <value>Speed at which the text scrolls (pixels/second). Default is 20.</value>
+  </data>
+  <data name="VolumeFlyoutTitle" xml:space="preserve">
+    <value>Volume Flyout</value>
+  </data>
+  <data name="VolumeFlyoutDescription" xml:space="preserve">
+    <value>A standalone volume control flyout that expands into a volume mixer, replacing the default Windows volume interface.</value>
+  </data>
+  <data name="EnableVolumeFlyoutTitle" xml:space="preserve">
+    <value>Enable Volume Flyout</value>
+  </data>
+  <data name="EnableVolumeFlyoutDescription" xml:space="preserve">
+    <value>Replace the default Windows volume flyout</value>
+  </data>
+  <data name="VolumeAboveMediaFlyoutTitle" xml:space="preserve">
+    <value>Position Volume Flyout above Media Flyout</value>
+  </data>
+  <data name="VolumeFlyoutStayDurationTitle" xml:space="preserve">
+    <value>Volume Flyout Stay Duration</value>
+  </data>
+  <data name="VolumeMixerSectionTitle" xml:space="preserve">
+    <value>Volume Mixer</value>
+  </data>
+  <data name="EnableVolumeMixerTitle" xml:space="preserve">
+    <value>Enable Volume Mixer</value>
+  </data>
+  <data name="EnableVolumeMixerDescription" xml:space="preserve">
+    <value>Fine control over individual app volumes</value>
+  </data>
+  <data name="VolumeMixerHighlightTitle" xml:space="preserve">
+    <value>Highlight apps playing audio</value>
+  </data>
+  <data name="VolumeMixerHighlightDescription" xml:space="preserve">
+    <value>See which apps are currently outputting audio</value>
+  </data>
+  <data name="MasterVolumeText" xml:space="preserve">
+    <value>Master volume</value>
+  </data>
+</root>
