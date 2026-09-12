@@ -3,12 +3,16 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         xmlns:controls="clr-namespace:MicaWPF.Controls;assembly=MicaWPF"
-        Width="480" SizeToContent="Height" Top="-9999"
+        Width="480" Height="240" Top="-9999"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ShowInTaskbar="False" ShowActivated="False" ResizeMode="NoResize" Topmost="True"
-        MouseEnter="Window_MouseEnter" MouseLeave="Window_MouseLeave" Loaded="Window_Loaded">
-    <!-- Isla negra estilo referencia: compacta 240x34 / expandida 480. Fondo Transparent para cazar hover aun oculta. -->
-    <Grid Background="Transparent">
+        Loaded="Window_Loaded">
+    <!-- Fluent Island de caja única: UNA sola Border cuyo tamaño interpola un muelle
+         por frame (sin Storyboards, sin swaps de Visibility entre dos cajas: esa era
+         la fuente del parpadeo). La ventana es de tamaño fijo para no re-maquetar a
+         nivel OS; la zona muerta es click-through (Background null) y solo la isla
+         y la franja hover capturan el ratón. -->
+    <Grid x:Name="Root" Background="{x:Null}">
         <!-- Línea gris opcional: indica que el Island está activo -->
         <Border x:Name="ActivityLine" Height="2" Width="120" CornerRadius="1"
                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0"
@@ -16,92 +20,130 @@
         <!-- Franja hover invisible: altura ajustable con tolerancia -->
         <Border x:Name="HoverStrip" Height="12" VerticalAlignment="Top" Background="Transparent"/>
 
-        <!-- Compacto: carátula izquierda + indicador derecha -->
-        <Border x:Name="CompactBorder" Width="240" Height="34" CornerRadius="17"
+        <!-- La caja: Width 240/200<->480 y Height 34<->expandido animados por código.
+             ClipToBounds para que el contenido florezca desde dentro al crecer. -->
+        <Border x:Name="IslandBox" Width="240" Height="34" CornerRadius="17"
                 HorizontalAlignment="Center" VerticalAlignment="Top"
                 Background="Black" BorderBrush="#33FFFFFF" BorderThickness="1"
-                Visibility="Collapsed">
-            <Grid Margin="6,0,10,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="24"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <Border Grid.Column="0" Width="22" Height="22" CornerRadius="6" ClipToBounds="True"
-                        Background="#222" HorizontalAlignment="Center" VerticalAlignment="Center"
-                        Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click">
-                    <Grid>
-                        <Image x:Name="CompactArt" Stretch="UniformToFill"/>
-                        <TextBlock x:Name="CompactNote" Text="♪" Foreground="White" FontSize="13"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                Visibility="Collapsed" ClipToBounds="True" RenderTransformOrigin="0.5,0.5"
+                MouseEnter="Box_MouseEnter" MouseLeave="Box_MouseLeave">
+            <Border.RenderTransform>
+                <TransformGroup>
+                    <ScaleTransform x:Name="BoxScale" ScaleX="1" ScaleY="1"/>
+                    <TranslateTransform x:Name="BoxTranslate" X="0" Y="0"/>
+                </TransformGroup>
+            </Border.RenderTransform>
+            <Grid>
+                <!-- Capa compacta: carátula izquierda + título + ecualizador -->
+                <Grid x:Name="CompactLayer" Width="240" Height="34"
+                      HorizontalAlignment="Center" VerticalAlignment="Top"
+                      RenderTransformOrigin="0.5,0.5">
+                    <Grid.RenderTransform>
+                        <ScaleTransform x:Name="CompactScale" ScaleX="1" ScaleY="1"/>
+                    </Grid.RenderTransform>
+                    <Grid Margin="6,0,10,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="24"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="22" Height="22" CornerRadius="6" ClipToBounds="True"
+                                Background="#222" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click">
+                            <Grid>
+                                <Image x:Name="CompactArt" Stretch="UniformToFill"/>
+                                <TextBlock x:Name="CompactNote" Text="♪" Foreground="White" FontSize="13"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                            </Grid>
+                        </Border>
+                        <TextBlock x:Name="CompactTitle" Grid.Column="1" Foreground="White" FontSize="12"
+                                   VerticalAlignment="Center" Margin="8,0,4,0" TextTrimming="CharacterEllipsis"/>
+                        <Image x:Name="CompactEq" Grid.Column="2" Width="36" Height="16" Stretch="Uniform"
+                               VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Grid>
-                </Border>
-                <TextBlock x:Name="CompactTitle" Grid.Column="1" Foreground="White" FontSize="12"
-                           VerticalAlignment="Center" Margin="8,0,4,0" TextTrimming="CharacterEllipsis"/>
-                <Image x:Name="CompactEq" Grid.Column="2" Width="36" Height="16" Stretch="Uniform"
-                       VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
-            </Grid>
-        </Border>
+                </Grid>
 
-        <!-- Expandido: carátula + título/artista + tiempos + controles -->
-        <Border x:Name="ExpandedBorder" Width="480" CornerRadius="18"
-                HorizontalAlignment="Center" VerticalAlignment="Top"
-                Background="Black" BorderBrush="#33FFFFFF" BorderThickness="1"
-                Visibility="Collapsed" Padding="16,12,16,12">
-            <StackPanel>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="72"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <Border Grid.Column="0" Width="64" Height="64" CornerRadius="12" ClipToBounds="True" Background="#222"
-                            Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click">
-                        <Grid>
-                            <Image x:Name="ExpandedArt" Stretch="UniformToFill"/>
-                            <TextBlock x:Name="ExpandedNote" Text="♪" Foreground="White" FontSize="28"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
-                        </Grid>
-                    </Border>
-                    <StackPanel Grid.Column="1" Margin="12,2,0,0" VerticalAlignment="Center">
-                        <TextBlock x:Name="SongTitle" Text="Título desconocido" Foreground="White"
-                                   FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock x:Name="SongArtist" Text="Artista desconocido" Foreground="White"
-                                   FontSize="14" Opacity="0.5" TextTrimming="CharacterEllipsis"/>
+                <!-- Capa expandida: carátula + título/artista + tiempos + controles.
+                     Siempre Visible (medible) y gobernada por opacidad; el hit-test lo
+                     decide el código según el progreso del morph. -->
+                <StackPanel x:Name="ExpandedLayer" Margin="16,12,16,12" Opacity="0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="72"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="64" Height="64" CornerRadius="12" ClipToBounds="True" Background="#222"
+                                Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <ScaleTransform x:Name="ExpandedArtScale" ScaleX="1" ScaleY="1"/>
+                            </Border.RenderTransform>
+                            <Grid>
+                                <Image x:Name="ExpandedArt" Stretch="UniformToFill"/>
+                                <TextBlock x:Name="ExpandedNote" Text="♪" Foreground="White" FontSize="28"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                            </Grid>
+                        </Border>
+                        <StackPanel Grid.Column="1" Margin="12,2,0,0" VerticalAlignment="Center">
+                            <TextBlock x:Name="SongTitle" Text="Título desconocido" Foreground="White"
+                                       FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                       RenderTransformOrigin="0,0.5">
+                                <TextBlock.RenderTransform>
+                                    <TransformGroup>
+                                        <ScaleTransform x:Name="SongTitleScale" ScaleX="1" ScaleY="1"/>
+                                        <TranslateTransform x:Name="SongTitleTranslate" X="0" Y="0"/>
+                                    </TransformGroup>
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+                            <TextBlock x:Name="SongArtist" Text="Artista desconocido" Foreground="White"
+                                       FontSize="14" Opacity="0.5" TextTrimming="CharacterEllipsis"
+                                       RenderTransformOrigin="0,0.5">
+                                <TextBlock.RenderTransform>
+                                    <TranslateTransform x:Name="SongArtistTranslate" X="0" Y="0"/>
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+                        </StackPanel>
+                        <Image x:Name="ExpandedEq" Grid.Column="2" Width="56" Height="24" Stretch="Uniform"
+                               VerticalAlignment="Center" Margin="8,0,4,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+                    </Grid>
+                    <Grid x:Name="SeekRow" Margin="0,8,0,0" RenderTransformOrigin="0.5,0.5">
+                        <Grid.RenderTransform>
+                            <TranslateTransform x:Name="SeekTranslate" X="0" Y="0"/>
+                        </Grid.RenderTransform>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="PosText" Grid.Column="0" Text="0:00" Foreground="White" FontSize="12" Opacity="0.6" VerticalAlignment="Center"/>
+                        <Slider x:Name="Seekbar" Grid.Column="1" Margin="8,0,8,0" VerticalAlignment="Center"
+                                Minimum="0" Maximum="100" Value="0"
+                                PreviewMouseLeftButtonDown="Seekbar_Down" PreviewMouseLeftButtonUp="Seekbar_Up"/>
+                        <TextBlock x:Name="DurText" Grid.Column="2" Text="0:00" Foreground="White" FontSize="12" Opacity="0.6" VerticalAlignment="Center"/>
+                    </Grid>
+                    <StackPanel x:Name="ControlsRow" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,6,0,0" RenderTransformOrigin="0.5,0.5">
+                        <StackPanel.RenderTransform>
+                            <TranslateTransform x:Name="ControlsTranslate" X="0" Y="0"/>
+                        </StackPanel.RenderTransform>
+                        <controls:Button x:Name="BtnPrev" Height="36" Width="44" Margin="12,0"
+                                         Click="Prev_Click" Focusable="False"
+                                         Style="{StaticResource MicaWPF.Styles.TransparentButton}">
+                            <ui:SymbolIcon Symbol="Previous20" Filled="True" Foreground="White"/>
+                        </controls:Button>
+                        <controls:Button x:Name="BtnPlay" Height="36" Width="44" Margin="12,0"
+                                         Click="PlayPause_Click" Focusable="False"
+                                         Style="{StaticResource MicaWPF.Styles.TransparentButton}">
+                            <ui:SymbolIcon x:Name="PlayGlyph" Symbol="Pause16" Filled="True" Foreground="White"/>
+                        </controls:Button>
+                        <controls:Button x:Name="BtnNext" Height="36" Width="44" Margin="12,0"
+                                         Click="Next_Click" Focusable="False"
+                                         Style="{StaticResource MicaWPF.Styles.TransparentButton}">
+                            <ui:SymbolIcon Symbol="Next20" Filled="True" Foreground="White"/>
+                        </controls:Button>
                     </StackPanel>
-                    <Image x:Name="ExpandedEq" Grid.Column="2" Width="56" Height="24" Stretch="Uniform"
-                           VerticalAlignment="Center" Margin="8,0,4,0" RenderOptions.BitmapScalingMode="HighQuality"/>
-                </Grid>
-                <Grid x:Name="SeekRow" Margin="0,8,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="PosText" Grid.Column="0" Text="0:00" Foreground="White" FontSize="12" Opacity="0.6" VerticalAlignment="Center"/>
-                    <Slider x:Name="Seekbar" Grid.Column="1" Margin="8,0,8,0" VerticalAlignment="Center"
-                            Minimum="0" Maximum="100" Value="0"
-                            PreviewMouseLeftButtonDown="Seekbar_Down" PreviewMouseLeftButtonUp="Seekbar_Up"/>
-                    <TextBlock x:Name="DurText" Grid.Column="2" Text="0:00" Foreground="White" FontSize="12" Opacity="0.6" VerticalAlignment="Center"/>
-                </Grid>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,6,0,0">
-                    <controls:Button x:Name="BtnPrev" Height="36" Width="44" Margin="12,0"
-                                     Click="Prev_Click" Focusable="False"
-                                     Style="{StaticResource MicaWPF.Styles.TransparentButton}">
-                        <ui:SymbolIcon Symbol="Previous20" Filled="True" Foreground="White"/>
-                    </controls:Button>
-                    <controls:Button x:Name="BtnPlay" Height="36" Width="44" Margin="12,0"
-                                     Click="PlayPause_Click" Focusable="False"
-                                     Style="{StaticResource MicaWPF.Styles.TransparentButton}">
-                        <ui:SymbolIcon x:Name="PlayGlyph" Symbol="Pause16" Filled="True" Foreground="White"/>
-                    </controls:Button>
-                    <controls:Button x:Name="BtnNext" Height="36" Width="44" Margin="12,0"
-                                     Click="Next_Click" Focusable="False"
-                                     Style="{StaticResource MicaWPF.Styles.TransparentButton}">
-                        <ui:SymbolIcon Symbol="Next20" Filled="True" Foreground="White"/>
-                    </controls:Button>
                 </StackPanel>
-            </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </Window>

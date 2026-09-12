@@ -828,6 +828,12 @@ public partial class UserSettings : ObservableObject
     public partial int IslandEqSmoothing { get; set; }
 
     /// <summary>
+    /// Fluent Island: animaciones (aparición y morph).
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandAnimated { get; set; }
+
+    /// <summary>
     /// Returns whether app filtering is enabled or disabled.
     /// </summary>
     [ObservableProperty]
@@ -1088,6 +1094,7 @@ public partial class UserSettings : ObservableObject
         IslandEqBarCount = 5;
         IslandEqSensitivity = 2;
         IslandEqSmoothing = 50;
+        IslandAnimated = true;
         AppFilteringEnabled = false;
         AppFilteringMode = 0;
         TaskbarVisualizerPosition = 1;
