@@ -22,6 +22,9 @@ public sealed partial class TaskbarHostController : IDisposable
     private nint host;
     private nint parent;
     private nint trayNotify;
+    private int lastRegionWidth;
+    private int lastRegionHeight;
+    private int lastRegionRadius;
 
     public TaskbarHostController()
     {
@@ -120,12 +123,15 @@ public sealed partial class TaskbarHostController : IDisposable
 
     /// <summary>
     /// Moves the host window to a physical position relative to the taskbar and
-    /// resizes it, optionally showing it.
+    /// resizes it, optionally showing it. Also applies a rounded-corner window region
+    /// so the opaque WinUI surface reads as a rounded card instead of a black box.
     /// </summary>
     public bool PlaceAt(int x, int y, int physicalWidth, int physicalHeight, bool show)
     {
         if (host == 0)
             return false;
+
+        ApplyRoundedRegion(physicalWidth, physicalHeight);
 
         return SetWindowPos(
             host, 0, x, y,
@@ -133,7 +139,58 @@ public sealed partial class TaskbarHostController : IDisposable
             SwpNoActivate | SwpNoZOrder | (show ? SwpShowWindow : 0));
     }
 
+    /// <summary>
+    /// Clips the host window to a rounded rectangle (6 DIP radius, DPI-scaled),
+    /// matching the WPF widget's CornerRadius. WinUI content itself is always
+    /// opaque, so without this the corners would be black squares.
+    /// </summary>
+    private void ApplyRoundedRegion(int width, int height)
+    {
+        int radius = (int)Math.Round(6 * GetDpiForWindow(host) / 96.0);
+        radius = Math.Clamp(radius, 2, 24);
+
+        if (width == lastRegionWidth && height == lastRegionHeight && radius == lastRegionRadius)
+            return;
+
+        nint region = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius * 2, radius * 2);
+        if (region == 0)
+            return;
+
+        if (!SetWindowRgn(host, region, true))
+        {
+            DeleteObject(region);
+            return;
+        }
+
+        // Ownership transferred to the system on success.
+        lastRegionWidth = width;
+        lastRegionHeight = height;
+        lastRegionRadius = radius;
+    }
+
     public bool IsTaskbarCreatedMessage(uint message) => message == taskbarCreatedMessage;
+
+    /// <summary>True while the host window is still parented to a live taskbar window.</summary>
+    public bool IsTaskbarParentValid()
+    {
+        return parent != 0
+            && host != 0
+            && IsWindow(parent)
+            && GetParent(host) == parent;
+    }
+
+    /// <summary>
+    /// Forgets the current taskbar attachment (e.g. Explorer restarted and
+    /// Shell_TrayWnd was recreated) so the next TryAttach re-parents fresh.
+    /// </summary>
+    public void Reset()
+    {
+        parent = 0;
+        trayNotify = 0;
+        lastRegionWidth = 0;
+        lastRegionHeight = 0;
+        lastRegionRadius = 0;
+    }
 
     public void SetVisible(bool visible)
     {
@@ -192,6 +249,24 @@ public sealed partial class TaskbarHostController : IDisposable
     {
         public int Left, Top, Right, Bottom;
     }
+
+    [LibraryImport("gdi32.dll")]
+    private static partial nint CreateRoundRectRgn(int left, int top, int right, int bottom, int ellipseWidth, int ellipseHeight);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DeleteObject(nint objectHandle);
+
+    [LibraryImport("user32.dll", EntryPoint = "SetWindowRgn")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetWindowRgn(nint window, nint region, [MarshalAs(UnmanagedType.Bool)] bool redraw);
+
+    [LibraryImport("user32.dll", EntryPoint = "IsWindow")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool IsWindow(nint window);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetParent")]
+    private static partial nint GetParent(nint window);
 
     [LibraryImport("user32.dll", EntryPoint = "GetWindowRect")]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -26,6 +26,24 @@ public sealed class VisualizerEngine : IDisposable
     private int restartInProgress;
     private bool disposed;
 
+    // Current default render endpoint, resolved per Start so device switches
+    // (Bluetooth reconnects, output changes) are picked up on restarts.
+    private MMDevice? DefaultRenderDevice
+    {
+        get
+        {
+            try
+            {
+                using var enumerator = new MMDeviceEnumerator();
+                return enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Console);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
     private readonly float[] ring = new float[FftLength];
     private int ringPos;
     private int samplesSinceHop;
@@ -97,9 +115,16 @@ public sealed class VisualizerEngine : IDisposable
         try
         {
             capture?.Dispose();
-            capture = new WasapiRecorderBuilder()
-                .WithLoopbackCapture()
-                .Build();
+            capture = null;
+
+            renderDevice?.Dispose();
+            renderDevice = DefaultRenderDevice;
+
+            var builder = new WasapiRecorderBuilder().WithLoopbackCapture();
+            if (renderDevice is not null)
+                builder = builder.WithDevice(renderDevice);
+
+            capture = builder.Build();
 
             bytesPerSample = capture.WaveFormat.BitsPerSample / 8;
             sampleRate = capture.WaveFormat.SampleRate;
@@ -125,6 +150,10 @@ public sealed class VisualizerEngine : IDisposable
         catch (Exception)
         {
             isRunning = false;
+
+            // Transient failures (device reconfiguring, no endpoint yet) are common;
+            // schedule a retry instead of staying dead until settings change.
+            RequestRestart("capture start failed");
         }
     }
 

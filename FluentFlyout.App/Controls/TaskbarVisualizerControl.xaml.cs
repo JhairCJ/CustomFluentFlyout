@@ -48,8 +48,14 @@ public sealed partial class TaskbarVisualizerControl : UserControl, IDisposable
         engine = new VisualizerEngine(barCount);
         engine.FrameAvailable += OnFrameAvailable;
 
+        // Album accent color changes must re-paint the bars; without this the bars
+        // stay frozen on the brush created at construction time.
+        AlbumAccentHelper.AccentChanged += OnAccentChanged;
+
         InitializeBars();
         ApplySettings();
+
+        ActualThemeChanged += (_, _) => ApplySettings();
 
         Loaded += (_, _) =>
         {
@@ -67,6 +73,17 @@ public sealed partial class TaskbarVisualizerControl : UserControl, IDisposable
         };
     }
 
+    private void OnAccentChanged(object? sender, Color color)
+    {
+        // Called from a background thread: marshal before touching the tree.
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            var brush = new SolidColorBrush(color);
+            foreach (var rect in barRects)
+                rect.Fill = brush;
+        });
+    }
+
     public void ApplySettings()
     {
         var settings = App.Current.Runtime.Settings.Current;
@@ -82,6 +99,17 @@ public sealed partial class TaskbarVisualizerControl : UserControl, IDisposable
             renderTimer.Stop();
             engine.Stop();
         }
+        else if (enabled)
+        {
+            // Engine alive but the render timer may have been stopped by an earlier
+            // Unloaded (host window recreation): keep both sides in sync.
+            renderTimer.Start();
+        }
+
+        // High refresh rate is a hop-size change inside the engine: restart so the
+        // setting takes effect live, like the WPF OnTaskbarVisualizerHighRefreshRateChanged.
+        if (enabled && engine.IsRunning)
+            engine.HighRefreshRate = settings.TaskbarVisualizerHighRefreshRate;
 
         if (settings.TaskbarVisualizerBarCount != barCount)
         {
@@ -92,8 +120,88 @@ public sealed partial class TaskbarVisualizerControl : UserControl, IDisposable
         engine.AudioSensitivity = settings.TaskbarVisualizerAudioSensitivity;
         engine.AudioPeakLevel = settings.TaskbarVisualizerAudioPeakLevel;
         engine.HighRefreshRate = settings.TaskbarVisualizerHighRefreshRate;
+
+        // Blend into the taskbar like the widget card does; the background must be a
+        // SolidColorBrush so the hover animation can target its Color/Opacity.
+        bool isDark = ActualTheme == ElementTheme.Dark;
+        MainBorder.Background = new SolidColorBrush(isDark
+            ? Color.FromArgb(0xFF, 0x20, 0x20, 0x20)
+            : Color.FromArgb(0xFF, 0xF3, 0xF3, 0xF3));
+
         Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    // ------------------------------------------------------------------
+    // Hover effect (WPF parity): animated background color/opacity fade and a
+    // top highlight border, only when the visualizer is clickable with content.
+    // ------------------------------------------------------------------
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? hoverTimer;
+    private Stopwatch hoverStopwatch = Stopwatch.StartNew();
+    private bool hoverAnimating;
+    private double hoverFromOpacity;
+    private const double HoverTargetOpacityDark = 0.075;
+    private const double HoverTargetOpacityLight = 0.6;
+    private const int HoverDurationMs = 200;
+
+    private void MainBorder_PointerEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        var settings = App.Current.Runtime.Settings.Current;
+        if (!settings.TaskbarVisualizerClickable || !settings.TaskbarVisualizerHasContent)
+            return;
+
+        bool isDark = ActualTheme == ElementTheme.Dark;
+        TopBorder.BorderBrush = new SolidColorBrush(Color.FromArgb(93, 255, 255, 255));
+        TopBorder.Opacity = isDark ? 0.25 : 1;
+
+        StartHoverAnimation(isDark ? HoverTargetOpacityDark : HoverTargetOpacityLight);
+    }
+
+    private void MainBorder_PointerExited(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (hoverTimer is null && MainBorder.Opacity == 1)
+        {
+            TopBorder.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            return;
+        }
+
+        TopBorder.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        StartHoverAnimation(0);
+    }
+
+    /// <summary>
+    /// 200 ms eased fade of the card background opacity toward the target (in on
+    /// hover, out on leave) — the WinUI equivalent of the WPF ColorAnimation pair.
+    /// </summary>
+    private void StartHoverAnimation(double targetOverlayOpacity)
+    {
+        // The overlay fade is emulated by animating an overlay rect's opacity; we
+        // reuse TopBorder.Opacity for the highlight and MainBorder background alpha
+        // via a simple timer-driven interpolation on a dedicated hover brush.
+        hoverFromOpacity = hoverOverlayCurrent;
+        hoverOverlayTarget = targetOverlayOpacity;
+        hoverStopwatch.Restart();
+
+        hoverTimer ??= DispatcherQueue.CreateTimer();
+        hoverTimer.Interval = TimeSpan.FromMilliseconds(16);
+        hoverTimer.Tick += (_, _) =>
+        {
+            double t = Math.Min(hoverStopwatch.Elapsed.TotalMilliseconds / HoverDurationMs, 1.0);
+            double eased = t < 0.5 ? 4 * t * t * t : 1 - Math.Pow(-2 * t + 2, 3) / 2; // ease-in-out cubic
+            hoverOverlayCurrent = hoverFromOpacity + (hoverOverlayTarget - hoverFromOpacity) * eased;
+            HoverOverlay.Opacity = hoverOverlayCurrent;
+            if (t >= 1.0)
+            {
+                hoverTimer.Stop();
+                hoverAnimating = false;
+            }
+        };
+        hoverTimer.Start();
+        hoverAnimating = true;
+    }
+
+    private double hoverOverlayCurrent;
+    private double hoverOverlayTarget;
 
     private void InitializeBars()
     {
@@ -221,19 +329,6 @@ public sealed partial class TaskbarVisualizerControl : UserControl, IDisposable
         BarsCanvas.Opacity = value ? 1 : 0;
     }
 
-    private void MainBorder_PointerEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
-    {
-        var settings = App.Current.Runtime.Settings.Current;
-        if (!settings.TaskbarVisualizerClickable || !settings.TaskbarVisualizerHasContent)
-            return;
-        MainBorder.Opacity = 0.9;
-    }
-
-    private void MainBorder_PointerExited(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
-    {
-        MainBorder.Opacity = 1;
-    }
-
     private void MainBorder_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
     {
         var settings = App.Current.Runtime.Settings.Current;
@@ -247,6 +342,7 @@ public sealed partial class TaskbarVisualizerControl : UserControl, IDisposable
         if (disposed) return;
         disposed = true;
         renderTimer.Stop();
+        AlbumAccentHelper.AccentChanged -= OnAccentChanged;
         engine.FrameAvailable -= OnFrameAvailable;
         engine.Dispose();
     }

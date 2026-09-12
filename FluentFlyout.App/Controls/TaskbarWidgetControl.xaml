@@ -8,6 +8,13 @@
 
     <Border x:Name="MainBorder" CornerRadius="6" SizeChanged="MainBorder_SizeChanged">
         <Grid x:Name="ClipGrid">
+            <!-- Opaque taskbar-colored card: WinUI windows cannot be per-pixel transparent,
+                 so the widget paints the taskbar's own color to blend into it. -->
+            <Border x:Name="TaskbarBackground"
+                    CornerRadius="6"
+                    Background="#FF202020"
+                    IsHitTestVisible="False" />
+
             <!-- The rotating background lives in a Canvas so it is arranged at its exact
                  square size, independent of the widget's rectangular layout slot. The
                  widget viewport (ClipGrid, geometry clip) reveals a band of the disc. -->
@@ -26,31 +33,47 @@
                        Visibility="Collapsed" />
             </Canvas>
 
+            <!-- Content crossfade overlay: holds a dimmed copy of the previous artwork
+                 while a song change fades the new content in underneath (the WinUI
+                 equivalent of the WPF RenderTargetBitmap snapshot overlay). -->
+            <Border x:Name="CrossfadeOverlay"
+                    CornerRadius="6"
+                    IsHitTestVisible="False"
+                    Opacity="0"
+                    Visibility="Collapsed" />
+
             <Grid x:Name="MainGrid" HorizontalAlignment="Left" VerticalAlignment="Center">
                 <StackPanel x:Name="MainStackPanel" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
                     <Border x:Name="SongImageBorder"
                             CornerRadius="5"
                             Width="36" Height="36"
                             Margin="4,0,0,0"
-                            Tapped="SongImage_Tapped">
+                            Tapped="SongImage_Tapped"
+                            PointerEntered="SongImageBorder_PointerEntered"
+                            PointerExited="SongImageBorder_PointerExited">
                         <Grid>
                             <FontIcon x:Name="SongImagePlaceholder" Glyph="&#xE8D6;" FontSize="24" Visibility="Visible" />
                             <Border x:Name="SongImageBorderInner" CornerRadius="5" Visibility="Collapsed">
-                                <Image x:Name="SongImage" Stretch="UniformToFill" />
+                                <Grid>
+                                    <Image x:Name="SongImage" Stretch="UniformToFill" />
+                                    <FontIcon x:Name="PauseOverlayIcon" Glyph="&#xE769;" FontSize="20" Visibility="Collapsed" />
+                                </Grid>
                             </Border>
                         </Grid>
                     </Border>
 
-                    <StackPanel x:Name="SongInfoStackPanel" Orientation="Vertical" VerticalAlignment="Center" Margin="8,0,0,0">
+                    <StackPanel x:Name="SongInfoStackPanel" Orientation="Vertical" VerticalAlignment="Center" Margin="8,0,0,0"
+                                ToolTipService.ToolTip=""
+                                ToolTipService.Placement="Mouse">
                         <Canvas x:Name="SongTitleContainer" Height="20" Width="150">
-                            <TextBlock x:Name="SongTitle" Text="" FontSize="13" FontWeight="SemiBold" />
+                            <TextBlock x:Name="SongTitle" Text="" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                         </Canvas>
                         <Canvas x:Name="SongArtistContainer" Margin="0,-1,0,0" Height="18" Width="150">
-                            <TextBlock x:Name="SongArtist" Text="" FontSize="12" FontWeight="Normal" Opacity="0.65" />
+                            <TextBlock x:Name="SongArtist" Text="" FontSize="12" FontWeight="Normal" Opacity="0.65" TextTrimming="CharacterEllipsis" />
                         </Canvas>
                     </StackPanel>
 
-                    <StackPanel x:Name="ControlsStackPanel" Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0" Visibility="Collapsed">
+                    <StackPanel x:Name="ControlsStackPanel" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0" Visibility="Collapsed">
                         <Button x:Name="PreviousButton" Style="{StaticResource IconButtonStyle}" Width="30" Height="30" Padding="2" Click="Previous_Click">
                             <FontIcon Glyph="&#xE892;" FontSize="13" />
                         </Button>
