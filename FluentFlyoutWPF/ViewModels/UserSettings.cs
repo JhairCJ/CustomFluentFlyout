@@ -780,6 +780,86 @@ public partial class UserSettings : ObservableObject
     public partial bool IslandEnabled { get; set; }
 
     /// <summary>
+    /// Fluent Island: muestra el borde blanco translúcido de la isla.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandBorderEnabled { get; set; }
+
+    /// <summary>
+    /// Radio de las esquinas del Fluent Island en píxeles.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandBorderRadiusText))]
+    public partial int IslandBorderRadius { get; set; }
+
+    [XmlIgnore]
+    public string IslandBorderRadiusText
+    {
+        get => IslandBorderRadius.ToString();
+        set
+        {
+            if (int.TryParse(value, out var result))
+                IslandBorderRadius = Math.Clamp(result, 0, 40);
+            else IslandBorderRadius = 17;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Fluent Island: activa el fondo desenfocado basado en la carátula.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandBackgroundBlurIntensityEnabled))]
+    [NotifyPropertyChangedFor(nameof(IslandBackgroundBlurRadiusEnabled))]
+    [NotifyPropertyChangedFor(nameof(IslandBackgroundRotateEnabled))]
+    public partial bool IslandBackgroundBlur { get; set; }
+
+    [ObservableProperty]
+    public partial int IslandBackgroundBlurIntensity { get; set; }
+
+    [ObservableProperty]
+    public partial int IslandBackgroundBlurRadius { get; set; }
+
+    /// <summary>
+    /// Fluent Island: gira continuamente el fondo desenfocado.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandBackgroundRotateEnabled))]
+    public partial bool IslandBackgroundRotate { get; set; }
+
+    [ObservableProperty]
+    public partial int IslandBackgroundRotateSide { get; set; }
+
+    [ObservableProperty]
+    public partial int IslandBackgroundRotateDirection { get; set; }
+
+    [ObservableProperty]
+    public partial bool IslandBackgroundRotateHighRefreshRate { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandBackgroundRotateDurationText))]
+    public partial int IslandBackgroundRotateDuration { get; set; }
+
+    [XmlIgnore]
+    public string IslandBackgroundRotateDurationText => IslandBackgroundRotateDuration > 1 ? $"{IslandBackgroundRotateDuration} segundos" : $"{IslandBackgroundRotateDuration} segundo";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandBackgroundRotateSizeText))]
+    public partial int IslandBackgroundRotateSize { get; set; }
+
+    [XmlIgnore]
+    public string IslandBackgroundRotateSizeText => $"{IslandBackgroundRotateSize}%";
+
+    [XmlIgnore]
+    public bool IslandBackgroundBlurIntensityEnabled => IslandBackgroundBlur;
+
+    [XmlIgnore]
+    public bool IslandBackgroundBlurRadiusEnabled => IslandBackgroundBlur;
+
+    [XmlIgnore]
+    public bool IslandBackgroundRotateEnabled => IslandBackgroundBlur;
+
+    /// <summary>
     /// Fluent Island: 0 = visible mientras suena, 1 = aviso temporal (N s al reproducir).
     /// </summary>
     [ObservableProperty]
@@ -1126,6 +1206,17 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetScrollingTextLoopForever = false;
         TaskbarVisualizerEnabled = false;
         IslandEnabled = true;
+        IslandBorderEnabled = true;
+        IslandBorderRadius = 17;
+        IslandBackgroundBlur = false;
+        IslandBackgroundBlurIntensity = 65;
+        IslandBackgroundBlurRadius = 35;
+        IslandBackgroundRotate = false;
+        IslandBackgroundRotateSide = 0;
+        IslandBackgroundRotateDirection = 0;
+        IslandBackgroundRotateHighRefreshRate = false;
+        IslandBackgroundRotateDuration = 20;
+        IslandBackgroundRotateSize = 300;
         IslandStyle = 0;
         IslandHoverTolerance = 12;
         IslandVisibilityMode = 0;
@@ -1490,6 +1581,90 @@ public partial class UserSettings : ObservableObject
     {
         if (oldValue == newValue || _initializing) return;
         TaskbarVisualizerControl.OnTaskbarVisualizerHighRefreshRateChanged();
+    }
+
+    partial void OnIslandEnabledChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshEnabledState();
+    }
+
+    partial void OnIslandBorderEnabledChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandBorderRadiusChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandActivityLineChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandStyleChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandBackgroundBlurChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
+    }
+
+    partial void OnIslandBackgroundBlurIntensityChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
+    }
+
+    partial void OnIslandBackgroundBlurRadiusChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
+    }
+
+    partial void OnIslandBackgroundRotateChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
+    }
+
+    partial void OnIslandBackgroundRotateSideChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
+    }
+
+    partial void OnIslandBackgroundRotateDirectionChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
+    }
+
+    partial void OnIslandBackgroundRotateHighRefreshRateChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshBackgroundRotationFrameRate();
+    }
+
+    partial void OnIslandBackgroundRotateDurationChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
+    }
+
+    partial void OnIslandBackgroundRotateSizeChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
     }
 
     partial void OnTaskbarVisualizerBaselineChanged(bool oldValue, bool newValue)

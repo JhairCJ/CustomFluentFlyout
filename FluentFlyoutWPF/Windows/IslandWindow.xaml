@@ -22,7 +22,7 @@
 
         <!-- La caja: Width 240/200<->480 y Height 34<->expandido animados por código.
              ClipToBounds para que el contenido florezca desde dentro al crecer. -->
-        <Border x:Name="IslandBox" Width="240" Height="34" CornerRadius="17"
+            <Border x:Name="IslandBox" Width="240" Height="34" CornerRadius="17"
                 HorizontalAlignment="Center" VerticalAlignment="Top"
                 Background="Black" BorderBrush="#33FFFFFF" BorderThickness="1"
                 Visibility="Collapsed" ClipToBounds="True" RenderTransformOrigin="0.5,0.5"
@@ -34,6 +34,21 @@
                 </TransformGroup>
             </Border.RenderTransform>
             <Grid>
+                <!-- The album art is used as a clipped viewport background, just like
+                     the taskbar widget. The second layer keeps song changes smooth. -->
+                <Canvas x:Name="BackgroundCanvas" IsHitTestVisible="False">
+                    <Image x:Name="BackgroundImage" Stretch="UniformToFill" RenderTransformOrigin="0.5,0.5">
+                        <Image.Effect>
+                            <BlurEffect x:Name="BackgroundImageBlurEffect" Radius="35" />
+                        </Image.Effect>
+                    </Image>
+                    <Image x:Name="BackgroundImageNext" Stretch="UniformToFill" RenderTransformOrigin="0.5,0.5" Visibility="Collapsed">
+                        <Image.Effect>
+                            <BlurEffect x:Name="BackgroundImageNextBlurEffect" Radius="35" />
+                        </Image.Effect>
+                    </Image>
+                </Canvas>
+
                 <!-- Capa compacta: carátula izquierda + título + ecualizador -->
                 <Grid x:Name="CompactLayer" Width="240" Height="34"
                       HorizontalAlignment="Center" VerticalAlignment="Top"

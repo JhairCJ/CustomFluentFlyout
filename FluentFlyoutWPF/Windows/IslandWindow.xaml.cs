@@ -12,6 +12,8 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Windows.Media.Control;
@@ -28,6 +30,9 @@ namespace FluentFlyoutWPF.Windows;
 /// </summary>
 public partial class IslandWindow : Window
 {
+    private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+    private static readonly Brush IslandBorderBrush = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
+
     private readonly MainWindow _main;
     private readonly Dictionary<string, DateTime> _lastPlay = new();
     private string? _currentId;
@@ -52,6 +57,28 @@ public partial class IslandWindow : Window
     private bool _popPlaying;
     private double _pop; // 0..1 pulso de cambio de pista
 
+    // Album-art background, matching the taskbar widget's blurred/rotating viewport.
+    private BitmapImage? _backgroundIcon;
+    private BitmapImage? _bakedIcon;
+    private BitmapSource? _bakedBackground;
+    private double _bakedSideDip;
+    private int _bakedBlurRadius;
+    private BitmapImage? _bakingIcon;
+    private double _bakingSide;
+    private int _bakingBlurRadius;
+    private RotateTransform? _backgroundRotateTransform;
+    private bool _backgroundRotationActive;
+    private bool _backgroundRotationAnimationRunning;
+    private bool _backgroundRotationPaused;
+    private bool _backgroundRotationWasUp;
+    private double _appliedRotationDurationSeconds;
+    private int? _appliedDesiredFrameRate;
+    private double _pausedRotationAngle;
+    private BitmapSource? _backgroundCrossfadeTarget;
+    private int _backgroundCrossfadeVersion;
+    private int _backgroundGeneration;
+    private bool _disposed;
+
     public IslandWindow(MainWindow main)
     {
         _main = main;
@@ -60,6 +87,7 @@ public partial class IslandWindow : Window
         CompactEq.Source = _eq.Bitmap;
         ExpandedEq.Source = _eq.Bitmap;
         ApplyStyle();
+        UpdateBackgroundMode();
         SyncMeasuredHeight();
         SnapFrame();
         Show();
@@ -212,13 +240,27 @@ public partial class IslandWindow : Window
         PositionTopCenter();
         SyncMeasuredHeight();
         if (!AnimationsEnabled) SnapCompact();
-        else { _pT = 0; _qT = 1; IslandBox.Visibility = Visibility.Visible; EnsureLoop(); }
+        else
+        {
+            _pT = 0;
+            _qT = 1;
+            IslandBox.Visibility = Visibility.Visible;
+            UpdateRotationPauseState();
+            EnsureLoop();
+        }
         ArmTemporaryHide();
     }
 
     private void HidePerMode()
     {
         _hideCts?.Cancel();
+        UpdateRotationPauseState();
+        if (IsMouseOverBoxOrStrip())
+        {
+            if (!_expanded && Current() is { } session)
+                ExpandSession(session);
+            return;
+        }
         if (_expanded)
         {
             _expanded = false;
@@ -251,6 +293,7 @@ public partial class IslandWindow : Window
         StopLoop();
         ApplyFrame();
         IslandBox.Visibility = Visibility.Visible;
+        UpdateRotationPauseState();
     }
 
     private void SnapHidden()
@@ -263,6 +306,7 @@ public partial class IslandWindow : Window
         StopLoop();
         ApplyFrame();
         IslandBox.Visibility = Visibility.Collapsed;
+        UpdateRotationPauseState();
         UpdateLine();
     }
 
@@ -311,11 +355,13 @@ public partial class IslandWindow : Window
             _pop = 0; _popPlaying = false;
             ApplyFrame();
             IslandBox.Visibility = Visibility.Visible;
+            UpdateRotationPauseState();
             return;
         }
         if (wasExpanded) return; // ya expandido: solo actualizar datos
         _pT = 1; _qT = 1;
         IslandBox.Visibility = Visibility.Visible;
+        UpdateRotationPauseState();
         EnsureLoop();
     }
 
@@ -347,6 +393,33 @@ public partial class IslandWindow : Window
 
     private bool AnimationsEnabled => SettingsManager.Current.IslandAnimated && SettingsManager.Current.FlyoutAnimationSpeed != 0;
     private bool IsNotch => Math.Clamp(SettingsManager.Current.IslandStyle, 0, 1) == 1;
+    private double IslandRadius => Math.Clamp(SettingsManager.Current.IslandBorderRadius, 0, 40);
+
+    public void RefreshEnabledState()
+    {
+        if (!SettingsManager.Current.IslandEnabled)
+        {
+            SnapHidden();
+            UpdateBackgroundMode();
+            Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        Visibility = Visibility.Visible;
+        if (!Suppressed())
+        {
+            var session = NewestPlaying();
+            if (session != null) ShowCompact(session);
+        }
+        RefreshAppearance();
+    }
+
+    public void RefreshAppearance()
+    {
+        ApplyStyle();
+        UpdateLine();
+        ApplyFrame();
+    }
 
     // Apple-ish: muelle subamortiguado suave. Si el usuario puso velocidad lenta,
     // bajamos rigidez para que se sienta más pesado sin romper.
@@ -498,7 +571,8 @@ public partial class IslandWindow : Window
             IslandBox.Width = w;
             IslandBox.Height = h;
             IslandBox.Opacity = q;
-            IslandBox.CornerRadius = new CornerRadius(0, 0, 18, 18);
+            double radius = Math.Min(IslandRadius, Math.Min(w, h) / 2);
+            IslandBox.CornerRadius = new CornerRadius(0, 0, radius, radius);
             BoxTranslate.Y = (1 - q) * -18;
             BoxScale.ScaleX = BoxScale.ScaleY = 1;
             IslandBox.RenderTransformOrigin = new Point(0.5, 0);
@@ -516,13 +590,18 @@ public partial class IslandWindow : Window
             IslandBox.Height = h;
             IslandBox.Opacity = Smooth01(Math.Clamp(q / 0.38, 0, 1));
             // Radio: círculo perfecto mientras es punto, cápsula después
-            double cr = baseW <= pillDot + 0.5 && p < 0.02 ? pillDot / 2 : 17;
-            if (p > 0.02) cr = 17; // expandido siempre pill
+            double cr = baseW <= pillDot + 0.5 && p < 0.02
+                ? pillDot / 2
+                : Math.Min(IslandRadius, Math.Min(w, h) / 2);
+            if (p > 0.02) cr = Math.Min(IslandRadius, Math.Min(w, h) / 2); // expandido siempre pill
             IslandBox.CornerRadius = new CornerRadius(cr);
             BoxTranslate.Y = 0;
             BoxScale.ScaleX = BoxScale.ScaleY = Lerp(0.68, 1, Smooth01(dotT));
             IslandBox.RenderTransformOrigin = new Point(0.5, 0.5);
         }
+
+        ApplyIslandClip(w, h, IslandBox.CornerRadius);
+        LayoutBackground(w, h);
 
         // Crossfade de capas + morph del contenido (Apple: el álbum y el título respiran)
         // En pill, los elementos divergen desde el centro durante el estiramiento
@@ -627,6 +706,7 @@ public partial class IslandWindow : Window
         CompactTitle.Text = title;
         CompactArt.Source = art;
         ExpandedArt.Source = art;
+        SetBackground(art);
         string trackKey = title + "\n" + artist + "\n" + (art != null);
         bool trackChanged = _lastTrackKey != "" && trackKey != _lastTrackKey;
         _lastTrackKey = trackKey;
@@ -777,21 +857,412 @@ public partial class IslandWindow : Window
     private void ApplyStyle()
     {
         int style = Math.Clamp(SettingsManager.Current.IslandStyle, 0, 1);
-        if (style == _appliedStyle) return;
-        _appliedStyle = style;
-        if (style == 1)
+        if (style != _appliedStyle)
         {
-            IslandBox.BorderThickness = new Thickness(1, 0, 1, 1);
-            CompactLayer.Width = 200;
+            _appliedStyle = style;
+            if (style == 1)
+            {
+                IslandBox.BorderThickness = new Thickness(1, 0, 1, 1);
+                CompactLayer.Width = 200;
+            }
+            else
+            {
+                IslandBox.BorderThickness = new Thickness(1);
+                CompactLayer.Width = 240;
+            }
         }
-        else
-        {
-            IslandBox.BorderThickness = new Thickness(1);
-            CompactLayer.Width = 240;
-        }
+
+        IslandBox.BorderBrush = SettingsManager.Current.IslandBorderEnabled ? IslandBorderBrush : Brushes.Transparent;
+
         // CornerRadius lo gobierna ApplyFrame por frame (punto 26→cápsula)
         SyncMeasuredHeight();
         if (!_loopOn) ApplyFrame();
+    }
+
+    public void UpdateBackgroundMode()
+    {
+        ApplyBackgroundSettings();
+
+        bool enabled = SettingsManager.Current.IslandEnabled && SettingsManager.Current.IslandBackgroundBlur;
+        if (!enabled || _backgroundIcon == null)
+        {
+            StopBackgroundRotation();
+            BackgroundImage.Visibility = Visibility.Collapsed;
+            BackgroundImageNext.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        BackgroundImage.Visibility = Visibility.Visible;
+        if (SettingsManager.Current.IslandBackgroundRotate)
+        {
+            ApplyBackgroundRotation();
+        }
+        else
+        {
+            StopBackgroundRotation();
+            LayoutBackgroundToFill();
+            BeginBackgroundCrossfade(_backgroundIcon, Math.Max(MainWindow.getDuration(), 1));
+        }
+
+        UpdateRotationPauseState();
+    }
+
+    public void RefreshBackgroundRotationFrameRate()
+    {
+        if (!SettingsManager.Current.IslandBackgroundBlur ||
+            !SettingsManager.Current.IslandBackgroundRotate ||
+            !_backgroundRotationActive ||
+            _backgroundRotateTransform == null)
+            return;
+
+        ApplyBackgroundRotation(_backgroundRotateTransform.Angle);
+    }
+
+    private void ApplyBackgroundSettings()
+    {
+        double opacity = Math.Clamp(SettingsManager.Current.IslandBackgroundBlurIntensity, 0, 100) / 100.0;
+        double radius = Math.Clamp(SettingsManager.Current.IslandBackgroundBlurRadius, 0, 150);
+        BackgroundImage.Opacity = opacity;
+        BackgroundImageNext.Opacity = opacity;
+        BackgroundImageBlurEffect.Radius = radius;
+        BackgroundImageNextBlurEffect.Radius = radius;
+    }
+
+    private void ApplyBackgroundRotation(double? forcedStartAngle = null)
+    {
+        double width = IslandBox.Width > 0 ? IslandBox.Width : 240;
+        double height = IslandBox.Height > 0 ? IslandBox.Height : 34;
+        _backgroundRotationActive = true;
+
+        _backgroundRotateTransform ??= new RotateTransform();
+        BackgroundImage.RenderTransform = _backgroundRotateTransform;
+        BackgroundImageNext.RenderTransform = _backgroundRotateTransform;
+        BackgroundImage.Effect = null;
+        BackgroundImageNext.Effect = null;
+        BackgroundImage.CacheMode ??= new BitmapCache(0.5);
+        BackgroundImageNext.CacheMode ??= new BitmapCache(0.5);
+
+        double sizeMultiplier = Math.Max(SettingsManager.Current.IslandBackgroundRotateSize, 100) / 100.0;
+        double discSide = Math.Max(Math.Max(480 * sizeMultiplier, height * sizeMultiplier), 480);
+        double offsetX = discSide * 0.28;
+        bool showLeftSide = SettingsManager.Current.IslandBackgroundRotateSide == 0;
+        LayoutDiscLayer(BackgroundImage, width, height, discSide, offsetX, showLeftSide);
+        LayoutDiscLayer(BackgroundImageNext, width, height, discSide, offsetX, showLeftSide);
+
+        if (_backgroundIcon != null)
+            UpdateBakedBackgroundAsync(_backgroundIcon, discSide);
+
+        if (_backgroundRotationPaused)
+            return;
+
+        double durationSeconds = Math.Max(SettingsManager.Current.IslandBackgroundRotateDuration, 1);
+        bool spinUp = SettingsManager.Current.IslandBackgroundRotateDirection == 1;
+        int? desiredFrameRate = SettingsManager.Current.IslandBackgroundRotateHighRefreshRate ? null : 30;
+        bool restart = forcedStartAngle.HasValue ||
+                       !_backgroundRotationAnimationRunning ||
+                       _backgroundRotationWasUp != spinUp ||
+                       Math.Abs(_appliedRotationDurationSeconds - durationSeconds) > 0.01 ||
+                       _appliedDesiredFrameRate != desiredFrameRate;
+        if (!restart) return;
+
+        double startAngle = forcedStartAngle ?? _backgroundRotateTransform.Angle;
+        _backgroundRotationWasUp = spinUp;
+        _backgroundRotationAnimationRunning = true;
+        _appliedRotationDurationSeconds = durationSeconds;
+        _appliedDesiredFrameRate = desiredFrameRate;
+        var animation = new DoubleAnimation
+        {
+            From = startAngle,
+            To = spinUp ? startAngle - 360 : startAngle + 360,
+            Duration = TimeSpan.FromSeconds(durationSeconds),
+            RepeatBehavior = RepeatBehavior.Forever
+        };
+        Timeline.SetDesiredFrameRate(animation, desiredFrameRate);
+        _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, animation);
+    }
+
+    private void LayoutBackground(double width, double height)
+    {
+        BackgroundCanvas.Width = width;
+        BackgroundCanvas.Height = height;
+        if (_backgroundRotationActive)
+        {
+            double sizeMultiplier = Math.Max(SettingsManager.Current.IslandBackgroundRotateSize, 100) / 100.0;
+            double discSide = Math.Max(Math.Max(480 * sizeMultiplier, height * sizeMultiplier), 480);
+            double offsetX = discSide * 0.28;
+            bool showLeftSide = SettingsManager.Current.IslandBackgroundRotateSide == 0;
+            LayoutDiscLayer(BackgroundImage, width, height, discSide, offsetX, showLeftSide);
+            LayoutDiscLayer(BackgroundImageNext, width, height, discSide, offsetX, showLeftSide);
+        }
+        else
+        {
+            LayoutBackgroundToFill();
+        }
+    }
+
+    private void LayoutBackgroundToFill()
+    {
+        double width = IslandBox.Width > 0 ? IslandBox.Width : 240;
+        double height = IslandBox.Height > 0 ? IslandBox.Height : 34;
+        double side = Math.Max(Math.Max(width, height), 1);
+        BackgroundCanvas.Width = width;
+        BackgroundCanvas.Height = height;
+        LayoutFillLayer(BackgroundImage, width, height, side);
+        LayoutFillLayer(BackgroundImageNext, width, height, side);
+    }
+
+    private static void LayoutFillLayer(Image layer, double width, double height, double side)
+    {
+        layer.Width = side;
+        layer.Height = side;
+        layer.Margin = new Thickness(0);
+        layer.Stretch = Stretch.UniformToFill;
+        Canvas.SetLeft(layer, (width - side) / 2);
+        Canvas.SetTop(layer, (height - side) / 2);
+    }
+
+    private static void LayoutDiscLayer(Image layer, double width, double height, double discSide, double offsetX, bool showLeftSide)
+    {
+        layer.Width = discSide;
+        layer.Height = discSide;
+        layer.Margin = new Thickness(0);
+        layer.Stretch = Stretch.Fill;
+        Canvas.SetLeft(layer, (width - discSide) / 2 + (showLeftSide ? offsetX : -offsetX));
+        Canvas.SetTop(layer, (height - discSide) / 2);
+    }
+
+    private void SetBackground(BitmapImage? icon)
+    {
+        if (!ReferenceEquals(_backgroundIcon, icon))
+        {
+            _backgroundGeneration++;
+            _bakingIcon = null;
+        }
+        _backgroundIcon = icon;
+        if (icon == null)
+        {
+            StopBackgroundRotation();
+            BackgroundImage.Source = null;
+            ParkBackgroundNextLayer();
+            BackgroundImage.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        UpdateBackgroundMode();
+    }
+
+    private static BitmapSource? BakeBlurredBackground(BitmapImage icon, double discSide, double blurRadiusDips)
+    {
+        const int resolution = 256;
+        double blurRadius = blurRadiusDips * resolution / Math.Max(discSide, 1);
+        var visual = new DrawingVisual();
+        using (DrawingContext dc = visual.RenderOpen())
+            dc.DrawImage(icon, new Rect(0, 0, resolution, resolution));
+
+        visual.Effect = new BlurEffect
+        {
+            Radius = blurRadius,
+            KernelType = KernelType.Gaussian,
+            RenderingBias = RenderingBias.Performance
+        };
+
+        var bitmap = new RenderTargetBitmap(resolution, resolution, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        bitmap.Freeze();
+        return bitmap;
+    }
+
+    private async void UpdateBakedBackgroundAsync(BitmapImage icon, double discSide)
+    {
+        int version = _backgroundGeneration;
+        double bakeSide = Math.Round(discSide / 16.0) * 16.0;
+        int blurRadius = Math.Clamp(SettingsManager.Current.IslandBackgroundBlurRadius, 0, 150);
+        if (_bakedBackground != null && ReferenceEquals(_bakedIcon, icon) &&
+            Math.Abs(_bakedSideDip - bakeSide) < 0.5 && _bakedBlurRadius == blurRadius)
+        {
+            if (_backgroundRotationActive && !ReferenceEquals(BackgroundImage.Source, _bakedBackground))
+                BeginBackgroundCrossfade(_bakedBackground, Math.Max(MainWindow.getDuration(), 1));
+            return;
+        }
+
+        if (ReferenceEquals(_bakingIcon, icon) && Math.Abs(_bakingSide - bakeSide) < 0.5 && _bakingBlurRadius == blurRadius)
+            return;
+
+        if (_bakedBackground == null)
+        {
+            BackgroundImage.Source = icon;
+            BackgroundImage.Effect = BackgroundImageBlurEffect;
+        }
+
+        _bakingIcon = icon;
+        _bakingSide = bakeSide;
+        _bakingBlurRadius = blurRadius;
+        BitmapSource? baked;
+        try
+        {
+            baked = await Task.Run(() => BakeBlurredBackground(icon, bakeSide, blurRadius));
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to bake Fluent Island background");
+            if (ReferenceEquals(_bakingIcon, icon)) _bakingIcon = null;
+            return;
+        }
+
+        if (_disposed || version != _backgroundGeneration || !ReferenceEquals(_backgroundIcon, icon) ||
+            !ReferenceEquals(_bakingIcon, icon) || Math.Abs(_bakingSide - bakeSide) >= 0.5 || _bakingBlurRadius != blurRadius)
+            return;
+        if (ReferenceEquals(_bakingIcon, icon) && Math.Abs(_bakingSide - bakeSide) < 0.5)
+            _bakingIcon = null;
+        if (baked == null) return;
+
+        _bakedIcon = icon;
+        _bakedBackground = baked;
+        _bakedSideDip = bakeSide;
+        _bakedBlurRadius = blurRadius;
+        if (_backgroundRotationActive)
+            BeginBackgroundCrossfade(baked, Math.Max(MainWindow.getDuration(), 1));
+    }
+
+    private void BeginBackgroundCrossfade(BitmapSource target, int durationMs)
+    {
+        if (BackgroundImage.Source == null || !AnimationsEnabled || durationMs <= 1)
+        {
+            BackgroundImage.Source = target;
+            ParkBackgroundNextLayer();
+            return;
+        }
+
+        if (ReferenceEquals(BackgroundImage.Source, target) && _backgroundCrossfadeTarget == null)
+        {
+            ParkBackgroundNextLayer();
+            return;
+        }
+
+        _backgroundCrossfadeVersion++;
+        int version = _backgroundCrossfadeVersion;
+        _backgroundCrossfadeTarget = target;
+        BackgroundImageNext.BeginAnimation(OpacityProperty, null);
+        BackgroundImageNext.Source = target;
+        BackgroundImageNext.Visibility = Visibility.Visible;
+        BackgroundImageNext.Opacity = 0;
+        var fade = new DoubleAnimation
+        {
+            From = 0,
+            To = BackgroundImage.Opacity,
+            Duration = TimeSpan.FromMilliseconds(durationMs),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        fade.Completed += (_, _) =>
+        {
+            if (version != _backgroundCrossfadeVersion) return;
+            BackgroundImage.Source = target;
+            ParkBackgroundNextLayer();
+        };
+        BackgroundImageNext.BeginAnimation(OpacityProperty, fade);
+    }
+
+    private void ParkBackgroundNextLayer()
+    {
+        _backgroundCrossfadeTarget = null;
+        BackgroundImageNext.BeginAnimation(OpacityProperty, null);
+        BackgroundImageNext.Visibility = Visibility.Collapsed;
+        BackgroundImageNext.Opacity = Math.Clamp(SettingsManager.Current.IslandBackgroundBlurIntensity, 0, 100) / 100.0;
+    }
+
+    private void CancelBackgroundCrossfade()
+    {
+        _backgroundCrossfadeVersion++;
+        ParkBackgroundNextLayer();
+    }
+
+    private void UpdateRotationPauseState()
+    {
+        if (!_backgroundRotationActive) return;
+        if (!SettingsManager.Current.IslandBackgroundRotate ||
+            !SettingsManager.Current.IslandBackgroundBlur)
+            return;
+
+        if (_lastStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing ||
+            !IsVisible || !IsBoxShown)
+            PauseBackgroundRotation();
+        else
+            ResumeBackgroundRotation();
+    }
+
+    private void PauseBackgroundRotation()
+    {
+        if (!_backgroundRotationAnimationRunning || _backgroundRotationPaused || _backgroundRotateTransform == null)
+            return;
+
+        _pausedRotationAngle = _backgroundRotateTransform.Angle;
+        _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, null);
+        _backgroundRotateTransform.Angle = _pausedRotationAngle;
+        _backgroundRotationAnimationRunning = false;
+        _backgroundRotationPaused = true;
+    }
+
+    private void ResumeBackgroundRotation()
+    {
+        if (!_backgroundRotationPaused) return;
+        _backgroundRotationPaused = false;
+        ApplyBackgroundRotation(_pausedRotationAngle);
+    }
+
+    private void StopBackgroundRotation()
+    {
+        _backgroundRotationActive = false;
+        _backgroundRotationAnimationRunning = false;
+        _backgroundRotationPaused = false;
+        if (_backgroundRotateTransform != null)
+        {
+            _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, null);
+            _backgroundRotateTransform.Angle = 0;
+        }
+        CancelBackgroundCrossfade();
+        BackgroundImage.CacheMode = null;
+        BackgroundImageNext.CacheMode = null;
+        BackgroundImage.RenderTransform = Transform.Identity;
+        BackgroundImageNext.RenderTransform = Transform.Identity;
+        BackgroundImage.Effect = BackgroundImageBlurEffect;
+        BackgroundImageNext.Effect = BackgroundImageNextBlurEffect;
+    }
+
+    private static Geometry CreateIslandClip(double width, double height, CornerRadius radius)
+    {
+        if (width <= 0 || height <= 0) return Geometry.Empty;
+        double tl = Math.Clamp(radius.TopLeft, 0, Math.Min(width, height) / 2);
+        double tr = Math.Clamp(radius.TopRight, 0, Math.Min(width, height) / 2);
+        double br = Math.Clamp(radius.BottomRight, 0, Math.Min(width, height) / 2);
+        double bl = Math.Clamp(radius.BottomLeft, 0, Math.Min(width, height) / 2);
+        var geometry = new StreamGeometry();
+        using (StreamGeometryContext context = geometry.Open())
+        {
+            context.BeginFigure(new Point(tl, 0), true, true);
+            context.LineTo(new Point(width - tr, 0), true, false);
+            AddCorner(context, new Point(width, tr), tr);
+            context.LineTo(new Point(width, height - br), true, false);
+            AddCorner(context, new Point(width - br, height), br);
+            context.LineTo(new Point(bl, height), true, false);
+            AddCorner(context, new Point(0, height - bl), bl);
+            context.LineTo(new Point(0, tl), true, false);
+            AddCorner(context, new Point(tl, 0), tl);
+        }
+        geometry.Freeze();
+        return geometry;
+    }
+
+    private static void AddCorner(StreamGeometryContext context, Point end, double radius)
+    {
+        if (radius <= 0.01)
+            context.LineTo(end, true, false);
+        else
+            context.ArcTo(end, new Size(radius, radius), 0, false, SweepDirection.Clockwise, true, false);
+    }
+
+    private void ApplyIslandClip(double width, double height, CornerRadius radius)
+    {
+        IslandBox.Clip = CreateIslandClip(width, height, radius);
     }
 
     private void PositionTopCenter()
@@ -842,10 +1313,12 @@ public partial class IslandWindow : Window
 
     public void Dispose()
     {
+        _disposed = true;
         _tick.Stop();
         _hoverPoll.Stop();
         _hideCts?.Cancel();
         StopLoop();
+        StopBackgroundRotation();
         _eq.Dispose();
         var mm = _main.mediaManager;
         mm.OnAnyPlaybackStateChanged -= OnPlayState;

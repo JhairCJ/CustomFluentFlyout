@@ -135,7 +135,7 @@
                     <ComboBoxItem Content="Notch superior" />
                 </ComboBox>
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandToleranceCard" Tag="Indexable" Grid.Row="10" Icon="{ui:SymbolIcon CursorHover24}" Margin="0,0,0,76" IsEnabled="{Binding IslandEnabled}">
+            <ui:CardControl x:Name="IslandToleranceCard" Tag="Indexable" Grid.Row="10" Icon="{ui:SymbolIcon CursorHover24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="Tolerancia del hover" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -148,5 +148,133 @@
                 </StackPanel>
             </ui:CardControl>
         </Grid>
+
+        <TextBlock Text="Apariencia" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,6" />
+        <ui:CardControl x:Name="IslandBorderRadiusCard" Tag="Indexable" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+            <ui:CardControl.Header>
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Text="Radio de las esquinas" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                    <TextBlock Text="Ajusta lo redondeado del borde exterior del Island." FontSize="12" Opacity="0.5" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <StackPanel Orientation="Horizontal">
+                <ui:TextBox Width="60" ClearButtonEnabled="False" Text="{Binding IslandBorderRadiusText, Mode=TwoWay}" />
+                <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+        </ui:CardControl>
+        <ui:CardControl x:Name="IslandBorderCard" Tag="Indexable" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+            <ui:CardControl.Header>
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Text="Borde blanco" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                    <TextBlock Text="Muestra el borde blanco translúcido alrededor del Island." FontSize="12" Opacity="0.5" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:ToggleSwitch IsChecked="{Binding IslandBorderEnabled, Mode=TwoWay}" />
+        </ui:CardControl>
+        <ui:CardExpander x:Name="IslandBackgroundCard" Tag="Indexable" Icon="{ui:SymbolIcon ColorBackground24}" ContentPadding="0" Margin="0,0,0,76" IsEnabled="{Binding IslandEnabled}">
+            <ui:CardExpander.Header>
+                <Grid ColumnDefinitions="*, Auto">
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="Fondo del álbum" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="Añade desenfoque y el fondo giratorio del álbum detrás del Island." FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                    <ui:ToggleSwitch Grid.Column="1" IsChecked="{Binding IslandBackgroundBlur, Mode=TwoWay}" Margin="0,0,16,0" />
+                </Grid>
+            </ui:CardExpander.Header>
+            <StackPanel Opacity="{Binding IslandBackgroundBlur, Converter={StaticResource BoolToFullHalfOpacityConverter}}">
+                <ui:CardControl Tag="Indexable" Icon="{ui:SymbolIcon Color24}" Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">
+                    <ui:CardControl.Header>
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Intensidad del fondo" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <TextBlock Text="Qué tan visible queda la carátula detrás del contenido." FontSize="12" Opacity="0.5" />
+                        </StackPanel>
+                    </ui:CardControl.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <Slider Minimum="0" Maximum="100" Value="{Binding IslandBackgroundBlurIntensity, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding IslandBackgroundBlurIntensityEnabled}" />
+                        <TextBlock Text="{Binding IslandBackgroundBlurIntensity}" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        <TextBlock Text="%" FontSize="14" FontWeight="Regular" Margin="2,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ui:CardControl>
+                <ui:CardControl Tag="Indexable" Icon="{ui:SymbolIcon Blur24}" Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">
+                    <ui:CardControl.Header>
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Radio del desenfoque" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <TextBlock Text="Define cuánto se difumina la carátula." FontSize="12" Opacity="0.5" />
+                        </StackPanel>
+                    </ui:CardControl.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <Slider Minimum="0" Maximum="150" Value="{Binding IslandBackgroundBlurRadius, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding IslandBackgroundBlurRadiusEnabled}" />
+                        <TextBlock Text="{Binding IslandBackgroundBlurRadius}" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="2,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ui:CardControl>
+                <ui:CardControl Tag="Indexable" Icon="{ui:SymbolIcon ArrowCounterclockwise24}" Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">
+                    <ui:CardControl.Header>
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Fondo giratorio" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <TextBlock Text="Gira lentamente la carátula desenfocada detrás del Island." FontSize="12" Opacity="0.5" />
+                        </StackPanel>
+                    </ui:CardControl.Header>
+                    <ui:ToggleSwitch IsChecked="{Binding IslandBackgroundRotate, Mode=TwoWay}" IsEnabled="{Binding IslandBackgroundRotateEnabled}" />
+                </ui:CardControl>
+                <ui:CardControl Tag="Indexable" Icon="{ui:SymbolIcon ArrowMove24}" Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">
+                    <ui:CardControl.Header>
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Lado del álbum" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <TextBlock Text="Elige qué lado del disco giratorio se muestra." FontSize="12" Opacity="0.5" />
+                        </StackPanel>
+                    </ui:CardControl.Header>
+                    <ComboBox SelectedIndex="{Binding IslandBackgroundRotateSide, Mode=TwoWay}" IsEnabled="{Binding IslandBackgroundRotateEnabled}">
+                        <ComboBoxItem Content="Izquierda" />
+                        <ComboBoxItem Content="Derecha" />
+                    </ComboBox>
+                </ui:CardControl>
+                <ui:CardControl Tag="Indexable" Icon="{ui:SymbolIcon ArrowCounterclockwise24}" Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">
+                    <ui:CardControl.Header>
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Dirección del giro" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <TextBlock Text="Elige si el álbum gira hacia abajo o hacia arriba." FontSize="12" Opacity="0.5" />
+                        </StackPanel>
+                    </ui:CardControl.Header>
+                    <ComboBox SelectedIndex="{Binding IslandBackgroundRotateDirection, Mode=TwoWay}" IsEnabled="{Binding IslandBackgroundRotateEnabled}">
+                        <ComboBoxItem Content="Abajo" />
+                        <ComboBoxItem Content="Arriba" />
+                    </ComboBox>
+                </ui:CardControl>
+                <ui:CardControl Tag="Indexable" Icon="{ui:SymbolIcon Timer24}" Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">
+                    <ui:CardControl.Header>
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Tiempo de giro" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <TextBlock Text="Cuántos segundos tarda una vuelta completa." FontSize="12" Opacity="0.5" />
+                        </StackPanel>
+                    </ui:CardControl.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <Slider Minimum="5" Maximum="60" Value="{Binding IslandBackgroundRotateDuration, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding IslandBackgroundRotateEnabled}" />
+                        <TextBlock Text="{Binding IslandBackgroundRotateDurationText}" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ui:CardControl>
+                <ui:CardControl Tag="Indexable" Icon="{ui:SymbolIcon Circle24}" Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">
+                    <ui:CardControl.Header>
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Tamaño del disco" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <TextBlock Text="Tamaño del disco giratorio respecto al Island." FontSize="12" Opacity="0.5" />
+                        </StackPanel>
+                    </ui:CardControl.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <Slider Minimum="100" Maximum="600" Value="{Binding IslandBackgroundRotateSize, Mode=TwoWay}" TickFrequency="10" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding IslandBackgroundRotateEnabled}" />
+                        <TextBlock Text="{Binding IslandBackgroundRotateSizeText}" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ui:CardControl>
+                <ui:CardControl Tag="Indexable" Icon="{ui:SymbolIcon ViewDesktop24}" Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0" CornerRadius="0" Padding="52,16,16,16">
+                    <ui:CardControl.Header>
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Frecuencia alta" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <TextBlock Text="Usa la frecuencia de refresco del monitor; apagado limita el giro a 30 FPS." FontSize="12" Opacity="0.5" />
+                        </StackPanel>
+                    </ui:CardControl.Header>
+                    <ui:ToggleSwitch IsChecked="{Binding IslandBackgroundRotateHighRefreshRate, Mode=TwoWay}" IsEnabled="{Binding IslandBackgroundRotateEnabled}" />
+                </ui:CardControl>
+            </StackPanel>
+        </ui:CardExpander>
     </StackPanel>
 </Page>
