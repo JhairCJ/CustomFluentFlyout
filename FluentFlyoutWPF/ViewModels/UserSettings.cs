@@ -774,6 +774,54 @@ public partial class UserSettings : ObservableObject
     public partial bool TaskbarVisualizerEnabled { get; set; }
 
     /// <summary>
+    /// Fluent Island: muestra la isla superior central.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandEnabled { get; set; }
+
+    /// <summary>
+    /// Fluent Island: 0 = visible mientras suena, 1 = aviso temporal (4 s al pausar).
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandVisibilityMode { get; set; }
+
+    /// <summary>
+    /// Fluent Island: línea gris que indica que el Island está activo.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandActivityLine { get; set; }
+
+    /// <summary>
+    /// Fluent Island: 0 = isla flotante, 1 = notch superior (sale del borde de arriba).
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandStyle { get; set; }
+
+    /// <summary>
+    /// Fluent Island: ecualizador funcional (audio real).
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandEqEnabled { get; set; }
+
+    /// <summary>
+    /// Fluent Island: número de barras del ecualizador (1-10).
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandEqBarCount { get; set; }
+
+    /// <summary>
+    /// Fluent Island: sensibilidad del ecualizador (1-3).
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandEqSensitivity { get; set; }
+
+    /// <summary>
+    /// Fluent Island: suavizado del ecualizador (0-100).
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandEqSmoothing { get; set; }
+
+    /// <summary>
     /// Returns whether app filtering is enabled or disabled.
     /// </summary>
     [ObservableProperty]
@@ -1025,6 +1073,14 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetScrollingTextSpeed = 20;
         TaskbarWidgetScrollingTextLoopForever = false;
         TaskbarVisualizerEnabled = false;
+        IslandEnabled = true;
+        IslandStyle = 0;
+        IslandVisibilityMode = 0;
+        IslandActivityLine = false;
+        IslandEqEnabled = true;
+        IslandEqBarCount = 5;
+        IslandEqSensitivity = 2;
+        IslandEqSmoothing = 50;
         AppFilteringEnabled = false;
         AppFilteringMode = 0;
         TaskbarVisualizerPosition = 1;
@@ -1372,7 +1428,7 @@ public partial class UserSettings : ObservableObject
     partial void OnTaskbarVisualizerBarCountChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
-        Visualizer.ResizeBarList(newValue);
+        TaskbarVisualizerControl.ResizeBars(newValue);
     }
 
     partial void OnTaskbarVisualizerHighRefreshRateChanged(bool oldValue, bool newValue)

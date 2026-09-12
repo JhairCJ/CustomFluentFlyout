@@ -38,15 +38,50 @@ namespace FluentFlyoutWPF.Classes
     {
         private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-        public static int BarCount = 10;
+        /// <summary>
+        /// Fuente viva de ajustes del ecualizador. Dos presets: Taskbar (los de
+        /// siempre) e Island (propios de Fluent Island). Los Func se leen en cada
+        /// frame, así que los sliders se aplican sin eventos.
+        /// </summary>
+        public sealed class Options
+        {
+            public Func<bool> Enabled = () => SettingsManager.Current.TaskbarVisualizerEnabled;
+            public Func<bool> HighRefreshRate = () => SettingsManager.Current.TaskbarVisualizerHighRefreshRate;
+            public Func<int> BarCount = () => SettingsManager.Current.TaskbarVisualizerBarCount;
+            public Func<bool> CenteredBars = () => SettingsManager.Current.TaskbarVisualizerCenteredBars;
+            public Func<bool> Baseline = () => SettingsManager.Current.TaskbarVisualizerBaseline;
+            public Func<bool> BaselineAutoHide = () => SettingsManager.Current.TaskbarVisualizerBaselineAutoHide;
+            public Func<int> Sensitivity = () => SettingsManager.Current.TaskbarVisualizerAudioSensitivity;
+            public Func<int> PeakLevel = () => SettingsManager.Current.TaskbarVisualizerAudioPeakLevel;
+            public Func<int> Smoothing = () => SettingsManager.Current.TaskbarVisualizerSmoothing;
+            public Action<bool> SetHasContent = v => SettingsManager.Current.TaskbarVisualizerHasContent = v;
+
+            public static Options Taskbar { get; } = new();
+            public static Options Island { get; } = new()
+            {
+                Enabled = () => SettingsManager.Current.IslandEqEnabled,
+                HighRefreshRate = () => false, // ponytail: barras pequeñas, 30 FPS basta
+                BarCount = () => SettingsManager.Current.IslandEqBarCount,
+                CenteredBars = () => false,
+                Baseline = () => false,
+                BaselineAutoHide = () => false,
+                Sensitivity = () => SettingsManager.Current.IslandEqSensitivity,
+                PeakLevel = () => 3,
+                Smoothing = () => SettingsManager.Current.IslandEqSmoothing,
+                SetHasContent = _ => { }, // la isla se muestra/oculta por reproducción, no por contenido
+            };
+        }
+
+        private readonly Options _opts;
+        private int _barCount = 10;
         private const int ImageWidth = 76 * 3;
         private const int ImageHeight = 32 * 3;
         private const int BarSpacing = 2 * 3;
 
         private WasapiRecorder? _capture;
         private MMDevice? _renderDevice;
-        private static float[]? _barValues;
-        private static float[]? _targetValues;
+        private float[]? _barValues;
+        private float[]? _targetValues;
         private WriteableBitmap? _bitmap;
         private volatile bool _isRunning;
         private readonly object _lock = new();
@@ -170,16 +205,17 @@ namespace FluentFlyoutWPF.Classes
             }
         }
 
-        public Visualizer()
+        public Visualizer(Options? opts = null)
         {
+            _opts = opts ?? Options.Taskbar;
             InitializeBitmap();
 
             for (int i = 0; i < FftLength; i++)
                 _windowTable[i] = (float)FastFourierTransform.HammingWindow(i, FftLength);
 
-            _fftHop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHopHighRefresh : FftLength;
+            _fftHop = _opts.HighRefreshRate() ? FftHopHighRefresh : FftLength;
 
-            ResizeBarList(SettingsManager.Current.TaskbarVisualizerBarCount);
+            ResizeBarList(_opts.BarCount());
             AudioDeviceMonitor.Instance.DefaultDeviceChanged += OnDefaultDeviceChanged;
             TryRegisterSystemEvents();
         }
@@ -213,7 +249,7 @@ namespace FluentFlyoutWPF.Classes
 
         private void OnSessionSwitch(object sender, SessionSwitchEventArgs e)
         {
-            if (!SettingsManager.Current.TaskbarVisualizerEnabled)
+            if (!_opts.Enabled())
                 return;
 
             // When unlocking after device disconnect (e.g. Bluetooth earbuds), WASAPI loopback can get stuck.
@@ -226,7 +262,7 @@ namespace FluentFlyoutWPF.Classes
 
         private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
         {
-            if (!SettingsManager.Current.TaskbarVisualizerEnabled)
+            if (!_opts.Enabled())
                 return;
 
             if (e.Mode == PowerModes.Resume)
@@ -252,14 +288,14 @@ namespace FluentFlyoutWPF.Classes
 
             // Even if capture isn't currently running (e.g. restart attempt failed while the device was reconfiguring),
             // we still want to try restarting as soon as Windows reports a usable default endpoint again.
-            if (!SettingsManager.Current.TaskbarVisualizerEnabled)
+            if (!_opts.Enabled())
                 return;
             RequestRestart("default audio output device changed");
         }
 
         private void RequestRestart(string reason)
         {
-            if (!SettingsManager.Current.TaskbarVisualizerEnabled)
+            if (!_opts.Enabled())
                 return;
 
             if (Interlocked.Exchange(ref _restartInProgress, 1) == 1)
@@ -279,7 +315,7 @@ namespace FluentFlyoutWPF.Classes
                     // enabled and alive: giving up after N attempts left the last
                     // frame frozen on screen forever.
                     int attempt = 0;
-                    while (!_isRunning && !_disposed && SettingsManager.Current.TaskbarVisualizerEnabled)
+                    while (!_isRunning && !_disposed && _opts.Enabled())
                     {
                         await Task.Delay(Math.Min(500 * (1 << Math.Min(attempt, 4)), 5000));
                         attempt++;
@@ -300,11 +336,11 @@ namespace FluentFlyoutWPF.Classes
             });
         }
 
-        public static void ResizeBarList(int newBarCount)
+        public void ResizeBarList(int newBarCount)
         {
-            BarCount = newBarCount;
-            _barValues = new float[BarCount];
-            _targetValues = new float[BarCount];
+            _barCount = newBarCount;
+            _barValues = new float[_barCount];
+            _targetValues = new float[_barCount];
         }
 
         public void Start()
@@ -314,10 +350,10 @@ namespace FluentFlyoutWPF.Classes
 
             // Reallocate only on a count change: restart gaps (device reconfigure)
             // must not blank the bars mid-song.
-            if (_barValues == null || _barValues.Length != BarCount
-                || _targetValues == null || _targetValues.Length != BarCount)
+            if (_barValues == null || _barValues.Length != _barCount
+                || _targetValues == null || _targetValues.Length != _barCount)
             {
-                ResizeBarList(BarCount);
+                ResizeBarList(_barCount);
             }
 
             // Fresh capture state: any audio still sitting in the ring from a
@@ -331,7 +367,7 @@ namespace FluentFlyoutWPF.Classes
             _samplesSinceGate = 0;
             _gateSilent = true;
             _lastAudibleUtc = DateTime.MinValue;
-            _fftHop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHopHighRefresh : FftLength;
+            _fftHop = _opts.HighRefreshRate() ? FftHopHighRefresh : FftLength;
 
             try
             {
@@ -373,7 +409,7 @@ namespace FluentFlyoutWPF.Classes
                 watchdog.Elapsed += (_, _) =>
                 {
                     if (_isRunning && !_disposed
-                        && SettingsManager.Current.TaskbarVisualizerEnabled
+                        && _opts.Enabled()
                         && DateTime.UtcNow - _lastDataAvailableUtc > TimeSpan.FromSeconds(2))
                     {
                         RequestRestart("no capture callbacks for over 2s");
@@ -386,8 +422,8 @@ namespace FluentFlyoutWPF.Classes
 
                 // Pinned baseline (baseline without auto-hide) is visible from
                 // the start, even before the first audio frame arrives.
-                if (SettingsManager.Current.TaskbarVisualizerBaseline
-                    && !SettingsManager.Current.TaskbarVisualizerBaselineAutoHide)
+                if (_opts.Baseline()
+                    && !_opts.BaselineAutoHide())
                 {
                     EnsureRenderLoop();
                 }
@@ -560,7 +596,7 @@ namespace FluentFlyoutWPF.Classes
             if (targets == null)
                 return;
 
-            int count = Math.Min(Math.Min(BarCount, _bandTable.Length), targets.Length);
+            int count = Math.Min(Math.Min(_barCount, _bandTable.Length), targets.Length);
             bool audible = false;
 
             for (int i = 0; i < count; i++)
@@ -609,7 +645,7 @@ namespace FluentFlyoutWPF.Classes
         /// </summary>
         private void EnsureSmoothing()
         {
-            int s = SettingsManager.Current.TaskbarVisualizerSmoothing;
+            int s = _opts.Smoothing();
             if (s < 0) s = 0;
             else if (s > 100) s = 100;
             if (s == _smoothingKey)
@@ -627,9 +663,9 @@ namespace FluentFlyoutWPF.Classes
         /// </summary>
         private void EnsureBandTable(int sampleRate)
         {
-            int bars = BarCount;
-            int sens = SettingsManager.Current.TaskbarVisualizerAudioSensitivity;
-            int peak = SettingsManager.Current.TaskbarVisualizerAudioPeakLevel;
+            int bars = _barCount;
+            int sens = _opts.Sensitivity();
+            int peak = _opts.PeakLevel();
 
             if (_bandTable.Length == bars
                 && _bandKeyBars == bars
@@ -707,7 +743,7 @@ namespace FluentFlyoutWPF.Classes
             _renderStopwatch.Restart();
             _lastRenderTime = 0;
 
-            if (SettingsManager.Current.TaskbarVisualizerHighRefreshRate)
+            if (_opts.HighRefreshRate())
             {
                 // CompositionTarget.Rendering fires once per composited frame,
                 // i.e. at the monitor's refresh rate.
@@ -738,7 +774,7 @@ namespace FluentFlyoutWPF.Classes
                     return;
                 // The high-refresh toggle changes the audio-thread hop: refresh the
                 // cached value together with the render loop so both switch atomically.
-                _fftHop = SettingsManager.Current.TaskbarVisualizerHighRefreshRate ? FftHopHighRefresh : FftLength;
+                _fftHop = _opts.HighRefreshRate() ? FftHopHighRefresh : FftLength;
                 StopRenderLoopCore();
                 StartRenderLoopCore();
             });
@@ -791,7 +827,7 @@ namespace FluentFlyoutWPF.Classes
             var targets = _targetValues;
             int count = bars == null || targets == null
                 ? 0
-                : Math.Min(BarCount, Math.Min(bars.Length, targets.Length));
+                : Math.Min(_barCount, Math.Min(bars.Length, targets.Length));
 
             // Dead-capture fallback: with no callbacks at all (device stall,
             // restart gap), targets are read as zero so the bars glide to rest
@@ -830,8 +866,8 @@ namespace FluentFlyoutWPF.Classes
             // hide/show jump). With baseline auto-hide it hides once the bars
             // have visibly settled and the grace has elapsed, and reappears the
             // frame after audio returns.
-            bool autoHides = SettingsManager.Current.TaskbarVisualizerBaseline
-                && SettingsManager.Current.TaskbarVisualizerBaselineAutoHide;
+            bool autoHides = _opts.Baseline()
+                && _opts.BaselineAutoHide();
             bool audibleRecently = (frameUtc - _lastAudibleUtc).TotalMilliseconds < AutoHideGraceMs;
             SetHasContent(!autoHides || audibleRecently || !resting);
 
@@ -856,7 +892,7 @@ namespace FluentFlyoutWPF.Classes
             if (_hasContent == value)
                 return;
             _hasContent = value;
-            SettingsManager.Current.TaskbarVisualizerHasContent = value;
+            _opts.SetHasContent(value);
         }
 
         private void UpdateBitmap()
@@ -960,13 +996,13 @@ namespace FluentFlyoutWPF.Classes
             byte g = (byte)((argb >> 8) & 0xFF);
             byte r = (byte)((argb >> 16) & 0xFF);
 
-            bool centeredBars = SettingsManager.Current.TaskbarVisualizerCenteredBars;
-            int barBaseline = SettingsManager.Current.TaskbarVisualizerBaseline ? 4 : 0;
+            bool centeredBars = _opts.CenteredBars();
+            int barBaseline = _opts.Baseline() ? 4 : 0;
 
             int centerY = ImageHeight / 2;
 
             // Horizontal layout
-            ComputeLayout(ImageWidth, BarCount, BarSpacing,
+            ComputeLayout(ImageWidth, _barCount, BarSpacing,
                 out int barWidth,
                 out int offsetX);
 
@@ -977,7 +1013,7 @@ namespace FluentFlyoutWPF.Classes
             const float aa = 1.25f;
             float invAA = 1f / aa;
 
-            int count = Math.Min(BarCount, _barValues?.Length ?? 0);
+            int count = Math.Min(_barCount, _barValues?.Length ?? 0);
 
             // Bar count (thus x positions and widths) changed: old pixels sit at stale
             // spots, so clear everything once and redraw all.
@@ -1104,9 +1140,9 @@ namespace FluentFlyoutWPF.Classes
             return Math.Max((int)(Math.Clamp(value, 0f, 1f) * ImageHeight), baseline);
         }
 
-        private static float GetCornerRadius()
+        private float GetCornerRadius()
         {
-            return 6f / MathF.Max(1f, SettingsManager.Current.TaskbarVisualizerBarCount / 10f);
+            return 6f / MathF.Max(1f, _barCount / 10f);
         }
 
         private static float ClampRadius(float r, int width, int height)
@@ -1231,7 +1267,7 @@ namespace FluentFlyoutWPF.Classes
                 Logger.Error(e.Exception, "Visualizer recording stopped due to an error");
                 RequestRestart("recording stopped with error");
             }
-            else if (_isRunning && SettingsManager.Current.TaskbarVisualizerEnabled)
+            else if (_isRunning && _opts.Enabled())
             {
                 // Unexpected stop without an error (e.g. the endpoint reconfigured
                 // when the playback app changed format between tracks or sources).

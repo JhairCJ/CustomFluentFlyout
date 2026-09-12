@@ -74,6 +74,8 @@ public partial class MainWindow : MicaWindow
 
     internal TaskbarWindow? taskbarWindow;
 
+    internal IslandWindow? islandWindow;
+
     // Taskbar widget: the media session the widget is stuck to. Set when the user
     // interacts with the widget (play/pause/next/previous buttons, album-art cycle)
     // so the widget keeps showing and controlling THAT session while the OS moves
@@ -179,6 +181,8 @@ public partial class MainWindow : MicaWindow
         mediaManager.OnAnyTimelinePropertyChanged += MediaManager_OnAnyTimelinePropertyChanged;
         mediaManager.OnAnySessionClosed += MediaManager_OnAnySessionClosed;
         mediaManager.OnFocusedSessionChanged += MediaManager_OnFocusedSessionChanged;
+
+        islandWindow = new IslandWindow(this);
 
         WM_TASKBARCREATED = RegisterWindowMessage("TaskbarCreated");
         WM_SHELLHOOK = RegisterWindowMessage("SHELLHOOK");
@@ -1602,6 +1606,11 @@ public partial class MainWindow : MicaWindow
 
             if (taskbarWindow?.IsLoaded == true)
                 taskbarWindow.Close();
+
+            if (islandWindow?.IsLoaded == true)
+                islandWindow.Close();
+            islandWindow?.Dispose();
+            islandWindow = null;
 
             if (volumeMixerWindow?.IsLoaded == true)
                 volumeMixerWindow.Close();
