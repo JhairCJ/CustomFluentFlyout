@@ -32,6 +32,8 @@ public partial class IslandWindow : Window
 {
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
     private static readonly Brush IslandBorderBrush = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
+    private static readonly Brush MediaPlayingBrush = new SolidColorBrush(Color.FromRgb(0x86, 0xC9, 0x91));
+    private static readonly Brush MediaPausedBrush = new SolidColorBrush(Color.FromRgb(0x76, 0x7B, 0x79));
 
     private readonly MainWindow _main;
     private readonly Dictionary<string, DateTime> _lastPlay = new();
@@ -243,6 +245,7 @@ public partial class IslandWindow : Window
             _pT = 0;
             _qT = 1;
             IslandBox.Visibility = Visibility.Visible;
+            UpdateMediaStatusDot();
             UpdateRotationPauseState();
             EnsureLoop();
         }
@@ -290,6 +293,7 @@ public partial class IslandWindow : Window
         StopLoop();
         ApplyFrame();
         IslandBox.Visibility = Visibility.Visible;
+        UpdateMediaStatusDot();
         UpdateRotationPauseState();
     }
 
@@ -304,6 +308,7 @@ public partial class IslandWindow : Window
         IslandBox.Visibility = Visibility.Collapsed;
         UpdateRotationPauseState();
         UpdateLine();
+        UpdateMediaStatusDot();
     }
 
     private void Box_MouseEnter(object sender, MouseEventArgs e)
@@ -349,12 +354,14 @@ public partial class IslandWindow : Window
             _pop = 0; _popPlaying = false;
             ApplyFrame();
             IslandBox.Visibility = Visibility.Visible;
+            UpdateMediaStatusDot();
             UpdateRotationPauseState();
             return;
         }
         if (wasExpanded) return; // ya expandido: solo actualizar datos
         _pT = 1; _qT = 1;
         IslandBox.Visibility = Visibility.Visible;
+        UpdateMediaStatusDot();
         UpdateRotationPauseState();
         EnsureLoop();
     }
@@ -860,6 +867,24 @@ public partial class IslandWindow : Window
         var eqVis = SettingsManager.Current.IslandEqEnabled ? Visibility.Visible : Visibility.Collapsed;
         CompactEq.Visibility = eqVis;
         ExpandedEq.Visibility = eqVis;
+        UpdateMediaStatusDot();
+    }
+
+    private void UpdateMediaStatusDot()
+    {
+        var session = Current() ?? FirstAllowed();
+        bool hidden = Visibility == Visibility.Visible && !IsBoxShown && !Suppressed();
+        var status = session == null ? null : SafeStatus(session) ?? _lastStatus;
+        if (!hidden || status == null)
+        {
+            MediaStatusDot.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        MediaStatusDot.Background = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
+            ? MediaPlayingBrush
+            : MediaPausedBrush;
+        MediaStatusDot.Visibility = Visibility.Visible;
     }
 
     private int _appliedStyle = -1;
