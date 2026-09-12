@@ -44,6 +44,7 @@ public partial class IslandWindow : Window
     private double _p, _pT, _pv;
     private double _q, _qT, _qv;
     private bool _loopOn;
+    private bool _hidingViaCompact; // expandido va a desaparecer: primero p->0, luego q->0
     private double _hexp = 172;
     private string _lastTrackKey = "";
     private int _popVersion;
@@ -191,6 +192,7 @@ public partial class IslandWindow : Window
     private void ShowCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null)
     {
         _hideCts?.Cancel();
+        _hidingViaCompact = false;
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) { SnapHidden(); return; }
         RefreshUi(session, knownStatus);
         _expanded = false;
@@ -204,7 +206,31 @@ public partial class IslandWindow : Window
     private void HidePerMode()
     {
         _hideCts?.Cancel();
-        if (_expanded) return;
+        if (_expanded)
+        {
+            if (SettingsManager.Current.IslandVisibilityMode == 1)
+            {
+                var cts = _hideCts = new CancellationTokenSource();
+                _ = Task.Delay(4000).ContinueWith(_ =>
+                    Dispatcher.Invoke(() => { if (cts.IsCancellationRequested) return; _expanded = false; GoHidden(); }));
+                return;
+            }
+            _expanded = false;
+            if (!IsNotch && AnimationsEnabled) { _hidingViaCompact = true; _pT = 0; _qT = 1; EnsureLoop(); return; }
+            GoHidden(); return;
+        }
+        if (!IsNotch)
+        {
+            // compacto pill: 240→26
+            if (SettingsManager.Current.IslandVisibilityMode == 1)
+            {
+                var cts = _hideCts = new CancellationTokenSource();
+                _ = Task.Delay(4000).ContinueWith(_ =>
+                    Dispatcher.Invoke(() => { if (!cts.IsCancellationRequested && !_expanded) GoHidden(); }));
+                return;
+            }
+            GoHidden(); return;
+        }
         if (SettingsManager.Current.IslandVisibilityMode == 1)
         {
             var cts = _hideCts = new CancellationTokenSource();
@@ -219,6 +245,12 @@ public partial class IslandWindow : Window
     private void GoHidden()
     {
         if (!AnimationsEnabled || !IsBoxShown) { SnapHidden(); return; }
+        if (_hidingViaCompact) return;
+        if (!IsNotch)
+        {
+            if (Math.Abs(_p) > 0.05) { _expanded = false; _hidingViaCompact = true; _pT = 0; _qT = 1; EnsureLoop(); return; }
+            _qT = 0; EnsureLoop(); return;
+        }
         _qT = 0;
         EnsureLoop();
     }
@@ -235,6 +267,7 @@ public partial class IslandWindow : Window
 
     private void SnapHidden()
     {
+        _hidingViaCompact = false;
         _p = _pT = 0; _pv = 0;
         _q = _qT = 0; _qv = 0;
         _pop = 0; _popVersion++; _popPlaying = false;
@@ -272,6 +305,7 @@ public partial class IslandWindow : Window
     {
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         _hideCts?.Cancel();
+        _hidingViaCompact = false;
         _currentId = session.Id;
         bool wasExpanded = _expanded;
         RefreshUi(session);
@@ -304,6 +338,7 @@ public partial class IslandWindow : Window
     {
         if (!_expanded) return;
         _expanded = false;
+        _hidingViaCompact = false;
         var session = Current();
         var playing = session?.ControlSession?.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
         if (playing && !Suppressed())
@@ -330,7 +365,7 @@ public partial class IslandWindow : Window
         kP = 520 * slow; cP = 34;
         kQ = 620 * slow; cQ = 36;
         if (IsNotch) { kP *= 1.05; kQ *= 1.05; }
-        else { kQ = 550 * slow; cQ = 34; } // pill más elástico al estirar la cápsula
+        else { kQ = 200 * slow; cQ = 28; } // pill 2x más lento (solo q)
     }
 
     private void EnsureLoop()
@@ -367,6 +402,15 @@ public partial class IslandWindow : Window
         if (_popPlaying) StepPop(dt);
         ApplyFrame();
 
+        // Expandido→compacto (p:1→0), luego compacto→círculo (q:1→0)
+        if (_hidingViaCompact && !IsNotch && Math.Abs(_p) < 0.03 && Math.Abs(_pv) < 0.08)
+        {
+            _hidingViaCompact = false;
+            _p = _pT = 0; _pv = 0;
+            if (AnimationsEnabled) { _qT = 0; ApplyFrame(); return; }
+            StopLoop(); ApplyFrame(); IslandBox.Visibility = Visibility.Collapsed; UpdateLine(); return;
+        }
+
         bool pSettled = Math.Abs(_p - _pT) < 0.002 && Math.Abs(_pv) < 0.02;
         bool qSettled = Math.Abs(_q - _qT) < 0.002 && Math.Abs(_qv) < 0.02;
         if (pSettled) { _p = _pT; _pv = 0; }
@@ -378,9 +422,11 @@ public partial class IslandWindow : Window
             StopLoop();
             _lastTick = TimeSpan.Zero;
             if (_qT == 0 && _q == 0) { IslandBox.Visibility = Visibility.Collapsed; UpdateLine(); }
+            // Si llegamos a compacto vía hidingViaCompact y no hay q pendiente, ya se ocultó arriba
         }
         else if (_qT == 0 && _q < 0.02 && qSettled)
         {
+            _hidingViaCompact = false;
             IslandBox.Visibility = Visibility.Collapsed;
             UpdateLine();
         }
@@ -469,7 +515,7 @@ public partial class IslandWindow : Window
             // Pill: oculto -> punto 26px (circular) -> cápsula 240px -> expandido 480px
             const double pillDot = 26;
             double dotT = Math.Clamp(q / 0.32, 0, 1);
-            double stretchT = Smooth01(Math.Clamp((q - 0.22) / 0.78, 0, 1));
+            double stretchT = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
             double baseW = q < 0.32 ? pillDot : Lerp(pillDot, 240, stretchT);
             w = Lerp(baseW, 480, Smooth01(p));
             h = Lerp(34, _hexp, Smooth01(p));
@@ -503,8 +549,8 @@ public partial class IslandWindow : Window
         }
         else
         {
-            double stretchT2 = Smooth01(Math.Clamp((q - 0.22) / 0.78, 0, 1));
-            double contentT = Math.Clamp((stretchT2 - 0.35) / 0.65, 0, 1);
+            double stretchT2 = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
+            double contentT = Math.Clamp((stretchT2 - 0.42) / 0.58, 0, 1);
             double dotT2 = Math.Clamp(q / 0.32, 0, 1);
             compactOp = (1 - Smooth01(Math.Clamp(p * 2.2, 0, 1))) * Smooth01(contentT);
             if (q < 0.32) compactOp = 0;
@@ -515,15 +561,14 @@ public partial class IslandWindow : Window
             if (q < 0.32)
                 CompactScale.ScaleX = CompactScale.ScaleY = Lerp(0.75, 0.88, dotT2);
 
-            // Diverge from center: art left, title slight, eq right — reversible with q
-            double diverge = Smooth01(stretchT2);
-            CompactArtTranslate.X = Lerp(92, 0, diverge);
-            CompactTitleTranslate.X = Lerp(14, 0, diverge);
-            CompactEqTranslate.X = Lerp(-78, 0, diverge);
-            CompactTitleScale2.ScaleX = CompactTitleScale2.ScaleY = Lerp(0.88, 1, diverge);
-            // Per-element fades staggered so they bloom after the dot
-            double titleOp = Smooth01(Math.Clamp((stretchT2 - 0.40) / 0.60, 0, 1));
-            double eqOp = Smooth01(Math.Clamp((stretchT2 - 0.45) / 0.55, 0, 1));
+            // Diverge from center — más apiñado al centro
+            double diverge = Math.Pow(Smooth01(stretchT2), 1.25);
+            CompactArtTranslate.X = Lerp(42, 0, diverge);
+            CompactTitleTranslate.X = Lerp(6, 0, diverge);
+            CompactEqTranslate.X = Lerp(-36, 0, diverge);
+            CompactTitleScale2.ScaleX = CompactTitleScale2.ScaleY = Lerp(0.92, 1, diverge);
+            double titleOp = Smooth01(Math.Clamp((stretchT2 - 0.50) / 0.50, 0, 1));
+            double eqOp = Smooth01(Math.Clamp((stretchT2 - 0.55) / 0.45, 0, 1));
             CompactTitle.Opacity = q < 0.32 ? 0 : titleOp;
             CompactEq.Opacity = q < 0.32 ? 0 : eqOp;
             CompactArtWrap.Opacity = q < 0.15 ? 0 : (q < 0.32 ? Smooth01(dotT2) : 1);
