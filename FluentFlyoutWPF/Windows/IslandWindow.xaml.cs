@@ -49,7 +49,7 @@ public partial class IslandWindow : Window
     private double _p, _pT, _pv;
     private double _q, _qT, _qv;
     private bool _loopOn;
-    private bool _hidingViaCompact; // expandido va a desaparecer: primero p->0, luego q->0
+    private bool _hidingViaCompact; // salida directa desde expandido: p y q van a 0 a la vez
     private double _hexp = 172;
     private string _lastTrackKey = "";
     private int _popVersion;
@@ -262,7 +262,7 @@ public partial class IslandWindow : Window
         if (_expanded)
         {
             _expanded = false;
-            if (AnimationsEnabled) { _hidingViaCompact = true; _pT = 0; _qT = 1; EnsureLoop(); return; }
+            if (AnimationsEnabled) { _hidingViaCompact = true; _pT = 0; _qT = 0; EnsureLoop(); return; }
             GoHidden(); return;
         }
         GoHidden();
@@ -276,7 +276,7 @@ public partial class IslandWindow : Window
         if (_hidingViaCompact) return;
         if (Math.Abs(_p) > 0.05)
         {
-            _expanded = false; _hidingViaCompact = true; _pT = 0; _qT = 1; EnsureLoop(); return;
+            _expanded = false; _hidingViaCompact = true; _pT = 0; _qT = 0; EnsureLoop(); return;
         }
         _qT = 0;
         EnsureLoop();
@@ -461,19 +461,11 @@ public partial class IslandWindow : Window
         if (_popPlaying) StepPop(dt);
         ApplyFrame();
 
-        // Expandido→oculto (ponytail: encadena q sin dwell después de volver a compacto)
-        if (_hidingViaCompact && _p < 0.45)
-        {
-            _hidingViaCompact = false;
-            _qT = 0;
-            ApplyFrame();
-            return;
-        }
-
         bool pSettled = Math.Abs(_p - _pT) < 0.002 && Math.Abs(_pv) < 0.02;
         bool qSettled = Math.Abs(_q - _qT) < 0.002 && Math.Abs(_qv) < 0.02;
         if (pSettled) { _p = _pT; _pv = 0; }
         if (qSettled) { _q = _qT; _qv = 0; }
+
         bool popSettled = !_popPlaying;
 
         if (pSettled && qSettled && popSettled)
@@ -483,7 +475,7 @@ public partial class IslandWindow : Window
             if (_qT == 0 && _q == 0) { IslandBox.Visibility = Visibility.Collapsed; UpdateLine(); }
             // Si llegamos a compacto vía hidingViaCompact y no hay q pendiente, ya se ocultó arriba
         }
-        else if (_qT == 0 && _q < 0.08)
+        else if (_qT == 0 && _q <= 0.12)
         {
             _hidingViaCompact = false;
             IslandBox.Visibility = Visibility.Collapsed;
@@ -553,6 +545,11 @@ public partial class IslandWindow : Window
         double q = Math.Clamp(_q, 0, 1);
         // Pop de pista atenúa con q (invisible -> no pulsa)
         double pop = _popPlaying ? _pop * q : 0;
+        double exitTailOpacity = _qT == 0
+            ? Math.Pow(Smooth01(Math.Clamp((q - 0.12) / 0.20, 0, 1)), 3)
+            : 1;
+        if (_hidingViaCompact)
+            exitTailOpacity *= Math.Pow(Smooth01(Math.Clamp((p - 0.12) / 0.38, 0, 1)), 3);
 
         bool notch = IsNotch;
         double w, h;
@@ -569,7 +566,7 @@ public partial class IslandWindow : Window
             IslandBox.Width = w;
             IslandBox.Height = h;
             double revealOpacity = Smooth01(Math.Clamp(q / 0.38, 0, 1));
-            IslandBox.Opacity = revealOpacity * revealOpacity;
+            IslandBox.Opacity = revealOpacity * revealOpacity * exitTailOpacity;
             double radius = Math.Min(IslandRadius, Math.Min(w, h) / 2);
             IslandBox.CornerRadius = new CornerRadius(0, 0, radius, radius);
             BoxTranslate.Y = 0;
@@ -587,7 +584,7 @@ public partial class IslandWindow : Window
             h = Lerp(34, _hexp, Smooth01(p));
             IslandBox.Width = w;
             IslandBox.Height = h;
-            IslandBox.Opacity = Smooth01(Math.Clamp(q / 0.38, 0, 1));
+            IslandBox.Opacity = Smooth01(Math.Clamp(q / 0.38, 0, 1)) * exitTailOpacity;
             // Radio: círculo perfecto mientras es punto, cápsula después
             double cr = baseW <= pillDot + 0.5 && p < 0.02
                 ? pillDot / 2
