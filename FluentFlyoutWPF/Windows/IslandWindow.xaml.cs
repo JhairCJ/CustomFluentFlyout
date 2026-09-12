@@ -30,6 +30,7 @@ namespace FluentFlyoutWPF.Windows;
 /// </summary>
 public partial class IslandWindow : Window
 {
+    private const double ExpandedIslandWidth = 360;
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
     private static readonly Brush IslandBorderBrush = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
     private static readonly Brush MediaPlayingBrush = new SolidColorBrush(Color.FromRgb(0xB6, 0xF0, 0xB5));
@@ -341,7 +342,7 @@ public partial class IslandWindow : Window
         var primary = MonitorUtil.GetMonitors().FirstOrDefault(m => m.isPrimary);
         if (primary.monitorArea.Width == 0) return;
         double tol = Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30) * primary.dpiX / 96.0;
-        double halfRaw = 240 * primary.dpiX / 96.0 + tol;
+        double halfRaw = ExpandedIslandWidth * 0.5 * primary.dpiX / 96.0 + tol;
         double cx = primary.workArea.Left + primary.workArea.Width / 2;
         if (Math.Abs(p.X - cx) > halfRaw) return;
         if (p.Y < primary.workArea.Top - 2 || p.Y > primary.workArea.Top + tol + 4) return;
@@ -564,11 +565,11 @@ public partial class IslandWindow : Window
     {
         try
         {
-            // Medir la altura expandida real con el ancho objetivo (480).
+            // Medir la altura expandida real con el ancho objetivo (360).
             // ExpandedLayer está siempre en el árbol (Opacity 0 cuando compacto),
             // así que es medible.
-            ExpandedLayer.Measure(new Size(480, double.PositiveInfinity));
-            double h = ExpandedLayer.DesiredSize.Height + 24; // padding vertical del box
+            ExpandedLayer.Measure(new Size(ExpandedIslandWidth, double.PositiveInfinity));
+            double h = ExpandedLayer.DesiredSize.Height; // DesiredSize ya incluye el Margin vertical
             if (h > 60 && h < 260) _hexp = h;
         }
         catch { }
@@ -607,7 +608,7 @@ public partial class IslandWindow : Window
             double dotT = Math.Clamp(q / 0.32, 0, 1);
             double stretchT = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
             double baseW = q < 0.32 ? notchDot : Lerp(notchDot, compactW, stretchT);
-            w = Lerp(baseW, 480, Smooth01(p));
+            w = Lerp(baseW, ExpandedIslandWidth, Smooth01(p));
             h = Lerp(34, _hexp, Smooth01(p));
             IslandBox.Width = w;
             IslandBox.Height = h;
@@ -626,7 +627,7 @@ public partial class IslandWindow : Window
             double dotT = Math.Clamp(q / 0.32, 0, 1);
             double stretchT = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
             double baseW = q < 0.32 ? pillDot : Lerp(pillDot, 240, stretchT);
-            w = Lerp(baseW, 480, Smooth01(p));
+            w = Lerp(baseW, ExpandedIslandWidth, Smooth01(p));
             h = Lerp(34, _hexp, Smooth01(p));
             IslandBox.Width = w;
             IslandBox.Height = h;
@@ -974,8 +975,8 @@ public partial class IslandWindow : Window
             // Si el cursor está en la isla expandida (medida dinámica _hexp), no repliegues.
             double tol = Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30) * primary.dpiX / 96.0;
             double halfW = (IsNotch ? 200 : 240) * 0.5;
-            // En expandido la isla es de 480px de ancho
-            if (_expanded || _p > 0.2) halfW = 240;
+            // En expandido la isla es de 360px de ancho
+            if (_expanded || _p > 0.2) halfW = ExpandedIslandWidth * 0.5;
             halfW = halfW * primary.dpiX / 96.0 + tol;
             double cx = primary.workArea.Left + primary.workArea.Width / 2;
             if (Math.Abs(p.X - cx) > halfW) return false;
@@ -1143,7 +1144,7 @@ public partial class IslandWindow : Window
         BackgroundImageNext.CacheMode ??= new BitmapCache(0.5);
 
         double sizeMultiplier = Math.Max(SettingsManager.Current.IslandBackgroundRotateSize, 100) / 100.0;
-        double discSide = Math.Max(Math.Max(480 * sizeMultiplier, height * sizeMultiplier), 480);
+        double discSide = Math.Max(Math.Max(ExpandedIslandWidth * sizeMultiplier, height * sizeMultiplier), ExpandedIslandWidth);
         double offsetX = discSide * 0.28;
         bool showLeftSide = SettingsManager.Current.IslandBackgroundRotateSide == 0;
         LayoutDiscLayer(BackgroundImage, width, height, discSide, offsetX, showLeftSide);
@@ -1188,7 +1189,7 @@ public partial class IslandWindow : Window
         if (_backgroundRotationActive)
         {
             double sizeMultiplier = Math.Max(SettingsManager.Current.IslandBackgroundRotateSize, 100) / 100.0;
-            double discSide = Math.Max(Math.Max(480 * sizeMultiplier, height * sizeMultiplier), 480);
+            double discSide = Math.Max(Math.Max(ExpandedIslandWidth * sizeMultiplier, height * sizeMultiplier), ExpandedIslandWidth);
             double offsetX = discSide * 0.28;
             bool showLeftSide = SettingsManager.Current.IslandBackgroundRotateSide == 0;
             LayoutDiscLayer(BackgroundImage, width, height, discSide, offsetX, showLeftSide);

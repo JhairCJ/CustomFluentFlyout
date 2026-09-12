@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         xmlns:controls="clr-namespace:MicaWPF.Controls;assembly=MicaWPF"
-        Width="480" Height="240" Top="-9999"
+        Width="400" Height="240" Top="-9999"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ShowInTaskbar="False" ShowActivated="False" ResizeMode="NoResize" Topmost="True"
         Loaded="Window_Loaded">
@@ -23,7 +23,7 @@
         <!-- Franja hover invisible: altura ajustable con tolerancia -->
         <Border x:Name="HoverStrip" Height="12" VerticalAlignment="Top" Background="Transparent"/>
 
-        <!-- La caja: Width 240/200<->480 y Height 34<->expandido animados por código.
+        <!-- La caja: Width 240/200<->360 y Height 34<->expandido animados por código.
              ClipToBounds para que el contenido florezca desde dentro al crecer. -->
             <Border x:Name="IslandBox" Width="240" Height="34" CornerRadius="17"
                 HorizontalAlignment="Center" VerticalAlignment="Top"
@@ -105,10 +105,10 @@
                     </Grid>
                 </Grid>
 
-                <!-- Capa expandida: carátula + título/artista + tiempos + controles.
+                <!-- Capa expandida: tarjeta compacta con carátula + título/artista + tiempos + controles.
                      Siempre Visible (medible) y gobernada por opacidad; el hit-test lo
                      decide el código según el progreso del morph. -->
-                <StackPanel x:Name="ExpandedLayer" Margin="16,12,16,12" Opacity="0">
+                <StackPanel x:Name="ExpandedLayer" Margin="16,12,16,6" Opacity="0">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="72"/>
@@ -127,16 +127,16 @@
                             </Border.RenderTransform>
                             <Grid>
                                 <Image x:Name="ExpandedArt" Stretch="UniformToFill"/>
-                                <TextBlock x:Name="ExpandedNote" Text="♪" Foreground="White" FontSize="28"
+                                <TextBlock x:Name="ExpandedNote" Text="♪" Foreground="White" FontSize="24"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
                                 <Border x:Name="ExpandedAlbumOverlay" CornerRadius="12" ClipToBounds="True" Background="Transparent" Visibility="Collapsed" IsHitTestVisible="False">
-                                    <ui:SymbolIcon Symbol="ChevronRight20" Filled="True" Foreground="White" FontSize="28"/>
+                                    <ui:SymbolIcon Symbol="ChevronRight20" Filled="True" Foreground="White" FontSize="24"/>
                                 </Border>
                             </Grid>
                         </Border>
                         <StackPanel Grid.Column="1" Margin="12,2,0,0" VerticalAlignment="Center">
                             <TextBlock x:Name="SongTitle" Text="Título desconocido" Foreground="White"
-                                       FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                       FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                        RenderTransformOrigin="0,0.5">
                                 <TextBlock.RenderTransform>
                                     <TransformGroup>
@@ -146,15 +146,15 @@
                                 </TextBlock.RenderTransform>
                             </TextBlock>
                             <TextBlock x:Name="SongArtist" Text="Artista desconocido" Foreground="White"
-                                       FontSize="14" Opacity="0.5" TextTrimming="CharacterEllipsis"
+                                       FontSize="12" Opacity="0.5" TextTrimming="CharacterEllipsis"
                                        RenderTransformOrigin="0,0.5">
                                 <TextBlock.RenderTransform>
                                     <TranslateTransform x:Name="SongArtistTranslate" X="0" Y="0"/>
                                 </TextBlock.RenderTransform>
                             </TextBlock>
                         </StackPanel>
-                        <Image x:Name="ExpandedEq" Grid.Column="2" Width="56" Height="24" Stretch="Uniform"
-                               VerticalAlignment="Center" Margin="8,0,4,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <Image x:Name="ExpandedEq" Grid.Column="2" Width="48" Height="22" Stretch="Uniform"
+                               VerticalAlignment="Center" Margin="8,0,2,0" RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Grid>
                     <Grid x:Name="SeekRow" Margin="0,8,0,0" RenderTransformOrigin="0.5,0.5">
                         <Grid.RenderTransform>
@@ -165,12 +165,12 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="PosText" Grid.Column="0" Text="0:00" Foreground="White" FontSize="12" Opacity="0.6" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="PosText" Grid.Column="0" Text="0:00" Foreground="White" FontSize="11" Opacity="0.6" VerticalAlignment="Center"/>
                         <Grid x:Name="TimelineHost" Grid.Column="1" Margin="8,0,8,0" Height="14"
                               VerticalAlignment="Center" SizeChanged="TimelineHost_SizeChanged">
-                            <Border x:Name="TimelineTrack" Height="6" CornerRadius="3" Background="#3F3F3F"
+                            <Border x:Name="TimelineTrack" Height="5" CornerRadius="2.5" Background="#3F3F3F"
                                     VerticalAlignment="Center"/>
-                            <Border x:Name="TimelineProgress" Width="0" Height="6" CornerRadius="3" Background="#969696"
+                            <Border x:Name="TimelineProgress" Width="0" Height="5" CornerRadius="2.5" Background="#969696"
                                     HorizontalAlignment="Left" VerticalAlignment="Center"/>
                             <!-- Transparent hit target over the custom track. The reference design
                                  has no permanent thumb, so the native thumb is effectively hidden. -->
@@ -179,26 +179,26 @@
                                     PreviewMouseLeftButtonDown="Seekbar_Down" PreviewMouseLeftButtonUp="Seekbar_Up"
                                     ValueChanged="Seekbar_ValueChanged"/>
                         </Grid>
-                        <TextBlock x:Name="DurText" Grid.Column="2" Text="0:00" Foreground="White" FontSize="12" Opacity="0.6" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="DurText" Grid.Column="2" Text="0:00" Foreground="White" FontSize="11" Opacity="0.6" VerticalAlignment="Center"/>
                     </Grid>
-                    <StackPanel x:Name="ControlsRow" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,6,0,0" RenderTransformOrigin="0.5,0.5">
+                    <StackPanel x:Name="ControlsRow" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,2,0,0" RenderTransformOrigin="0.5,0.5">
                         <StackPanel.RenderTransform>
                             <TranslateTransform x:Name="ControlsTranslate" X="0" Y="0"/>
                         </StackPanel.RenderTransform>
-                        <controls:Button x:Name="BtnPrev" Height="36" Width="44" Margin="12,0"
+                        <controls:Button x:Name="BtnPrev" Height="32" Width="32" Margin="4,0" Padding="0"
                                          Click="Prev_Click" Focusable="False"
                                          Style="{StaticResource MicaWPF.Styles.TransparentButton}">
-                            <ui:SymbolIcon Symbol="Previous20" Filled="True" Foreground="White"/>
+                            <ui:SymbolIcon Symbol="Previous20" Filled="True" Foreground="White" FontSize="22"/>
                         </controls:Button>
-                        <controls:Button x:Name="BtnPlay" Height="36" Width="44" Margin="12,0"
+                        <controls:Button x:Name="BtnPlay" Height="36" Width="36" Margin="4,0" Padding="0"
                                          Click="PlayPause_Click" Focusable="False"
                                          Style="{StaticResource MicaWPF.Styles.TransparentButton}">
-                            <ui:SymbolIcon x:Name="PlayGlyph" Symbol="Pause16" Filled="True" Foreground="White"/>
+                            <ui:SymbolIcon x:Name="PlayGlyph" Symbol="Pause16" Filled="True" Foreground="White" FontSize="20"/>
                         </controls:Button>
-                        <controls:Button x:Name="BtnNext" Height="36" Width="44" Margin="12,0"
+                        <controls:Button x:Name="BtnNext" Height="32" Width="32" Margin="4,0" Padding="0"
                                          Click="Next_Click" Focusable="False"
                                          Style="{StaticResource MicaWPF.Styles.TransparentButton}">
-                            <ui:SymbolIcon Symbol="Next20" Filled="True" Foreground="White"/>
+                            <ui:SymbolIcon Symbol="Next20" Filled="True" Foreground="White" FontSize="22"/>
                         </controls:Button>
                     </StackPanel>
                 </StackPanel>
