@@ -13,8 +13,8 @@
         <Border x:Name="ActivityLine" Height="2" Width="120" CornerRadius="1"
                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0"
                 Background="#66FFFFFF" Visibility="Collapsed"/>
-        <!-- Franja hover invisible: 10px siempre presentes -->
-        <Border Height="10" VerticalAlignment="Top" Background="Transparent"/>
+        <!-- Franja hover invisible: altura ajustable con tolerancia -->
+        <Border x:Name="HoverStrip" Height="12" VerticalAlignment="Top" Background="Transparent"/>
 
         <!-- Compacto: carátula izquierda + indicador derecha -->
         <Border x:Name="CompactBorder" Width="240" Height="34" CornerRadius="17"

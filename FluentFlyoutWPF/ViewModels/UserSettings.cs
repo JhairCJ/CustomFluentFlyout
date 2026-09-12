@@ -798,6 +798,12 @@ public partial class UserSettings : ObservableObject
     public partial int IslandStyle { get; set; }
 
     /// <summary>
+    /// Fluent Island: alto en px de la franja invisible que detecta el ratón (4-30).
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandHoverTolerance { get; set; }
+
+    /// <summary>
     /// Fluent Island: ecualizador funcional (audio real).
     /// </summary>
     [ObservableProperty]
@@ -1075,6 +1081,7 @@ public partial class UserSettings : ObservableObject
         TaskbarVisualizerEnabled = false;
         IslandEnabled = true;
         IslandStyle = 0;
+        IslandHoverTolerance = 12;
         IslandVisibilityMode = 0;
         IslandActivityLine = false;
         IslandEqEnabled = true;

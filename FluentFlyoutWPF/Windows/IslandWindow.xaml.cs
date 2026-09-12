@@ -86,6 +86,13 @@ public partial class IslandWindow : Window
         return null;
     }
 
+    private MediaSession? FirstAllowed()
+    {
+        foreach (var s in _main.mediaManager.CurrentMediaSessions.Values)
+            if (_main.IsSessionAllowed(s)) return s;
+        return null;
+    }
+
     // --- eventos ---
 
     private void OnPlayState(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackInfo? info)
@@ -96,11 +103,13 @@ public partial class IslandWindow : Window
             if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
             {
                 NotePlay(session.Id);
-                ShowCompact(session);
+                if (_expanded) RefreshUi(session); // ya expandido: actualizar sin encoger
+                else ShowCompact(session);
             }
-            else if (session.Id == _currentId)
+            else if (session.Id == _currentId || NewestPlaying() == null)
             {
-                // RF-10: la prioritaria se pausa existiendo otra → pasar a la siguiente
+                // RF-10: la prioritaria se pausa existiendo otra → pasar a la siguiente.
+                // Si nada sigue sonando se oculta aunque el evento venga de otra sesión.
                 var next = NewestPlaying();
                 if (next != null) { _currentId = next.Id; ShowCompact(next); }
                 else HidePerMode();
@@ -175,7 +184,7 @@ public partial class IslandWindow : Window
     private void Window_MouseEnter(object sender, MouseEventArgs e)
     {
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
-        var session = Current() ?? NewestPlaying();
+        var session = Current() ?? NewestPlaying() ?? FirstAllowed();
         if (session == null) return;
         _hideCts?.Cancel();
         _currentId = session.Id;
@@ -188,6 +197,12 @@ public partial class IslandWindow : Window
     }
 
     private void Window_MouseLeave(object sender, MouseEventArgs e)
+    {
+        if (_drag || Mouse.LeftButton == MouseButtonState.Pressed) return; // interactuando (seek): no replegar
+        LeaveHover();
+    }
+
+    private void LeaveHover()
     {
         // RF-4: repliegue inmediato
         if (!_expanded) return;
@@ -279,6 +294,9 @@ public partial class IslandWindow : Window
             return;
         }
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
+        // ponytail: autocura por sondeo; si un MouseLeave se perdió, _expanded se
+        // quedaba atascado y el aviso temporal jamás se armaba
+        if (_expanded && !_drag && !WindowHelper.IsMouseOverWindow(this)) LeaveHover();
         SyncEq();
         var s = Current();
         if (s != null && _expanded) UpdateSeek(s);
@@ -300,8 +318,12 @@ public partial class IslandWindow : Window
     private void UpdateLine()
     {
         ApplyStyle();
-        ActivityLine.Visibility = SettingsManager.Current.IslandActivityLine
-            && (CompactBorder.Visibility == Visibility.Visible || ExpandedBorder.Visibility == Visibility.Visible)
+        HoverStrip.Height = Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30);
+        // La línea es la que descubre la franja invisible: sale también colapsada si hay sesión conocida
+        bool alive = CompactBorder.Visibility == Visibility.Visible
+            || ExpandedBorder.Visibility == Visibility.Visible
+            || Current() != null || NewestPlaying() != null;
+        ActivityLine.Visibility = SettingsManager.Current.IslandActivityLine && alive
             ? Visibility.Visible : Visibility.Collapsed;
         var eqVis = SettingsManager.Current.IslandEqEnabled ? Visibility.Visible : Visibility.Collapsed;
         CompactEq.Visibility = eqVis;

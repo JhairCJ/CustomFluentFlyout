@@ -26,6 +26,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <ui:CardControl x:Name="IslandEnabledCard" Tag="Indexable" Grid.Row="0" Icon="{ui:SymbolIcon Album24}" Margin="0,0,0,24">
                 <ui:CardControl.Header>
@@ -98,7 +99,7 @@
                     <ui:TextBlock Text="{Binding IslandEqSmoothing}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
                 </StackPanel>
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandStyleCard" Tag="Indexable" Grid.Row="7" Icon="{ui:SymbolIcon ExtendedDock24}" Margin="0,0,0,76" IsEnabled="{Binding IslandEnabled}">
+            <ui:CardControl x:Name="IslandStyleCard" Tag="Indexable" Grid.Row="7" Icon="{ui:SymbolIcon ExtendedDock24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="Estilo" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -109,6 +110,18 @@
                     <ComboBoxItem Content="Isla flotante" />
                     <ComboBoxItem Content="Notch superior" />
                 </ComboBox>
+            </ui:CardControl>
+            <ui:CardControl x:Name="IslandToleranceCard" Tag="Indexable" Grid.Row="8" Icon="{ui:SymbolIcon CursorHover24}" Margin="0,0,0,76" IsEnabled="{Binding IslandEnabled}">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="Tolerancia del hover" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="Alto en píxeles de la zona invisible que detecta el ratón." FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <StackPanel Orientation="Horizontal">
+                    <Slider Minimum="4" Maximum="30" Value="{Binding IslandHoverTolerance, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
+                    <ui:TextBlock Text="{Binding IslandHoverTolerance}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
+                </StackPanel>
             </ui:CardControl>
         </Grid>
     </StackPanel>
