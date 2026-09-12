@@ -97,6 +97,8 @@ public partial class IslandWindow : Window
         return null;
     }
 
+    private GlobalSystemMediaTransportControlsSessionPlaybackStatus? _lastStatus;
+
     // --- eventos ---
 
     private void OnPlayState(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackInfo? info)
@@ -107,13 +109,18 @@ public partial class IslandWindow : Window
             if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
             {
                 NotePlay(session.Id);
-                if (_expanded) RefreshUi(session); // ya expandido: actualizar sin encoger
-                else ShowCompact(session);
+                _lastStatus = status;
+                PaintGlyph();
+                if (_expanded) RefreshUi(session, status); // ya expandido: actualizar sin encoger
+                else ShowCompact(session, status);
             }
             else if (session.Id == _currentId || NewestPlaying() == null)
             {
                 // RF-10: la prioritaria se pausa existiendo otra → pasar a la siguiente.
                 // Si nada sigue sonando se oculta aunque el evento venga de otra sesión.
+                // El glifo se pinta también al ocultar: si no, quedaba clavado en ⏸.
+                _lastStatus = status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
+                PaintGlyph();
                 var next = NewestPlaying();
                 if (next != null) { _currentId = next.Id; ShowCompact(next); }
                 else HidePerMode();
@@ -145,17 +152,22 @@ public partial class IslandWindow : Window
             _currentId = null;
             var next = NewestPlaying();
             if (next != null) { _currentId = next.Id; ShowCompact(next); }
-            else HidePerMode();
+            else
+            {
+                _lastStatus = GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
+                PaintGlyph();
+                HidePerMode();
+            }
         });
     }
 
     // --- estados ---
 
-    private void ShowCompact(MediaSession session)
+    private void ShowCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null)
     {
         _hideCts?.Cancel();
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) { CollapseAll(); return; }
-        RefreshUi(session);
+        RefreshUi(session, knownStatus);
         _expanded = false;
         ExpandedBorder.Visibility = Visibility.Collapsed;
         CompactBorder.Visibility = Visibility.Visible;
@@ -250,8 +262,14 @@ public partial class IslandWindow : Window
 
     // --- presentación ---
 
-    private void RefreshUi(MediaSession session)
+    private void RefreshUi(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null)
     {
+        // Glifo 100% event-sourced como el widget: manda el estado del evento;
+        // la reconsulta solo vale en arranque en frío (_lastStatus nulo), porque
+        // GSMTC tarda en asentarse y pisaba el valor fresco con uno rancio.
+        if (knownStatus != null) _lastStatus = knownStatus;
+        else if (_lastStatus == null) _lastStatus = SafeStatus(session);
+        PaintGlyph();
         BitmapImage? art = null;
         string title = "Título desconocido", artist = "Artista desconocido";
         try
@@ -263,9 +281,6 @@ public partial class IslandWindow : Window
                 if (!string.IsNullOrWhiteSpace(props.Artist)) artist = props.Artist;
                 art = BitmapHelper.GetThumbnail(props.Thumbnail);
             }
-            PlayGlyph.Symbol = session.ControlSession.GetPlaybackInfo()?.PlaybackStatus
-                == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
-                ? Wpf.Ui.Controls.SymbolRegular.Pause16 : Wpf.Ui.Controls.SymbolRegular.Play16;
         }
         catch { /* RF-7: sin mensajes técnicos, placeholders */ }
         SongTitle.Text = title;
@@ -279,6 +294,19 @@ public partial class IslandWindow : Window
         UpdateSeek(session);
     }
 
+    private void PaintGlyph()
+    {
+        if (_lastStatus == null) return;
+        PlayGlyph.Symbol = _lastStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
+            ? Wpf.Ui.Controls.SymbolRegular.Pause16 : Wpf.Ui.Controls.SymbolRegular.Play16;
+    }
+
+    private static GlobalSystemMediaTransportControlsSessionPlaybackStatus? SafeStatus(MediaSession session)
+    {
+        try { return session.ControlSession?.GetPlaybackInfo()?.PlaybackStatus; }
+        catch { return null; }
+    }
+
     private static string Fmt(TimeSpan t) => t.ToString(t.Hours > 0 ? @"h\:mm\:ss" : @"m\:ss");
 
     private void UpdateSeek(MediaSession session)
@@ -288,7 +316,11 @@ public partial class IslandWindow : Window
             var tl = session.ControlSession.GetTimelineProperties();
             if (tl.MaxSeekTime.TotalSeconds >= 1)
             {
-                var pos = tl.Position + (DateTime.Now - tl.LastUpdatedTime.DateTime);
+                bool playing = session.ControlSession.GetPlaybackInfo()?.PlaybackStatus
+                    == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                var pos = playing
+                    ? tl.Position + (DateTime.Now - tl.LastUpdatedTime.DateTime)
+                    : tl.Position; // en pausa: congelada, sin extrapolar con el reloj
                 if (pos < TimeSpan.Zero) pos = TimeSpan.Zero;
                 if (pos > tl.EndTime) pos = tl.EndTime;
                 Seekbar.Maximum = tl.MaxSeekTime.TotalSeconds;
@@ -347,10 +379,11 @@ public partial class IslandWindow : Window
     {
         ApplyStyle();
         HoverStrip.Height = Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30);
-        // La línea es la que descubre la franja invisible: sale también colapsada si hay sesión conocida
+        // La línea es la que descubre la franja invisible: sale siempre que el
+        // hover reviviría el island (misma condición que Window_MouseEnter).
         bool alive = CompactBorder.Visibility == Visibility.Visible
             || ExpandedBorder.Visibility == Visibility.Visible
-            || Current() != null || NewestPlaying() != null;
+            || Current() != null || NewestPlaying() != null || FirstAllowed() != null;
         ActivityLine.Visibility = SettingsManager.Current.IslandActivityLine && alive
             ? Visibility.Visible : Visibility.Collapsed;
         var eqVis = SettingsManager.Current.IslandEqEnabled ? Visibility.Visible : Visibility.Collapsed;
@@ -425,12 +458,9 @@ public partial class IslandWindow : Window
 
     private async void PlayPause_Click(object sender, RoutedEventArgs e)
     {
-        if (Current() is { } s)
-        {
-            await s.ControlSession.TryTogglePlayPauseAsync();
-            await Task.Delay(250);
-            Dispatcher.Invoke(() => RefreshUi(s));
-        }
+        // Sin refresco ciego: el evento de cambio de estado actualiza el glifo.
+        // El refresco a 250 ms pisaba estados en transición y lo dejaba clavado.
+        if (Current() is { } s) await s.ControlSession.TryTogglePlayPauseAsync();
     }
 
     private async void Next_Click(object sender, RoutedEventArgs e)
