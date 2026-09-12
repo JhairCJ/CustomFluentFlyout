@@ -31,6 +31,7 @@ public partial class IslandWindow : Window
     private bool _drag;
     private CancellationTokenSource? _hideCts;
     private readonly DispatcherTimer _tick;
+    private readonly DispatcherTimer _hoverPoll;
     private readonly Visualizer _eq = new(Visualizer.Options.Island);
     private int _eqBars = -1;
     private bool _eqRunning;
@@ -53,6 +54,9 @@ public partial class IslandWindow : Window
         _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _tick.Tick += (_, _) => Tick();
         _tick.Start();
+        _hoverPoll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        _hoverPoll.Tick += (_, _) => PollFringeHover();
+        _hoverPoll.Start();
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -186,6 +190,30 @@ public partial class IslandWindow : Window
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
         var session = Current() ?? NewestPlaying() ?? FirstAllowed();
         if (session == null) return;
+        ExpandSession(session);
+    }
+
+    // ponytail: la franja se sondea en pantalla (píxeles físicos); el MouseEnter de
+    // una ventana transparente topmost falla según z-order y esa era la tasa de fallos
+    private void PollFringeHover()
+    {
+        if (_expanded || _drag) return;
+        if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
+        if (!NativeMethods.GetCursorPos(out var p)) return;
+        var primary = MonitorUtil.GetMonitors().FirstOrDefault(m => m.isPrimary);
+        if (primary.monitorArea.Width == 0) return;
+        double tol = Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30) * primary.dpiX / 96.0;
+        double halfRaw = 240 * primary.dpiX / 96.0 + tol;
+        double cx = primary.workArea.Left + primary.workArea.Width / 2;
+        if (Math.Abs(p.X - cx) > halfRaw) return;
+        if (p.Y < primary.workArea.Top - 2 || p.Y > primary.workArea.Top + tol + 4) return;
+        var session = Current() ?? NewestPlaying() ?? FirstAllowed();
+        if (session != null) ExpandSession(session);
+    }
+
+    private void ExpandSession(MediaSession session)
+    {
+        if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         _hideCts?.Cancel();
         _currentId = session.Id;
         RefreshUi(session);
@@ -438,6 +466,7 @@ public partial class IslandWindow : Window
     public void Dispose()
     {
         _tick.Stop();
+        _hoverPoll.Stop();
         _hideCts?.Cancel();
         _eq.Dispose();
         var mm = _main.mediaManager;
