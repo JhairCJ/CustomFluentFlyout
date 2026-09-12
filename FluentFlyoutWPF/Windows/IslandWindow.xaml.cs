@@ -57,6 +57,11 @@ public partial class IslandWindow : Window
     private int _popVersion;
     private bool _popPlaying;
     private double _pop; // 0..1 pulso de cambio de pista
+    private bool _albumArtHovering;
+    private bool _hasAlbumCover;
+    private BitmapImage? _displayedAlbumArt;
+    private int _albumFlipVersion;
+    private bool _albumFlipRunning;
 
     // Album-art background, matching the taskbar widget's blurred/rotating viewport.
     private BitmapImage? _backgroundIcon;
@@ -85,6 +90,7 @@ public partial class IslandWindow : Window
         _main = main;
         WindowHelper.SetNoActivate(this);
         InitializeComponent();
+        ApplyAlbumArtRadius();
         CompactEq.Source = _eq.Bitmap;
         ExpandedEq.Source = _eq.Bitmap;
         ApplyStyle();
@@ -237,12 +243,12 @@ public partial class IslandWindow : Window
             Dispatcher.Invoke(() => { if (!cts.IsCancellationRequested && !_expanded && !IsMouseOverBoxOrStrip()) GoHidden(); }));
     }
 
-    private void ShowCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null)
+    private void ShowCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null, bool forceAlbumFlip = false)
     {
         _hideCts?.Cancel();
         _hidingViaCompact = false;
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) { SnapHidden(); return; }
-        RefreshUi(session, knownStatus);
+        RefreshUi(session, knownStatus, forceAlbumFlip);
         _expanded = false;
         UpdateLine();
         PositionTopCenter();
@@ -450,6 +456,7 @@ public partial class IslandWindow : Window
     public void RefreshAppearance()
     {
         ApplyStyle();
+        ApplyAlbumArtRadius();
         UpdateLine();
         ApplyFrame();
     }
@@ -732,7 +739,7 @@ public partial class IslandWindow : Window
 
     // --- presentación ---
 
-    private void RefreshUi(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null)
+    private void RefreshUi(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null, bool forceAlbumFlip = false)
     {
         var status = knownStatus ?? SafeStatus(session) ?? _lastStatus;
         if (status != null) _lastStatus = status;
@@ -753,21 +760,99 @@ public partial class IslandWindow : Window
         SongTitle.Text = title;
         SongArtist.Text = artist;
         CompactTitle.Text = title;
-        CompactArt.Source = art;
-        ExpandedArt.Source = art;
         SetBackground(art);
         string trackKey = title + "\n" + artist + "\n" + (art != null);
         bool trackChanged = _lastTrackKey != "" && trackKey != _lastTrackKey;
         _lastTrackKey = trackKey;
+        if (trackChanged || forceAlbumFlip)
+            StartAlbumFlip(art);
+        else if (!_albumFlipRunning)
+            SetAlbumArt(art);
         if (trackChanged && SettingsManager.Current.IslandShowOnTrackChange) PlayTrackPop();
         BitmapHelper.GetDominantColors();
-        bool hasArt = art != null;
-        CompactNote.Visibility = hasArt ? Visibility.Collapsed : Visibility.Visible;
-        ExpandedNote.Visibility = hasArt ? Visibility.Collapsed : Visibility.Visible;
         ApplyCapabilities(session);
         UpdateSeek(session);
         SyncMeasuredHeight();
         if (_expanded || _p > 0.05) ApplyFrame();
+    }
+
+    private void SetAlbumArt(BitmapImage? art)
+    {
+        StopAlbumFlip();
+        CompactArt.Source = art;
+        ExpandedArt.Source = art;
+        _displayedAlbumArt = art;
+        _hasAlbumCover = art != null;
+        CompactNote.Visibility = _hasAlbumCover ? Visibility.Collapsed : Visibility.Visible;
+        ExpandedNote.Visibility = _hasAlbumCover ? Visibility.Collapsed : Visibility.Visible;
+        UpdateAlbumArtOverlay();
+    }
+
+    private void StartAlbumFlip(BitmapImage? art)
+    {
+        StopAlbumFlip();
+        if (!AnimationsEnabled)
+        {
+            SetAlbumArt(art);
+            return;
+        }
+
+        _albumFlipRunning = true;
+        int version = _albumFlipVersion;
+        CompactArtFlipScale.ScaleX = ExpandedArtFlipScale.ScaleX = 1;
+        CompactArtFlipScale.ScaleY = ExpandedArtFlipScale.ScaleY = 1;
+        _hasAlbumCover = _displayedAlbumArt != null;
+        UpdateAlbumArtOverlay();
+
+        var outgoing = new DoubleAnimation
+        {
+            From = 1,
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(140),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+        };
+        outgoing.Completed += (_, _) =>
+        {
+            if (version != _albumFlipVersion) return;
+            CompactArt.Source = art;
+            ExpandedArt.Source = art;
+            _displayedAlbumArt = art;
+            _hasAlbumCover = art != null;
+            CompactNote.Visibility = _hasAlbumCover ? Visibility.Collapsed : Visibility.Visible;
+            ExpandedNote.Visibility = _hasAlbumCover ? Visibility.Collapsed : Visibility.Visible;
+            UpdateAlbumArtOverlay();
+
+            var incoming = new DoubleAnimation
+            {
+                From = 0,
+                To = 1,
+                Duration = TimeSpan.FromMilliseconds(170),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            incoming.Completed += (_, _) =>
+            {
+                if (version != _albumFlipVersion) return;
+                _albumFlipRunning = false;
+                CompactArtFlipScale.ScaleX = ExpandedArtFlipScale.ScaleX = 1;
+                CompactArtFlipScale.ScaleY = ExpandedArtFlipScale.ScaleY = 1;
+                UpdateAlbumArtOverlay();
+            };
+            CompactArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, incoming);
+            ExpandedArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, incoming.Clone());
+        };
+
+        CompactArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, outgoing);
+        ExpandedArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, outgoing.Clone());
+    }
+
+    private void StopAlbumFlip()
+    {
+        _albumFlipVersion++;
+        _albumFlipRunning = false;
+        CompactArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        ExpandedArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        CompactArtFlipScale.ScaleX = CompactArtFlipScale.ScaleY = 1;
+        ExpandedArtFlipScale.ScaleX = ExpandedArtFlipScale.ScaleY = 1;
     }
 
     private void ApplyCapabilities(MediaSession session)
@@ -809,6 +894,26 @@ public partial class IslandWindow : Window
 
     private static string Fmt(TimeSpan t) => t.ToString(t.Hours > 0 ? @"h\:mm\:ss" : @"m\:ss");
 
+    private static string FmtRemaining(TimeSpan t) => "-" + Fmt(t < TimeSpan.Zero ? TimeSpan.Zero : t);
+
+    private void UpdateTimelineVisual()
+    {
+        double maximum = Seekbar.Maximum;
+        double ratio = maximum > 0 ? Math.Clamp(Seekbar.Value / maximum, 0, 1) : 0;
+        TimelineProgress.Width = TimelineTrack.ActualWidth * ratio;
+    }
+
+    private void TimelineHost_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateTimelineVisual();
+
+    private void Seekbar_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        UpdateTimelineVisual();
+        if (!_drag || Seekbar.Maximum <= 0) return;
+        var position = TimeSpan.FromSeconds(Math.Clamp(Seekbar.Value, 0, Seekbar.Maximum));
+        PosText.Text = Fmt(position);
+        DurText.Text = FmtRemaining(TimeSpan.FromSeconds(Seekbar.Maximum) - position);
+    }
+
     private void UpdateSeek(MediaSession session)
     {
         try
@@ -822,12 +927,14 @@ public partial class IslandWindow : Window
                 if (pos > tl.EndTime) pos = tl.EndTime;
                 Seekbar.Maximum = tl.MaxSeekTime.TotalSeconds;
                 if (!_drag) { Seekbar.Value = pos.TotalSeconds; PosText.Text = Fmt(pos); }
-                DurText.Text = Fmt(tl.MaxSeekTime);
+                DurText.Text = FmtRemaining(tl.MaxSeekTime - pos);
+                UpdateTimelineVisual();
                 return;
             }
         }
         catch { }
         Seekbar.Maximum = 100; Seekbar.Value = 0; PosText.Text = "0:00"; DurText.Text = "0:00";
+        UpdateTimelineVisual();
     }
 
     private void Tick()
@@ -944,6 +1051,32 @@ public partial class IslandWindow : Window
         // CornerRadius lo gobierna ApplyFrame por frame (punto 26→cápsula)
         SyncMeasuredHeight();
         if (!_loopOn) ApplyFrame();
+    }
+
+    private void ApplyAlbumArtRadius()
+    {
+        double radius = Math.Clamp(SettingsManager.Current.IslandAlbumArtRadius, 0, 32);
+        double compactRadius = Math.Min(radius, 11);
+        double expandedRadius = Math.Min(radius, 32);
+        var compactCorners = new CornerRadius(compactRadius);
+        var expandedCorners = new CornerRadius(expandedRadius);
+
+        CompactArtWrap.CornerRadius = compactCorners;
+        CompactAlbumOverlay.CornerRadius = compactCorners;
+        CompactArtWrap.Clip = CreateAlbumArtClip(22, compactRadius);
+        CompactAlbumOverlay.Clip = CreateAlbumArtClip(22, compactRadius);
+
+        ExpandedArtWrap.CornerRadius = expandedCorners;
+        ExpandedAlbumOverlay.CornerRadius = expandedCorners;
+        ExpandedArtWrap.Clip = CreateAlbumArtClip(64, expandedRadius);
+        ExpandedAlbumOverlay.Clip = CreateAlbumArtClip(64, expandedRadius);
+    }
+
+    private static RectangleGeometry CreateAlbumArtClip(double size, double radius)
+    {
+        var clip = new RectangleGeometry(new Rect(0, 0, size, size), radius, radius);
+        clip.Freeze();
+        return clip;
     }
 
     public void UpdateBackgroundMode()
@@ -1363,6 +1496,28 @@ public partial class IslandWindow : Window
     private async void PlayPause_Click(object sender, RoutedEventArgs e) { if (Current() is { } s) await s.ControlSession.TryTogglePlayPauseAsync(); }
     private async void Next_Click(object sender, RoutedEventArgs e) { if (Current() is { } s) await s.ControlSession.TrySkipNextAsync(); }
 
+    private void AlbumArt_MouseEnter(object sender, MouseEventArgs e)
+    {
+        _albumArtHovering = true;
+        UpdateAlbumArtOverlay();
+    }
+
+    private void AlbumArt_MouseLeave(object sender, MouseEventArgs e)
+    {
+        _albumArtHovering = false;
+        UpdateAlbumArtOverlay();
+    }
+
+    private void UpdateAlbumArtOverlay()
+    {
+        bool showChevron = _albumArtHovering && _hasAlbumCover && _main.GetTaskbarSessionCount() > 1;
+        var visibility = showChevron ? Visibility.Visible : Visibility.Collapsed;
+        CompactAlbumOverlay.Visibility = visibility;
+        ExpandedAlbumOverlay.Visibility = visibility;
+        CompactArt.Opacity = showChevron ? 0.4 : 1;
+        ExpandedArt.Opacity = showChevron ? 0.4 : 1;
+    }
+
     private void Album_Click(object sender, MouseButtonEventArgs e)
     {
         var all = _main.mediaManager.CurrentMediaSessions.Values.Where(s => _main.IsSessionAllowed(s)).ToList();
@@ -1371,12 +1526,12 @@ public partial class IslandWindow : Window
         var next = all[(i + 1) % all.Count];
         _currentId = next.Id;
         _hideCts?.Cancel();
-        if (_expanded) RefreshUi(next);
-        else ShowCompact(next);
+        if (_expanded) RefreshUi(next, null, true);
+        else ShowCompact(next, null, true);
     }
 
     private void Seekbar_Down(object sender, MouseButtonEventArgs e) { _drag = true; if (sender is Slider sl) { var p = e.GetPosition(sl); double ratio = sl.ActualWidth > 0 ? Math.Clamp(p.X / sl.ActualWidth, 0, 1) : 0; sl.Value = ratio * sl.Maximum; } }
-    private async void Seekbar_Up(object sender, MouseButtonEventArgs e) { try { if (Current() is { } s && sender is Slider sl) { var pos = TimeSpan.FromSeconds(Math.Max(sl.Value, 1)); await s.ControlSession.TryChangePlaybackPositionAsync(pos.Ticks); } } catch { } finally { _drag = false; } }
+    private async void Seekbar_Up(object sender, MouseButtonEventArgs e) { try { if (Current() is { } s && sender is Slider sl) { var pos = TimeSpan.FromSeconds(Math.Max(sl.Value, 0)); await s.ControlSession.TryChangePlaybackPositionAsync(pos.Ticks); } } catch { } finally { _drag = false; } }
 
     public void Dispose()
     {

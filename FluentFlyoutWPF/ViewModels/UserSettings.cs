@@ -806,6 +806,26 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
+    /// Radio de las esquinas de la carátula y de su overlay de cambio de medio.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandAlbumArtRadiusText))]
+    public partial int IslandAlbumArtRadius { get; set; }
+
+    [XmlIgnore]
+    public string IslandAlbumArtRadiusText
+    {
+        get => IslandAlbumArtRadius.ToString();
+        set
+        {
+            if (int.TryParse(value, out var result))
+                IslandAlbumArtRadius = Math.Clamp(result, 0, 32);
+            else IslandAlbumArtRadius = 12;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
     /// Fluent Island: activa el fondo desenfocado basado en la carátula.
     /// </summary>
     [ObservableProperty]
@@ -1232,6 +1252,7 @@ public partial class UserSettings : ObservableObject
         IslandEnabled = true;
         IslandBorderEnabled = true;
         IslandBorderRadius = 17;
+        IslandAlbumArtRadius = 12;
         IslandBackgroundBlur = false;
         IslandBackgroundBlurIntensity = 65;
         IslandBackgroundBlurRadius = 35;
@@ -1624,6 +1645,12 @@ public partial class UserSettings : ObservableObject
     }
 
     partial void OnIslandBorderRadiusChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandAlbumArtRadiusChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();

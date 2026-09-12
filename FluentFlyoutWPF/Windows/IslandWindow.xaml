@@ -65,17 +65,24 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Border x:Name="CompactArtWrap" Grid.Column="0" Width="22" Height="22" CornerRadius="6" ClipToBounds="True"
+                        <Border x:Name="CompactArtWrap" Grid.Column="0" Width="22" Height="22" CornerRadius="12" ClipToBounds="True"
                                 Background="#222" HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click"
+                                MouseEnter="AlbumArt_MouseEnter" MouseLeave="AlbumArt_MouseLeave"
                                 RenderTransformOrigin="0.5,0.5">
                             <Border.RenderTransform>
-                                <TranslateTransform x:Name="CompactArtTranslate" X="0" Y="0"/>
+                                <TransformGroup>
+                                    <ScaleTransform x:Name="CompactArtFlipScale" ScaleX="1" ScaleY="1"/>
+                                    <TranslateTransform x:Name="CompactArtTranslate" X="0" Y="0"/>
+                                </TransformGroup>
                             </Border.RenderTransform>
                             <Grid>
                                 <Image x:Name="CompactArt" Stretch="UniformToFill"/>
                                 <TextBlock x:Name="CompactNote" Text="♪" Foreground="White" FontSize="13"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                <Border x:Name="CompactAlbumOverlay" CornerRadius="12" ClipToBounds="True" Background="Transparent" Visibility="Collapsed" IsHitTestVisible="False">
+                                    <ui:SymbolIcon Symbol="ChevronRight20" Filled="True" Foreground="White" FontSize="14"/>
+                                </Border>
                             </Grid>
                         </Border>
                         <TextBlock x:Name="CompactTitle" Grid.Column="1" Foreground="White" FontSize="12"
@@ -108,16 +115,23 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Border Grid.Column="0" Width="64" Height="64" CornerRadius="12" ClipToBounds="True" Background="#222"
+                        <Border x:Name="ExpandedArtWrap" Grid.Column="0" Width="64" Height="64" CornerRadius="12" ClipToBounds="True" Background="#222"
                                 Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click"
+                                MouseEnter="AlbumArt_MouseEnter" MouseLeave="AlbumArt_MouseLeave"
                                 RenderTransformOrigin="0.5,0.5">
                             <Border.RenderTransform>
-                                <ScaleTransform x:Name="ExpandedArtScale" ScaleX="1" ScaleY="1"/>
+                                <TransformGroup>
+                                    <ScaleTransform x:Name="ExpandedArtFlipScale" ScaleX="1" ScaleY="1"/>
+                                    <ScaleTransform x:Name="ExpandedArtScale" ScaleX="1" ScaleY="1"/>
+                                </TransformGroup>
                             </Border.RenderTransform>
                             <Grid>
                                 <Image x:Name="ExpandedArt" Stretch="UniformToFill"/>
                                 <TextBlock x:Name="ExpandedNote" Text="♪" Foreground="White" FontSize="28"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                <Border x:Name="ExpandedAlbumOverlay" CornerRadius="12" ClipToBounds="True" Background="Transparent" Visibility="Collapsed" IsHitTestVisible="False">
+                                    <ui:SymbolIcon Symbol="ChevronRight20" Filled="True" Foreground="White" FontSize="28"/>
+                                </Border>
                             </Grid>
                         </Border>
                         <StackPanel Grid.Column="1" Margin="12,2,0,0" VerticalAlignment="Center">
@@ -152,9 +166,19 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="PosText" Grid.Column="0" Text="0:00" Foreground="White" FontSize="12" Opacity="0.6" VerticalAlignment="Center"/>
-                        <Slider x:Name="Seekbar" Grid.Column="1" Margin="8,0,8,0" VerticalAlignment="Center"
-                                Minimum="0" Maximum="100" Value="0"
-                                PreviewMouseLeftButtonDown="Seekbar_Down" PreviewMouseLeftButtonUp="Seekbar_Up"/>
+                        <Grid x:Name="TimelineHost" Grid.Column="1" Margin="8,0,8,0" Height="14"
+                              VerticalAlignment="Center" SizeChanged="TimelineHost_SizeChanged">
+                            <Border x:Name="TimelineTrack" Height="6" CornerRadius="3" Background="#3F3F3F"
+                                    VerticalAlignment="Center"/>
+                            <Border x:Name="TimelineProgress" Width="0" Height="6" CornerRadius="3" Background="#969696"
+                                    HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                            <!-- Transparent hit target over the custom track. The reference design
+                                 has no permanent thumb, so the native thumb is effectively hidden. -->
+                            <Slider x:Name="Seekbar" Minimum="0" Maximum="100" Value="0" Opacity="0.01"
+                                    VerticalAlignment="Stretch"
+                                    PreviewMouseLeftButtonDown="Seekbar_Down" PreviewMouseLeftButtonUp="Seekbar_Up"
+                                    ValueChanged="Seekbar_ValueChanged"/>
+                        </Grid>
                         <TextBlock x:Name="DurText" Grid.Column="2" Text="0:00" Foreground="White" FontSize="12" Opacity="0.6" VerticalAlignment="Center"/>
                     </Grid>
                     <StackPanel x:Name="ControlsRow" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,6,0,0" RenderTransformOrigin="0.5,0.5">
