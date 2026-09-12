@@ -32,7 +32,7 @@ public partial class IslandWindow : Window
 {
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
     private static readonly Brush IslandBorderBrush = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
-    private static readonly Brush MediaPlayingBrush = new SolidColorBrush(Color.FromRgb(0x86, 0xC9, 0x91));
+    private static readonly Brush MediaPlayingBrush = new SolidColorBrush(Color.FromRgb(0xB6, 0xF0, 0xB5));
     private static readonly Brush MediaPausedBrush = new SolidColorBrush(Color.FromRgb(0x76, 0x7B, 0x79));
 
     private readonly MainWindow _main;

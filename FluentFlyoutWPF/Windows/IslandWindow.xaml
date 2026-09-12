@@ -14,10 +14,10 @@
          y la franja hover capturan el ratón. -->
     <Grid x:Name="Root" Background="{x:Null}">
         <!-- Línea gris opcional: indica que el Island está activo -->
-        <Border x:Name="ActivityLine" Height="2" Width="120" CornerRadius="1"
+        <Border x:Name="ActivityLine" Height="3" Width="120" CornerRadius="1.5"
                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0"
                 Background="#66FFFFFF" Visibility="Collapsed"/>
-        <Border x:Name="MediaStatusDot" Width="2" Height="2" CornerRadius="1"
+        <Border x:Name="MediaStatusDot" Width="3" Height="3" CornerRadius="1.5"
                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0"
                 Visibility="Collapsed" IsHitTestVisible="False"/>
         <!-- Franja hover invisible: altura ajustable con tolerancia -->
