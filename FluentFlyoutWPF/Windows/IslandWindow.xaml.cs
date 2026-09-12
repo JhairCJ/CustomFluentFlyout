@@ -118,12 +118,21 @@ public partial class IslandWindow : Window
             {
                 // RF-10: la prioritaria se pausa existiendo otra → pasar a la siguiente.
                 // Si nada sigue sonando se oculta aunque el evento venga de otra sesión.
-                // El glifo se pinta también al ocultar: si no, quedaba clavado en ⏸.
-                _lastStatus = status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
-                PaintGlyph();
+                // Sin encoger: si estaba expandido, sigue expandido con la siguiente.
                 var next = NewestPlaying();
-                if (next != null) { _currentId = next.Id; ShowCompact(next); }
-                else HidePerMode();
+                if (next != null)
+                {
+                    _currentId = next.Id;
+                    if (_expanded) RefreshUi(next);
+                    else ShowCompact(next);
+                }
+                else
+                {
+                    // El glifo se pinta también al ocultar: si no, quedaba clavado en ⏸.
+                    _lastStatus = status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
+                    PaintGlyph();
+                    HidePerMode();
+                }
             }
         });
     }
@@ -151,7 +160,12 @@ public partial class IslandWindow : Window
             if (session.Id != _currentId) return;
             _currentId = null;
             var next = NewestPlaying();
-            if (next != null) { _currentId = next.Id; ShowCompact(next); }
+            if (next != null)
+            {
+                _currentId = next.Id;
+                if (_expanded) RefreshUi(next);
+                else ShowCompact(next);
+            }
             else
             {
                 _lastStatus = GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
@@ -264,11 +278,11 @@ public partial class IslandWindow : Window
 
     private void RefreshUi(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null)
     {
-        // Glifo 100% event-sourced como el widget: manda el estado del evento;
-        // la reconsulta solo vale en arranque en frío (_lastStatus nulo), porque
-        // GSMTC tarda en asentarse y pisaba el valor fresco con uno rancio.
-        if (knownStatus != null) _lastStatus = knownStatus;
-        else if (_lastStatus == null) _lastStatus = SafeStatus(session);
+        // Glifo: evento (fresco) → lectura viva de la sesión mostrada → memoria.
+        // Solo-evento se quedaba clavado si el evento venía sin estado; solo-memoria
+        // retenía valores viejos. Igual que el widget, que repinta en cada update.
+        var status = knownStatus ?? SafeStatus(session) ?? _lastStatus;
+        if (status != null) _lastStatus = status;
         PaintGlyph();
         BitmapImage? art = null;
         string title = "Título desconocido", artist = "Artista desconocido";
@@ -288,10 +302,41 @@ public partial class IslandWindow : Window
         CompactTitle.Text = title;
         CompactArt.Source = art;
         ExpandedArt.Source = art;
+        // La isla pone su propia carátula: refresca el acento aquí o el
+        // ecualizador se queda con el color del álbum anterior (MainWindow solo
+        // lo recalcula con su flyout visible o el widget activo).
+        BitmapHelper.GetDominantColors();
         bool hasArt = art != null;
         CompactNote.Visibility = hasArt ? Visibility.Collapsed : Visibility.Visible;
         ExpandedNote.Visibility = hasArt ? Visibility.Collapsed : Visibility.Visible;
+        ApplyCapabilities(session);
         UpdateSeek(session);
+    }
+
+    // Controles según lo que la app permite (patrón MainWindow): sin seek se
+    // oculta la fila con Hidden para no mover nada; sin previo/siguiente en gris.
+    private void ApplyCapabilities(MediaSession session)
+    {
+        bool canPlay = false, canPrev = false, canNext = false, canSeek = false;
+        try
+        {
+            var c = session.ControlSession.GetPlaybackInfo()?.Controls;
+            if (c != null)
+            {
+                canPlay = c.IsPlayEnabled || c.IsPauseEnabled;
+                canPrev = c.IsPreviousEnabled;
+                canNext = c.IsNextEnabled;
+            }
+            canSeek = session.ControlSession.GetTimelineProperties().MaxSeekTime.TotalSeconds >= 1;
+        }
+        catch { /* sin datos: todo queda desactivado */ }
+        SeekRow.Visibility = canSeek ? Visibility.Visible : Visibility.Hidden;
+        BtnPlay.IsEnabled = canPlay;
+        BtnPlay.Opacity = canPlay ? 1 : 0.35;
+        BtnPrev.IsEnabled = canPrev;
+        BtnPrev.Opacity = canPrev ? 1 : 0.35;
+        BtnNext.IsEnabled = canNext;
+        BtnNext.Opacity = canNext ? 1 : 0.35;
     }
 
     private void PaintGlyph()
@@ -466,6 +511,20 @@ public partial class IslandWindow : Window
     private async void Next_Click(object sender, RoutedEventArgs e)
     {
         if (Current() is { } s) await s.ControlSession.TrySkipNextAsync();
+    }
+
+    // Clic en la carátula rota entre sesiones (como el widget): solo cambia lo
+    // mostrado, sin tocar el pin del widget ni la prioridad de más reciente.
+    private void Album_Click(object sender, MouseButtonEventArgs e)
+    {
+        var all = _main.mediaManager.CurrentMediaSessions.Values.Where(s => _main.IsSessionAllowed(s)).ToList();
+        if (all.Count <= 1) return;
+        int i = all.FindIndex(s => s.Id == _currentId);
+        var next = all[(i + 1) % all.Count];
+        _currentId = next.Id;
+        _hideCts?.Cancel();
+        if (_expanded) RefreshUi(next);
+        else ShowCompact(next);
     }
 
     private void Seekbar_Down(object sender, MouseButtonEventArgs e)

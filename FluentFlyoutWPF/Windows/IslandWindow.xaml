@@ -28,7 +28,8 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Border Grid.Column="0" Width="22" Height="22" CornerRadius="6" ClipToBounds="True"
-                        Background="#222" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        Background="#222" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click">
                     <Grid>
                         <Image x:Name="CompactArt" Stretch="UniformToFill"/>
                         <TextBlock x:Name="CompactNote" Text="♪" Foreground="White" FontSize="13"
@@ -54,7 +55,8 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <Border Grid.Column="0" Width="64" Height="64" CornerRadius="12" ClipToBounds="True" Background="#222">
+                    <Border Grid.Column="0" Width="64" Height="64" CornerRadius="12" ClipToBounds="True" Background="#222"
+                            Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click">
                         <Grid>
                             <Image x:Name="ExpandedArt" Stretch="UniformToFill"/>
                             <TextBlock x:Name="ExpandedNote" Text="♪" Foreground="White" FontSize="28"
@@ -70,7 +72,7 @@
                     <Image x:Name="ExpandedEq" Grid.Column="2" Width="56" Height="24" Stretch="Uniform"
                            VerticalAlignment="Center" Margin="8,0,4,0" RenderOptions.BitmapScalingMode="HighQuality"/>
                 </Grid>
-                <Grid Margin="0,8,0,0">
+                <Grid x:Name="SeekRow" Margin="0,8,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
