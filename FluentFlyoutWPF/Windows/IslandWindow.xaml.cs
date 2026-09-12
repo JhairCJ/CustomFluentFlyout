@@ -50,7 +50,7 @@ public partial class IslandWindow : Window
     private double _q, _qT, _qv;
     private bool _loopOn;
     private bool _hidingViaCompact; // expandido va a desaparecer: primero p->0, luego q->0
-    private bool _fastHideQ; // ponytail: 2x q solo en compacto→círculo encadenado desde expandido
+    private bool _fastHideQ; // ponytail: acelera q en el tramo compacto→oculto
     private double _hexp = 172;
     private string _lastTrackKey = "";
     private int _popVersion;
@@ -264,7 +264,7 @@ public partial class IslandWindow : Window
         if (_expanded)
         {
             _expanded = false;
-            if (!IsNotch && AnimationsEnabled) { _hidingViaCompact = true; _fastHideQ = true; _pT = 0; _qT = 1; EnsureLoop(); return; }
+            if (AnimationsEnabled) { _hidingViaCompact = true; _fastHideQ = true; _pT = 0; _qT = 1; EnsureLoop(); return; }
             GoHidden(); return;
         }
         GoHidden();
@@ -276,10 +276,9 @@ public partial class IslandWindow : Window
     {
         if (!AnimationsEnabled || !IsBoxShown) { SnapHidden(); return; }
         if (_hidingViaCompact) return;
-        if (!IsNotch)
+        if (Math.Abs(_p) > 0.05)
         {
-            if (Math.Abs(_p) > 0.05) { _expanded = false; _hidingViaCompact = true; _fastHideQ = true; _pT = 0; _qT = 1; EnsureLoop(); return; }
-            _qT = 0; EnsureLoop(); return;
+            _expanded = false; _hidingViaCompact = true; _fastHideQ = true; _pT = 0; _qT = 1; EnsureLoop(); return;
         }
         _qT = 0;
         EnsureLoop();
@@ -428,10 +427,9 @@ public partial class IslandWindow : Window
         int sp = SettingsManager.Current.FlyoutAnimationSpeed; // 0..5
         double slow = sp switch { 3 => 0.85, 4 => 0.7, 5 => 0.55, _ => 1.0 };
         kP = 520 * slow; cP = 34;
-        kQ = 620 * slow; cQ = 36;
-        if (IsNotch) { kP *= 1.05; kQ *= 1.05; }
-        else { kQ = 200 * slow; cQ = 28; } // pill 2x más lento (solo q)
-        if (!IsNotch && _fastHideQ && _qT == 0 && _q > 0.02) { kQ *= 9; cQ *= 2.9; }
+        kQ = 200 * slow; cQ = 28; // ambos estilos emergen desde el centro como Island
+        if (IsNotch) kP *= 1.05;
+        if (_fastHideQ && _qT == 0 && _q > 0.02) { kQ *= 9; cQ *= 2.9; }
     }
 
     private void EnsureLoop()
@@ -468,8 +466,8 @@ public partial class IslandWindow : Window
         if (_popPlaying) StepPop(dt);
         ApplyFrame();
 
-        // Expandido→oculto (ponytail: 0.45 encadena q sin dwell, compacto→círculo queda en GoHidden)
-        if (_hidingViaCompact && !IsNotch && _p < 0.45)
+        // Expandido→oculto (ponytail: encadena q sin dwell después de volver a compacto)
+        if (_hidingViaCompact && _p < 0.45)
         {
             _hidingViaCompact = false;
             _qT = 0;
@@ -565,17 +563,22 @@ public partial class IslandWindow : Window
         double w, h;
         if (notch)
         {
+            // Notch: mismo reveal que Island: punto central -> compacto -> expandido.
+            const double notchDot = 26;
             double compactW = 200;
-            w = Lerp(compactW, 480, Smooth01(p));
+            double dotT = Math.Clamp(q / 0.32, 0, 1);
+            double stretchT = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
+            double baseW = q < 0.32 ? notchDot : Lerp(notchDot, compactW, stretchT);
+            w = Lerp(baseW, 480, Smooth01(p));
             h = Lerp(34, _hexp, Smooth01(p));
             IslandBox.Width = w;
             IslandBox.Height = h;
-            IslandBox.Opacity = q;
+            IslandBox.Opacity = Smooth01(Math.Clamp(q / 0.38, 0, 1));
             double radius = Math.Min(IslandRadius, Math.Min(w, h) / 2);
             IslandBox.CornerRadius = new CornerRadius(0, 0, radius, radius);
-            BoxTranslate.Y = (1 - q) * -18;
-            BoxScale.ScaleX = BoxScale.ScaleY = 1;
-            IslandBox.RenderTransformOrigin = new Point(0.5, 0);
+            BoxTranslate.Y = 0;
+            BoxScale.ScaleX = BoxScale.ScaleY = Lerp(0.68, 1, Smooth01(dotT));
+            IslandBox.RenderTransformOrigin = new Point(0.5, 0.5);
         }
         else
         {
@@ -608,16 +611,32 @@ public partial class IslandWindow : Window
         double compactOp, expandedOp;
         if (notch)
         {
-            compactOp = 1 - Smooth01(Math.Clamp(p * 2.2, 0, 1));
+            double stretchT2 = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
+            double contentT = Math.Clamp((stretchT2 - 0.42) / 0.58, 0, 1);
+            double dotT2 = Math.Clamp(q / 0.32, 0, 1);
+            compactOp = (1 - Smooth01(Math.Clamp(p * 2.2, 0, 1))) * Smooth01(contentT);
+            if (q < 0.32) compactOp = 0;
+            else compactOp *= Lerp(0.85, 1, dotT2);
             expandedOp = Smooth01(Math.Clamp((p - 0.12) / 0.88, 0, 1));
-            CompactLayer.Opacity = compactOp * (0.7 + 0.3 * q);
-            // Reset diverge translates when in notch so no residue
-            CompactArtTranslate.X = 0;
-            CompactTitleTranslate.X = 0;
-            CompactTitleScale2.ScaleX = CompactTitleScale2.ScaleY = 1;
-            CompactEqTranslate.X = 0;
-            CompactTitle.Opacity = 1;
-            CompactEq.Opacity = 1;
+            CompactLayer.Opacity = compactOp;
+            CompactScale.ScaleX = CompactScale.ScaleY = Lerp(0.88, 1, Smooth01(contentT));
+            if (q < 0.32)
+                CompactScale.ScaleX = CompactScale.ScaleY = Lerp(0.75, 0.88, dotT2);
+
+            // El contenido también florece desde el centro durante el reveal.
+            double diverge = Math.Pow(Smooth01(stretchT2), 1.25);
+            CompactArtTranslate.X = Lerp(42, 0, diverge);
+            CompactTitleTranslate.X = Lerp(6, 0, diverge);
+            CompactEqTranslate.X = Lerp(-36, 0, diverge);
+            CompactTitleScale2.ScaleX = CompactTitleScale2.ScaleY = Lerp(0.92, 1, diverge);
+            double titleOp = Smooth01(Math.Clamp((stretchT2 - 0.50) / 0.50, 0, 1));
+            double eqOp = Smooth01(Math.Clamp((stretchT2 - 0.55) / 0.45, 0, 1));
+            CompactTitle.Opacity = q < 0.32 ? 0 : titleOp;
+            CompactEq.Opacity = q < 0.32 ? 0 : eqOp;
+            CompactArtWrap.Opacity = q < 0.15 ? 0 : (q < 0.32 ? Smooth01(dotT2) : 1);
+            double pScale = Lerp(1, 0.92, Smooth01(p));
+            CompactScale.ScaleX *= pScale;
+            CompactScale.ScaleY *= pScale;
         }
         else
         {
@@ -649,8 +668,6 @@ public partial class IslandWindow : Window
         ExpandedLayer.Opacity = expandedOp * (notch ? q : 1);
         ExpandedLayer.IsHitTestVisible = p > 0.4 && q > 0.4;
 
-        if (notch)
-            CompactScale.ScaleX = CompactScale.ScaleY = Lerp(1, 0.92, Smooth01(p));
         double artS = Lerp(0.88, 1, Smooth01(Math.Clamp((p - 0.05) / 0.95, 0, 1)));
         // Pop suma un leve bump al arte/título en cambio de pista
         artS += pop * 0.06;
