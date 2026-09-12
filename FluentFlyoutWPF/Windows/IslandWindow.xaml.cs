@@ -176,7 +176,7 @@ public partial class IslandWindow : Window
                 {
                     _lastStatus = status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
                     PaintGlyph();
-                    if (SettingsManager.Current.IslandShowOnPlayPause && status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
+                    if (SettingsManager.Current.IslandShowOnPause && status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
                         ShowCompact(session, status);
                     else
                         HidePerMode();
@@ -430,9 +430,11 @@ public partial class IslandWindow : Window
         if (session == null) return;
 
         var status = SafeStatus(session) ?? _lastStatus;
-        if (SettingsManager.Current.IslandShowOnPlayPause &&
-            (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing ||
-             status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused))
+        bool showForStatus = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
+            ? SettingsManager.Current.IslandShowOnPlayPause
+            : status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused
+                && SettingsManager.Current.IslandShowOnPause;
+        if (showForStatus)
         {
             _currentId = session.Id;
             if (_expanded) RefreshUi(session, status);

@@ -912,6 +912,12 @@ public partial class UserSettings : ObservableObject
     public partial bool IslandShowOnPlayPause { get; set; }
 
     /// <summary>
+    /// Fluent Island: shows the island when media is paused.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandShowOnPause { get; set; }
+
+    /// <summary>
     /// Fluent Island: shows the island when the media track changes.
     /// </summary>
     [ObservableProperty]
@@ -940,6 +946,12 @@ public partial class UserSettings : ObservableObject
     /// </summary>
     [ObservableProperty]
     public partial bool IslandEqEnabled { get; set; }
+
+    /// <summary>
+    /// Fluent Island: mirrors the equalizer bars around the center line.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandEqCenteredBars { get; set; }
 
     /// <summary>
     /// Fluent Island: número de barras del ecualizador (1-10).
@@ -1234,9 +1246,11 @@ public partial class UserSettings : ObservableObject
         IslandVisibilityMode = 0;
         IslandVisibilityDuration = 4000;
         IslandShowOnPlayPause = true;
+        IslandShowOnPause = true;
         IslandShowOnTrackChange = true;
         IslandActivityLine = false;
         IslandEqEnabled = true;
+        IslandEqCenteredBars = false;
         IslandEqBarCount = 5;
         IslandEqSensitivity = 2;
         IslandEqSmoothing = 50;
@@ -1622,6 +1636,12 @@ public partial class UserSettings : ObservableObject
     }
 
     partial void OnIslandShowOnPlayPauseChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshVisibilityState();
+    }
+
+    partial void OnIslandShowOnPauseChanged(bool oldValue, bool newValue)
     {
         if (oldValue == newValue || _initializing) return;
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshVisibilityState();

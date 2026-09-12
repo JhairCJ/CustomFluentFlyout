@@ -62,7 +62,7 @@ namespace FluentFlyoutWPF.Classes
                 Enabled = () => SettingsManager.Current.IslandEqEnabled,
                 HighRefreshRate = () => false, // ponytail: barras pequeñas, 30 FPS basta
                 BarCount = () => SettingsManager.Current.IslandEqBarCount,
-                CenteredBars = () => false,
+                CenteredBars = () => SettingsManager.Current.IslandEqCenteredBars,
                 Baseline = () => false,
                 BaselineAutoHide = () => false,
                 Sensitivity = () => SettingsManager.Current.IslandEqSensitivity,
