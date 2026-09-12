@@ -45,6 +45,7 @@ public partial class IslandWindow : Window
     private double _q, _qT, _qv;
     private bool _loopOn;
     private bool _hidingViaCompact; // expandido va a desaparecer: primero p->0, luego q->0
+    private bool _fastHideQ; // ponytail: 2x q solo en compacto→círculo encadenado desde expandido
     private double _hexp = 172;
     private string _lastTrackKey = "";
     private int _popVersion;
@@ -192,6 +193,7 @@ public partial class IslandWindow : Window
     private void ShowCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null)
     {
         _hideCts?.Cancel();
+        _fastHideQ = false;
         _hidingViaCompact = false;
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) { SnapHidden(); return; }
         RefreshUi(session, knownStatus);
@@ -216,7 +218,7 @@ public partial class IslandWindow : Window
                 return;
             }
             _expanded = false;
-            if (!IsNotch && AnimationsEnabled) { _hidingViaCompact = true; _pT = 0; _qT = 1; EnsureLoop(); return; }
+            if (!IsNotch && AnimationsEnabled) { _hidingViaCompact = true; _fastHideQ = true; _pT = 0; _qT = 1; EnsureLoop(); return; }
             GoHidden(); return;
         }
         if (!IsNotch)
@@ -248,7 +250,7 @@ public partial class IslandWindow : Window
         if (_hidingViaCompact) return;
         if (!IsNotch)
         {
-            if (Math.Abs(_p) > 0.05) { _expanded = false; _hidingViaCompact = true; _pT = 0; _qT = 1; EnsureLoop(); return; }
+            if (Math.Abs(_p) > 0.05) { _expanded = false; _hidingViaCompact = true; _fastHideQ = true; _pT = 0; _qT = 1; EnsureLoop(); return; }
             _qT = 0; EnsureLoop(); return;
         }
         _qT = 0;
@@ -267,6 +269,7 @@ public partial class IslandWindow : Window
 
     private void SnapHidden()
     {
+        _fastHideQ = false;
         _hidingViaCompact = false;
         _p = _pT = 0; _pv = 0;
         _q = _qT = 0; _qv = 0;
@@ -279,6 +282,7 @@ public partial class IslandWindow : Window
 
     private void Box_MouseEnter(object sender, MouseEventArgs e)
     {
+        _fastHideQ = false;
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
         var session = Current() ?? NewestPlaying() ?? FirstAllowed();
         if (session == null) return;
@@ -305,6 +309,7 @@ public partial class IslandWindow : Window
     {
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         _hideCts?.Cancel();
+        _fastHideQ = false;
         _hidingViaCompact = false;
         _currentId = session.Id;
         bool wasExpanded = _expanded;
@@ -366,6 +371,7 @@ public partial class IslandWindow : Window
         kQ = 620 * slow; cQ = 36;
         if (IsNotch) { kP *= 1.05; kQ *= 1.05; }
         else { kQ = 200 * slow; cQ = 28; } // pill 2x más lento (solo q)
+        if (!IsNotch && _fastHideQ && _qT == 0 && _q > 0.02) { kQ *= 9; cQ *= 2.9; }
     }
 
     private void EnsureLoop()
@@ -402,19 +408,19 @@ public partial class IslandWindow : Window
         if (_popPlaying) StepPop(dt);
         ApplyFrame();
 
-        // Expandido→compacto (p:1→0), luego compacto→círculo (q:1→0)
-        if (_hidingViaCompact && !IsNotch && Math.Abs(_p) < 0.03 && Math.Abs(_pv) < 0.08)
+        // Expandido→oculto (ponytail: 0.45 encadena q sin dwell, compacto→círculo queda en GoHidden)
+        if (_hidingViaCompact && !IsNotch && _p < 0.45)
         {
             _hidingViaCompact = false;
-            _p = _pT = 0; _pv = 0;
-            if (AnimationsEnabled) { _qT = 0; ApplyFrame(); return; }
-            StopLoop(); ApplyFrame(); IslandBox.Visibility = Visibility.Collapsed; UpdateLine(); return;
+            _qT = 0;
+            ApplyFrame();
+            return;
         }
 
         bool pSettled = Math.Abs(_p - _pT) < 0.002 && Math.Abs(_pv) < 0.02;
         bool qSettled = Math.Abs(_q - _qT) < 0.002 && Math.Abs(_qv) < 0.02;
         if (pSettled) { _p = _pT; _pv = 0; }
-        if (qSettled) { _q = _qT; _qv = 0; }
+        if (qSettled) { _q = _qT; _qv = 0; if (_fastHideQ && _qT == 0) _fastHideQ = false; }
         bool popSettled = !_popPlaying;
 
         if (pSettled && qSettled && popSettled)
