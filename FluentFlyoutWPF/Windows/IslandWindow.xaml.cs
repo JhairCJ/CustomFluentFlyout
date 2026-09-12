@@ -156,6 +156,7 @@ public partial class IslandWindow : Window
                 NotePlay(session.Id);
                 _lastStatus = status;
                 PaintGlyph();
+                if (!SettingsManager.Current.IslandShowOnPlayPause) return;
                 if (_expanded) RefreshUi(session, status);
                 else ShowCompact(session, status);
             }
@@ -165,6 +166,9 @@ public partial class IslandWindow : Window
                 if (next != null)
                 {
                     _currentId = next.Id;
+                    _lastStatus = GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                    PaintGlyph();
+                    if (!SettingsManager.Current.IslandShowOnPlayPause) return;
                     if (_expanded) RefreshUi(next);
                     else ShowCompact(next);
                 }
@@ -172,7 +176,10 @@ public partial class IslandWindow : Window
                 {
                     _lastStatus = status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
                     PaintGlyph();
-                    HidePerMode();
+                    if (SettingsManager.Current.IslandShowOnPlayPause && status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
+                        ShowCompact(session, status);
+                    else
+                        HidePerMode();
                 }
             }
         });
@@ -188,7 +195,7 @@ public partial class IslandWindow : Window
             if (show.ControlSession?.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
                 NotePlay(show.Id);
             if (_expanded || IslandBox.Visibility == Visibility.Visible) RefreshUi(show);
-            else ShowCompact(show);
+            else if (SettingsManager.Current.IslandShowOnTrackChange) ShowCompact(show);
         });
     }
 
@@ -203,6 +210,7 @@ public partial class IslandWindow : Window
             if (next != null)
             {
                 _currentId = next.Id;
+                if (!SettingsManager.Current.IslandShowOnPlayPause) return;
                 if (_expanded) RefreshUi(next);
                 else ShowCompact(next);
             }
@@ -413,6 +421,28 @@ public partial class IslandWindow : Window
             if (session != null) ShowCompact(session);
         }
         RefreshAppearance();
+    }
+
+    public void RefreshVisibilityState()
+    {
+        if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
+        var session = Current() ?? NewestPlaying() ?? FirstAllowed();
+        if (session == null) return;
+
+        var status = SafeStatus(session) ?? _lastStatus;
+        if (SettingsManager.Current.IslandShowOnPlayPause &&
+            (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing ||
+             status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused))
+        {
+            _currentId = session.Id;
+            if (_expanded) RefreshUi(session, status);
+            else ShowCompact(session, status);
+        }
+        else if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing ||
+                 status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
+        {
+            HidePerMode();
+        }
     }
 
     public void RefreshAppearance()
@@ -727,7 +757,7 @@ public partial class IslandWindow : Window
         string trackKey = title + "\n" + artist + "\n" + (art != null);
         bool trackChanged = _lastTrackKey != "" && trackKey != _lastTrackKey;
         _lastTrackKey = trackKey;
-        if (trackChanged) PlayTrackPop();
+        if (trackChanged && SettingsManager.Current.IslandShowOnTrackChange) PlayTrackPop();
         BitmapHelper.GetDominantColors();
         bool hasArt = art != null;
         CompactNote.Visibility = hasArt ? Visibility.Collapsed : Visibility.Visible;

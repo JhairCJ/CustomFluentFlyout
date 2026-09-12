@@ -906,6 +906,18 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
+    /// Fluent Island: shows the island when media starts, resumes, or pauses.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandShowOnPlayPause { get; set; }
+
+    /// <summary>
+    /// Fluent Island: shows the island when the media track changes.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandShowOnTrackChange { get; set; }
+
+    /// <summary>
     /// Fluent Island: línea gris que indica que el Island está activo.
     /// </summary>
     [ObservableProperty]
@@ -1221,6 +1233,8 @@ public partial class UserSettings : ObservableObject
         IslandHoverTolerance = 12;
         IslandVisibilityMode = 0;
         IslandVisibilityDuration = 4000;
+        IslandShowOnPlayPause = true;
+        IslandShowOnTrackChange = true;
         IslandActivityLine = false;
         IslandEqEnabled = true;
         IslandEqBarCount = 5;
@@ -1605,6 +1619,12 @@ public partial class UserSettings : ObservableObject
     {
         if (oldValue == newValue || _initializing) return;
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandShowOnPlayPauseChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshVisibilityState();
     }
 
     partial void OnIslandStyleChanged(int oldValue, int newValue)
