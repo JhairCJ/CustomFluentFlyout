@@ -330,6 +330,7 @@ public partial class IslandWindow : Window
         kP = 520 * slow; cP = 34;
         kQ = 620 * slow; cQ = 36;
         if (IsNotch) { kP *= 1.05; kQ *= 1.05; }
+        else { kQ = 550 * slow; cQ = 34; } // pill más elástico al estirar la cápsula
     }
 
     private void EnsureLoop()
@@ -449,37 +450,90 @@ public partial class IslandWindow : Window
         double pop = _popPlaying ? _pop * q : 0;
 
         bool notch = IsNotch;
-        double compactW = notch ? 200 : 240;
-        double w = Lerp(compactW, 480, Smooth01(p));
-        double h = Lerp(34, _hexp, Smooth01(p));
-        IslandBox.Width = w;
-        IslandBox.Height = h;
-        IslandBox.Opacity = q;
-        // Entrada: notch cae desde arriba, pill escala desde su centro
+        double w, h;
         if (notch)
         {
+            double compactW = 200;
+            w = Lerp(compactW, 480, Smooth01(p));
+            h = Lerp(34, _hexp, Smooth01(p));
+            IslandBox.Width = w;
+            IslandBox.Height = h;
+            IslandBox.Opacity = q;
+            IslandBox.CornerRadius = new CornerRadius(0, 0, 18, 18);
             BoxTranslate.Y = (1 - q) * -18;
             BoxScale.ScaleX = BoxScale.ScaleY = 1;
             IslandBox.RenderTransformOrigin = new Point(0.5, 0);
         }
         else
         {
-            BoxTranslate.Y = (1 - q) * -10;
-            double s = Lerp(0.88, 1, q);
-            BoxScale.ScaleX = BoxScale.ScaleY = s;
+            // Pill: oculto -> punto 26px (circular) -> cápsula 240px -> expandido 480px
+            const double pillDot = 26;
+            double dotT = Math.Clamp(q / 0.32, 0, 1);
+            double stretchT = Smooth01(Math.Clamp((q - 0.22) / 0.78, 0, 1));
+            double baseW = q < 0.32 ? pillDot : Lerp(pillDot, 240, stretchT);
+            w = Lerp(baseW, 480, Smooth01(p));
+            h = Lerp(34, _hexp, Smooth01(p));
+            IslandBox.Width = w;
+            IslandBox.Height = h;
+            IslandBox.Opacity = Smooth01(Math.Clamp(q / 0.38, 0, 1));
+            // Radio: círculo perfecto mientras es punto, cápsula después
+            double cr = baseW <= pillDot + 0.5 && p < 0.02 ? pillDot / 2 : 17;
+            if (p > 0.02) cr = 17; // expandido siempre pill
+            IslandBox.CornerRadius = new CornerRadius(cr);
+            BoxTranslate.Y = 0;
+            BoxScale.ScaleX = BoxScale.ScaleY = Lerp(0.68, 1, Smooth01(dotT));
             IslandBox.RenderTransformOrigin = new Point(0.5, 0.5);
         }
 
         // Crossfade de capas + morph del contenido (Apple: el álbum y el título respiran)
-        double compactOp = 1 - Smooth01(Math.Clamp(p * 2.2, 0, 1));
-        double expandedOp = Smooth01(Math.Clamp((p - 0.12) / 0.88, 0, 1));
-        // Durante la entrada, ambas capas siguen q, pero la compacta ya está a 1
-        CompactLayer.Opacity = compactOp * (0.7 + 0.3 * q);
-        CompactLayer.IsHitTestVisible = p < 0.6;
-        ExpandedLayer.Opacity = expandedOp * q;
+        // En pill, los elementos divergen desde el centro durante el estiramiento
+        double compactOp, expandedOp;
+        if (notch)
+        {
+            compactOp = 1 - Smooth01(Math.Clamp(p * 2.2, 0, 1));
+            expandedOp = Smooth01(Math.Clamp((p - 0.12) / 0.88, 0, 1));
+            CompactLayer.Opacity = compactOp * (0.7 + 0.3 * q);
+            // Reset diverge translates when in notch so no residue
+            CompactArtTranslate.X = 0;
+            CompactTitleTranslate.X = 0;
+            CompactTitleScale2.ScaleX = CompactTitleScale2.ScaleY = 1;
+            CompactEqTranslate.X = 0;
+            CompactTitle.Opacity = 1;
+            CompactEq.Opacity = 1;
+        }
+        else
+        {
+            double stretchT2 = Smooth01(Math.Clamp((q - 0.22) / 0.78, 0, 1));
+            double contentT = Math.Clamp((stretchT2 - 0.35) / 0.65, 0, 1);
+            double dotT2 = Math.Clamp(q / 0.32, 0, 1);
+            compactOp = (1 - Smooth01(Math.Clamp(p * 2.2, 0, 1))) * Smooth01(contentT);
+            if (q < 0.32) compactOp = 0;
+            else compactOp *= Lerp(0.85, 1, dotT2);
+            expandedOp = Smooth01(Math.Clamp((p - 0.12) / 0.88, 0, 1));
+            CompactLayer.Opacity = compactOp;
+            CompactScale.ScaleX = CompactScale.ScaleY = Lerp(0.88, 1, Smooth01(contentT));
+            if (q < 0.32)
+                CompactScale.ScaleX = CompactScale.ScaleY = Lerp(0.75, 0.88, dotT2);
+
+            // Diverge from center: art left, title slight, eq right — reversible with q
+            double diverge = Smooth01(stretchT2);
+            CompactArtTranslate.X = Lerp(92, 0, diverge);
+            CompactTitleTranslate.X = Lerp(14, 0, diverge);
+            CompactEqTranslate.X = Lerp(-78, 0, diverge);
+            CompactTitleScale2.ScaleX = CompactTitleScale2.ScaleY = Lerp(0.88, 1, diverge);
+            // Per-element fades staggered so they bloom after the dot
+            double titleOp = Smooth01(Math.Clamp((stretchT2 - 0.40) / 0.60, 0, 1));
+            double eqOp = Smooth01(Math.Clamp((stretchT2 - 0.45) / 0.55, 0, 1));
+            CompactTitle.Opacity = q < 0.32 ? 0 : titleOp;
+            CompactEq.Opacity = q < 0.32 ? 0 : eqOp;
+            CompactArtWrap.Opacity = q < 0.15 ? 0 : (q < 0.32 ? Smooth01(dotT2) : 1);
+        }
+        CompactLayer.IsHitTestVisible = p < 0.6 && q > 0.35;
+        ExpandedLayer.Opacity = expandedOp * (notch ? q : 1);
         ExpandedLayer.IsHitTestVisible = p > 0.4 && q > 0.4;
 
-        CompactScale.ScaleX = CompactScale.ScaleY = Lerp(1, 0.92, Smooth01(p));
+        if (notch)
+            CompactScale.ScaleX = CompactScale.ScaleY = Lerp(1, 0.92, Smooth01(p));
         double artS = Lerp(0.88, 1, Smooth01(Math.Clamp((p - 0.05) / 0.95, 0, 1)));
         // Pop suma un leve bump al arte/título en cambio de pista
         artS += pop * 0.06;
@@ -689,16 +743,15 @@ public partial class IslandWindow : Window
         _appliedStyle = style;
         if (style == 1)
         {
-            IslandBox.CornerRadius = new CornerRadius(0, 0, 18, 18);
             IslandBox.BorderThickness = new Thickness(1, 0, 1, 1);
             CompactLayer.Width = 200;
         }
         else
         {
-            IslandBox.CornerRadius = new CornerRadius(17);
             IslandBox.BorderThickness = new Thickness(1);
             CompactLayer.Width = 240;
         }
+        // CornerRadius lo gobierna ApplyFrame por frame (punto 26→cápsula)
         SyncMeasuredHeight();
         if (!_loopOn) ApplyFrame();
     }

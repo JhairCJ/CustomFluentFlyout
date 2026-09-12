@@ -47,9 +47,13 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Border Grid.Column="0" Width="22" Height="22" CornerRadius="6" ClipToBounds="True"
+                        <Border x:Name="CompactArtWrap" Grid.Column="0" Width="22" Height="22" CornerRadius="6" ClipToBounds="True"
                                 Background="#222" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click">
+                                Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <TranslateTransform x:Name="CompactArtTranslate" X="0" Y="0"/>
+                            </Border.RenderTransform>
                             <Grid>
                                 <Image x:Name="CompactArt" Stretch="UniformToFill"/>
                                 <TextBlock x:Name="CompactNote" Text="♪" Foreground="White" FontSize="13"
@@ -57,9 +61,22 @@
                             </Grid>
                         </Border>
                         <TextBlock x:Name="CompactTitle" Grid.Column="1" Foreground="White" FontSize="12"
-                                   VerticalAlignment="Center" Margin="8,0,4,0" TextTrimming="CharacterEllipsis"/>
+                                   VerticalAlignment="Center" Margin="8,0,4,0" TextTrimming="CharacterEllipsis"
+                                   RenderTransformOrigin="0.5,0.5">
+                            <TextBlock.RenderTransform>
+                                <TransformGroup>
+                                    <ScaleTransform x:Name="CompactTitleScale2" ScaleX="1" ScaleY="1"/>
+                                    <TranslateTransform x:Name="CompactTitleTranslate" X="0" Y="0"/>
+                                </TransformGroup>
+                            </TextBlock.RenderTransform>
+                        </TextBlock>
                         <Image x:Name="CompactEq" Grid.Column="2" Width="36" Height="16" Stretch="Uniform"
-                               VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
+                               VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"
+                               RenderTransformOrigin="0.5,0.5">
+                            <Image.RenderTransform>
+                                <TranslateTransform x:Name="CompactEqTranslate" X="0" Y="0"/>
+                            </Image.RenderTransform>
+                        </Image>
                     </Grid>
                 </Grid>
 
