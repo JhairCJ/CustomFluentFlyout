@@ -50,7 +50,6 @@ public partial class IslandWindow : Window
     private double _q, _qT, _qv;
     private bool _loopOn;
     private bool _hidingViaCompact; // expandido va a desaparecer: primero p->0, luego q->0
-    private bool _fastHideQ; // ponytail: acelera q en el tramo compacto→oculto
     private double _hexp = 172;
     private string _lastTrackKey = "";
     private int _popVersion;
@@ -231,7 +230,6 @@ public partial class IslandWindow : Window
     private void ShowCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null)
     {
         _hideCts?.Cancel();
-        _fastHideQ = false;
         _hidingViaCompact = false;
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) { SnapHidden(); return; }
         RefreshUi(session, knownStatus);
@@ -264,7 +262,7 @@ public partial class IslandWindow : Window
         if (_expanded)
         {
             _expanded = false;
-            if (AnimationsEnabled) { _hidingViaCompact = true; _fastHideQ = true; _pT = 0; _qT = 1; EnsureLoop(); return; }
+            if (AnimationsEnabled) { _hidingViaCompact = true; _pT = 0; _qT = 1; EnsureLoop(); return; }
             GoHidden(); return;
         }
         GoHidden();
@@ -278,7 +276,7 @@ public partial class IslandWindow : Window
         if (_hidingViaCompact) return;
         if (Math.Abs(_p) > 0.05)
         {
-            _expanded = false; _hidingViaCompact = true; _fastHideQ = true; _pT = 0; _qT = 1; EnsureLoop(); return;
+            _expanded = false; _hidingViaCompact = true; _pT = 0; _qT = 1; EnsureLoop(); return;
         }
         _qT = 0;
         EnsureLoop();
@@ -297,7 +295,6 @@ public partial class IslandWindow : Window
 
     private void SnapHidden()
     {
-        _fastHideQ = false;
         _hidingViaCompact = false;
         _p = _pT = 0; _pv = 0;
         _q = _qT = 0; _qv = 0;
@@ -311,7 +308,6 @@ public partial class IslandWindow : Window
 
     private void Box_MouseEnter(object sender, MouseEventArgs e)
     {
-        _fastHideQ = false;
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
         var session = Current() ?? NewestPlaying() ?? FirstAllowed();
         if (session == null) return;
@@ -338,7 +334,6 @@ public partial class IslandWindow : Window
     {
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         _hideCts?.Cancel();
-        _fastHideQ = false;
         _hidingViaCompact = false;
         _currentId = session.Id;
         bool wasExpanded = _expanded;
@@ -420,16 +415,16 @@ public partial class IslandWindow : Window
         ApplyFrame();
     }
 
-    // Apple-ish: muelle subamortiguado suave. Si el usuario puso velocidad lenta,
-    // bajamos rigidez para que se sienta más pesado sin romper.
+    // Apple-ish: muelle subamortiguado suave, escalado con la duración global.
     private void GetSpring(out double kP, out double cP, out double kQ, out double cQ)
     {
-        int sp = SettingsManager.Current.FlyoutAnimationSpeed; // 0..5
-        double slow = sp switch { 3 => 0.85, 4 => 0.7, 5 => 0.55, _ => 1.0 };
-        kP = 520 * slow; cP = 34;
-        kQ = 200 * slow; cQ = 28; // ambos estilos emergen desde el centro como Island
+        double configuredDuration = MainWindow.getDuration();
+        double durationScale = configuredDuration > 0 ? configuredDuration / 300.0 : 1.0;
+        double frequencyScale = 1.0 / (durationScale * durationScale);
+        double dampingScale = 1.0 / durationScale;
+        kP = 520 * frequencyScale; cP = 34 * dampingScale;
+        kQ = 200 * frequencyScale; cQ = 28 * dampingScale; // ambos estilos emergen desde el centro como Island
         if (IsNotch) kP *= 1.05;
-        if (_fastHideQ && _qT == 0 && _q > 0.02) { kQ *= 9; cQ *= 2.9; }
     }
 
     private void EnsureLoop()
@@ -478,7 +473,7 @@ public partial class IslandWindow : Window
         bool pSettled = Math.Abs(_p - _pT) < 0.002 && Math.Abs(_pv) < 0.02;
         bool qSettled = Math.Abs(_q - _qT) < 0.002 && Math.Abs(_qv) < 0.02;
         if (pSettled) { _p = _pT; _pv = 0; }
-        if (qSettled) { _q = _qT; _qv = 0; if (_fastHideQ && _qT == 0) _fastHideQ = false; }
+        if (qSettled) { _q = _qT; _qv = 0; }
         bool popSettled = !_popPlaying;
 
         if (pSettled && qSettled && popSettled)
@@ -488,7 +483,7 @@ public partial class IslandWindow : Window
             if (_qT == 0 && _q == 0) { IslandBox.Visibility = Visibility.Collapsed; UpdateLine(); }
             // Si llegamos a compacto vía hidingViaCompact y no hay q pendiente, ya se ocultó arriba
         }
-        else if (_qT == 0 && _q < 0.02 && qSettled)
+        else if (_qT == 0 && _q < 0.08)
         {
             _hidingViaCompact = false;
             IslandBox.Visibility = Visibility.Collapsed;
@@ -573,7 +568,8 @@ public partial class IslandWindow : Window
             h = Lerp(34, _hexp, Smooth01(p));
             IslandBox.Width = w;
             IslandBox.Height = h;
-            IslandBox.Opacity = Smooth01(Math.Clamp(q / 0.38, 0, 1));
+            double revealOpacity = Smooth01(Math.Clamp(q / 0.38, 0, 1));
+            IslandBox.Opacity = revealOpacity * revealOpacity;
             double radius = Math.Min(IslandRadius, Math.Min(w, h) / 2);
             IslandBox.CornerRadius = new CornerRadius(0, 0, radius, radius);
             BoxTranslate.Y = 0;
