@@ -780,10 +780,50 @@ public partial class UserSettings : ObservableObject
     public partial bool IslandEnabled { get; set; }
 
     /// <summary>
-    /// Fluent Island: 0 = visible mientras suena, 1 = aviso temporal (4 s al pausar).
+    /// Fluent Island: 0 = visible mientras suena, 1 = aviso temporal (N s al reproducir).
     /// </summary>
     [ObservableProperty]
     public partial int IslandVisibilityMode { get; set; }
+
+    /// <summary>
+    /// Fluent Island: duración del aviso temporal en ms (1000..10000).
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandVisibilityDurationText))]
+    public partial int IslandVisibilityDuration { get; set; }
+
+    [XmlIgnore]
+    public string IslandVisibilityDurationText
+    {
+        get => (Math.Clamp(IslandVisibilityDuration, 1000, 10000) / 1000).ToString();
+        set
+        {
+            if (int.TryParse(value, out var sec))
+                IslandVisibilityDuration = Math.Clamp(sec * 1000, 1000, 10000);
+            else IslandVisibilityDuration = 4000;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IslandVisibilityDurationSeconds));
+        }
+    }
+
+    [XmlIgnore]
+    public double IslandVisibilityDurationSeconds
+    {
+        get => Math.Clamp(IslandVisibilityDuration, 1000, 10000) / 1000.0;
+        set
+        {
+            IslandVisibilityDuration = Math.Clamp((int)Math.Round(value * 1000), 1000, 10000);
+            OnPropertyChanged(nameof(IslandVisibilityDurationText));
+        }
+    }
+
+    partial void OnIslandVisibilityDurationChanged(int oldValue, int newValue)
+    {
+        int fixedVal = newValue == 0 ? 4000 : Math.Clamp(newValue, 1000, 10000);
+        if (fixedVal != newValue) IslandVisibilityDuration = fixedVal;
+        OnPropertyChanged(nameof(IslandVisibilityDurationText));
+        OnPropertyChanged(nameof(IslandVisibilityDurationSeconds));
+    }
 
     /// <summary>
     /// Fluent Island: línea gris que indica que el Island está activo.
@@ -1089,6 +1129,7 @@ public partial class UserSettings : ObservableObject
         IslandStyle = 0;
         IslandHoverTolerance = 12;
         IslandVisibilityMode = 0;
+        IslandVisibilityDuration = 4000;
         IslandActivityLine = false;
         IslandEqEnabled = true;
         IslandEqBarCount = 5;

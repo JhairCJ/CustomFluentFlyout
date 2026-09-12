@@ -190,6 +190,16 @@ public partial class IslandWindow : Window
 
     private bool IsBoxShown => IslandBox.Visibility == Visibility.Visible;
 
+    private void ArmTemporaryHide()
+    {
+        if (SettingsManager.Current.IslandVisibilityMode != 1 || _expanded) return;
+        _hideCts?.Cancel();
+        var cts = _hideCts = new CancellationTokenSource();
+        int ms = Math.Clamp(SettingsManager.Current.IslandVisibilityDuration, 1000, 10000);
+        _ = Task.Delay(ms).ContinueWith(_ =>
+            Dispatcher.Invoke(() => { if (!cts.IsCancellationRequested && !_expanded && !IsMouseOverBoxOrStrip()) GoHidden(); }));
+    }
+
     private void ShowCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null)
     {
         _hideCts?.Cancel();
@@ -203,6 +213,7 @@ public partial class IslandWindow : Window
         SyncMeasuredHeight();
         if (!AnimationsEnabled) SnapCompact();
         else { _pT = 0; _qT = 1; IslandBox.Visibility = Visibility.Visible; EnsureLoop(); }
+        ArmTemporaryHide();
     }
 
     private void HidePerMode()
@@ -210,36 +221,11 @@ public partial class IslandWindow : Window
         _hideCts?.Cancel();
         if (_expanded)
         {
-            if (SettingsManager.Current.IslandVisibilityMode == 1)
-            {
-                var cts = _hideCts = new CancellationTokenSource();
-                _ = Task.Delay(4000).ContinueWith(_ =>
-                    Dispatcher.Invoke(() => { if (cts.IsCancellationRequested) return; _expanded = false; GoHidden(); }));
-                return;
-            }
             _expanded = false;
             if (!IsNotch && AnimationsEnabled) { _hidingViaCompact = true; _fastHideQ = true; _pT = 0; _qT = 1; EnsureLoop(); return; }
             GoHidden(); return;
         }
-        if (!IsNotch)
-        {
-            // compacto pill: 240→26
-            if (SettingsManager.Current.IslandVisibilityMode == 1)
-            {
-                var cts = _hideCts = new CancellationTokenSource();
-                _ = Task.Delay(4000).ContinueWith(_ =>
-                    Dispatcher.Invoke(() => { if (!cts.IsCancellationRequested && !_expanded) GoHidden(); }));
-                return;
-            }
-            GoHidden(); return;
-        }
-        if (SettingsManager.Current.IslandVisibilityMode == 1)
-        {
-            var cts = _hideCts = new CancellationTokenSource();
-            _ = Task.Delay(4000).ContinueWith(_ =>
-                Dispatcher.Invoke(() => { if (!cts.IsCancellationRequested && !_expanded) GoHidden(); }));
-        }
-        else GoHidden();
+        GoHidden();
     }
 
     private void CollapseAll() => SnapHidden();
@@ -344,6 +330,7 @@ public partial class IslandWindow : Window
         if (!_expanded) return;
         _expanded = false;
         _hidingViaCompact = false;
+        if (SettingsManager.Current.IslandVisibilityMode == 1) { HidePerMode(); return; }
         var session = Current();
         var playing = session?.ControlSession?.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
         if (playing && !Suppressed())
