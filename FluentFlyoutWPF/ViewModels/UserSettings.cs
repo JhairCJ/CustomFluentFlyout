@@ -807,6 +807,48 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
+    /// Radio de las esquinas del Island en estado compacto (píxeles, 0-40).
+    /// Valor -1 = sin migrar: se hereda de <see cref="IslandBorderRadius"/> al cargar.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandCompactBorderRadiusText))]
+    public partial int IslandCompactBorderRadius { get; set; }
+
+    [XmlIgnore]
+    public string IslandCompactBorderRadiusText
+    {
+        get => Math.Clamp(IslandCompactBorderRadius, 0, 40).ToString();
+        set
+        {
+            if (int.TryParse(value, out var result))
+                IslandCompactBorderRadius = Math.Clamp(result, 0, 40);
+            else IslandCompactBorderRadius = 10;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Radio de las esquinas del Island en estado expandido (píxeles, 0-40).
+    /// Valor -1 = sin migrar: se hereda de <see cref="IslandBorderRadius"/> al cargar.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandExpandedBorderRadiusText))]
+    public partial int IslandExpandedBorderRadius { get; set; }
+
+    [XmlIgnore]
+    public string IslandExpandedBorderRadiusText
+    {
+        get => Math.Clamp(IslandExpandedBorderRadius, 0, 40).ToString();
+        set
+        {
+            if (int.TryParse(value, out var result))
+                IslandExpandedBorderRadius = Math.Clamp(result, 0, 40);
+            else IslandExpandedBorderRadius = 10;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
     /// Radio de las esquinas de la carátula y de su overlay de cambio de medio.
     /// </summary>
     [ObservableProperty]
@@ -1358,6 +1400,8 @@ public partial class UserSettings : ObservableObject
         IslandEnabled = true;
         IslandBorderEnabled = false;
         IslandBorderRadius = 10;
+        IslandCompactBorderRadius = -1;
+        IslandExpandedBorderRadius = -1;
         IslandAlbumArtRadius = 8;
         IslandExpandedWidth = 320;
         IslandExpandedHeight = 126;
@@ -1474,6 +1518,12 @@ public partial class UserSettings : ObservableObject
     /// </summary>
     internal void CompleteInitialization()
     {
+        // Migración del radio único heredado: los XML antiguos no traen los nuevos
+        // radios (-1), así que heredan el valor que el usuario ya tenía.
+        if (IslandCompactBorderRadius < 0)
+            IslandCompactBorderRadius = Math.Clamp(IslandBorderRadius, 0, 40);
+        if (IslandExpandedBorderRadius < 0)
+            IslandExpandedBorderRadius = Math.Clamp(IslandBorderRadius, 0, 40);
         _initializing = false;
     }
 
@@ -1763,6 +1813,20 @@ public partial class UserSettings : ObservableObject
     partial void OnIslandBorderRadiusChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandCompactBorderRadiusChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        IslandCompactBorderRadius = Math.Clamp(newValue, 0, 40);
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandExpandedBorderRadiusChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        IslandExpandedBorderRadius = Math.Clamp(newValue, 0, 40);
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
     }
 

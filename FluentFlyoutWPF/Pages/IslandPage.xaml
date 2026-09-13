@@ -361,15 +361,27 @@
                 <ui:TextBlock Text="{Binding IslandLineTopOffset}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
             </StackPanel>
         </ui:CardControl>
-        <ui:CardControl x:Name="IslandBorderRadiusCard" Tag="Indexable" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+        <ui:CardControl x:Name="IslandCompactBorderRadiusCard" Tag="Indexable" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">
-                    <TextBlock Text="Radio de las esquinas" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                    <TextBlock Text="Ajusta lo redondeado del borde exterior del Island." FontSize="12" Opacity="0.5" />
+                    <TextBlock Text="Radio en compacto" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                    <TextBlock Text="Ajusta lo redondeado del borde exterior en el island compacto." FontSize="12" Opacity="0.5" />
                 </StackPanel>
             </ui:CardControl.Header>
             <StackPanel Orientation="Horizontal">
-                <ui:TextBox Width="60" ClearButtonEnabled="False" Text="{Binding IslandBorderRadiusText, Mode=TwoWay}" />
+                <ui:TextBox Width="60" ClearButtonEnabled="False" Text="{Binding IslandCompactBorderRadiusText, Mode=TwoWay}" />
+                <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+        </ui:CardControl>
+        <ui:CardControl x:Name="IslandExpandedBorderRadiusCard" Tag="Indexable" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+            <ui:CardControl.Header>
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Text="Radio en expandido" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                    <TextBlock Text="Ajusta lo redondeado del borde exterior en el island expandido." FontSize="12" Opacity="0.5" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <StackPanel Orientation="Horizontal">
+                <ui:TextBox Width="60" ClearButtonEnabled="False" Text="{Binding IslandExpandedBorderRadiusText, Mode=TwoWay}" />
                 <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
             </StackPanel>
         </ui:CardControl>

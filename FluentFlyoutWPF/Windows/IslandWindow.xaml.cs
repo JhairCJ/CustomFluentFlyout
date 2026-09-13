@@ -467,7 +467,16 @@ public partial class IslandWindow : Window
     private bool AlwaysOn() => Math.Clamp(SettingsManager.Current.IslandVisibilityMode, 0, 2) == 2;
     private MediaSession? AnySession() => Current() ?? NewestPlaying() ?? FirstAllowed();
     private bool IsNotch => Math.Clamp(SettingsManager.Current.IslandStyle, 0, 1) == 1;
-    private double IslandRadius => Math.Clamp(SettingsManager.Current.IslandBorderRadius, 0, 40);
+    // Radios independientes de compacto y expandido (0-40). El <0 es "sin migrar":
+    // hereda el radio único heredado hasta que CompleteInitialization lo rellena.
+    private double IslandCompactRadius => Math.Clamp(
+        SettingsManager.Current.IslandCompactBorderRadius < 0
+            ? SettingsManager.Current.IslandBorderRadius
+            : SettingsManager.Current.IslandCompactBorderRadius, 0, 40);
+    private double IslandExpandedRadius => Math.Clamp(
+        SettingsManager.Current.IslandExpandedBorderRadius < 0
+            ? SettingsManager.Current.IslandBorderRadius
+            : SettingsManager.Current.IslandExpandedBorderRadius, 0, 40);
 
     public void RefreshEnabledState()
     {
@@ -678,7 +687,7 @@ public partial class IslandWindow : Window
             exitTailOpacity *= Math.Pow(Smooth01(Math.Clamp((p - 0.12) / 0.38, 0, 1)), 3);
 
         bool notch = IsNotch;
-        double w, h;
+        double w, h, notchFillet = 0;
         if (notch)
         {
             // Notch: mismo reveal que Island: punto central -> compacto -> expandido.
@@ -689,15 +698,21 @@ public partial class IslandWindow : Window
             double baseW = q < 0.32 ? notchDot : Lerp(notchDot, compactW, stretchT);
             w = Lerp(baseW, ExpandedIslandWidth, Smooth01(p));
             h = Lerp(34, _hexp, Smooth01(p));
-            IslandBox.Width = w;
-            IslandBox.Height = h;
             double revealOpacity = Smooth01(Math.Clamp(q / 0.38, 0, 1));
             IslandBox.Opacity = revealOpacity * revealOpacity * exitTailOpacity;
-            double radius = Math.Min(IslandRadius, Math.Min(w, h) / 2);
-            IslandBox.CornerRadius = new CornerRadius(0, 0, radius, radius);
+            // El radio hace morph con p: compacto -> expandido sin saltos.
+            // ponytail: fillet cóncavo hacia afuera derivado del mismo morph (8-14px).
+            double radius = Math.Min(Lerp(IslandCompactRadius, IslandExpandedRadius, Smooth01(p)), Math.Min(w, h) / 2);
+            notchFillet = Math.Clamp(Lerp(IslandCompactRadius, IslandExpandedRadius, Smooth01(p)), 6, 10) * stretchT;
+            notchFillet = Math.Min(notchFillet, Math.Min(w, h) / 4);
+            IslandBox.CornerRadius = new CornerRadius(0);
+            IslandBox.Width = w + 2 * notchFillet;
+            IslandBox.Height = h;
             BoxTranslate.Y = 0;
+            IslandBox.RenderTransformOrigin = new Point(0.5, 0);
             BoxScale.ScaleX = BoxScale.ScaleY = Lerp(0.68, 1, Smooth01(dotT));
-            IslandBox.RenderTransformOrigin = new Point(0.5, 0.5);
+            IslandBox.Clip = CreateNotchClip(IslandBox.Width, h, radius, notchFillet);
+            LayoutBackground(IslandBox.Width, h);
         }
         else
         {
@@ -711,19 +726,23 @@ public partial class IslandWindow : Window
             IslandBox.Width = w;
             IslandBox.Height = h;
             IslandBox.Opacity = Smooth01(Math.Clamp(q / 0.38, 0, 1)) * exitTailOpacity;
-            // Radio: círculo perfecto mientras es punto, cápsula después
+            // Radio: círculo perfecto mientras es punto, luego morph compacto->expandido.
+            // En expandido (p>0.02) siempre pill con el radio de expandido.
+            double morphR = Lerp(IslandCompactRadius, IslandExpandedRadius, Smooth01(p));
             double cr = baseW <= pillDot + 0.5 && p < 0.02
                 ? pillDot / 2
-                : Math.Min(IslandRadius, Math.Min(w, h) / 2);
-            if (p > 0.02) cr = Math.Min(IslandRadius, Math.Min(w, h) / 2); // expandido siempre pill
+                : Math.Min(morphR, Math.Min(w, h) / 2);
             IslandBox.CornerRadius = new CornerRadius(cr);
             BoxTranslate.Y = 0;
             BoxScale.ScaleX = BoxScale.ScaleY = Lerp(0.68, 1, Smooth01(dotT));
             IslandBox.RenderTransformOrigin = new Point(0.5, 0.5);
         }
 
-        ApplyIslandClip(w, h, IslandBox.CornerRadius);
-        LayoutBackground(w, h);
+        if (!notch)
+        {
+            ApplyIslandClip(w, h, IslandBox.CornerRadius);
+            LayoutBackground(w, h);
+        }
 
         // Crossfade de capas + morph del contenido (Apple: el álbum y el título respiran)
         // En pill, los elementos divergen desde el centro durante el estiramiento
@@ -1672,6 +1691,32 @@ public partial class IslandWindow : Window
             context.LineTo(end, true, false);
         else
             context.ArcTo(end, new Size(radius, radius), 0, false, SweepDirection.Clockwise, true, false);
+    }
+
+    // ponytail: notch pegado al borde con empalme cóncavo hacia afuera (W incluye 2*F de orejas).
+    private static Geometry CreateNotchClip(double width, double height, double bottomRadius, double fillet)
+    {
+        if (width <= 0 || height <= 0) return Geometry.Empty;
+        double br = Math.Clamp(bottomRadius, 0, Math.Min(width, height) / 2);
+        double f = Math.Clamp(fillet, 0, Math.Min(10, Math.Min(width, height) / 4));
+        if (f < 0.5)
+            return CreateIslandClip(width, height, new CornerRadius(0, 0, br, br));
+        double k = 0.5523 * f; // ponytail: cueva cuarto-circular, tangente horizontal al borde
+        var geometry = new StreamGeometry();
+        using (StreamGeometryContext context = geometry.Open())
+        {
+            context.BeginFigure(new Point(0, 0), true, true);
+            context.LineTo(new Point(width, 0), true, false);
+            context.BezierTo(new Point(width - k, 0), new Point(width - f, f - k), new Point(width - f, f), true, false);
+            context.LineTo(new Point(width - f, height - br), true, false);
+            AddCorner(context, new Point(width - f - br, height), br);
+            context.LineTo(new Point(f + br, height), true, false);
+            AddCorner(context, new Point(f, height - br), br);
+            context.LineTo(new Point(f, f), true, false);
+            context.BezierTo(new Point(f, f - k), new Point(k, 0), new Point(0, 0), true, false);
+        }
+        geometry.Freeze();
+        return geometry;
     }
 
     private void ApplyIslandClip(double width, double height, CornerRadius radius)
