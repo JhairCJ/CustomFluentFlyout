@@ -598,14 +598,11 @@ public partial class TaskbarWidgetControl : UserControl
     }
 
     /// <summary>
-    /// True crossfade between background discs: the incoming disc fades 0 -&gt; bound on the
-    /// top layer (<see cref="BackgroundImageNext"/>) while the old disc stays at bound
-    /// underneath, then the old layer adopts the new image (invisibly, fully covered) and
-    /// the top layer parks. The composite never passes through transparent/black, unlike
-    /// the old single-layer dip. Runs with the same duration/easing as the text entrance
-    /// started in the same commit, so letters and background land together.
-    /// Restarting toward a newer target kills the previous clock (removed clocks never
-    /// complete), so rapid skips collapse onto the latest art with no stuck states.
+    /// Complementary crossfade between background discs: the incoming disc fades 0 -&gt; bound
+    /// on the top layer (<see cref="BackgroundImageNext"/>) while the old disc fades bound -&gt; 0
+    /// underneath, so their sum stays at bound and the swap at completion is invisible.
+    /// Base opacity is only ever animated (never assigned), so the XAML intensity binding
+    /// survives: parking releases both clocks and the binding restores bound by itself.
     /// </summary>
     private void BeginBackgroundCrossfade(BitmapSource target, int durationMs)
     {
@@ -632,9 +629,12 @@ public partial class TaskbarWidgetControl : UserControl
         _bgCrossfadeVersion++;
         int version = _bgCrossfadeVersion;
 
-        // Read the live value first (a restart continues from the partial opacity).
+        // Read the live values first (a restart continues from the partial opacities).
+        double bound = Math.Clamp(SettingsManager.Current.TaskbarWidgetBackgroundBlurIntensity, 0, 100) / 100.0;
         double nextStart = BackgroundImageNext.Opacity;
+        double baseStart = BackgroundImage.Opacity;
         bool nextWasVisible = BackgroundImageNext.Visibility == Visibility.Visible;
+        BackgroundImage.BeginAnimation(OpacityProperty, null);
         BackgroundImageNext.BeginAnimation(OpacityProperty, null);
 
         if (!AreAnimationsEnabled)
@@ -655,12 +655,20 @@ public partial class TaskbarWidgetControl : UserControl
                 return;
             }
             BackgroundImageNext.Opacity = nextStart;
+            var easing = GetEasing(true);
             var fadeOut = new DoubleAnimation
             {
                 From = nextStart,
                 To = 0.0,
                 Duration = TimeSpan.FromMilliseconds(durationMs),
-                EasingFunction = GetEasing(true)
+                EasingFunction = easing
+            };
+            var fadeBack = new DoubleAnimation
+            {
+                From = baseStart,
+                To = bound,
+                Duration = TimeSpan.FromMilliseconds(durationMs),
+                EasingFunction = easing
             };
             fadeOut.Completed += (s, e) =>
             {
@@ -668,44 +676,53 @@ public partial class TaskbarWidgetControl : UserControl
                     return;
                 ParkBackgroundNextLayer();
             };
+            BackgroundImage.BeginAnimation(OpacityProperty, fadeBack);
             BackgroundImageNext.BeginAnimation(OpacityProperty, fadeOut);
             return;
         }
 
         _bgCrossfadeTarget = target;
-        double bound = BackgroundImage.Opacity; // bound intensity both layers rest at
         BackgroundImageNext.Source = target;
         BackgroundImageNext.Visibility = Visibility.Visible;
         // Fresh start from 0; a restart continues from its partial value (no snap).
         BackgroundImageNext.Opacity = nextWasVisible ? nextStart : 0.0;
 
+        var easeBoth = GetEasing(true);
         var fadeIn = new DoubleAnimation
         {
             From = BackgroundImageNext.Opacity,
             To = bound,
             Duration = TimeSpan.FromMilliseconds(durationMs),
-            EasingFunction = GetEasing(true)
+            EasingFunction = easeBoth
+        };
+        var fadeBaseOut = new DoubleAnimation
+        {
+            From = baseStart,
+            To = 0.0,
+            Duration = TimeSpan.FromMilliseconds(durationMs),
+            EasingFunction = easeBoth
         };
         fadeIn.Completed += (s, e) =>
         {
             if (version != _bgCrossfadeVersion)
                 return;
-            // Fully covered by the top layer: adopt underneath (invisible change).
+            // Complementary fades sum to bound, so adopting underneath is invisible.
             BackgroundImage.Source = target;
             ParkBackgroundNextLayer();
         };
+        BackgroundImage.BeginAnimation(OpacityProperty, fadeBaseOut);
         BackgroundImageNext.BeginAnimation(OpacityProperty, fadeIn);
     }
 
     /// <summary>
     /// Parks the incoming background layer and forgets any running crossfade target.
-    /// The front layer is never touched (it rests at the bound intensity), so this
-    /// cannot snap or flash. Used when rotation stops, the widget is torn down, or a
-    /// transition settles.
+    /// Releases both clocks so the XAML intensity binding restores bound on the base
+    /// layer by itself (never assigned, or the binding dies). No snap, no flash.
     /// </summary>
     private void ParkBackgroundNextLayer()
     {
         _bgCrossfadeTarget = null;
+        BackgroundImage.BeginAnimation(OpacityProperty, null);
         BackgroundImageNext.BeginAnimation(OpacityProperty, null);
         BackgroundImageNext.Visibility = Visibility.Collapsed;
     }

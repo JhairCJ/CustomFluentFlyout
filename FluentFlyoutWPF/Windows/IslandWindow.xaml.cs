@@ -1233,8 +1233,15 @@ public partial class IslandWindow : Window
     {
         double opacity = Math.Clamp(SettingsManager.Current.IslandBackgroundBlurIntensity, 0, 100) / 100.0;
         double radius = Math.Clamp(SettingsManager.Current.IslandBackgroundBlurRadius, 0, 150);
+        // ponytail: no tocar opacidades a mitad de fade, el snap se vería como parpadeo
+        if (_backgroundCrossfadeTarget != null)
+        {
+            BackgroundImageBlurEffect.Radius = radius;
+            BackgroundImageNextBlurEffect.Radius = radius;
+            return;
+        }
         BackgroundImage.Opacity = opacity;
-        BackgroundImageNext.Opacity = opacity;
+        BackgroundImageNext.Opacity = 0;
         BackgroundImageBlurEffect.Radius = radius;
         BackgroundImageNextBlurEffect.Radius = radius;
     }
@@ -1450,35 +1457,53 @@ public partial class IslandWindow : Window
             return;
         }
 
+        if (ReferenceEquals(_backgroundCrossfadeTarget, target))
+            return;
+
         _backgroundCrossfadeVersion++;
         int version = _backgroundCrossfadeVersion;
         _backgroundCrossfadeTarget = target;
+        double bound = Math.Clamp(SettingsManager.Current.IslandBackgroundBlurIntensity, 0, 100) / 100.0;
+        BackgroundImage.BeginAnimation(OpacityProperty, null);
         BackgroundImageNext.BeginAnimation(OpacityProperty, null);
+        BackgroundImage.Opacity = bound;
         BackgroundImageNext.Source = target;
         BackgroundImageNext.Visibility = Visibility.Visible;
         BackgroundImageNext.Opacity = 0;
-        var fade = new DoubleAnimation
+        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var fadeIn = new DoubleAnimation
         {
             From = 0,
-            To = BackgroundImage.Opacity,
+            To = bound,
             Duration = TimeSpan.FromMilliseconds(durationMs),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            EasingFunction = easing
         };
-        fade.Completed += (_, _) =>
+        var fadeOut = new DoubleAnimation
+        {
+            From = bound,
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(durationMs),
+            EasingFunction = easing
+        };
+        fadeIn.Completed += (_, _) =>
         {
             if (version != _backgroundCrossfadeVersion) return;
             BackgroundImage.Source = target;
             ParkBackgroundNextLayer();
         };
-        BackgroundImageNext.BeginAnimation(OpacityProperty, fade);
+        BackgroundImage.BeginAnimation(OpacityProperty, fadeOut);
+        BackgroundImageNext.BeginAnimation(OpacityProperty, fadeIn);
     }
 
     private void ParkBackgroundNextLayer()
     {
         _backgroundCrossfadeTarget = null;
+        double bound = Math.Clamp(SettingsManager.Current.IslandBackgroundBlurIntensity, 0, 100) / 100.0;
+        BackgroundImage.BeginAnimation(OpacityProperty, null);
         BackgroundImageNext.BeginAnimation(OpacityProperty, null);
+        BackgroundImage.Opacity = bound;
         BackgroundImageNext.Visibility = Visibility.Collapsed;
-        BackgroundImageNext.Opacity = Math.Clamp(SettingsManager.Current.IslandBackgroundBlurIntensity, 0, 100) / 100.0;
+        BackgroundImageNext.Opacity = 0;
     }
 
     private void CancelBackgroundCrossfade()
