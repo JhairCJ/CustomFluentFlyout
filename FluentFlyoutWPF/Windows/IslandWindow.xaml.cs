@@ -94,6 +94,7 @@ public partial class IslandWindow : Window
     private int _backgroundCrossfadeVersion;
     private int _backgroundGeneration;
     private bool _disposed;
+    private bool _wasSuppressed;
 
     public IslandWindow(MainWindow main)
     {
@@ -430,12 +431,17 @@ public partial class IslandWindow : Window
             return;
         }
 
-        Visibility = Visibility.Visible;
-        if (!Suppressed())
+        if (Suppressed())
         {
-            var session = NewestPlaying();
-            if (session != null) ShowCompact(session);
+            _wasSuppressed = true;
+            SnapHidden();
+            Visibility = Visibility.Collapsed;
+            return;
         }
+
+        Visibility = Visibility.Visible;
+        var session = NewestPlaying();
+        if (session != null) ShowCompact(session);
         RefreshAppearance();
     }
 
@@ -528,7 +534,12 @@ public partial class IslandWindow : Window
         {
             StopLoop();
             _lastTick = TimeSpan.Zero;
-            if (_qT == 0 && _q == 0) { IslandBox.Visibility = Visibility.Collapsed; UpdateLine(); }
+            if (_qT == 0 && _q == 0)
+            {
+                IslandBox.Visibility = Visibility.Collapsed;
+                if (_wasSuppressed) Visibility = Visibility.Collapsed;
+                UpdateLine();
+            }
             // Si llegamos a compacto vía hidingViaCompact y no hay q pendiente, ya se ocultó arriba
         }
         else if (_qT == 0 && _q <= 0.12)
@@ -952,15 +963,37 @@ public partial class IslandWindow : Window
     {
         if (!SettingsManager.Current.IslandEnabled)
         {
+            _wasSuppressed = false;
             SnapHidden();
             Visibility = Visibility.Collapsed;
             return;
         }
         if (Suppressed())
         {
-            if (IsBoxShown) SnapHidden();
-            Visibility = Visibility.Collapsed;
+            if (!_wasSuppressed)
+            {
+                _wasSuppressed = true;
+                if (AnimationsEnabled && IsBoxShown)
+                {
+                    Visibility = Visibility.Visible;
+                    GoHidden();
+                    return;
+                }
+                SnapHidden();
+            }
+            else if (IsBoxShown)
+            {
+                GoHidden();
+            }
+            if (!IsBoxShown && !_loopOn) Visibility = Visibility.Collapsed;
             return;
+        }
+        if (_wasSuppressed)
+        {
+            _wasSuppressed = false;
+            SnapHidden();
+            if (SettingsManager.Current.IslandVisibilityMode == 0)
+                RefreshVisibilityState();
         }
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         if (_expanded && !_drag && !IsMouseOverBoxOrStrip()) LeaveHover();
