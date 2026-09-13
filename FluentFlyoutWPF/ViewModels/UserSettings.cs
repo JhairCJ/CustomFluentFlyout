@@ -1107,6 +1107,18 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial int IslandTopOffset { get; set; }
 
+    /// <summary>
+    /// Fluent Island: px invisibles a cada lado de la línea que siguen detectando (0-80). 0 = solo la línea (120px).
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandHoverToleranceHorizontal { get; set; }
+
+    /// <summary>
+    /// Fluent Island: px invisibles hacia abajo desde la línea que siguen detectando (0-40). 0 = solo sobre la línea.
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandHoverToleranceVertical { get; set; }
+
     [XmlIgnore]
     public bool IslandFloatingStyleEnabled => IslandEnabled && IslandStyle == 0;
 
@@ -1460,6 +1472,8 @@ public partial class UserSettings : ObservableObject
         IslandBackgroundRotateSize = 300;
         IslandStyle = 0;
         IslandHoverTolerance = 8;
+        IslandHoverToleranceHorizontal = -1;
+        IslandHoverToleranceVertical = -1;
         IslandLineTopOffset = 2;
         IslandTopOffset = 7;
         IslandVisibilityMode = 0;
@@ -1572,6 +1586,13 @@ public partial class UserSettings : ObservableObject
             IslandNotchFilletCompact = 6;
         if (IslandNotchFilletExpanded < 0)
             IslandNotchFilletExpanded = 10;
+        if (IslandHoverToleranceHorizontal < 0)
+            IslandHoverToleranceHorizontal = Math.Clamp(IslandHoverTolerance, 4, 30);
+        if (IslandHoverToleranceVertical < 0)
+            IslandHoverToleranceVertical = Math.Clamp(IslandHoverTolerance, 4, 30);
+        // defaults sensatos si viene de 0 legacy mal migrado
+        if (IslandHoverToleranceHorizontal < 0) IslandHoverToleranceHorizontal = 12;
+        if (IslandHoverToleranceVertical < 0) IslandHoverToleranceVertical = 4;
         _initializing = false;
     }
 

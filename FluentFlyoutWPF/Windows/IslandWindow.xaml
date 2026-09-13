@@ -20,8 +20,8 @@
         <Border x:Name="MediaStatusDot" Width="3" Height="3" CornerRadius="1.5"
                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0"
                 Visibility="Collapsed" IsHitTestVisible="False"/>
-        <!-- Franja hover invisible: altura ajustable con tolerancia -->
-        <Border x:Name="HoverStrip" Height="12" VerticalAlignment="Top" Background="Transparent"/>
+        <!-- Franja hover invisible: ancho/alto ajustables con tolerancia H/V, centrada sobre la línea -->
+        <Border x:Name="HoverStrip" Height="12" Width="120" HorizontalAlignment="Center" VerticalAlignment="Top" Background="Transparent"/>
 
         <!-- La caja: Width 240/200<->ancho configurado y Height 34<->expandido animados por código.
              ClipToBounds para que el contenido florezca desde dentro al crecer. -->

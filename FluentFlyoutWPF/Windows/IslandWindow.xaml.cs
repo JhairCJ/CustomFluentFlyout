@@ -358,6 +358,9 @@ public partial class IslandWindow : Window
         ExpandSession(session);
     }
 
+    private int HoverTolH => Math.Clamp(SettingsManager.Current.IslandHoverToleranceHorizontal < 0 ? 12 : SettingsManager.Current.IslandHoverToleranceHorizontal, 0, 80);
+    private int HoverTolV => Math.Clamp(SettingsManager.Current.IslandHoverToleranceVertical < 0 ? 4 : SettingsManager.Current.IslandHoverToleranceVertical, 0, 40);
+
     private void PollFringeHover()
     {
         if (_expanded || _drag || AlwaysOn()) return;
@@ -365,12 +368,13 @@ public partial class IslandWindow : Window
         if (!NativeMethods.GetCursorPos(out var p)) return;
         var primary = MonitorUtil.GetMonitors().FirstOrDefault(m => m.isPrimary);
         if (primary.monitorArea.Width == 0) return;
-        double tol = Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30) * primary.dpiX / 96.0;
-        double halfRaw = ExpandedIslandWidth * 0.5 * primary.dpiX / 96.0 + tol;
+        double tolH = HoverTolH * primary.dpiX / 96.0;
+        double tolV = HoverTolV * primary.dpiY / 96.0;
+        double halfRaw = LineFullWidth * 0.5 * primary.dpiX / 96.0 + tolH;
         double cx = primary.workArea.Left + primary.workArea.Width / 2;
         if (Math.Abs(p.X - cx) > halfRaw) return;
-        double islandOff = (IsNotch ? 0 : Math.Clamp(SettingsManager.Current.IslandTopOffset, 0, 80)) * primary.dpiY / 96.0;
-        if (p.Y < primary.workArea.Top - 2 || p.Y > primary.workArea.Top + tol + 4 + islandOff + 34 * primary.dpiY / 96.0) return;
+        double lineTop = primary.workArea.Top + (IsNotch ? 1 : Math.Clamp(SettingsManager.Current.IslandLineTopOffset, 0, 60)) * primary.dpiY / 96.0;
+        if (p.Y < primary.monitorArea.Top - 2 || p.Y > lineTop + 3 + tolV) return;
         var session = Current() ?? NewestPlaying() ?? FirstAllowed();
         if (session != null) ExpandSession(session);
     }
@@ -425,8 +429,8 @@ public partial class IslandWindow : Window
             double islandOff = (IsNotch ? 0 : Math.Clamp(SettingsManager.Current.IslandTopOffset, 0, 80)) * primary.dpiY / 96.0;
             double islandTop = primary.workArea.Top + islandOff;
             if (p.Y < primary.workArea.Top - 2 || p.Y > islandTop + 2) return false;
-            double halfW = ((_expanded || _p > 0.2) ? ExpandedIslandWidth : (IsNotch ? 200 : 240)) * 0.5;
-            halfW = halfW * primary.dpiX / 96.0 + Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30) * primary.dpiX / 96.0;
+            double halfW = ((_expanded || _p > 0.2) ? ExpandedIslandWidth : LineFullWidth) * 0.5;
+            halfW = halfW * primary.dpiX / 96.0 + HoverTolH * primary.dpiX / 96.0;
             double cx = primary.workArea.Left + primary.workArea.Width / 2;
             return Math.Abs(p.X - cx) <= halfW;
         }
@@ -1115,26 +1119,27 @@ public partial class IslandWindow : Window
         try
         {
             if (IsMouseOver) return true;
-            // IslandBox y HoverStrip son hijos con Background (hit-testables),
-            // pero Root es null-background: IsMouseOver de la Window puede ser falso
-            // aunque el ratón esté en la franja.
             if (IslandBox.IsMouseOver || HoverStrip.IsMouseOver) return true;
             if (!NativeMethods.GetCursorPos(out var p)) return false;
             var primary = MonitorUtil.GetMonitors().FirstOrDefault(m => m.isPrimary);
             if (primary.monitorArea.Width == 0) return false;
-            // Si el cursor está en la isla expandida (medida dinámica _hexp), no repliegues.
-            double tol = Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30) * primary.dpiX / 96.0;
-            double halfW = (IsNotch ? 200 : 240) * 0.5;
-            // En expandido la isla usa el ancho configurado
-            if (_expanded || _p > 0.2) halfW = ExpandedIslandWidth * 0.5;
-            halfW = halfW * primary.dpiX / 96.0 + tol;
+            double tolH = HoverTolH * primary.dpiX / 96.0;
+            double tolV = HoverTolV * primary.dpiY / 96.0;
             double cx = primary.workArea.Left + primary.workArea.Width / 2;
+            double halfW = (_expanded || _p > 0.2)
+                ? ExpandedIslandWidth * 0.5 * primary.dpiX / 96.0 + tolH
+                : LineFullWidth * 0.5 * primary.dpiX / 96.0 + tolH;
             if (Math.Abs(p.X - cx) > halfW) return false;
-            double top = primary.workArea.Top;
-            double islandOff = (IsNotch ? 0 : Math.Clamp(SettingsManager.Current.IslandTopOffset, 0, 80)) * primary.dpiY / 96.0;
-            double bottom = top + (_expanded ? _hexp + 8 : 34) * primary.dpiY / 96.0 + tol + islandOff;
-            // No confundir la barra de tareas inferior con hover
-            if (p.Y < top - 2 || p.Y > bottom) return false;
+            if (_expanded || _p > 0.2)
+            {
+                double top = primary.workArea.Top;
+                double islandOff = (IsNotch ? 0 : Math.Clamp(SettingsManager.Current.IslandTopOffset, 0, 80)) * primary.dpiY / 96.0;
+                double bottom = top + (_hexp + 8) * primary.dpiY / 96.0 + islandOff + tolV;
+                if (p.Y < top - 2 || p.Y > bottom) return false;
+                return true;
+            }
+            double lineTop = primary.workArea.Top + (IsNotch ? 1 : Math.Clamp(SettingsManager.Current.IslandLineTopOffset, 0, 60)) * primary.dpiY / 96.0;
+            if (p.Y < primary.monitorArea.Top - 2 || p.Y > lineTop + 3 + tolV) return false;
             return true;
         }
         catch { return false; }
@@ -1158,7 +1163,13 @@ public partial class IslandWindow : Window
         ActivityLine.Margin = new Thickness(0, lineOff, 0, 0);
         MediaStatusDot.Margin = new Thickness(0, lineOff, 0, 0);
         IslandBox.Margin = new Thickness(0, islandOff, 0, 0);
-        HoverStrip.Height = Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30) + islandOff;
+        // Ventana arranca en workArea.Top, pero HoverStrip pilla desde el borde físico vía PollFringe;
+        // aquí cubre al menos borde→línea + V abajo, centrado al ancho H.
+        HoverStrip.Margin = new Thickness(0, 0, 0, 0);
+        HoverStrip.Height = lineOff + 3 + HoverTolV;
+        HoverStrip.Width = LineFullWidth + 2 * HoverTolH;
+        HoverStrip.HorizontalAlignment = HorizontalAlignment.Center;
+        HoverStrip.VerticalAlignment = VerticalAlignment.Top;
         var eqVis = SettingsManager.Current.IslandEqEnabled ? Visibility.Visible : Visibility.Collapsed;
         ExpandedEq.Visibility = eqVis;
         UpdateEqButton(); // arbitra CompactEq vs icono de pausa
