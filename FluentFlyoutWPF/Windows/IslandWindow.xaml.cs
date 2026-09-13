@@ -17,6 +17,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Text;
 using Windows.Media.Control;
 using static WindowsMediaController.MediaManager;
 
@@ -96,12 +97,14 @@ public partial class IslandWindow : Window
     private int _backgroundGeneration;
     private bool _disposed;
     private bool _wasSuppressed;
+    private Thickness _expandedMarginOrig;
 
     public IslandWindow(MainWindow main)
     {
         _main = main;
         WindowHelper.SetNoActivate(this);
         InitializeComponent();
+        _expandedMarginOrig = ExpandedLayer.Margin;
         ApplyAlbumArtRadius();
         CompactEq.Source = _eq.Bitmap;
         ExpandedEq.Source = _eq.Bitmap;
@@ -701,17 +704,26 @@ public partial class IslandWindow : Window
             double revealOpacity = Smooth01(Math.Clamp(q / 0.38, 0, 1));
             IslandBox.Opacity = revealOpacity * revealOpacity * exitTailOpacity;
             // El radio hace morph con p: compacto -> expandido sin saltos.
-            // ponytail: fillet cóncavo hacia afuera derivado del mismo morph (8-14px).
+            // ponytail: el ANCHO de orejas lo fija el fillet expandido (constante por estado);
+            // la CAÍDA de la cueva hace morph compacto->expandido: elipse tendida -> circular.
             double radius = Math.Min(Lerp(IslandCompactRadius, IslandExpandedRadius, Smooth01(p)), Math.Min(w, h) / 2);
-            notchFillet = Math.Clamp(Lerp(IslandCompactRadius, IslandExpandedRadius, Smooth01(p)), 6, 10) * stretchT;
-            notchFillet = Math.Min(notchFillet, Math.Min(w, h) / 4);
+            // ponytail: reach y drop usan la curva del estado actual; el extra (+18 = 25-30%)
+            // solo aplica en expandido (escala con p), en compacto no se inyecta ancho.
+            double filletNow = Lerp(Math.Clamp(SettingsManager.Current.IslandNotchFilletCompact, 0, 20), Math.Clamp(SettingsManager.Current.IslandNotchFilletExpanded, 0, 20), Smooth01(p));
+            double earReach = (Math.Clamp(filletNow, 0, 20) + 18 * Smooth01(p)) * stretchT;
+            earReach = Math.Min(earReach, Math.Max(0, (Width - w) / 2 - 2));
+            notchFillet = Math.Clamp(filletNow, 0, 20) * stretchT;
             IslandBox.CornerRadius = new CornerRadius(0);
-            IslandBox.Width = w + 2 * notchFillet;
+            IslandBox.Width = w + 2 * earReach;
             IslandBox.Height = h;
+            // ponytail: las orejas son solo fondo; el contenido vive en el ancho lógico w.
+            ExpandedLayer.Width = w;
+            ExpandedLayer.Margin = new Thickness(0, _expandedMarginOrig.Top, 0, _expandedMarginOrig.Bottom);
+            ExpandedLayer.HorizontalAlignment = HorizontalAlignment.Center;
             BoxTranslate.Y = 0;
             IslandBox.RenderTransformOrigin = new Point(0.5, 0);
             BoxScale.ScaleX = BoxScale.ScaleY = Lerp(0.68, 1, Smooth01(dotT));
-            IslandBox.Clip = CreateNotchClip(IslandBox.Width, h, radius, notchFillet);
+            IslandBox.Clip = CreateNotchClip(IslandBox.Width, h, radius, earReach, notchFillet);
             LayoutBackground(IslandBox.Width, h);
         }
         else
@@ -725,6 +737,9 @@ public partial class IslandWindow : Window
             h = Lerp(34, _hexp, Smooth01(p));
             IslandBox.Width = w;
             IslandBox.Height = h;
+            ExpandedLayer.Width = double.NaN;
+            ExpandedLayer.Margin = _expandedMarginOrig;
+            ExpandedLayer.HorizontalAlignment = HorizontalAlignment.Stretch;
             IslandBox.Opacity = Smooth01(Math.Clamp(q / 0.38, 0, 1)) * exitTailOpacity;
             // Radio: círculo perfecto mientras es punto, luego morph compacto->expandido.
             // En expandido (p>0.02) siempre pill con el radio de expandido.
@@ -1693,27 +1708,29 @@ public partial class IslandWindow : Window
             context.ArcTo(end, new Size(radius, radius), 0, false, SweepDirection.Clockwise, true, false);
     }
 
-    // ponytail: notch pegado al borde con empalme cóncavo hacia afuera (W incluye 2*F de orejas).
-    private static Geometry CreateNotchClip(double width, double height, double bottomRadius, double fillet)
+    // ponytail: notch pegado al borde con cueva (W incluye 2*reach de orejas).
+    // reach = ancho horizontal (fijo: fillet expandido), drop = caída vertical (morph).
+    private static Geometry CreateNotchClip(double width, double height, double bottomRadius, double reach, double drop)
     {
         if (width <= 0 || height <= 0) return Geometry.Empty;
         double br = Math.Clamp(bottomRadius, 0, Math.Min(width, height) / 2);
-        double f = Math.Clamp(fillet, 0, Math.Min(10, Math.Min(width, height) / 4));
-        if (f < 0.5)
+        double r = Math.Clamp(reach, 0, 24);
+        double f = Math.Min(Math.Clamp(drop, 0, 20), Math.Max(0, height - br - 1));
+        if (Math.Max(r, f) < 0.5)
             return CreateIslandClip(width, height, new CornerRadius(0, 0, br, br));
-        double k = 0.5523 * f; // ponytail: cueva cuarto-circular, tangente horizontal al borde
+        double kx = 0.5523 * r, ky = 0.5523 * f; // aprox. cuarto de elipse
         var geometry = new StreamGeometry();
         using (StreamGeometryContext context = geometry.Open())
         {
             context.BeginFigure(new Point(0, 0), true, true);
             context.LineTo(new Point(width, 0), true, false);
-            context.BezierTo(new Point(width - k, 0), new Point(width - f, f - k), new Point(width - f, f), true, false);
-            context.LineTo(new Point(width - f, height - br), true, false);
-            AddCorner(context, new Point(width - f - br, height), br);
-            context.LineTo(new Point(f + br, height), true, false);
-            AddCorner(context, new Point(f, height - br), br);
-            context.LineTo(new Point(f, f), true, false);
-            context.BezierTo(new Point(f, f - k), new Point(k, 0), new Point(0, 0), true, false);
+            context.BezierTo(new Point(width - kx, 0), new Point(width - r, f - ky), new Point(width - r, f), true, false);
+            context.LineTo(new Point(width - r, height - br), true, false);
+            AddCorner(context, new Point(width - r - br, height), br);
+            context.LineTo(new Point(r + br, height), true, false);
+            AddCorner(context, new Point(r, height - br), br);
+            context.LineTo(new Point(r, f), true, false);
+            context.BezierTo(new Point(r, f - ky), new Point(kx, 0), new Point(0, 0), true, false);
         }
         geometry.Freeze();
         return geometry;
@@ -1742,6 +1759,13 @@ public partial class IslandWindow : Window
             var fg = NativeMethods.GetForegroundWindow();
             if (fg != IntPtr.Zero && NativeMethods.GetWindowRect(fg, out var r))
             {
+                // ponytail: el escritorio (Progman/WorkerW) cubre todo el monitor pero no es una app.
+                var sb = new StringBuilder(256);
+                if (NativeMethods.GetClassName(fg, sb, sb.Capacity) > 0)
+                {
+                    string cls = sb.ToString();
+                    if (cls == "Progman" || cls == "WorkerW") return false;
+                }
                 var primary = MonitorUtil.GetMonitors().FirstOrDefault(m => m.isPrimary);
                 if (primary.monitorArea.Width != 0 && r.Left <= primary.monitorArea.Left && r.Top <= primary.monitorArea.Top && r.Right >= primary.monitorArea.Right && r.Bottom >= primary.monitorArea.Bottom)
                     return true;

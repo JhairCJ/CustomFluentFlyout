@@ -849,6 +849,48 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
+    /// Curva de empalme al borde en modo notch, estado compacto (píxeles, 0-20).
+    /// Valor -1 = sin migrar: se usa 6 al cargar.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandNotchFilletCompactText))]
+    public partial int IslandNotchFilletCompact { get; set; }
+
+    [XmlIgnore]
+    public string IslandNotchFilletCompactText
+    {
+        get => Math.Clamp(IslandNotchFilletCompact, 0, 20).ToString();
+        set
+        {
+            if (int.TryParse(value, out var result))
+                IslandNotchFilletCompact = Math.Clamp(result, 0, 20);
+            else IslandNotchFilletCompact = 6;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Curva de empalme al borde en modo notch, estado expandido (píxeles, 0-20).
+    /// Valor -1 = sin migrar: se usa 10 al cargar.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandNotchFilletExpandedText))]
+    public partial int IslandNotchFilletExpanded { get; set; }
+
+    [XmlIgnore]
+    public string IslandNotchFilletExpandedText
+    {
+        get => Math.Clamp(IslandNotchFilletExpanded, 0, 20).ToString();
+        set
+        {
+            if (int.TryParse(value, out var result))
+                IslandNotchFilletExpanded = Math.Clamp(result, 0, 20);
+            else IslandNotchFilletExpanded = 10;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
     /// Radio de las esquinas de la carátula y de su overlay de cambio de medio.
     /// </summary>
     [ObservableProperty]
@@ -1402,6 +1444,8 @@ public partial class UserSettings : ObservableObject
         IslandBorderRadius = 10;
         IslandCompactBorderRadius = -1;
         IslandExpandedBorderRadius = -1;
+        IslandNotchFilletCompact = -1;
+        IslandNotchFilletExpanded = -1;
         IslandAlbumArtRadius = 8;
         IslandExpandedWidth = 320;
         IslandExpandedHeight = 126;
@@ -1524,6 +1568,10 @@ public partial class UserSettings : ObservableObject
             IslandCompactBorderRadius = Math.Clamp(IslandBorderRadius, 0, 40);
         if (IslandExpandedBorderRadius < 0)
             IslandExpandedBorderRadius = Math.Clamp(IslandBorderRadius, 0, 40);
+        if (IslandNotchFilletCompact < 0)
+            IslandNotchFilletCompact = 6;
+        if (IslandNotchFilletExpanded < 0)
+            IslandNotchFilletExpanded = 10;
         _initializing = false;
     }
 
@@ -1827,6 +1875,20 @@ public partial class UserSettings : ObservableObject
     {
         if (oldValue == newValue || _initializing) return;
         IslandExpandedBorderRadius = Math.Clamp(newValue, 0, 40);
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandNotchFilletCompactChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        IslandNotchFilletCompact = Math.Clamp(newValue, 0, 20);
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandNotchFilletExpandedChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        IslandNotchFilletExpanded = Math.Clamp(newValue, 0, 20);
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
     }
 
