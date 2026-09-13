@@ -777,6 +777,7 @@ public partial class UserSettings : ObservableObject
     /// Fluent Island: muestra la isla superior central.
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandFloatingStyleEnabled))]
     public partial bool IslandEnabled { get; set; }
 
     /// <summary>
@@ -821,6 +822,46 @@ public partial class UserSettings : ObservableObject
             if (int.TryParse(value, out var result))
                 IslandAlbumArtRadius = Math.Clamp(result, 0, 32);
             else IslandAlbumArtRadius = 12;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Ancho en píxeles del Island expandido.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandExpandedWidthText))]
+    public partial int IslandExpandedWidth { get; set; }
+
+    [XmlIgnore]
+    public string IslandExpandedWidthText
+    {
+        get => (IslandExpandedWidth > 0 ? Math.Clamp(IslandExpandedWidth, 280, 600) : 360).ToString();
+        set
+        {
+            IslandExpandedWidth = int.TryParse(value, out var result)
+                ? Math.Clamp(result, 280, 600)
+                : 360;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Alto en píxeles del Island expandido cuando usa el estilo de isla flotante.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandExpandedHeightText))]
+    public partial int IslandExpandedHeight { get; set; }
+
+    [XmlIgnore]
+    public string IslandExpandedHeightText
+    {
+        get => (IslandExpandedHeight > 0 ? Math.Clamp(IslandExpandedHeight, 100, 220) : 126).ToString();
+        set
+        {
+            IslandExpandedHeight = int.TryParse(value, out var result)
+                ? Math.Clamp(result, 100, 220)
+                : 126;
             OnPropertyChanged();
         }
     }
@@ -953,6 +994,7 @@ public partial class UserSettings : ObservableObject
     /// Fluent Island: 0 = isla flotante, 1 = notch superior (sale del borde de arriba).
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandFloatingStyleEnabled))]
     public partial int IslandStyle { get; set; }
 
     /// <summary>
@@ -960,6 +1002,9 @@ public partial class UserSettings : ObservableObject
     /// </summary>
     [ObservableProperty]
     public partial int IslandHoverTolerance { get; set; }
+
+    [XmlIgnore]
+    public bool IslandFloatingStyleEnabled => IslandEnabled && IslandStyle == 0;
 
     /// <summary>
     /// Fluent Island: ecualizador funcional (audio real).
@@ -1253,6 +1298,8 @@ public partial class UserSettings : ObservableObject
         IslandBorderEnabled = true;
         IslandBorderRadius = 17;
         IslandAlbumArtRadius = 12;
+        IslandExpandedWidth = 360;
+        IslandExpandedHeight = 126;
         IslandBackgroundBlur = false;
         IslandBackgroundBlurIntensity = 65;
         IslandBackgroundBlurRadius = 35;
@@ -1653,6 +1700,22 @@ public partial class UserSettings : ObservableObject
     partial void OnIslandAlbumArtRadiusChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandExpandedWidthChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        int fixedValue = newValue == 0 ? 360 : Math.Clamp(newValue, 280, 600);
+        if (fixedValue != newValue) IslandExpandedWidth = fixedValue;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandExpandedHeightChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        int fixedValue = newValue == 0 ? 126 : Math.Clamp(newValue, 100, 220);
+        if (fixedValue != newValue) IslandExpandedHeight = fixedValue;
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
     }
 

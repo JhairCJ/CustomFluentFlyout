@@ -3,14 +3,14 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         xmlns:controls="clr-namespace:MicaWPF.Controls;assembly=MicaWPF"
-        Width="400" Height="240" Top="-9999"
+        Width="640" Height="240" Top="-9999"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ShowInTaskbar="False" ShowActivated="False" ResizeMode="NoResize" Topmost="True"
         Loaded="Window_Loaded">
     <!-- Fluent Island de caja única: UNA sola Border cuyo tamaño interpola un muelle
          por frame (sin Storyboards, sin swaps de Visibility entre dos cajas: esa era
          la fuente del parpadeo). La ventana es de tamaño fijo para no re-maquetar a
-         nivel OS; la zona muerta es click-through (Background null) y solo la isla
+         nivel OS; la ventana transparente fija mide 640 px y la zona muerta es click-through (Background null); solo la isla
          y la franja hover capturan el ratón. -->
     <Grid x:Name="Root" Background="{x:Null}">
         <!-- Línea gris opcional: indica que el Island está activo -->
@@ -23,7 +23,7 @@
         <!-- Franja hover invisible: altura ajustable con tolerancia -->
         <Border x:Name="HoverStrip" Height="12" VerticalAlignment="Top" Background="Transparent"/>
 
-        <!-- La caja: Width 240/200<->360 y Height 34<->expandido animados por código.
+        <!-- La caja: Width 240/200<->ancho configurado y Height 34<->expandido animados por código.
              ClipToBounds para que el contenido florezca desde dentro al crecer. -->
             <Border x:Name="IslandBox" Width="240" Height="34" CornerRadius="17"
                 HorizontalAlignment="Center" VerticalAlignment="Top"
@@ -111,11 +111,11 @@
                 <StackPanel x:Name="ExpandedLayer" Margin="16,12,16,6" Opacity="0">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="72"/>
+                            <ColumnDefinition Width="56"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Border x:Name="ExpandedArtWrap" Grid.Column="0" Width="64" Height="64" CornerRadius="12" ClipToBounds="True" Background="#222"
+                        <Border x:Name="ExpandedArtWrap" Grid.Column="0" Width="48" Height="48" CornerRadius="12" ClipToBounds="True" Background="#222"
                                 Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click"
                                 MouseEnter="AlbumArt_MouseEnter" MouseLeave="AlbumArt_MouseLeave"
                                 RenderTransformOrigin="0.5,0.5">
@@ -127,16 +127,16 @@
                             </Border.RenderTransform>
                             <Grid>
                                 <Image x:Name="ExpandedArt" Stretch="UniformToFill"/>
-                                <TextBlock x:Name="ExpandedNote" Text="♪" Foreground="White" FontSize="24"
+                                <TextBlock x:Name="ExpandedNote" Text="♪" Foreground="White" FontSize="18"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
                                 <Border x:Name="ExpandedAlbumOverlay" CornerRadius="12" ClipToBounds="True" Background="Transparent" Visibility="Collapsed" IsHitTestVisible="False">
-                                    <ui:SymbolIcon Symbol="ChevronRight20" Filled="True" Foreground="White" FontSize="24"/>
+                                    <ui:SymbolIcon Symbol="ChevronRight20" Filled="True" Foreground="White" FontSize="18"/>
                                 </Border>
                             </Grid>
                         </Border>
-                        <StackPanel Grid.Column="1" Margin="12,2,0,0" VerticalAlignment="Center">
+                        <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
                             <TextBlock x:Name="SongTitle" Text="Título desconocido" Foreground="White"
-                                       FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                       FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                        RenderTransformOrigin="0,0.5">
                                 <TextBlock.RenderTransform>
                                     <TransformGroup>
@@ -146,15 +146,15 @@
                                 </TextBlock.RenderTransform>
                             </TextBlock>
                             <TextBlock x:Name="SongArtist" Text="Artista desconocido" Foreground="White"
-                                       FontSize="12" Opacity="0.5" TextTrimming="CharacterEllipsis"
+                                       FontSize="10" Opacity="0.5" TextTrimming="CharacterEllipsis"
                                        RenderTransformOrigin="0,0.5">
                                 <TextBlock.RenderTransform>
                                     <TranslateTransform x:Name="SongArtistTranslate" X="0" Y="0"/>
                                 </TextBlock.RenderTransform>
                             </TextBlock>
                         </StackPanel>
-                        <Image x:Name="ExpandedEq" Grid.Column="2" Width="48" Height="22" Stretch="Uniform"
-                               VerticalAlignment="Center" Margin="8,0,2,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <Image x:Name="ExpandedEq" Grid.Column="2" Width="36" Height="16" Stretch="Uniform"
+                               VerticalAlignment="Center" Margin="6,0,2,0" RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Grid>
                     <Grid x:Name="SeekRow" Margin="0,8,0,0" RenderTransformOrigin="0.5,0.5">
                         <Grid.RenderTransform>

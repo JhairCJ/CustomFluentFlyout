@@ -190,6 +190,30 @@
         </Grid>
 
         <TextBlock Text="Apariencia" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,6" />
+        <ui:CardControl x:Name="IslandExpandedWidthCard" Tag="Indexable" Icon="{ui:SymbolIcon ArrowAutofitWidth24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+            <ui:CardControl.Header>
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Text="Ancho expandido" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                    <TextBlock Text="Ajusta en píxeles el ancho del Island cuando muestra los controles." FontSize="12" Opacity="0.5" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <StackPanel Orientation="Horizontal">
+                <ui:TextBox Width="60" ClearButtonEnabled="False" Text="{Binding IslandExpandedWidthText, Mode=TwoWay}" />
+                <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+        </ui:CardControl>
+        <ui:CardControl x:Name="IslandExpandedHeightCard" Tag="Indexable" Icon="{ui:SymbolIcon ArrowAutofitUp24}" Margin="0,0,0,3" IsEnabled="{Binding IslandFloatingStyleEnabled}">
+            <ui:CardControl.Header>
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Text="Alto de la isla flotante" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                    <TextBlock Text="Ajusta en píxeles la altura del Island expandido; solo se aplica a la isla flotante." FontSize="12" Opacity="0.5" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <StackPanel Orientation="Horizontal">
+                <ui:TextBox Width="60" ClearButtonEnabled="False" Text="{Binding IslandExpandedHeightText, Mode=TwoWay}" />
+                <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+        </ui:CardControl>
         <ui:CardControl x:Name="IslandBorderRadiusCard" Tag="Indexable" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">

@@ -30,7 +30,16 @@ namespace FluentFlyoutWPF.Windows;
 /// </summary>
 public partial class IslandWindow : Window
 {
-    private const double ExpandedIslandWidth = 360;
+    private const int DefaultExpandedIslandWidth = 360;
+    private const int DefaultExpandedIslandHeight = 126;
+    private double ExpandedIslandWidth => Math.Clamp(
+        SettingsManager.Current.IslandExpandedWidth > 0 ? SettingsManager.Current.IslandExpandedWidth : DefaultExpandedIslandWidth,
+        280,
+        600);
+    private double ExpandedIslandHeight => Math.Clamp(
+        SettingsManager.Current.IslandExpandedHeight > 0 ? SettingsManager.Current.IslandExpandedHeight : DefaultExpandedIslandHeight,
+        100,
+        220);
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
     private static readonly Brush IslandBorderBrush = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
     private static readonly Brush MediaPlayingBrush = new SolidColorBrush(Color.FromRgb(0xB6, 0xF0, 0xB5));
@@ -565,11 +574,12 @@ public partial class IslandWindow : Window
     {
         try
         {
-            // Medir la altura expandida real con el ancho objetivo (360).
+            // Medir la altura expandida real con el ancho configurado.
             // ExpandedLayer está siempre en el árbol (Opacity 0 cuando compacto),
             // así que es medible.
             ExpandedLayer.Measure(new Size(ExpandedIslandWidth, double.PositiveInfinity));
-            double h = ExpandedLayer.DesiredSize.Height; // DesiredSize ya incluye el Margin vertical
+            double measuredHeight = ExpandedLayer.DesiredSize.Height; // DesiredSize ya incluye el Margin vertical
+            double h = IsNotch ? measuredHeight : ExpandedIslandHeight;
             if (h > 60 && h < 260) _hexp = h;
         }
         catch { }
@@ -622,7 +632,7 @@ public partial class IslandWindow : Window
         }
         else
         {
-            // Pill: oculto -> punto 26px (circular) -> cápsula 240px -> expandido 480px
+            // Pill: oculto -> punto 26px (circular) -> cápsula 240px -> ancho expandido configurado
             const double pillDot = 26;
             double dotT = Math.Clamp(q / 0.32, 0, 1);
             double stretchT = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
@@ -975,7 +985,7 @@ public partial class IslandWindow : Window
             // Si el cursor está en la isla expandida (medida dinámica _hexp), no repliegues.
             double tol = Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30) * primary.dpiX / 96.0;
             double halfW = (IsNotch ? 200 : 240) * 0.5;
-            // En expandido la isla es de 360px de ancho
+            // En expandido la isla usa el ancho configurado
             if (_expanded || _p > 0.2) halfW = ExpandedIslandWidth * 0.5;
             halfW = halfW * primary.dpiX / 96.0 + tol;
             double cx = primary.workArea.Left + primary.workArea.Width / 2;
@@ -1069,8 +1079,8 @@ public partial class IslandWindow : Window
 
         ExpandedArtWrap.CornerRadius = expandedCorners;
         ExpandedAlbumOverlay.CornerRadius = expandedCorners;
-        ExpandedArtWrap.Clip = CreateAlbumArtClip(64, expandedRadius);
-        ExpandedAlbumOverlay.Clip = CreateAlbumArtClip(64, expandedRadius);
+        ExpandedArtWrap.Clip = CreateAlbumArtClip(48, expandedRadius);
+        ExpandedAlbumOverlay.Clip = CreateAlbumArtClip(48, expandedRadius);
     }
 
     private static RectangleGeometry CreateAlbumArtClip(double size, double radius)
