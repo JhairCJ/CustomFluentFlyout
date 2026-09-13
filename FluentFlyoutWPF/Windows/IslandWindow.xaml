@@ -77,7 +77,7 @@
                                 </TransformGroup>
                             </Border.RenderTransform>
                             <Grid>
-                                <Image x:Name="CompactArt" Stretch="UniformToFill"/>
+                                <Image x:Name="CompactArt" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 <TextBlock x:Name="CompactNote" Text="♪" Foreground="White" FontSize="13"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
                                 <Border x:Name="CompactAlbumOverlay" CornerRadius="12" ClipToBounds="True" Background="Transparent" Visibility="Collapsed" IsHitTestVisible="False">
@@ -127,9 +127,10 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <Border x:Name="ExpandedArtWrap" Grid.Column="0" Width="48" Height="48" CornerRadius="12" ClipToBounds="True" Background="#222"
-                                Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click"
-                                MouseEnter="AlbumArt_MouseEnter" MouseLeave="AlbumArt_MouseLeave"
-                                RenderTransformOrigin="0.5,0.5">
+                                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                                 Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click"
+                                 MouseEnter="AlbumArt_MouseEnter" MouseLeave="AlbumArt_MouseLeave"
+                                 RenderTransformOrigin="0.5,0.5">
                             <Border.RenderTransform>
                                 <TransformGroup>
                                     <ScaleTransform x:Name="ExpandedArtFlipScale" ScaleX="1" ScaleY="1"/>
@@ -137,7 +138,7 @@
                                 </TransformGroup>
                             </Border.RenderTransform>
                             <Grid>
-                                <Image x:Name="ExpandedArt" Stretch="UniformToFill"/>
+                                <Image x:Name="ExpandedArt" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 <TextBlock x:Name="ExpandedNote" Text="♪" Foreground="White" FontSize="18"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
                                 <Border x:Name="ExpandedAlbumOverlay" CornerRadius="12" ClipToBounds="True" Background="Transparent" Visibility="Collapsed" IsHitTestVisible="False">
