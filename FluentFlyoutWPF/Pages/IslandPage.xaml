@@ -214,6 +214,30 @@
                 <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
             </StackPanel>
         </ui:CardControl>
+        <ui:CardControl x:Name="IslandTopOffsetCard" Tag="Indexable" Icon="{ui:SymbolIcon ArrowMove24}" Margin="0,0,0,3" IsEnabled="{Binding IslandFloatingStyleEnabled}">
+            <ui:CardControl.Header>
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Text="Separación de la isla" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                    <TextBlock Text="Qué tan abajo queda la isla del borde superior, como en iPhone. Solo isla flotante." FontSize="12" Opacity="0.5" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <StackPanel Orientation="Horizontal">
+                <Slider Minimum="0" Maximum="80" Value="{Binding IslandTopOffset, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
+                <ui:TextBlock Text="{Binding IslandTopOffset}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
+            </StackPanel>
+        </ui:CardControl>
+        <ui:CardControl x:Name="IslandLineTopOffsetCard" Tag="Indexable" Icon="{ui:SymbolIcon EyeLines24}" Margin="0,0,0,3" IsEnabled="{Binding IslandFloatingStyleEnabled}">
+            <ui:CardControl.Header>
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Text="Separación de la línea gris" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                    <TextBlock Text="Qué tan abajo queda la línea gris del borde superior. Solo isla flotante." FontSize="12" Opacity="0.5" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <StackPanel Orientation="Horizontal">
+                <Slider Minimum="0" Maximum="60" Value="{Binding IslandLineTopOffset, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
+                <ui:TextBlock Text="{Binding IslandLineTopOffset}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
+            </StackPanel>
+        </ui:CardControl>
         <ui:CardControl x:Name="IslandBorderRadiusCard" Tag="Indexable" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">

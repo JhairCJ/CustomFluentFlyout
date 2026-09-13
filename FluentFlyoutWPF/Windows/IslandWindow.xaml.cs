@@ -355,7 +355,8 @@ public partial class IslandWindow : Window
         double halfRaw = ExpandedIslandWidth * 0.5 * primary.dpiX / 96.0 + tol;
         double cx = primary.workArea.Left + primary.workArea.Width / 2;
         if (Math.Abs(p.X - cx) > halfRaw) return;
-        if (p.Y < primary.workArea.Top - 2 || p.Y > primary.workArea.Top + tol + 4) return;
+        double islandOff = (IsNotch ? 0 : Math.Clamp(SettingsManager.Current.IslandTopOffset, 0, 80)) * primary.dpiY / 96.0;
+        if (p.Y < primary.workArea.Top - 2 || p.Y > primary.workArea.Top + tol + 4 + islandOff + 34 * primary.dpiY / 96.0) return;
         var session = Current() ?? NewestPlaying() ?? FirstAllowed();
         if (session != null) ExpandSession(session);
     }
@@ -394,7 +395,28 @@ public partial class IslandWindow : Window
     private void Box_MouseLeave(object sender, MouseEventArgs e)
     {
         if (_drag || Mouse.LeftButton == MouseButtonState.Pressed) return;
+        if (IsLeavingTowardTopEdge()) return; // gracia hacia el borde: Tick colapsa al salir de verdad
         LeaveHover();
+    }
+
+    // Cursor saliendo por arriba hacia el borde (hueco entre borde e isla): no colapsar,
+    // si no el poll de franja lo re-expande a los ~150ms y se ve encoger-crecer.
+    private bool IsLeavingTowardTopEdge()
+    {
+        try
+        {
+            if (!NativeMethods.GetCursorPos(out var p)) return false;
+            var primary = MonitorUtil.GetMonitors().FirstOrDefault(m => m.isPrimary);
+            if (primary.monitorArea.Width == 0) return false;
+            double islandOff = (IsNotch ? 0 : Math.Clamp(SettingsManager.Current.IslandTopOffset, 0, 80)) * primary.dpiY / 96.0;
+            double islandTop = primary.workArea.Top + islandOff;
+            if (p.Y < primary.workArea.Top - 2 || p.Y > islandTop + 2) return false;
+            double halfW = ((_expanded || _p > 0.2) ? ExpandedIslandWidth : (IsNotch ? 200 : 240)) * 0.5;
+            halfW = halfW * primary.dpiX / 96.0 + Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30) * primary.dpiX / 96.0;
+            double cx = primary.workArea.Left + primary.workArea.Width / 2;
+            return Math.Abs(p.X - cx) <= halfW;
+        }
+        catch { return false; }
     }
 
     private void LeaveHover()
@@ -1024,7 +1046,8 @@ public partial class IslandWindow : Window
             double cx = primary.workArea.Left + primary.workArea.Width / 2;
             if (Math.Abs(p.X - cx) > halfW) return false;
             double top = primary.workArea.Top;
-            double bottom = top + (_expanded ? _hexp + 8 : 34) * primary.dpiY / 96.0 + tol;
+            double islandOff = (IsNotch ? 0 : Math.Clamp(SettingsManager.Current.IslandTopOffset, 0, 80)) * primary.dpiY / 96.0;
+            double bottom = top + (_expanded ? _hexp + 8 : 34) * primary.dpiY / 96.0 + tol + islandOff;
             // No confundir la barra de tareas inferior con hover
             if (p.Y < top - 2 || p.Y > bottom) return false;
             return true;
@@ -1044,9 +1067,15 @@ public partial class IslandWindow : Window
     private void UpdateLine()
     {
         ApplyStyle();
-        HoverStrip.Height = Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30);
+        // ponytail: offsets solo en flotante; notch queda pegado como antes
+        int lineOff = IsNotch ? 1 : Math.Clamp(SettingsManager.Current.IslandLineTopOffset, 0, 60);
+        int islandOff = IsNotch ? 0 : Math.Clamp(SettingsManager.Current.IslandTopOffset, 0, 80);
+        ActivityLine.Margin = new Thickness(0, lineOff, 0, 0);
+        MediaStatusDot.Margin = new Thickness(0, lineOff, 0, 0);
+        IslandBox.Margin = new Thickness(0, islandOff, 0, 0);
+        HoverStrip.Height = Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30) + islandOff;
         bool alive = IsBoxShown || _qT > 0.02 || Current() != null || NewestPlaying() != null || FirstAllowed() != null;
-        ActivityLine.Visibility = SettingsManager.Current.IslandActivityLine && alive ? Visibility.Visible : Visibility.Collapsed;
+        ActivityLine.Visibility = SettingsManager.Current.IslandActivityLine && alive && !IsBoxShown ? Visibility.Visible : Visibility.Collapsed;
         var eqVis = SettingsManager.Current.IslandEqEnabled ? Visibility.Visible : Visibility.Collapsed;
         CompactEq.Visibility = eqVis;
         ExpandedEq.Visibility = eqVis;

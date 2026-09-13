@@ -1003,6 +1003,18 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial int IslandHoverTolerance { get; set; }
 
+    /// <summary>
+    /// Fluent Island flotante: px desde el borde superior hasta la línea gris (0-60).
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandLineTopOffset { get; set; }
+
+    /// <summary>
+    /// Fluent Island flotante: px desde el borde superior hasta la isla (0-80), estilo iPhone.
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandTopOffset { get; set; }
+
     [XmlIgnore]
     public bool IslandFloatingStyleEnabled => IslandEnabled && IslandStyle == 0;
 
@@ -1311,6 +1323,8 @@ public partial class UserSettings : ObservableObject
         IslandBackgroundRotateSize = 300;
         IslandStyle = 0;
         IslandHoverTolerance = 12;
+        IslandLineTopOffset = 1;
+        IslandTopOffset = 8;
         IslandVisibilityMode = 0;
         IslandVisibilityDuration = 4000;
         IslandShowOnPlayPause = true;
@@ -1740,6 +1754,20 @@ public partial class UserSettings : ObservableObject
     partial void OnIslandStyleChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandLineTopOffsetChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        IslandLineTopOffset = Math.Clamp(newValue, 0, 60);
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandTopOffsetChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        IslandTopOffset = Math.Clamp(newValue, 0, 80);
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
     }
 
