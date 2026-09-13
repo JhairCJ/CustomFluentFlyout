@@ -921,10 +921,18 @@ public partial class UserSettings : ObservableObject
     public bool IslandBackgroundRotateEnabled => IslandBackgroundBlur;
 
     /// <summary>
-    /// Fluent Island: 0 = visible mientras suena, 1 = aviso temporal (N s al reproducir).
+    /// Fluent Island: 0 = visible mientras suena, 1 = aviso temporal (N s al reproducir),
+    /// 2 = siempre en su lugar (compacto persistente mientras haya sesiones).
     /// </summary>
     [ObservableProperty]
     public partial int IslandVisibilityMode { get; set; }
+
+    /// <summary>
+    /// Fluent Island: cómo se expande en "siempre en su lugar".
+    /// 0 = clic en el medio, 1 = rueda abajo, 2 = ambos.
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandExpandTrigger { get; set; }
 
     /// <summary>
     /// Fluent Island: duración del aviso temporal en ms (1000..10000).
@@ -1326,6 +1334,7 @@ public partial class UserSettings : ObservableObject
         IslandLineTopOffset = 2;
         IslandTopOffset = 7;
         IslandVisibilityMode = 0;
+        IslandExpandTrigger = 2;
         IslandVisibilityDuration = 4000;
         IslandShowOnPlayPause = true;
         IslandShowOnPause = false;

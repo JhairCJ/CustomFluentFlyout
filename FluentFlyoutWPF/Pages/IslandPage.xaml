@@ -33,6 +33,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <ui:CardControl x:Name="IslandEnabledCard" Tag="Indexable" Grid.Row="0" Icon="{ui:SymbolIcon Album24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
@@ -62,6 +63,7 @@
                 <ComboBox SelectedIndex="{Binding IslandVisibilityMode, Mode=TwoWay}">
                     <ComboBoxItem Content="Visible mientras suena" />
                     <ComboBoxItem Content="Aviso temporal" />
+                    <ComboBoxItem Content="Siempre en su lugar" />
                 </ComboBox>
             </ui:CardControl>
             <ui:CardControl x:Name="IslandDurationCard" Tag="Indexable" Grid.Row="3" Icon="{ui:SymbolIcon Clock24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
@@ -178,7 +180,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandShowOnPause, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandShowTrackChangeCard" Tag="Indexable" Grid.Row="14" Icon="{ui:SymbolIcon MusicNote2Play20}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
+            <ui:CardControl x:Name="IslandShowTrackChangeCard" Tag="Indexable" Grid.Row="14" Icon="{ui:SymbolIcon MusicNote2Play20}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="Mostrar al cambiar de canción" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -186,6 +188,19 @@
                     </StackPanel>
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandShowOnTrackChange, Mode=TwoWay}" />
+            </ui:CardControl>
+            <ui:CardControl x:Name="IslandExpandTriggerCard" Tag="Indexable" Grid.Row="15" Icon="{ui:SymbolIcon CursorHover24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="Expandir en 'Siempre en su lugar'" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="Cómo se expande la isla; rueda-arriba sobre la expandida la colapsa." FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ComboBox SelectedIndex="{Binding IslandExpandTrigger, Mode=TwoWay}">
+                    <ComboBoxItem Content="Clic" />
+                    <ComboBoxItem Content="Rueda" />
+                    <ComboBoxItem Content="Ambos" />
+                </ComboBox>
             </ui:CardControl>
         </Grid>
 

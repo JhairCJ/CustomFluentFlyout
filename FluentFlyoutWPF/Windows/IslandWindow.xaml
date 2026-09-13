@@ -29,7 +29,7 @@
                 HorizontalAlignment="Center" VerticalAlignment="Top"
                 Background="Black" BorderBrush="#33FFFFFF" BorderThickness="1"
                 Visibility="Collapsed" ClipToBounds="True" RenderTransformOrigin="0.5,0.5"
-                MouseEnter="Box_MouseEnter" MouseLeave="Box_MouseLeave">
+                MouseEnter="Box_MouseEnter" MouseLeave="Box_MouseLeave" MouseWheel="IslandBox_Wheel">
             <Border.RenderTransform>
                 <TransformGroup>
                     <ScaleTransform x:Name="BoxScale" ScaleX="1" ScaleY="1"/>
@@ -87,6 +87,8 @@
                         </Border>
                         <TextBlock x:Name="CompactTitle" Grid.Column="1" Foreground="White" FontSize="12"
                                    VerticalAlignment="Center" Margin="8,0,4,0" TextTrimming="CharacterEllipsis"
+                                   Cursor="Hand" ToolTip="Ver detalles"
+                                   MouseLeftButtonUp="CompactMiddle_Click"
                                    RenderTransformOrigin="0.5,0.5">
                             <TextBlock.RenderTransform>
                                 <TransformGroup>
@@ -95,13 +97,22 @@
                                 </TransformGroup>
                             </TextBlock.RenderTransform>
                         </TextBlock>
-                        <Image x:Name="CompactEq" Grid.Column="2" Width="36" Height="16" Stretch="Uniform"
-                               VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"
-                               RenderTransformOrigin="0.5,0.5">
-                            <Image.RenderTransform>
-                                <TranslateTransform x:Name="CompactEqTranslate" X="0" Y="0"/>
-                            </Image.RenderTransform>
-                        </Image>
+                        <Grid Grid.Column="2" Width="36" Height="16" Background="Transparent"
+                              Cursor="Hand" ToolTip="Reproducir/pausar"
+                              MouseLeftButtonUp="EqZone_Click">
+                            <Image x:Name="CompactEq" Width="36" Height="16" Stretch="Uniform"
+                                   VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"
+                                   RenderTransformOrigin="0.5,0.5">
+                                <Image.RenderTransform>
+                                    <TranslateTransform x:Name="CompactEqTranslate" X="0" Y="0"/>
+                                </Image.RenderTransform>
+                            </Image>
+                            <controls:Button x:Name="EqPlayPauseBtn" Width="36" Height="16" Padding="0"
+                                    Visibility="Collapsed" Focusable="False" Click="EqZone_Click"
+                                    Style="{StaticResource MicaWPF.Styles.TransparentButton}">
+                                <ui:SymbolIcon x:Name="EqPlayPauseGlyph" Symbol="Pause16" Filled="True" Foreground="White" FontSize="14"/>
+                            </controls:Button>
+                        </Grid>
                     </Grid>
                 </Grid>
 

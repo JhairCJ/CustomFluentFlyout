@@ -281,6 +281,15 @@ public partial class IslandWindow : Window
     {
         _hideCts?.Cancel();
         UpdateRotationPauseState();
+        // ponytail: "siempre en su lugar": con sesiones hay compacto al que volver,
+        // sin sesiones se oculta como el resto de modos.
+        if (AlwaysOn() && AnySession() is { } docked)
+        {
+            if (_expanded && IsMouseOverBoxOrStrip()) return;
+            if (_expanded) { CollapseToCompact(); return; }
+            if (!IsBoxShown) ShowCompact(docked);
+            return;
+        }
         if (IsMouseOverBoxOrStrip())
         {
             if (!_expanded && Current() is { } session)
@@ -338,7 +347,7 @@ public partial class IslandWindow : Window
 
     private void Box_MouseEnter(object sender, MouseEventArgs e)
     {
-        if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
+        if (!SettingsManager.Current.IslandEnabled || Suppressed() || AlwaysOn()) return;
         var session = Current() ?? NewestPlaying() ?? FirstAllowed();
         if (session == null) return;
         ExpandSession(session);
@@ -346,7 +355,7 @@ public partial class IslandWindow : Window
 
     private void PollFringeHover()
     {
-        if (_expanded || _drag) return;
+        if (_expanded || _drag || AlwaysOn()) return;
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
         if (!NativeMethods.GetCursorPos(out var p)) return;
         var primary = MonitorUtil.GetMonitors().FirstOrDefault(m => m.isPrimary);
@@ -419,9 +428,21 @@ public partial class IslandWindow : Window
         catch { return false; }
     }
 
+    // Siempre en su lugar: repliegue a compacto sin ocultar (el llamador garantiza sesión).
+    private void CollapseToCompact()
+    {
+        _expanded = false;
+        _hidingViaCompact = false;
+        UpdateLine();
+        PositionTopCenter();
+        if (!AnimationsEnabled) { _p = _pT = 0; _pv = 0; ApplyFrame(); }
+        else { _pT = 0; EnsureLoop(); }
+    }
+
     private void LeaveHover()
     {
         if (!_expanded) return;
+        if (AlwaysOn()) { HidePerMode(); return; }
         _expanded = false;
         _hidingViaCompact = false;
         if (SettingsManager.Current.IslandVisibilityMode == 1) { HidePerMode(); return; }
@@ -440,6 +461,9 @@ public partial class IslandWindow : Window
     // --- motor de muelle ---
 
     private bool AnimationsEnabled => SettingsManager.Current.IslandAnimated && SettingsManager.Current.FlyoutAnimationSpeed != 0;
+    // ponytail: modo 2 "siempre en su lugar": compacto persistente mientras haya sesiones.
+    private bool AlwaysOn() => Math.Clamp(SettingsManager.Current.IslandVisibilityMode, 0, 2) == 2;
+    private MediaSession? AnySession() => Current() ?? NewestPlaying() ?? FirstAllowed();
     private bool IsNotch => Math.Clamp(SettingsManager.Current.IslandStyle, 0, 1) == 1;
     private double IslandRadius => Math.Clamp(SettingsManager.Current.IslandBorderRadius, 0, 40);
 
@@ -462,7 +486,7 @@ public partial class IslandWindow : Window
         }
 
         Visibility = Visibility.Visible;
-        var session = NewestPlaying();
+        var session = AlwaysOn() ? AnySession() : NewestPlaying();
         if (session != null) ShowCompact(session);
         RefreshAppearance();
     }
@@ -825,6 +849,7 @@ public partial class IslandWindow : Window
         BitmapHelper.GetDominantColors();
         ApplyCapabilities(session);
         UpdateSeek(session);
+        UpdateEqButton();
         SyncMeasuredHeight();
         if (_expanded || _p > 0.05) ApplyFrame();
     }
@@ -1023,7 +1048,7 @@ public partial class IslandWindow : Window
         {
             _wasSuppressed = false;
             SnapHidden();
-            if (SettingsManager.Current.IslandVisibilityMode == 0)
+            if (SettingsManager.Current.IslandVisibilityMode == 0 || AlwaysOn())
                 RefreshVisibilityState();
         }
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
@@ -1084,8 +1109,8 @@ public partial class IslandWindow : Window
         IslandBox.Margin = new Thickness(0, islandOff, 0, 0);
         HoverStrip.Height = Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30) + islandOff;
         var eqVis = SettingsManager.Current.IslandEqEnabled ? Visibility.Visible : Visibility.Collapsed;
-        CompactEq.Visibility = eqVis;
         ExpandedEq.Visibility = eqVis;
+        UpdateEqButton(); // arbitra CompactEq vs icono de pausa
         UpdateMediaStatusDot();
     }
 
@@ -1602,6 +1627,54 @@ public partial class IslandWindow : Window
         ExpandedAlbumOverlay.Visibility = visibility;
         CompactArt.Opacity = showChevron ? 0.4 : 1;
         ExpandedArt.Opacity = showChevron ? 0.4 : 1;
+    }
+
+    // Siempre en su lugar: manda el visualizador; en pausa lo reemplaza el
+    // icono (clic al icono = reanudar + vuelve el visualizador).
+    private void UpdateEqButton()
+    {
+        var s = AnySession();
+        bool zone = AlwaysOn() && !_expanded && SettingsManager.Current.IslandEqEnabled && s != null;
+        bool paused = zone && SafeStatus(s) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
+        EqPlayPauseBtn.Visibility = paused ? Visibility.Visible : Visibility.Collapsed;
+        CompactEq.Visibility = paused ? Visibility.Collapsed
+            : SettingsManager.Current.IslandEqEnabled ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void EqZone_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        PlayPause_Click(sender, e);
+        // Flip optimista de vista; UpdateLine/Tick lo confirman.
+        bool toIcon = EqPlayPauseBtn.Visibility != Visibility.Visible;
+        EqPlayPauseBtn.Visibility = toIcon ? Visibility.Visible : Visibility.Collapsed;
+        if (SettingsManager.Current.IslandEqEnabled)
+            CompactEq.Visibility = toIcon ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    // Siempre en su lugar: clic en el medio expande, rueda-abajo expande,
+    // rueda-arriba colapsa (solo según IslandExpandTrigger: 0 clic, 1 rueda, 2 ambos).
+    private void CompactMiddle_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (!AlwaysOn() || _expanded) return;
+        if (Math.Clamp(SettingsManager.Current.IslandExpandTrigger, 0, 2) is not (0 or 2)) return;
+        if (AnySession() is { } s) ExpandSession(s);
+    }
+
+    private void IslandBox_Wheel(object sender, MouseWheelEventArgs e)
+    {
+        if (!AlwaysOn()) return;
+        if (Math.Clamp(SettingsManager.Current.IslandExpandTrigger, 0, 2) is not (1 or 2)) return;
+        if (e.OriginalSource is DependencyObject src && Seekbar.IsAncestorOf(src)) return;
+        if (e.Delta < 0 && !_expanded)
+        {
+            if (AnySession() is { } s) ExpandSession(s);
+        }
+        else if (e.Delta > 0 && _expanded)
+        {
+            CollapseToCompact();
+        }
+        e.Handled = true;
     }
 
     private void Album_Click(object sender, MouseButtonEventArgs e)
