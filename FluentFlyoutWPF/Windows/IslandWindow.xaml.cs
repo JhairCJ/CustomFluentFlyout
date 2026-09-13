@@ -859,6 +859,7 @@ public partial class IslandWindow : Window
         if (status != null) _lastStatus = status;
         PaintGlyph();
         BitmapImage? art = null;
+        int thumbHash = 0;
         string title = "Título desconocido", artist = "Artista desconocido";
         try
         {
@@ -867,7 +868,16 @@ public partial class IslandWindow : Window
             {
                 if (!string.IsNullOrWhiteSpace(props.Title)) title = props.Title;
                 if (!string.IsNullOrWhiteSpace(props.Artist)) artist = props.Artist;
-                art = BitmapHelper.GetThumbnail(props.Thumbnail);
+                if (props.Thumbnail != null)
+                {
+                    try { thumbHash = BitmapHelper.GetStableThumbnailHash(props.Thumbnail); } catch { thumbHash = 0; }
+                    art = thumbHash != 0
+                        ? BitmapHelper.GetThumbnailWithHash(props.Thumbnail, thumbHash)
+                        : BitmapHelper.GetThumbnail(props.Thumbnail);
+                    // Fallback if hash path missed the cache and re-read failed
+                    if (art == null && thumbHash != 0)
+                        art = BitmapHelper.GetThumbnail(props.Thumbnail);
+                }
             }
         }
         catch { }
@@ -875,10 +885,14 @@ public partial class IslandWindow : Window
         SongArtist.Text = artist;
         CompactTitle.Text = title;
         SetBackground(art);
-        string trackKey = title + "\n" + artist + "\n" + (art != null);
+        // Include actual thumbnail hash so a thumbnail-only change (Chrome fires
+        // title first with stale art, then thumbnail late) is detected and not
+        // swallowed while a flip animation is in flight.
+        string trackKey = title + "\n" + artist + "\n" + thumbHash;
         bool trackChanged = _lastTrackKey != "" && trackKey != _lastTrackKey;
+        bool artChanged = !ReferenceEquals(art, _displayedAlbumArt);
         _lastTrackKey = trackKey;
-        if (trackChanged || forceAlbumFlip)
+        if (trackChanged || artChanged || forceAlbumFlip)
             StartAlbumFlip(art);
         else if (!_albumFlipRunning)
             SetAlbumArt(art);
@@ -1159,6 +1173,12 @@ public partial class IslandWindow : Window
 
     private void UpdateMediaStatusDot()
     {
+        // Coupled to the activity line: if the line is off, the dot must not show either.
+        if (!SettingsManager.Current.IslandActivityLine || !IsAliveForLine())
+        {
+            MediaStatusDot.Visibility = Visibility.Collapsed;
+            return;
+        }
         var session = Current() ?? FirstAllowed();
         bool hidden = Visibility == Visibility.Visible && !IsBoxShown && !Suppressed();
         var status = session == null ? null : SafeStatus(session) ?? _lastStatus;
