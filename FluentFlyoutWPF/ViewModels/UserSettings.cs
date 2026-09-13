@@ -801,7 +801,7 @@ public partial class UserSettings : ObservableObject
         {
             if (int.TryParse(value, out var result))
                 IslandBorderRadius = Math.Clamp(result, 0, 40);
-            else IslandBorderRadius = 17;
+            else IslandBorderRadius = 10;
             OnPropertyChanged();
         }
     }
@@ -821,7 +821,7 @@ public partial class UserSettings : ObservableObject
         {
             if (int.TryParse(value, out var result))
                 IslandAlbumArtRadius = Math.Clamp(result, 0, 32);
-            else IslandAlbumArtRadius = 12;
+            else IslandAlbumArtRadius = 8;
             OnPropertyChanged();
         }
     }
@@ -836,12 +836,12 @@ public partial class UserSettings : ObservableObject
     [XmlIgnore]
     public string IslandExpandedWidthText
     {
-        get => (IslandExpandedWidth > 0 ? Math.Clamp(IslandExpandedWidth, 280, 600) : 360).ToString();
+        get => (IslandExpandedWidth > 0 ? Math.Clamp(IslandExpandedWidth, 280, 600) : 320).ToString();
         set
         {
             IslandExpandedWidth = int.TryParse(value, out var result)
                 ? Math.Clamp(result, 280, 600)
-                : 360;
+                : 320;
             OnPropertyChanged();
         }
     }
@@ -1307,33 +1307,33 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetScrollingTextLoopForever = false;
         TaskbarVisualizerEnabled = false;
         IslandEnabled = true;
-        IslandBorderEnabled = true;
-        IslandBorderRadius = 17;
-        IslandAlbumArtRadius = 12;
-        IslandExpandedWidth = 360;
+        IslandBorderEnabled = false;
+        IslandBorderRadius = 10;
+        IslandAlbumArtRadius = 8;
+        IslandExpandedWidth = 320;
         IslandExpandedHeight = 126;
-        IslandBackgroundBlur = false;
-        IslandBackgroundBlurIntensity = 65;
-        IslandBackgroundBlurRadius = 35;
-        IslandBackgroundRotate = false;
+        IslandBackgroundBlur = true;
+        IslandBackgroundBlurIntensity = 50;
+        IslandBackgroundBlurRadius = 40;
+        IslandBackgroundRotate = true;
         IslandBackgroundRotateSide = 0;
         IslandBackgroundRotateDirection = 0;
         IslandBackgroundRotateHighRefreshRate = false;
-        IslandBackgroundRotateDuration = 20;
+        IslandBackgroundRotateDuration = 60;
         IslandBackgroundRotateSize = 300;
         IslandStyle = 0;
-        IslandHoverTolerance = 12;
-        IslandLineTopOffset = 1;
-        IslandTopOffset = 8;
+        IslandHoverTolerance = 8;
+        IslandLineTopOffset = 2;
+        IslandTopOffset = 7;
         IslandVisibilityMode = 0;
         IslandVisibilityDuration = 4000;
         IslandShowOnPlayPause = true;
-        IslandShowOnPause = true;
+        IslandShowOnPause = false;
         IslandShowOnTrackChange = true;
-        IslandActivityLine = false;
+        IslandActivityLine = true;
         IslandEqEnabled = true;
-        IslandEqCenteredBars = false;
-        IslandEqBarCount = 5;
+        IslandEqCenteredBars = true;
+        IslandEqBarCount = 6;
         IslandEqSensitivity = 2;
         IslandEqSmoothing = 50;
         IslandAnimated = true;
@@ -1720,7 +1720,7 @@ public partial class UserSettings : ObservableObject
     partial void OnIslandExpandedWidthChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
-        int fixedValue = newValue == 0 ? 360 : Math.Clamp(newValue, 280, 600);
+        int fixedValue = newValue == 0 ? 320 : Math.Clamp(newValue, 280, 600);
         if (fixedValue != newValue) IslandExpandedWidth = fixedValue;
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
     }

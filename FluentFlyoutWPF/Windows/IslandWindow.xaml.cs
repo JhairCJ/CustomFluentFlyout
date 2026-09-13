@@ -30,7 +30,7 @@ namespace FluentFlyoutWPF.Windows;
 /// </summary>
 public partial class IslandWindow : Window
 {
-    private const int DefaultExpandedIslandWidth = 360;
+    private const int DefaultExpandedIslandWidth = 320;
     private const int DefaultExpandedIslandHeight = 126;
     private double ExpandedIslandWidth => Math.Clamp(
         SettingsManager.Current.IslandExpandedWidth > 0 ? SettingsManager.Current.IslandExpandedWidth : DefaultExpandedIslandWidth,
@@ -543,7 +543,7 @@ public partial class IslandWindow : Window
         Step(ref _p, ref _pv, _pT, kP, cP, dt);
         Step(ref _q, ref _qv, _qT, kQ, cQ, dt);
         if (_popPlaying) StepPop(dt);
-        ApplyFrame();
+        ApplyFrame(dt);
 
         bool pSettled = Math.Abs(_p - _pT) < 0.002 && Math.Abs(_pv) < 0.02;
         bool qSettled = Math.Abs(_q - _qT) < 0.002 && Math.Abs(_qv) < 0.02;
@@ -629,10 +629,19 @@ public partial class IslandWindow : Window
         ApplyFrame();
     }
 
-    private void ApplyFrame()
+    private void ApplyFrame(double dt = 0)
     {
         double p = Math.Clamp(_p, 0, 1);
         double q = Math.Clamp(_q, 0, 1);
+        // Línea gris con el mismo reloj que la isla (p y q): la isla crece
+        // centrada = de adentro hacia afuera, la línea encoge centrada = de
+        // afuera hacia adentro. Sigue al más rápido (Max): p termina antes
+        // que q al emerger expandido, así la línea es 0 cuando el expandido
+        // ya salió. En compacto p=0 y queda igual que antes. Sin tween separado.
+        bool allowed = SettingsManager.Current.IslandActivityLine && IsAliveForLine();
+        _lineW = allowed ? LineFullWidth * (1 - Math.Max(Smooth01(p), Smooth01(q))) : 0;
+        ActivityLine.Width = _lineW;
+        ActivityLine.Visibility = allowed && _lineW > 0.5 ? Visibility.Visible : Visibility.Collapsed;
         // Pop de pista atenúa con q (invisible -> no pulsa)
         double pop = _popPlaying ? _pop * q : 0;
         double exitTailOpacity = _qT == 0
@@ -1074,13 +1083,17 @@ public partial class IslandWindow : Window
         MediaStatusDot.Margin = new Thickness(0, lineOff, 0, 0);
         IslandBox.Margin = new Thickness(0, islandOff, 0, 0);
         HoverStrip.Height = Math.Clamp(SettingsManager.Current.IslandHoverTolerance, 4, 30) + islandOff;
-        bool alive = IsBoxShown || _qT > 0.02 || Current() != null || NewestPlaying() != null || FirstAllowed() != null;
-        ActivityLine.Visibility = SettingsManager.Current.IslandActivityLine && alive && !IsBoxShown ? Visibility.Visible : Visibility.Collapsed;
         var eqVis = SettingsManager.Current.IslandEqEnabled ? Visibility.Visible : Visibility.Collapsed;
         CompactEq.Visibility = eqVis;
         ExpandedEq.Visibility = eqVis;
         UpdateMediaStatusDot();
     }
+
+    private bool IsAliveForLine() =>
+        IsBoxShown || _qT > 0.02 || Current() != null || NewestPlaying() != null || FirstAllowed() != null;
+
+    private const double LineFullWidth = 120;
+    private double _lineW = LineFullWidth;
 
     private void UpdateMediaStatusDot()
     {
