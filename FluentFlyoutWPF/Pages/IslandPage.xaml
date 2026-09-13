@@ -34,6 +34,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <ui:CardControl x:Name="IslandEnabledCard" Tag="Indexable" Grid.Row="0" Icon="{ui:SymbolIcon Album24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
@@ -202,6 +203,113 @@
                     <ComboBoxItem Content="Ambos" />
                 </ComboBox>
             </ui:CardControl>
+            <ui:CardExpander x:Name="IslandTypographyCard" Tag="Indexable" Grid.Row="16" Icon="{ui:SymbolIcon TextCaseTitle24}" ContentPadding="0" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
+                <ui:CardExpander.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="Tipografía y estilo de texto" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="Fuente y tamaños de los textos del Island. La fuente es compartida por los 3 textos." FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardExpander.Header>
+                <StackPanel>
+                    <ui:CardControl Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">
+                        <ui:CardControl.Header>
+                            <StackPanel Orientation="Vertical">
+                                <TextBlock Text="Tipografía" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                                <TextBlock Text="Las incluidas funcionan en cualquier PC. También puedes elegir una del sistema o escribir cualquier fuente instalada" FontSize="12" Opacity="0.5" />
+                            </StackPanel>
+                        </ui:CardControl.Header>
+                        <ComboBox x:Name="IslandFontFamilyComboBox" IsEditable="True" Text="{Binding IslandFontFamily, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" SelectionChanged="IslandFontFamilyComboBox_SelectionChanged" Width="220">
+                            <ComboBoxItem Content="── Fuentes incluidas ──" IsEnabled="False" />
+                            <ComboBoxItem Content="Inter" />
+                            <ComboBoxItem Content="Manrope" />
+                            <ComboBoxItem Content="Poppins" />
+                            <ComboBoxItem Content="Montserrat" />
+                            <ComboBoxItem Content="Nunito" />
+                            <ComboBoxItem Content="Space Grotesk" />
+                            <ComboBoxItem Content="Rubik" />
+                            <ComboBoxItem Content="Quicksand" />
+                            <ComboBoxItem Content="Comfortaa" />
+                            <ComboBoxItem Content="Caveat" />
+                            <ComboBoxItem Content="Baloo 2" />
+                            <ComboBoxItem Content="Fredoka" />
+                            <ComboBoxItem Content="Pacifico" />
+                            <ComboBoxItem Content="Permanent Marker" />
+                            <ComboBoxItem Content="Playfair Display" />
+                            <ComboBoxItem Content="DM Serif Display" />
+                            <ComboBoxItem Content="Lora" />
+                            <ComboBoxItem Content="Zilla Slab" />
+                            <ComboBoxItem Content="Fira Code" />
+                            <ComboBoxItem Content="JetBrains Mono" />
+                            <ComboBoxItem Content="Space Mono" />
+                            <ComboBoxItem Content="── Fuentes del sistema ──" IsEnabled="False" />
+                            <ComboBoxItem Content="Segoe UI Variable" />
+                            <ComboBoxItem Content="Segoe UI" />
+                            <ComboBoxItem Content="Bahnschrift" />
+                            <ComboBoxItem Content="Calibri" />
+                            <ComboBoxItem Content="Candara" />
+                            <ComboBoxItem Content="Century Gothic" />
+                            <ComboBoxItem Content="Constantia" />
+                            <ComboBoxItem Content="Copperplate Gothic Bold" />
+                            <ComboBoxItem Content="Corbel" />
+                            <ComboBoxItem Content="Franklin Gothic Medium" />
+                            <ComboBoxItem Content="Gabriola" />
+                            <ComboBoxItem Content="Georgia" />
+                            <ComboBoxItem Content="Palatino Linotype" />
+                            <ComboBoxItem Content="Segoe Script" />
+                            <ComboBoxItem Content="Trebuchet MS" />
+                            <ComboBoxItem Content="Verdana" />
+                            <ComboBoxItem Content="Cascadia Mono" />
+                        </ComboBox>
+                    </ui:CardControl>
+                    <ui:CardControl Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">
+                        <ui:CardControl.Header>
+                            <StackPanel Orientation="Vertical">
+                                <TextBlock Text="Estilo de canción y autor" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                                <TextBlock Text="Grosor y presencia de los textos (los tamaños van por separado abajo)" FontSize="12" Opacity="0.5" />
+                            </StackPanel>
+                        </ui:CardControl.Header>
+                        <ComboBox SelectedIndex="{Binding IslandTextStyle, Mode=TwoWay}">
+                            <ComboBoxItem Content="Moderno (recomendado)" />
+                            <ComboBoxItem Content="Clásico" />
+                            <ComboBoxItem Content="Audaz" />
+                            <ComboBoxItem Content="Suave" />
+                        </ComboBox>
+                    </ui:CardControl>
+                    <ui:CardControl Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">
+                        <ui:CardControl.Header>
+                            <StackPanel Orientation="Vertical">
+                                <TextBlock Text="Texto de canción en island compacto" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ui:CardControl.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <Slider Minimum="10" Maximum="24" Value="{Binding IslandCompactTitleFontSize, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
+                            <ui:TextBlock Text="{Binding IslandCompactTitleFontSize}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
+                        </StackPanel>
+                    </ui:CardControl>
+                    <ui:CardControl Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">
+                        <ui:CardControl.Header>
+                            <StackPanel Orientation="Vertical">
+                                <TextBlock Text="Texto de canción en island expandido" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ui:CardControl.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <Slider Minimum="10" Maximum="24" Value="{Binding IslandExpandedTitleFontSize, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
+                            <ui:TextBlock Text="{Binding IslandExpandedTitleFontSize}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
+                        </StackPanel>
+                    </ui:CardControl>
+                    <ui:CardControl Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0" CornerRadius="0" Padding="52,16,16,16">
+                        <ui:CardControl.Header>
+                            <StackPanel Orientation="Vertical">
+                                <TextBlock Text="Texto de autor en island expandido" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ui:CardControl.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <Slider Minimum="10" Maximum="24" Value="{Binding IslandExpandedArtistFontSize, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
+                            <ui:TextBlock Text="{Binding IslandExpandedArtistFontSize}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
+                        </StackPanel>
+                    </ui:CardControl>
+                </StackPanel>
+            </ui:CardExpander>
         </Grid>
 
         <TextBlock Text="Apariencia" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,6" />

@@ -4,6 +4,7 @@
 using FluentFlyout.Classes;
 using FluentFlyout.Classes.Settings;
 using FluentFlyout.Classes.Utils;
+using FluentFlyout.Controls.TaskbarWidget;
 using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Classes.Utils;
 using System.Windows;
@@ -105,6 +106,7 @@ public partial class IslandWindow : Window
         CompactEq.Source = _eq.Bitmap;
         ExpandedEq.Source = _eq.Bitmap;
         ApplyStyle();
+        ApplyIslandTextStyle();
         UpdateBackgroundMode();
         SyncMeasuredHeight();
         SnapFrame();
@@ -519,6 +521,7 @@ public partial class IslandWindow : Window
     {
         ApplyStyle();
         ApplyAlbumArtRadius();
+        ApplyIslandTextStyle();
         UpdateLine();
         ApplyFrame();
     }
@@ -794,7 +797,7 @@ public partial class IslandWindow : Window
         SongTitle.Opacity = Lerp(0, 1, Smooth01(Math.Clamp((p - 0.12) / 0.7, 0, 1)));
         SongTitleTranslate.Y = Lerp(6, 0, Smooth01(Math.Clamp((p - 0.12) / 0.7, 0, 1)));
 
-        SongArtist.Opacity = Lerp(0, 0.5, Smooth01(Math.Clamp((p - 0.22) / 0.6, 0, 1)));
+        SongArtist.Opacity = Lerp(0, _islandArtistOpacity, Smooth01(Math.Clamp((p - 0.22) / 0.6, 0, 1)));
         SongArtistTranslate.Y = Lerp(6, 0, Smooth01(Math.Clamp((p - 0.22) / 0.6, 0, 1)));
 
         ExpandedEq.Opacity = Lerp(0, 1, Smooth01(Math.Clamp((p - 0.18) / 0.6, 0, 1)));
@@ -1162,6 +1165,81 @@ public partial class IslandWindow : Window
         // CornerRadius lo gobierna ApplyFrame por frame (punto 26→cápsula)
         SyncMeasuredHeight();
         if (!_loopOn) ApplyFrame();
+    }
+
+    // Tipografía del Island (misma resolución que el widget: incluidas por pack URI,
+    // resto como fuente del sistema). Una sola familia compartida por los 3 textos.
+    private static FontFamily IslandFontFamily =>
+        WidgetFonts.Resolve(SettingsManager.Current.IslandFontFamily);
+
+    private static int IslandCompactTitleSize =>
+        Math.Clamp(SettingsManager.Current.IslandCompactTitleFontSize, 10, 24);
+
+    private static int IslandExpandedTitleSize =>
+        Math.Clamp(SettingsManager.Current.IslandExpandedTitleFontSize, 10, 24);
+
+    private static int IslandExpandedArtistSize =>
+        Math.Clamp(SettingsManager.Current.IslandExpandedArtistFontSize, 10, 24);
+
+    // Mismo mapping de preset que el widget (0 Moderno, 1 Clásico, 2 Audaz, 3 Suave).
+    private static int IslandTitleWeight => SettingsManager.Current.IslandTextStyle switch
+    {
+        1 => 400,
+        2 => 700,
+        3 => 500,
+        _ => 600,
+    };
+
+    private static int IslandArtistWeight =>
+        SettingsManager.Current.IslandTextStyle == 2 ? 600 : 400;
+
+    private static double IslandArtistOpacity => SettingsManager.Current.IslandTextStyle switch
+    {
+        1 => 0.5,
+        2 => 0.85,
+        3 => 0.6,
+        _ => 0.65,
+    };
+
+    private static bool IslandArtistItalic =>
+        SettingsManager.Current.IslandTextStyle == 3;
+
+    private double _islandArtistOpacity = 0.65;
+
+    private static FontWeight ToIslandFontWeight(int weight) => weight switch
+    {
+        >= 700 => FontWeights.Bold,
+        >= 600 => FontWeights.SemiBold,
+        >= 500 => FontWeights.Medium,
+        _ => FontWeights.Normal,
+    };
+
+    /// <summary>
+    /// Aplica la tipografía del Island (familia compartida, preset de estilo y los
+    /// 3 tamaños: canción compacta, canción expandida, autor expandido). Se llama
+    /// al arrancar y en cada <see cref="RefreshAppearance"/>; re-mide la altura
+    /// expandida porque depende de la fuente.
+    /// </summary>
+    public void ApplyIslandTextStyle()
+    {
+        FontFamily family = IslandFontFamily;
+
+        CompactTitle.FontFamily = family;
+        SongTitle.FontFamily = family;
+        SongArtist.FontFamily = family;
+
+        CompactTitle.FontSize = IslandCompactTitleSize;
+        SongTitle.FontSize = IslandExpandedTitleSize;
+        SongArtist.FontSize = IslandExpandedArtistSize;
+
+        FontWeight titleWeight = ToIslandFontWeight(IslandTitleWeight);
+        CompactTitle.FontWeight = titleWeight;
+        SongTitle.FontWeight = titleWeight;
+        SongArtist.FontWeight = ToIslandFontWeight(IslandArtistWeight);
+        SongArtist.FontStyle = IslandArtistItalic ? FontStyles.Italic : FontStyles.Normal;
+        _islandArtistOpacity = IslandArtistOpacity;
+
+        SyncMeasuredHeight();
     }
 
     private void ApplyAlbumArtRadius()

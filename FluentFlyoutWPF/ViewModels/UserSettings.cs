@@ -1063,6 +1063,47 @@ public partial class UserSettings : ObservableObject
     public partial bool IslandAnimated { get; set; }
 
     /// <summary>
+    /// Fluent Island: familia tipográfica compartida por los 3 textos
+    /// (canción compacta, canción expandida, autor expandido).
+    /// Nombres incluidos (Inter, Manrope, …) funcionan en cualquier PC;
+    /// cualquier otro valor se trata como fuente del sistema.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IslandFontSource))]
+    public partial string IslandFontFamily { get; set; }
+
+    /// <summary>
+    /// Tipo de letra resuelto para bindings XAML (pack URI para incluidas).
+    /// </summary>
+    [XmlIgnore]
+    public FontFamily IslandFontSource => WidgetFonts.Resolve(IslandFontFamily);
+
+    /// <summary>
+    /// Fluent Island: preset de estilo de texto (0 Moderno, 1 Clásico, 2 Audaz, 3 Suave).
+    /// Controla grosor, opacidad del autor y cursiva; los tamaños van por separado.
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandTextStyle { get; set; }
+
+    /// <summary>
+    /// Fluent Island: tamaño del texto de canción en island compacto (DIPs, 10-24).
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandCompactTitleFontSize { get; set; }
+
+    /// <summary>
+    /// Fluent Island: tamaño del texto de canción en island expandido (DIPs, 10-24).
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandExpandedTitleFontSize { get; set; }
+
+    /// <summary>
+    /// Fluent Island: tamaño del texto de autor en island expandido (DIPs, 10-24).
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandExpandedArtistFontSize { get; set; }
+
+    /// <summary>
     /// Returns whether app filtering is enabled or disabled.
     /// </summary>
     [ObservableProperty]
@@ -1346,6 +1387,11 @@ public partial class UserSettings : ObservableObject
         IslandEqSensitivity = 2;
         IslandEqSmoothing = 50;
         IslandAnimated = true;
+        IslandFontFamily = "Segoe UI Variable";
+        IslandTextStyle = 0;
+        IslandCompactTitleFontSize = 12;
+        IslandExpandedTitleFontSize = 12;
+        IslandExpandedArtistFontSize = 10;
         AppFilteringEnabled = false;
         AppFilteringMode = 0;
         TaskbarVisualizerPosition = 1;
@@ -1832,6 +1878,39 @@ public partial class UserSettings : ObservableObject
     {
         if (oldValue == newValue || _initializing) return;
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
+    }
+
+    partial void OnIslandFontFamilyChanged(string oldValue, string newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandTextStyleChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandCompactTitleFontSizeChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        IslandCompactTitleFontSize = Math.Clamp(newValue, 10, 24);
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandExpandedTitleFontSizeChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        IslandExpandedTitleFontSize = Math.Clamp(newValue, 10, 24);
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandExpandedArtistFontSizeChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        IslandExpandedArtistFontSize = Math.Clamp(newValue, 10, 24);
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
     }
 
     partial void OnTaskbarVisualizerBaselineChanged(bool oldValue, bool newValue)
