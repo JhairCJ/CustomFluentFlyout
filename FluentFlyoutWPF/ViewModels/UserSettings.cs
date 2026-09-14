@@ -1201,7 +1201,14 @@ public partial class UserSettings : ObservableObject
     public partial int IslandExpandedArtistFontSize { get; set; }
 
     /// <summary>
-    /// Temporizador del Island: funcionalidad habilitada (música siempre lo está).
+    /// Contenido multimedia del Island: funcionalidad habilitada (independiente
+    /// del toggle de la ventana de Media Flyout).
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandMediaEnabled { get; set; }
+
+    /// <summary>
+    /// Temporizador del Island: funcionalidad habilitada.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandTimerEnabled { get; set; }
@@ -1526,6 +1533,7 @@ public partial class UserSettings : ObservableObject
         IslandCompactTitleFontSize = 12;
         IslandExpandedTitleFontSize = 12;
         IslandExpandedArtistFontSize = 12;
+        IslandMediaEnabled = true;
         IslandTimerEnabled = true;
         IslandTimerShowProgress = true;
         IslandTimerShowArrows = false;
@@ -2176,6 +2184,12 @@ public partial class UserSettings : ObservableObject
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
     }
 
+    partial void OnIslandMediaEnabledChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshMediaContent();
+    }
+
     partial void OnIslandTimerEnabledChanged(bool oldValue, bool newValue)
     {
         if (oldValue == newValue || _initializing) return;
@@ -2287,6 +2301,8 @@ public partial class UserSettings : ObservableObject
 
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
         mainWindow.RefreshKeyboardHook();
+        // El toggle del Media Flyout solo afecta a la ventana emergente de
+        // música; el Island sigue las sesiones del sistema por sí mismo.
     }
 
     partial void OnLockKeysEnabledChanged(bool oldValue, bool newValue)

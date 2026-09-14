@@ -567,7 +567,17 @@
                 </ui:CardControl>
             </StackPanel>
         </ui:CardExpander>
-            <TextBlock Grid.Row="32" Text="Temporizador" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+            <TextBlock Grid.Row="32" Text="Contenido del Island" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+            <ui:CardControl x:Name="IslandMediaEnabledCard" Tag="Indexable" Grid.Row="37" Icon="{ui:SymbolIcon MusicNote2Play20}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="Control multimedia" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="Añade el control de medios a las funcionalidades del Island; se cambia con la rueda o las flechas." FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:ToggleSwitch IsChecked="{Binding IslandMediaEnabled, Mode=TwoWay}" />
+            </ui:CardControl>
+            <TextBlock Grid.Row="38" Text="Temporizador" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
             <ui:CardControl x:Name="IslandTimerEnabledCard" Tag="Indexable" Grid.Row="33" Icon="{ui:SymbolIcon Timer24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">

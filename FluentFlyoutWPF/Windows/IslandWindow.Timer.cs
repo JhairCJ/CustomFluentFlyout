@@ -60,9 +60,11 @@ public partial class IslandWindow
                 _timerMode = 0;
                 if (_expanded)
                 {
-                    var session = Current() ?? NewestPlaying() ?? FirstAllowed();
+                    // Solo vuelve la música si el contenido musical está
+                    // habilitado y el snapshot la tiene disponible.
+                    var session = MusicContentShown() ? Current() : null;
                     if (session != null) RefreshUi(session);
-                    else HidePerMode();
+                    else { ClearMusicResidue(); HidePerMode(); }
                 }
                 else HidePerMode();
             }
@@ -114,7 +116,7 @@ public partial class IslandWindow
         {
             SeekRow.Visibility = Visibility.Collapsed;
         }
-        else if (Current() is { } session)
+        else if (MusicContentShown() && Current() is { } session)
         {
             ApplyCapabilities(session); // restaura SeekRow según la fuente
         }
@@ -136,18 +138,25 @@ public partial class IslandWindow
         FadeInPanel(TimerRunPanel, showRun);
     }
 
+    // Fundido SOLO en la transición oculto->visible: la opacidad LOCAL del
+    // panel es siempre 1 (el valor final), y la animación solo la conduce
+    // durante los 150 ms del fundido. Así, repetir ApplyTimerContentVisibility
+    // (actualizaciones del contenedor, settings, start/pause) nunca puede
+    // revertir el panel a opacidad 0 y dejar la caja negra (001/002 ADDED RF-1).
     private static void FadeInPanel(UIElement el, bool show)
     {
         el.BeginAnimation(UIElement.OpacityProperty, null);
+        el.Opacity = 1; // valor local = estado final; la animación solo cubre el gesto
         if (!show)
         {
             el.Visibility = Visibility.Collapsed;
             return;
         }
         if (el.Visibility == Visibility.Visible) return;
-        el.Opacity = 0;
         el.Visibility = Visibility.Visible;
-        el.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)));
+        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150));
+        fadeIn.Completed += (_, _) => el.BeginAnimation(UIElement.OpacityProperty, null);
+        el.BeginAnimation(UIElement.OpacityProperty, fadeIn);
     }
 
     // Todo cambio de estado del motor re-conmuta paneles + re-mide la altura.
@@ -159,9 +168,39 @@ public partial class IslandWindow
         SyncMeasuredHeight();
     }
 
+    /// <summary>
+    /// Red de seguridad del 001/002 ADDED RF-1: mientras el temporizador es el
+    /// contenido activo y visible, su panel (compacto o expandido) tiene que
+    /// estar presente. Si una actualización del contenedor dejara la caja sin
+    /// ningún panel de timer (superficie negra), se re-aplica el contenido y
+    /// se registra el incidente para diagnosticarlo.
+    /// </summary>
+    private void EnsureTimerContentShown()
+    {
+        if (_disposed || _timerMode != 1 || !IsBoxShown || !TimerModeAvailable()) return;
+        if (_timer.State == IslandTimerState.Alerting
+            && TimerAlert.Visibility == Visibility.Visible) return;
+        bool compactOk = TimerCompactGrid.Visibility == Visibility.Visible;
+        bool expandedOk = TimerExpanded.Visibility == Visibility.Visible
+            || TimerRunPanel.Visibility == Visibility.Visible
+            || TimerAlert.Visibility == Visibility.Visible;
+        if (_expanded ? expandedOk : compactOk) return;
+        Logger.Warn("Island: contenido del temporizador ausente con caja visible " +
+            "(expanded={Expanded}, timerState={State}, compact={Compact}, " +
+            "config={Config}, run={Run}, alert={Alert}); re-aplicando contenido",
+            _expanded, _timer.State,
+            TimerCompactGrid.Visibility, TimerExpanded.Visibility,
+            TimerRunPanel.Visibility, TimerAlert.Visibility);
+        ApplyTimerContentVisibility();
+        RefreshTimerUI();
+        SyncMeasuredHeight();
+    }
+
     private void UpdateArrows()
     {
-        bool show = _expanded && TimerModeAvailable() && SettingsManager.Current.IslandTimerShowArrows && IsBoxShown;
+        // Flechas opcionales: solo con dos contenidos disponibles (002 MOD RF-9).
+        bool show = _expanded && TimerModeAvailable() && MediaContentAvailable()
+            && SettingsManager.Current.IslandTimerShowArrows && IsBoxShown;
         ModePrevBtn.Visibility = ModeNextBtn.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -274,11 +313,15 @@ public partial class IslandWindow
         }
         else
         {
-            var session = Current() ?? NewestPlaying() ?? FirstAllowed();
+            // Rueda abajo cambia solo al siguiente contenido DISPONIBLE
+            // (002 MOD RF-9): sin snapshot musical no hay música a la que saltar.
+            var session = Current();
             if (session == null) return;
             if (_expanded) ExpandSession(session);
-            else ShowCompact(session);
+            else ShowMusicCompact(session);
         }
+        // Nunca se toca el motor de cuenta: cambiar de vista no cancela ni
+        // reinicia la cuenta del temporizador (002 MOD RF-9, RF-13).
     }
 
     // --- controles del expandido ---
@@ -434,13 +477,16 @@ public partial class IslandWindow
         _timerSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
         ApplyTimerContentVisibility();
         RefreshTimerUI();
-        var session = Current() ?? NewestPlaying() ?? FirstAllowed();
+        // Solo el snapshot musical decide (desacoplado del control multimedia):
+        var session = Current();
         if (session == null)
         {
+            // Sin sesión: limpiar restos musicales antes de ocultar (002 MOD RF-14).
+            ClearMusicResidue();
             _expanded = false;
             GoHidden();
         }
         else if (_expanded) RefreshUi(session);
-        else ShowCompact(session);
+        else ShowMusicCompact(session);
     }
 }

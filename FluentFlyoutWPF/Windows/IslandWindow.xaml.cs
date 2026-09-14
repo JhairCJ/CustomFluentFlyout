@@ -118,16 +118,18 @@ public partial class IslandWindow : Window
         Show();
         Visibility = Visibility.Visible;
         PositionTopCenter();
-        var mm = _main.mediaManager;
-        mm.OnAnyPlaybackStateChanged += OnPlayState;
-        mm.OnAnyMediaPropertyChanged += OnMediaProp;
-        mm.OnAnySessionClosed += OnClosed;
+        // El Island sigue siempre las sesiones del sistema: es parte de su
+        // función, independiente del toggle del Media Flyout (que solo
+        // controla la ventana emergente de música). Sin sesión disponible el
+        // contenido se reduce al temporizador (RF-13, RF-14).
+        HookMediaEvents(true);
         _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _tick.Tick += (_, _) => Tick();
         _tick.Start();
         _hoverPoll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
         _hoverPoll.Tick += (_, _) => PollFringeHover();
         _hoverPoll.Start();
+        SyncExistingMediaState();
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -139,6 +141,70 @@ public partial class IslandWindow : Window
     }
 
     private void NotePlay(string id) { _lastPlay[id] = DateTime.Now; _currentId = id; }
+
+    private bool _mediaHooksOn;
+
+    /// <summary>
+    /// Engancha/desengancha los eventos del control multimedia del Island.
+    /// El Island SIEMPRE sigue las sesiones (es su propio contenido); el
+    /// parámetro existe para desenganchar limpiamente al cerrar.
+    /// </summary>
+    private void HookMediaEvents(bool on)
+    {
+        if (on == _mediaHooksOn) return;
+        var mm = _main.mediaManager;
+        if (on)
+        {
+            mm.OnAnyPlaybackStateChanged += OnPlayState;
+            mm.OnAnyMediaPropertyChanged += OnMediaProp;
+            mm.OnAnySessionClosed += OnClosed;
+        }
+        else
+        {
+            mm.OnAnyPlaybackStateChanged -= OnPlayState;
+            mm.OnAnyMediaPropertyChanged -= OnMediaProp;
+            mm.OnAnySessionClosed -= OnClosed;
+            Dispatcher.Invoke(() =>
+            {
+                if (_music != null) OnMusicUnavailable();
+            });
+        }
+        _mediaHooksOn = on;
+    }
+
+    /// <summary>
+    /// Reconcilia el snapshot con las sesiones actuales (ajustes de media
+    /// cambiados, filtros de apps, etc.). El toggle del Media Flyout NO
+    /// afecta al Island: este siempre sigue las sesiones del sistema.
+    /// </summary>
+    public void RefreshMediaHook() => Dispatcher.Invoke(SyncExistingMediaState);
+
+    /// <summary>
+    /// Cambio del ajuste «Control multimedia» del Island: con el contenido
+    /// apagado se libera el snapshot (sin vista musical vacía) y la vista
+    /// vuelve al temporizador o se oculta; con él encendido se reconcilia.
+    /// </summary>
+    public void RefreshMediaContent() => Dispatcher.Invoke(() =>
+    {
+        if (!MediaContentAvailable())
+        {
+            if (_music != null) OnMusicUnavailable();
+            else if (!TimerKeepsAlive()) HidePerMode();
+        }
+        else
+        {
+            SyncExistingMediaState();
+        }
+        UpdateMediaStatusDot();
+        RefreshAppearance();
+    });
+
+    /// <summary>
+    /// El contenido musical del Island se puede deshabilitar de forma
+    /// independiente (igual que el temporizador con IslandTimerEnabled).
+    /// </summary>
+    private bool MediaContentAvailable() =>
+        SettingsManager.Current.IslandEnabled && SettingsManager.Current.IslandMediaEnabled;
 
     private MediaSession? NewestPlaying()
     {
@@ -155,9 +221,12 @@ public partial class IslandWindow : Window
 
     private MediaSession? Current()
     {
-        if (_currentId == null) return null;
+        // Resolución SIEMPRE mediada por el snapshot: sin música disponible no
+        // hay sesión "actual" aunque el control multimedia siga vivo.
+        var snap = _music;
+        if (snap == null) return null;
         foreach (var s in _main.mediaManager.CurrentMediaSessions.Values)
-            if (s.Id == _currentId && _main.IsSessionAllowed(s)) return s;
+            if (s.Id == snap.Id && _main.IsSessionAllowed(s)) return s;
         return null;
     }
 
@@ -168,6 +237,79 @@ public partial class IslandWindow : Window
         return null;
     }
 
+    // ------------------------------------------------------------------
+    // Desacoplamiento del control multimedia (change island-contenedor-refactor)
+    // ------------------------------------------------------------------
+    // El Island NO depende del pipeline de media para existir: su estado
+    // musical vive SOLO en este snapshot, actualizado por los eventos de
+    // sesión. El render, la franja de hover, el punto de estado y el motor
+    // de animación jamás consultan el control multimedia; sin sesiones el
+    // Island simplemente solo tiene el temporizador como contenido
+    // disponible y se abre por hover (RF-13).
+    private sealed record IslandMediaSnapshot(
+        string Id,
+        GlobalSystemMediaTransportControlsSessionPlaybackStatus Status);
+
+    private IslandMediaSnapshot? _music;
+
+    private bool MusicAvailable() => _music != null;
+
+    private void ApplyMediaSnapshot(IslandMediaSnapshot? s)
+    {
+        bool existed = _music != null;
+        _music = s;
+        _lastStatus = s?.Status;
+        if (s == null)
+        {
+            // Sin sesión: cero datos musicales residuales, la vista la decide
+            // el contenedor (timer disponible u oculto), nunca música vacía.
+            if (existed) ClearMusicResidue();
+            return;
+        }
+        PaintGlyph();
+    }
+
+    // El gestor multimedia arranca antes que el Island, así que la primera
+    // reproducción puede no emitir un evento que esta ventana alcance a ver.
+    // Concilia el snapshot con las sesiones actuales: mientras la sesión
+    // presentada SIGA EXISTIENDO se conserva (aunque esté pausada); solo se
+    // libera cuando desaparece o pasa a no permitida. Así el tick nunca
+    // arranca la vista a las manos del hover ni del usuario.
+    private void SyncExistingMediaState()
+    {
+        if (!MediaContentAvailable() || Suppressed()) return;
+        var snap = _music;
+        if (snap != null)
+        {
+            // La sesión presentada sigue viva y permitida: conservarla tal cual
+            // (el punto de estado ya refleja play/pausa). NADA de revocarla por
+            // no estar reproduciendo ahora mismo.
+            var held = Current();
+            if (held != null)
+            {
+                var heldStatus = SafeStatus(held);
+                if (heldStatus != null && heldStatus != snap.Status)
+                    ApplyMediaSnapshot(new IslandMediaSnapshot(snap.Id, heldStatus.Value));
+                return;
+            }
+            // Ya no existe (o no está permitida): liberar y limpiar residuos.
+            OnMusicUnavailable();
+            snap = null;
+        }
+        // Sin snapshot: adoptar algo que se esté reproduciendo AHORA (evento de
+        // arranque perdido); una sesión pausada NO se adopta sola para no
+        // robarle la vista al temporizador ni sorprender al usuario.
+        var session = NewestPlaying();
+        if (session == null) return;
+        var status = SafeStatus(session);
+        ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
+        if (!SettingsManager.Current.IslandShowOnPlayPause) return;
+        // El evento de reproducción es el más reciente: reclama la vista aunque
+        // el temporizador siga contando (001 MOD RF-24); la cuenta no se toca.
+        if (_expanded) RefreshUi(session, status);
+        else ShowMusicCompact(session, status);
+    }
+
     private GlobalSystemMediaTransportControlsSessionPlaybackStatus? _lastStatus;
 
     private void OnPlayState(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackInfo? info)
@@ -175,35 +317,54 @@ public partial class IslandWindow : Window
         var status = info?.PlaybackStatus ?? session.ControlSession?.GetPlaybackInfo()?.PlaybackStatus;
         Dispatcher.Invoke(() =>
         {
+            if (!_main.IsSessionAllowed(session)) return;
+            if (!MediaContentAvailable())
+            {
+                // Contenido musical deshabilitado: el snapshot se vacía y la
+                // vista queda para el temporizador (o nada).
+                if (_music?.Id == session.Id) OnMusicUnavailable();
+                return;
+            }
             if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
             {
                 NotePlay(session.Id);
-                _lastStatus = status;
-                PaintGlyph();
+                ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id,
+                    status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
                 if (!SettingsManager.Current.IslandShowOnPlayPause) return;
                 if (_expanded) RefreshUi(session, status);
-                else ShowCompact(session, status);
+                else ShowMusicCompact(session, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing);
             }
-            else if (session.Id == _currentId || NewestPlaying() == null)
+            else if (_music?.Id == session.Id)
+            {
+                // La sesión del snapshot se pausó: conservarla en el snapshot
+                // (punto de estado gris) y decidir presentación por ajuste.
+                ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
+                if (SettingsManager.Current.IslandShowOnPause)
+                    ShowMusicCompact(session, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused);
+                else
+                    HidePerMode();
+            }
+            else
             {
                 var next = NewestPlaying();
                 if (next != null)
                 {
-                    _currentId = next.Id;
-                    _lastStatus = GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-                    PaintGlyph();
+                    NotePlay(next.Id);
+                    var nextStatus = SafeStatus(next);
+                    ApplyMediaSnapshot(new IslandMediaSnapshot(next.Id, nextStatus ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
                     if (!SettingsManager.Current.IslandShowOnPlayPause) return;
                     if (_expanded) RefreshUi(next);
-                    else ShowCompact(next);
+                    else ShowMusicCompact(next);
                 }
-                else
+                else if (_music == null && SettingsManager.Current.IslandShowOnPause
+                    && status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
                 {
-                    _lastStatus = status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
-                    PaintGlyph();
-                    if (SettingsManager.Current.IslandShowOnPause && status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
-                        ShowCompact(session, status);
-                    else
-                        HidePerMode();
+                    // Sin snapshot y sin nadie reproduciendo: solo se crea vista
+                    // si el usuario muestra pausas; nunca una vista sin datos.
+                    NotePlay(session.Id);
+                    ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id,
+                        status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
+                    ShowMusicCompact(session, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused);
                 }
             }
         });
@@ -213,13 +374,21 @@ public partial class IslandWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
-            var show = session.ControlSession?.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
+            if (!_main.IsSessionAllowed(session)) return;
+            if (!MediaContentAvailable())
+            {
+                if (_music?.Id == session.Id) OnMusicUnavailable();
+                return;
+            }
+            var show = SafeStatus(session) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
                 ? session : NewestPlaying();
             if (show == null) return;
-            if (show.ControlSession?.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+            var showStatus = SafeStatus(show);
+            if (showStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
                 NotePlay(show.Id);
+            ApplyMediaSnapshot(new IslandMediaSnapshot(show.Id, showStatus ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
             if (_expanded || IslandBox.Visibility == Visibility.Visible) RefreshUi(show);
-            else if (SettingsManager.Current.IslandShowOnTrackChange) ShowCompact(show);
+            else if (SettingsManager.Current.IslandShowOnTrackChange) ShowMusicCompact(show);
         });
     }
 
@@ -228,28 +397,65 @@ public partial class IslandWindow : Window
         _lastPlay.Remove(session.Id);
         Dispatcher.Invoke(() =>
         {
-            if (session.Id != _currentId) return;
-            _currentId = null;
-            var next = NewestPlaying();
-            if (next != null)
-            {
-                _currentId = next.Id;
-                if (!SettingsManager.Current.IslandShowOnPlayPause) return;
-                if (_expanded) RefreshUi(next);
-                else ShowCompact(next);
-            }
-            else
-            {
-                _lastStatus = GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
-                PaintGlyph();
-                HidePerMode();
-            }
+            if (_music?.Id != session.Id && MusicAvailable()) return;
+            OnMusicUnavailable();
         });
+    }
+
+    // La música desapareció (cierre de la última sesión o candidata inválida):
+    // sin compacto musical vacío ni datos muertos. El temporizador disponible
+    // puede recuperar la vista inmediatamente (001 MOD RF-24, 002 MOD RF-14).
+    private void OnMusicUnavailable()
+    {
+        _currentId = null;
+        ApplyMediaSnapshot(null);
+        // El poll de la franja dispara ExpandFromHover cada 150 ms; sin esta
+        // pausa re-abriría la caja que acabamos de cerrar bajo el cursor.
+        _hoverSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
+        ClearClosedMediaView();
+    }
+
+    private void ClearClosedMediaView()
+    {
+        if (_timer.State == Classes.IslandTimerState.Alerting) return;
+        _expanded = false;
+        // Al cerrar la última sesión no deben quedar restos musicales:
+        // carátula, fondo, título ni estado de reproducción obsoleto
+        // (001 MOD RF-24, 002 MOD RF-14).
+        _timerMode = 0;
+        ApplyTimerContentVisibility();
+        ClearMusicResidue();
+        if (TimerKeepsAlive()) ShowTimerCompact();
+        else GoHidden();
+    }
+
+    /// <summary>
+    /// Retira carátula, fondo difuminado, títulos y estado de reproducción
+    /// obsoletos para que la vista musical sin sesión no deje controles ni
+    /// fondos residuales (001 MOD RF-24).
+    /// </summary>
+    private void ClearMusicResidue()
+    {
+        _lastStatus = null;
+        _lastTrackKey = "";
+        _displayedAlbumArt = null;
+        _hasAlbumCover = false;
+        PaintGlyph();
+        SetAlbumArt(null);
+        SetBackground(null);
+        SongTitle.Text = "";
+        SongArtist.Text = "";
+        CompactTitle.Text = "";
+        Seekbar.Value = 0;
+        PosText.Text = "0:00";
+        DurText.Text = "0:00";
     }
 
     // --- estados ---
 
     private bool IsBoxShown => IslandBox.Visibility == Visibility.Visible;
+    // Anti-reapertura por hover tras ocultar/colapsar la caja bajo el cursor.
+    private DateTime _hoverSnoozeUntil = DateTime.MinValue;
 
     private void ArmTemporaryHide()
     {
@@ -261,9 +467,10 @@ public partial class IslandWindow : Window
             Dispatcher.Invoke(() => { if (!cts.IsCancellationRequested && !_expanded && !IsMouseOverBoxOrStrip()) GoHidden(); }));
     }
 
-    private void ShowCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null, bool forceAlbumFlip = false)
+    private void ShowMusicCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null, bool forceAlbumFlip = false)
     {
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
+        if (!MusicAvailable()) return; // sin snapshot musical no hay vista musical (RF-13)
         _hideCts?.Cancel();
         _hidingViaCompact = false;
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) { SnapHidden(); return; }
@@ -299,15 +506,10 @@ public partial class IslandWindow : Window
         {
             if (_expanded && IsMouseOverBoxOrStrip()) return;
             if (_expanded) { CollapseToCompact(); return; }
-            if (!IsBoxShown) ShowCompact(docked);
+            if (!IsBoxShown) ShowMusicCompact(docked);
             return;
         }
-        if (IsMouseOverBoxOrStrip())
-        {
-            if (!_expanded && Current() is { } session)
-                ExpandSession(session);
-            return;
-        }
+        if (IsMouseOverBoxOrStrip()) return;
         if (_expanded)
         {
             _expanded = false;
@@ -359,12 +561,29 @@ public partial class IslandWindow : Window
         UpdateMediaStatusDot();
     }
 
-    private void Box_MouseEnter(object sender, MouseEventArgs e)
+    private void Box_MouseEnter(object sender, MouseEventArgs e) => ExpandFromHover();
+
+    private void ExpandFromHover()
     {
-        if (!SettingsManager.Current.IslandEnabled || Suppressed() || AlwaysOn()) return;
-        var session = Current() ?? NewestPlaying() ?? FirstAllowed();
+        if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
+        // Anti-reapertura: el usuario acaba de ocultar la caja con el cursor
+        // encima; el poll de la franja no debe volver a abrirla.
+        if (DateTime.UtcNow < _hoverSnoozeUntil) return;
+        var session = MusicContentShown() ? Current() : null;
         if (session == null)
         {
+            // Sesión permitida conocida sin snapshot aún (p. ej. pausada desde
+            // antes del arranque): se registra y se abren sus controles (RF-13).
+            // Solo si el contenido musical está habilitado.
+            var known = MediaContentAvailable() ? FirstAllowed() : null;
+            if (known != null)
+            {
+                NotePlay(known.Id);
+                ApplyMediaSnapshot(new IslandMediaSnapshot(known.Id,
+                    SafeStatus(known) ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
+                ExpandSession(known);
+                return;
+            }
             if (TimerModeAvailable() && DateTime.UtcNow >= _timerSnoozeUntil) ExpandTimer();
             return;
         }
@@ -376,7 +595,7 @@ public partial class IslandWindow : Window
 
     private void PollFringeHover()
     {
-        if (_expanded || _drag || AlwaysOn()) return;
+        if (_expanded || _drag) return;
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
         if (!NativeMethods.GetCursorPos(out var p)) return;
         var primary = MonitorUtil.GetMonitors().FirstOrDefault(m => m.isPrimary);
@@ -388,13 +607,13 @@ public partial class IslandWindow : Window
         if (Math.Abs(p.X - cx) > halfRaw) return;
         double lineTop = primary.workArea.Top + (IsNotch ? 1 : Math.Clamp(SettingsManager.Current.IslandLineTopOffset, 0, 60)) * primary.dpiY / 96.0;
         if (p.Y < primary.monitorArea.Top - 2 || p.Y > lineTop + 3 + tolV) return;
-        var session = Current() ?? NewestPlaying() ?? FirstAllowed();
-        if (session != null) ExpandSession(session);
-        else if (TimerModeAvailable() && DateTime.UtcNow >= _timerSnoozeUntil) ExpandTimer();
+        ExpandFromHover();
     }
 
     private void ExpandSession(MediaSession session)
     {
+        if (_timer.State == Classes.IslandTimerState.Alerting) return;
+        if (!MusicAvailable()) return; // sin snapshot musical no hay vista musical (RF-13)
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         _hideCts?.Cancel();
         _hidingViaCompact = false;
@@ -492,7 +711,15 @@ public partial class IslandWindow : Window
     private bool AnimationsEnabled => SettingsManager.Current.IslandAnimated && SettingsManager.Current.FlyoutAnimationSpeed != 0;
     // ponytail: modo 2 "siempre en su lugar": compacto persistente mientras haya sesiones.
     private bool AlwaysOn() => Math.Clamp(SettingsManager.Current.IslandVisibilityMode, 0, 2) == 2;
-    private MediaSession? AnySession() => Current() ?? NewestPlaying() ?? FirstAllowed();
+    private MediaSession? AnySession() => !MusicContentShown() || _music == null ? null : Current() ?? NewestPlaying() ?? FirstAllowed();
+
+    /// <summary>
+    /// El hover respeta el contenido que el usuario ya tiene delante:
+    /// expande el modo activo, y solo si no hay ninguno elige por
+    /// disponibilidad (música > temporizador). NUNCA roba el modo bajo el
+    /// cursor: eso producía el ciclo expandir/colapsar con el temporizador.
+    /// </summary>
+    private bool MusicContentShown() => _timerMode == 0 && MusicAvailable();
     private bool IsNotch => Math.Clamp(SettingsManager.Current.IslandStyle, 0, 1) == 1;
     // Radios independientes de compacto y expandido (0-40). El <0 es "sin migrar":
     // hereda el radio único heredado hasta que CompleteInitialization lo rellena.
@@ -524,18 +751,49 @@ public partial class IslandWindow : Window
         }
 
         Visibility = Visibility.Visible;
-        var session = AlwaysOn() ? AnySession() : NewestPlaying();
-        if (session != null) ShowCompact(session);
+        // El temporizador visible se conserva ante actualizaciones del contenedor
+        // (001 ADDED RF-1): no se reconstruye ni se desplaza sin un evento nuevo.
+        if (IsBoxShown && _timerMode == 1)
+        {
+            RefreshTimerUI();
+            ApplyTimerContentVisibility();
+            SyncMeasuredHeight();
+            RefreshAppearance();
+            return;
+        }
+        // SIN media no hay vista musical; con cuenta viva el hover abre el
+        // temporizador (RF-13). Never anchoring an empty music box.
+        var snap = MediaContentAvailable() ? _music : null;
+        if (snap != null && (AlwaysOn() || snap.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing))
+        {
+            var session = Current() ?? NewestPlaying() ?? FirstAllowed();
+            if (session != null) ShowMusicCompact(session);
+        }
+        else if (TimerKeepsAlive()) ShowTimerCompact();
         RefreshAppearance();
     }
 
     public void RefreshVisibilityState()
     {
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
+        if (IsBoxShown && _timerMode == 1)
+        {
+            // Temporizador visible: la actualización re-aplica su estado sin
+            // reconstruir paneles ni ceder la vista a música sin evento nuevo
+            // (001 ADDED RF-1, 002 ADDED RF-1).
+            RefreshTimerUI();
+            ApplyTimerContentVisibility();
+            SyncMeasuredHeight();
+            return;
+        }
+        // Sin media no hay vista por estado musical: el hover con el temporizador
+        // lo cubre (RF-13); salir sin tocar el control multimedia.
+        var snapshot = _music;
+        if (snapshot == null) return;
         var session = Current() ?? NewestPlaying() ?? FirstAllowed();
         if (session == null) return;
 
-        var status = SafeStatus(session) ?? _lastStatus;
+        var status = snapshot.Status;
         bool showForStatus = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
             ? SettingsManager.Current.IslandShowOnPlayPause
             : status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused
@@ -544,7 +802,7 @@ public partial class IslandWindow : Window
         {
             _currentId = session.Id;
             if (_expanded) RefreshUi(session, status);
-            else ShowCompact(session, status);
+            else ShowMusicCompact(session, status);
         }
         else if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing ||
                  status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
@@ -1150,12 +1408,17 @@ public partial class IslandWindow : Window
             else if (SettingsManager.Current.IslandVisibilityMode == 0 || AlwaysOn())
                 RefreshVisibilityState();
         }
+        SyncExistingMediaState();
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         if (_expanded && !_drag && !_reelDragging && !IsMouseOverBoxOrStrip()) LeaveHover();
         SyncEq();
         _timer.Poll(DateTime.UtcNow);
         UpdateArrows();
-        if (_timerMode == 1 && IsBoxShown) RefreshTimerUI();
+        if (_timerMode == 1 && IsBoxShown)
+        {
+            RefreshTimerUI();
+            EnsureTimerContentShown();
+        }
         var s = Current();
         if (s != null && _expanded) UpdateSeek(s);
         UpdateLine();
@@ -1224,7 +1487,7 @@ public partial class IslandWindow : Window
     }
 
     private bool IsAliveForLine() =>
-        IsBoxShown || _qT > 0.02 || Current() != null || NewestPlaying() != null || FirstAllowed() != null || TimerKeepsAlive();
+        IsBoxShown || _qT > 0.02 || _music != null || TimerKeepsAlive();
 
     private const double LineFullWidth = 120;
     private double _lineW = LineFullWidth;
@@ -1237,9 +1500,11 @@ public partial class IslandWindow : Window
             MediaStatusDot.Visibility = Visibility.Collapsed;
             return;
         }
-        var session = Current() ?? FirstAllowed();
         bool hidden = Visibility == Visibility.Visible && !IsBoxShown && !Suppressed();
-        var status = session == null ? null : SafeStatus(session) ?? _lastStatus;
+        // Punto de estado estrictamente multimedia (001 MOD RF-20): solo aparece
+        // con un snapshot musical real (reproducción o pausa); con solo el
+        // temporizador disponible permanece oculto, sin consultar el control multimedia.
+        var status = _music?.Status;
         if (!hidden || status == null)
         {
             MediaStatusDot.Visibility = Visibility.Collapsed;
@@ -1885,7 +2150,7 @@ public partial class IslandWindow : Window
     {
         var s = AnySession();
         bool zone = AlwaysOn() && !_expanded && SettingsManager.Current.IslandEqEnabled && s != null;
-        bool paused = zone && SafeStatus(s) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
+        bool paused = s != null && zone && SafeStatus(s) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
         EqPlayPauseBtn.Visibility = paused ? Visibility.Visible : Visibility.Collapsed;
         CompactEq.Visibility = paused ? Visibility.Collapsed
             : SettingsManager.Current.IslandEqEnabled ? Visibility.Visible : Visibility.Collapsed;
@@ -1940,13 +2205,13 @@ public partial class IslandWindow : Window
     private void Album_Click(object sender, MouseButtonEventArgs e)
     {
         var all = _main.mediaManager.CurrentMediaSessions.Values.Where(s => _main.IsSessionAllowed(s)).ToList();
-        if (all.Count <= 1) return;
+        if (!MusicAvailable() || all.Count <= 1) return;
         int i = all.FindIndex(s => s.Id == _currentId);
         var next = all[(i + 1) % all.Count];
         _currentId = next.Id;
         _hideCts?.Cancel();
         if (_expanded) RefreshUi(next, null, true);
-        else ShowCompact(next, null, true);
+        else ShowMusicCompact(next, null, true);
     }
 
     private void Seekbar_Down(object sender, MouseButtonEventArgs e) { _drag = true; if (sender is Slider sl) { var p = e.GetPosition(sl); double ratio = sl.ActualWidth > 0 ? Math.Clamp(p.X / sl.ActualWidth, 0, 1) : 0; sl.Value = ratio * sl.Maximum; } }
@@ -1961,9 +2226,6 @@ public partial class IslandWindow : Window
         StopLoop();
         StopBackgroundRotation();
         _eq.Dispose();
-        var mm = _main.mediaManager;
-        mm.OnAnyPlaybackStateChanged -= OnPlayState;
-        mm.OnAnyMediaPropertyChanged -= OnMediaProp;
-        mm.OnAnySessionClosed -= OnClosed;
+        HookMediaEvents(false);
     }
 }
