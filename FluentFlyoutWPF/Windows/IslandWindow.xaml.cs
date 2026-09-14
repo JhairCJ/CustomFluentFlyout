@@ -65,6 +65,7 @@ public partial class IslandWindow : Window
     private bool _loopOn;
     private bool _hidingViaCompact; // salida directa desde expandido: p y q van a 0 a la vez
     private double _hexp = 172;
+    private double _hexpShown = 172; // altura renderizada: glidea tras _hexp sin saltos
     private string _lastTrackKey = "";
     private int _popVersion;
     private bool _popPlaying;
@@ -262,6 +263,7 @@ public partial class IslandWindow : Window
 
     private void ShowCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null, bool forceAlbumFlip = false)
     {
+        if (_timer.State == Classes.IslandTimerState.Alerting) return;
         _hideCts?.Cancel();
         _hidingViaCompact = false;
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) { SnapHidden(); return; }
@@ -333,6 +335,7 @@ public partial class IslandWindow : Window
     {
         _p = _pT = 0; _pv = 0;
         _q = _qT = 1; _qv = 0;
+        _hexpShown = _hexp;
         _pop = 0; _popVersion++; _popPlaying = false;
         StopLoop();
         ApplyFrame();
@@ -346,6 +349,7 @@ public partial class IslandWindow : Window
         _hidingViaCompact = false;
         _p = _pT = 0; _pv = 0;
         _q = _qT = 0; _qv = 0;
+        _hexpShown = _hexp;
         _pop = 0; _popVersion++; _popPlaying = false;
         StopLoop();
         ApplyFrame();
@@ -395,6 +399,7 @@ public partial class IslandWindow : Window
         _hideCts?.Cancel();
         _hidingViaCompact = false;
         _currentId = session.Id;
+        if (_timer.State == Classes.IslandTimerState.Alerting) return;
         _timerMode = 0;
         ApplyTimerContentVisibility();
         bool wasExpanded = _expanded;
@@ -600,6 +605,9 @@ public partial class IslandWindow : Window
         GetSpring(out double kP, out double cP, out double kQ, out double cQ);
         Step(ref _p, ref _pv, _pT, kP, cP, dt);
         Step(ref _q, ref _qv, _qT, kQ, cQ, dt);
+        // La altura del expandido persigue a su objetivo: cambios de contenido glideas, no saltos.
+        _hexpShown += (_hexp - _hexpShown) * Math.Clamp(dt * 10, 0, 1);
+        if (Math.Abs(_hexp - _hexpShown) < 0.5) _hexpShown = _hexp;
         if (_popPlaying) StepPop(dt);
         ApplyFrame(dt);
 
@@ -609,8 +617,9 @@ public partial class IslandWindow : Window
         if (qSettled) { _q = _qT; _qv = 0; }
 
         bool popSettled = !_popPlaying;
+        bool hSettled = _hexpShown == _hexp;
 
-        if (pSettled && qSettled && popSettled)
+        if (pSettled && qSettled && popSettled && hSettled)
         {
             StopLoop();
             _lastTick = TimeSpan.Zero;
@@ -670,8 +679,20 @@ public partial class IslandWindow : Window
             // así que es medible.
             ExpandedLayer.Measure(new Size(ExpandedIslandWidth, double.PositiveInfinity));
             double measuredHeight = ExpandedLayer.DesiredSize.Height; // DesiredSize ya incluye el Margin vertical
-            double h = IsNotch ? measuredHeight : ExpandedIslandHeight;
-            if (h > 60 && h < 260) _hexp = h;
+            // ponytail: el contenido timer manda por medida (sin huecos); música mantiene su ajuste fijo.
+            bool timerContent = TimerExpanded.Visibility == Visibility.Visible
+                || TimerRunPanel.Visibility == Visibility.Visible
+                || TimerAlert.Visibility == Visibility.Visible;
+            double h = IsNotch || timerContent ? measuredHeight : ExpandedIslandHeight;
+            double old = _hexp;
+            if (h > (timerContent ? 34 : 60) && h < 260) _hexp = h;
+            // El objetivo manda: si cambió, correr frames (o snapping). Si no
+            // cambió, ni se toca el loop: música en reposo ni se entera.
+            if (_hexp != old)
+            {
+                if (!AnimationsEnabled || (!IsBoxShown && _qT == 0)) _hexpShown = _hexp;
+                else EnsureLoop();
+            }
         }
         catch { }
     }
@@ -684,6 +705,7 @@ public partial class IslandWindow : Window
         // Estado base coherente antes del primer frame
         _p = _pT; _q = _qT;
         _pv = _qv = 0;
+        _hexpShown = _hexp;
         ApplyFrame();
     }
 
@@ -719,7 +741,7 @@ public partial class IslandWindow : Window
             double stretchT = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
             double baseW = q < 0.32 ? notchDot : Lerp(notchDot, compactW, stretchT);
             w = Lerp(baseW, ExpandedIslandWidth, Smooth01(p));
-            h = Lerp(34, _hexp, Smooth01(p));
+            h = Lerp(34, _hexpShown, Smooth01(p));
             double revealOpacity = Smooth01(Math.Clamp(q / 0.38, 0, 1));
             IslandBox.Opacity = revealOpacity * revealOpacity * exitTailOpacity;
             // El radio hace morph con p: compacto -> expandido sin saltos.
@@ -753,7 +775,7 @@ public partial class IslandWindow : Window
             double stretchT = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
             double baseW = q < 0.32 ? pillDot : Lerp(pillDot, 240, stretchT);
             w = Lerp(baseW, ExpandedIslandWidth, Smooth01(p));
-            h = Lerp(34, _hexp, Smooth01(p));
+            h = Lerp(34, _hexpShown, Smooth01(p));
             IslandBox.Width = w;
             IslandBox.Height = h;
             ExpandedLayer.Width = double.NaN;
@@ -874,6 +896,8 @@ public partial class IslandWindow : Window
 
     private void RefreshUi(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null, bool forceAlbumFlip = false)
     {
+        // Alerta modal del timer: los eventos de música esperan a X o reinicio.
+        if (_timer.State == Classes.IslandTimerState.Alerting) return;
         // Evento multimedia: el contenido más reciente manda (spec 001 RF-24).
         _timerMode = 0;
         ApplyTimerContentVisibility();

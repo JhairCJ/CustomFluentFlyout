@@ -7,6 +7,7 @@ using FluentFlyoutWPF.Models;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media.Animation;
 
 namespace FluentFlyoutWPF.Windows;
 
@@ -121,10 +122,41 @@ public partial class IslandWindow
         {
             SeekRow.Visibility = Visibility.Visible;
         }
-        TimerExpanded.Visibility = timer && idle && !alert ? Visibility.Visible : Visibility.Collapsed;
-        TimerRunPanel.Visibility = timer && !idle && !alert ? Visibility.Visible : Visibility.Collapsed;
+        // Los paneles config/progreso los conmuta el fundido; la alerta es instantánea.
         TimerAlert.Visibility = alert ? Visibility.Visible : Visibility.Collapsed;
+        CrossfadeTimerPanels(showConfig: timer && idle && !alert, showRun: timer && !idle && !alert);
         UpdateArrows();
+    }
+
+    // Solo fundido de entrada: el saliente colapsa instantáneo para no medir
+    // dos paneles apilados (eso inflaba la altura).
+    private void CrossfadeTimerPanels(bool showConfig, bool showRun)
+    {
+        FadeInPanel(TimerExpanded, showConfig);
+        FadeInPanel(TimerRunPanel, showRun);
+    }
+
+    private static void FadeInPanel(UIElement el, bool show)
+    {
+        el.BeginAnimation(UIElement.OpacityProperty, null);
+        if (!show)
+        {
+            el.Visibility = Visibility.Collapsed;
+            return;
+        }
+        if (el.Visibility == Visibility.Visible) return;
+        el.Opacity = 0;
+        el.Visibility = Visibility.Visible;
+        el.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)));
+    }
+
+    // Todo cambio de estado del motor re-conmuta paneles + re-mide la altura.
+    // El loop lo garantiza SyncMeasuredHeight si el objetivo cambió.
+    private void RefreshTimerModeView()
+    {
+        ApplyTimerContentVisibility();
+        RefreshTimerUI();
+        SyncMeasuredHeight();
     }
 
     private void UpdateArrows()
@@ -163,6 +195,7 @@ public partial class IslandWindow
     {
         _p = _pT = 1; _pv = 0;
         _q = _qT = 1; _qv = 0;
+        _hexpShown = _hexp;
         _pop = 0; _popPlaying = false;
         ApplyFrame();
         IslandBox.Visibility = Visibility.Visible;
@@ -231,6 +264,8 @@ public partial class IslandWindow
 
     private void CycleMode()
     {
+        // Alerta modal: hasta X o reinicio no se sale al resto de modos.
+        if (_timer.State == IslandTimerState.Alerting) return;
         if (!TimerModeAvailable()) return;
         if (_timerMode == 0)
         {
@@ -357,14 +392,14 @@ public partial class IslandWindow
             TimerStatus.Text = "Duración no válida: usa 00:00:01 a 24:00:00.";
         else
             TimerStatus.Text = "";
-        RefreshTimerUI();
+        RefreshTimerModeView();
     }
 
     private void TimerPause_Click(object sender, RoutedEventArgs e)
     {
         if (_timer.State == IslandTimerState.Running) _timer.Pause();
         else if (_timer.State == IslandTimerState.Paused) _timer.Resume();
-        RefreshTimerUI();
+        RefreshTimerModeView();
     }
 
     private void TimerRestart_Click(object sender, RoutedEventArgs e)
@@ -372,7 +407,7 @@ public partial class IslandWindow
         _timer.Restart();
         _staged = _timer.Configured;
         TimerStatus.Text = "";
-        RefreshTimerUI();
+        RefreshTimerModeView();
     }
 
     private void TimerCancel_Click(object sender, RoutedEventArgs e)
@@ -380,15 +415,14 @@ public partial class IslandWindow
         _timer.Cancel();
         _staged = TimeSpan.Zero;
         TimerStatus.Text = "";
-        RefreshTimerUI();
+        RefreshTimerModeView();
     }
 
     private void TimerAlertRestart_Click(object sender, RoutedEventArgs e)
     {
         if (_timer.Configured > TimeSpan.Zero)
             _timer.Start(_timer.Configured, _timer.OriginLabel);
-        ApplyTimerContentVisibility();
-        RefreshTimerUI();
+        RefreshTimerModeView();
     }
 
     private void TimerAlertDismiss_Click(object sender, RoutedEventArgs e)

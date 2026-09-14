@@ -296,8 +296,13 @@
                             </ListBox>
                         </Grid>
                     </StackPanel>
-                    <!-- Corriendo/pausado: solo iconos pausar+cancelar; origen pequeño + restante -->
-                    <StackPanel x:Name="TimerRunPanel" Visibility="Collapsed" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Corriendo/pausado: iconos a la izquierda; origen + restante a la derecha -->
+                    <Grid x:Name="TimerRunPanel" Visibility="Collapsed" VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
                         <controls:Button x:Name="TimerRunPauseBtn" Height="36" Width="36" Padding="0"
                                          Focusable="False" Click="TimerPause_Click" ToolTip="Pausar/Reanudar"
                                          Style="{StaticResource MicaWPF.Styles.TransparentButton}">
@@ -308,13 +313,19 @@
                                          Style="{StaticResource MicaWPF.Styles.TransparentButton}">
                             <ui:SymbolIcon Symbol="Dismiss24" Filled="True" Foreground="White" FontSize="20"/>
                         </controls:Button>
-                        <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-                            <TextBlock x:Name="TimerRunOrigin" FontSize="11" Opacity="0.6" Foreground="White" Text="Timer"/>
-                            <TextBlock x:Name="TimerRunRemaining" FontSize="22" FontWeight="SemiBold" Foreground="White" Text="00:00:00"/>
                         </StackPanel>
-                    </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Right">
+                            <TextBlock x:Name="TimerRunOrigin" FontSize="11" Opacity="0.6" Foreground="White" Text="Timer" HorizontalAlignment="Right"/>
+                            <TextBlock x:Name="TimerRunRemaining" FontSize="22" FontWeight="SemiBold" Foreground="White" Text="00:00:00" HorizontalAlignment="Right"/>
+                        </StackPanel>
+                    </Grid>
                     <!-- Aviso al llegar a cero: reiniciar + X a la izquierda, origen a la derecha -->
-                    <StackPanel x:Name="TimerAlert" Visibility="Collapsed" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Grid x:Name="TimerAlert" Visibility="Collapsed" VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
                         <controls:Button x:Name="TimerAlertRestartBtn" Height="36" Width="36" Padding="0"
                                          Focusable="False" Click="TimerAlertRestart_Click" ToolTip="Reiniciar"
                                          Style="{StaticResource MicaWPF.Styles.TransparentButton}">
@@ -325,9 +336,10 @@
                                          Style="{StaticResource MicaWPF.Styles.TransparentButton}">
                             <ui:SymbolIcon Symbol="Dismiss24" Filled="True" Foreground="White" FontSize="20"/>
                         </controls:Button>
-                        <TextBlock x:Name="TimerAlertName" Text="Timer" Foreground="White" FontSize="14" FontWeight="SemiBold"
-                                   VerticalAlignment="Center" Margin="12,0,0,0"/>
-                    </StackPanel>
+                        </StackPanel>
+                        <TextBlock x:Name="TimerAlertName" Grid.Column="1" Text="Timer" Foreground="White" FontSize="14" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" HorizontalAlignment="Right" Margin="12,0,0,0" TextTrimming="CharacterEllipsis"/>
+                    </Grid>
                 </StackPanel>
             </Grid>
         </Border>
