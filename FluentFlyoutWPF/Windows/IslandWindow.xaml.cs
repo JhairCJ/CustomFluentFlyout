@@ -24,8 +24,8 @@ using static WindowsMediaController.MediaManager;
 namespace FluentFlyoutWPF.Windows;
 
 /// <summary>
-/// Fluent Island: isla superior central. Oculta / compacta / expandida.
-/// Sigue a la sesión que empezó última; expandido manda sobre compacto.
+/// Fluent Island: contenedor superior central. Oculta / compacta / expandida.
+/// Hoy aloja música: sigue a la sesión que empezó última; expandido manda sobre compacto.
 /// Animación de CAJA ÚNICA con muelles por frame (sin Storyboards): el
 /// ancho/alto reales del IslandBox se interpolan, así no hay dos cuadrados
 /// peleándose por Visibility. Re-apuntar a mitad de vuelo es gratis.
@@ -104,6 +104,7 @@ public partial class IslandWindow : Window
         _main = main;
         WindowHelper.SetNoActivate(this);
         InitializeComponent();
+        InitTimer();
         _expandedMarginOrig = ExpandedLayer.Margin;
         ApplyAlbumArtRadius();
         CompactEq.Source = _eq.Bitmap;
@@ -286,6 +287,10 @@ public partial class IslandWindow : Window
     {
         _hideCts?.Cancel();
         UpdateRotationPauseState();
+        // Temporizador vivo: repliega a su compacto en vez de ocultar (H2 del spec 002).
+        // Salvo avisando: la alerta manda y persiste expandida hasta X o reinicio.
+        if (_timer.State == Classes.IslandTimerState.Alerting) return;
+        if (TimerKeepsAlive()) { ShowTimerCompact(); return; }
         // ponytail: "siempre en su lugar": con sesiones hay compacto al que volver,
         // sin sesiones se oculta como el resto de modos.
         if (AlwaysOn() && AnySession() is { } docked)
@@ -354,7 +359,11 @@ public partial class IslandWindow : Window
     {
         if (!SettingsManager.Current.IslandEnabled || Suppressed() || AlwaysOn()) return;
         var session = Current() ?? NewestPlaying() ?? FirstAllowed();
-        if (session == null) return;
+        if (session == null)
+        {
+            if (TimerModeAvailable() && DateTime.UtcNow >= _timerSnoozeUntil) ExpandTimer();
+            return;
+        }
         ExpandSession(session);
     }
 
@@ -377,6 +386,7 @@ public partial class IslandWindow : Window
         if (p.Y < primary.monitorArea.Top - 2 || p.Y > lineTop + 3 + tolV) return;
         var session = Current() ?? NewestPlaying() ?? FirstAllowed();
         if (session != null) ExpandSession(session);
+        else if (TimerModeAvailable() && DateTime.UtcNow >= _timerSnoozeUntil) ExpandTimer();
     }
 
     private void ExpandSession(MediaSession session)
@@ -385,6 +395,8 @@ public partial class IslandWindow : Window
         _hideCts?.Cancel();
         _hidingViaCompact = false;
         _currentId = session.Id;
+        _timerMode = 0;
+        ApplyTimerContentVisibility();
         bool wasExpanded = _expanded;
         RefreshUi(session);
         _expanded = true;
@@ -412,7 +424,7 @@ public partial class IslandWindow : Window
 
     private void Box_MouseLeave(object sender, MouseEventArgs e)
     {
-        if (_drag || Mouse.LeftButton == MouseButtonState.Pressed) return;
+        if (_drag || _reelDragging || Mouse.LeftButton == MouseButtonState.Pressed) return;
         if (IsLeavingTowardTopEdge()) return; // gracia hacia el borde: Tick colapsa al salir de verdad
         LeaveHover();
     }
@@ -451,6 +463,9 @@ public partial class IslandWindow : Window
     private void LeaveHover()
     {
         if (!_expanded) return;
+        // Alerta de fin: persistente hasta X o reinicio, aunque el ratón se vaya.
+        if (_timer.State == Classes.IslandTimerState.Alerting) return;
+        if (TimerKeepsAlive()) { ShowTimerCompact(); return; }
         if (AlwaysOn()) { HidePerMode(); return; }
         _expanded = false;
         _hidingViaCompact = false;
@@ -859,6 +874,9 @@ public partial class IslandWindow : Window
 
     private void RefreshUi(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null, bool forceAlbumFlip = false)
     {
+        // Evento multimedia: el contenido más reciente manda (spec 001 RF-24).
+        _timerMode = 0;
+        ApplyTimerContentVisibility();
         var status = knownStatus ?? SafeStatus(session) ?? _lastStatus;
         if (status != null) _lastStatus = status;
         PaintGlyph();
@@ -1103,12 +1121,17 @@ public partial class IslandWindow : Window
         {
             _wasSuppressed = false;
             SnapHidden();
-            if (SettingsManager.Current.IslandVisibilityMode == 0 || AlwaysOn())
+            if (_pendingTimerAlert && SettingsManager.Current.IslandEnabled) { _pendingTimerAlert = false; ShowTimerAlert(); }
+            else if (TimerKeepsAlive()) ShowTimerCompact();
+            else if (SettingsManager.Current.IslandVisibilityMode == 0 || AlwaysOn())
                 RefreshVisibilityState();
         }
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
-        if (_expanded && !_drag && !IsMouseOverBoxOrStrip()) LeaveHover();
+        if (_expanded && !_drag && !_reelDragging && !IsMouseOverBoxOrStrip()) LeaveHover();
         SyncEq();
+        _timer.Poll(DateTime.UtcNow);
+        UpdateArrows();
+        if (_timerMode == 1 && IsBoxShown) RefreshTimerUI();
         var s = Current();
         if (s != null && _expanded) UpdateSeek(s);
         UpdateLine();
@@ -1177,7 +1200,7 @@ public partial class IslandWindow : Window
     }
 
     private bool IsAliveForLine() =>
-        IsBoxShown || _qT > 0.02 || Current() != null || NewestPlaying() != null || FirstAllowed() != null;
+        IsBoxShown || _qT > 0.02 || Current() != null || NewestPlaying() != null || FirstAllowed() != null || TimerKeepsAlive();
 
     private const double LineFullWidth = 120;
     private double _lineW = LineFullWidth;
@@ -1866,6 +1889,16 @@ public partial class IslandWindow : Window
 
     private void IslandBox_Wheel(object sender, MouseWheelEventArgs e)
     {
+        // Temporizador: en expandido la rueda cambia de funcionalidad (spec 002 RF-9);
+        // hacia arriba compacta (o deja la línea gris) sin cambiar de modo.
+        if (_expanded && TimerModeAvailable())
+        {
+            if (e.OriginalSource is DependencyObject wheelSrc && (Seekbar.IsAncestorOf(wheelSrc) || TimerPresetList.IsAncestorOf(wheelSrc) || TimerConfigGrid.IsAncestorOf(wheelSrc))) return;
+            if (e.Delta < 0) CycleMode();
+            else if (e.Delta > 0) LeaveHover();
+            e.Handled = true;
+            return;
+        }
         if (!AlwaysOn()) return;
         if (Math.Clamp(SettingsManager.Current.IslandExpandTrigger, 0, 2) is not (1 or 2)) return;
         if (e.OriginalSource is DependencyObject src && Seekbar.IsAncestorOf(src)) return;

@@ -24,7 +24,15 @@
         <Border x:Name="HoverStrip" Height="12" Width="120" HorizontalAlignment="Center" VerticalAlignment="Top" Background="Transparent"/>
 
         <!-- La caja: Width 240/200<->ancho configurado y Height 34<->expandido animados por código.
-             ClipToBounds para que el contenido florezca desde dentro al crecer. -->
+             ClipToBounds para que el contenido florezca desde dentro al crecer.
+             Las flechas laterales cambian de funcionalidad (temporizador) y solo
+             aparecen en expandido con su toggle y más de un modo disponible. -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Top">
+            <controls:Button x:Name="ModePrevBtn" Width="28" Height="28" Margin="0,0,4,0" Padding="0"
+                             VerticalAlignment="Center" Visibility="Collapsed" Focusable="False" Click="ModeArrow_Click"
+                             Style="{StaticResource MicaWPF.Styles.TransparentButton}" ToolTip="Funcionalidad anterior">
+                <ui:SymbolIcon Symbol="ChevronLeft24" Filled="True" Foreground="White" FontSize="16"/>
+            </controls:Button>
             <Border x:Name="IslandBox" Width="240" Height="34" CornerRadius="17"
                 HorizontalAlignment="Center" VerticalAlignment="Top"
                 Background="Black" BorderBrush="#33FFFFFF" BorderThickness="1"
@@ -59,7 +67,7 @@
                     <Grid.RenderTransform>
                         <ScaleTransform x:Name="CompactScale" ScaleX="1" ScaleY="1"/>
                     </Grid.RenderTransform>
-                    <Grid Margin="6,0,10,0">
+                    <Grid x:Name="MusicCompactGrid" Margin="6,0,10,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="24"/>
                             <ColumnDefinition Width="*"/>
@@ -114,13 +122,31 @@
                             </controls:Button>
                         </Grid>
                     </Grid>
+                    <!-- Temporizador en compacto: icono izquierda + progreso centro + restante derecha -->
+                    <Grid x:Name="TimerCompactGrid" Margin="6,0,10,0" Visibility="Collapsed"
+                          Cursor="Hand" ToolTip="Ver temporizador" MouseLeftButtonUp="TimerCompact_Click">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="24"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ui:SymbolIcon Grid.Column="0" Symbol="Timer20" Filled="True" Foreground="White" FontSize="15"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Grid x:Name="TimerProgressZone" Grid.Column="1" Margin="8,0,4,0" Height="14" VerticalAlignment="Center">
+                            <Border x:Name="TimerProgressTrack" Height="5" CornerRadius="2.5" Background="#3F3F3F" VerticalAlignment="Center"/>
+                            <Border x:Name="TimerProgressFill" Width="0" Height="5" CornerRadius="2.5" Background="#969696"
+                                    HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        </Grid>
+                        <TextBlock x:Name="TimerRemaining" Grid.Column="2" Text="00:00:00" Foreground="White" FontSize="12"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
                 </Grid>
 
                 <!-- Capa expandida: tarjeta compacta con carátula + título/artista + tiempos + controles.
                      Siempre Visible (medible) y gobernada por opacidad; el hit-test lo
                      decide el código según el progreso del morph. -->
                 <StackPanel x:Name="ExpandedLayer" Margin="16,12,16,6" Opacity="0">
-                    <Grid>
+                    <Grid x:Name="MusicExpandedTop">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="56"/>
                             <ColumnDefinition Width="*"/>
@@ -208,13 +234,108 @@
                             <ui:SymbolIcon x:Name="PlayGlyph" Symbol="Pause16" Filled="True" Foreground="White" FontSize="20"/>
                         </controls:Button>
                         <controls:Button x:Name="BtnNext" Height="32" Width="32" Margin="4,0" Padding="0"
-                                         Click="Next_Click" Focusable="False"
-                                         Style="{StaticResource MicaWPF.Styles.TransparentButton}">
+                                          Click="Next_Click" Focusable="False"
+                                          Style="{StaticResource MicaWPF.Styles.TransparentButton}">
                             <ui:SymbolIcon Symbol="Next20" Filled="True" Foreground="White" FontSize="22"/>
                         </controls:Button>
+                    </StackPanel>
+                    <!-- Temporizador en expandido: tiempo libre + controles a la izquierda, presets a la derecha -->
+                    <StackPanel x:Name="TimerExpanded" Visibility="Collapsed">
+                        <Grid x:Name="TimerConfigGrid">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="140"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                <!-- Reels infinitos H:M:S: arrastrar o rueda (arriba reduce, abajo aumenta).
+                                     Sin teclado: la ventana es NoActivate y jamás tiene foco. -->
+                                <Grid x:Name="TimerReels" HorizontalAlignment="Left" Cursor="SizeNS"
+                                      ToolTip="Arrastra o usa la rueda para ajustar" MouseWheel="Reel_Wheel">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="ReelH" Tag="H" Grid.Column="0" Text="00" FontSize="24" FontWeight="SemiBold"
+                                               Foreground="White" MinWidth="44" TextAlignment="Center"
+                                               PreviewMouseLeftButtonDown="Reel_Down" PreviewMouseMove="Reel_Move" PreviewMouseLeftButtonUp="Reel_Up"/>
+                                    <TextBlock Grid.Column="1" Text=":" FontSize="24" Foreground="White" Opacity="0.5" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="ReelM" Tag="M" Grid.Column="2" Text="00" FontSize="24" FontWeight="SemiBold"
+                                               Foreground="White" MinWidth="44" TextAlignment="Center"
+                                               PreviewMouseLeftButtonDown="Reel_Down" PreviewMouseMove="Reel_Move" PreviewMouseLeftButtonUp="Reel_Up"/>
+                                    <TextBlock Grid.Column="3" Text=":" FontSize="24" Foreground="White" Opacity="0.5" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="ReelS" Tag="S" Grid.Column="4" Text="00" FontSize="24" FontWeight="SemiBold"
+                                               Foreground="White" MinWidth="44" TextAlignment="Center"
+                                               PreviewMouseLeftButtonDown="Reel_Down" PreviewMouseMove="Reel_Move" PreviewMouseLeftButtonUp="Reel_Up"/>
+                                </Grid>
+                                <TextBlock x:Name="TimerStatus" FontSize="11" Opacity="0.6" Foreground="White" Text="" Margin="0,2,0,0"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <controls:Button x:Name="TimerStartBtn" Content="Iniciar" Height="28" Margin="0,0,4,0" Padding="10,0"
+                                                     Foreground="White" Focusable="False" Click="TimerStart_Click"
+                                                     Style="{StaticResource MicaWPF.Styles.TransparentButton}"/>
+                                    <controls:Button x:Name="TimerRestartBtn" Content="Reiniciar" Height="28" Padding="10,0"
+                                                     Foreground="White" Focusable="False" Click="TimerRestart_Click" Visibility="Collapsed"
+                                                     Style="{StaticResource MicaWPF.Styles.TransparentButton}"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <ListBox x:Name="TimerPresetList" Grid.Column="1" MaxHeight="112" Margin="8,0,0,0"
+                                     Background="Transparent" BorderThickness="0" Foreground="White"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     SelectionChanged="TimerPresetList_SelectionChanged">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="0,1,0,3">
+                                            <TextBlock Text="{Binding Name}" FontSize="12" Foreground="White"
+                                                       TextTrimming="CharacterEllipsis" MaxWidth="118"/>
+                                            <TextBlock Text="{Binding DurationText}" FontSize="11" Opacity="0.6" Foreground="White"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </StackPanel>
+                    <!-- Corriendo/pausado: solo iconos pausar+cancelar; origen pequeño + restante -->
+                    <StackPanel x:Name="TimerRunPanel" Visibility="Collapsed" Orientation="Horizontal" VerticalAlignment="Center">
+                        <controls:Button x:Name="TimerRunPauseBtn" Height="36" Width="36" Padding="0"
+                                         Focusable="False" Click="TimerPause_Click" ToolTip="Pausar/Reanudar"
+                                         Style="{StaticResource MicaWPF.Styles.TransparentButton}">
+                            <ui:SymbolIcon x:Name="TimerRunPauseGlyph" Symbol="Pause24" Filled="True" Foreground="White" FontSize="20"/>
+                        </controls:Button>
+                        <controls:Button x:Name="TimerRunCancelBtn" Height="36" Width="36" Padding="0"
+                                         Focusable="False" Click="TimerCancel_Click" ToolTip="Cancelar"
+                                         Style="{StaticResource MicaWPF.Styles.TransparentButton}">
+                            <ui:SymbolIcon Symbol="Dismiss24" Filled="True" Foreground="White" FontSize="20"/>
+                        </controls:Button>
+                        <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                            <TextBlock x:Name="TimerRunOrigin" FontSize="11" Opacity="0.6" Foreground="White" Text="Timer"/>
+                            <TextBlock x:Name="TimerRunRemaining" FontSize="22" FontWeight="SemiBold" Foreground="White" Text="00:00:00"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <!-- Aviso al llegar a cero: reiniciar + X a la izquierda, origen a la derecha -->
+                    <StackPanel x:Name="TimerAlert" Visibility="Collapsed" Orientation="Horizontal" VerticalAlignment="Center">
+                        <controls:Button x:Name="TimerAlertRestartBtn" Height="36" Width="36" Padding="0"
+                                         Focusable="False" Click="TimerAlertRestart_Click" ToolTip="Reiniciar"
+                                         Style="{StaticResource MicaWPF.Styles.TransparentButton}">
+                            <ui:SymbolIcon Symbol="ArrowClockwise24" Filled="True" Foreground="White" FontSize="20"/>
+                        </controls:Button>
+                        <controls:Button x:Name="TimerAlertDismissBtn" Height="36" Width="36" Padding="0"
+                                         Focusable="False" Click="TimerAlertDismiss_Click" ToolTip="Terminar"
+                                         Style="{StaticResource MicaWPF.Styles.TransparentButton}">
+                            <ui:SymbolIcon Symbol="Dismiss24" Filled="True" Foreground="White" FontSize="20"/>
+                        </controls:Button>
+                        <TextBlock x:Name="TimerAlertName" Text="Timer" Foreground="White" FontSize="14" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" Margin="12,0,0,0"/>
                     </StackPanel>
                 </StackPanel>
             </Grid>
         </Border>
+            <controls:Button x:Name="ModeNextBtn" Width="28" Height="28" Margin="4,0,0,0" Padding="0"
+                             VerticalAlignment="Center" Visibility="Collapsed" Focusable="False" Click="ModeArrow_Click"
+                             Style="{StaticResource MicaWPF.Styles.TransparentButton}" ToolTip="Funcionalidad siguiente">
+                <ui:SymbolIcon Symbol="ChevronRight24" Filled="True" Foreground="White" FontSize="16"/>
+            </controls:Button>
+        </StackPanel>
     </Grid>
 </Window>

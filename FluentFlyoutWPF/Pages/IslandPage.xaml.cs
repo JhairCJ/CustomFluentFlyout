@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
+using FluentFlyoutWPF.Models;
+using System.Windows;
 using System.Windows.Controls;
 
 namespace FluentFlyoutWPF.Pages;
@@ -32,5 +34,13 @@ public partial class IslandPage : Page
         {
             SettingsManager.Current.IslandFontFamily = name;
         }
+    }
+
+    private void TimerPresetAdd_Click(object sender, RoutedEventArgs e) => SettingsManager.Current.AddTimerPreset();
+
+    private void TimerPresetDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.DataContext is TimerPreset preset)
+            SettingsManager.Current.RemoveTimerPreset(preset);
     }
 }

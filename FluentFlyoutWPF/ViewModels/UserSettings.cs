@@ -11,6 +11,7 @@ using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Models;
 using FluentFlyoutWPF.Windows;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Media;
@@ -1200,6 +1201,37 @@ public partial class UserSettings : ObservableObject
     public partial int IslandExpandedArtistFontSize { get; set; }
 
     /// <summary>
+    /// Temporizador del Island: funcionalidad habilitada (música siempre lo está).
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandTimerEnabled { get; set; }
+
+    /// <summary>
+    /// Temporizador del Island: muestra el progreso en el centro del compacto.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandTimerShowProgress { get; set; }
+
+    /// <summary>
+    /// Temporizador del Island: flechas laterales para cambiar de funcionalidad.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandTimerShowArrows { get; set; }
+
+    /// <summary>
+    /// Temporizador del Island: presets editables (máx. 10). Persisten entre reinicios.
+    /// </summary>
+    [ObservableProperty]
+    public partial ObservableCollection<TimerPreset> IslandTimerPresets { get; set; }
+
+    /// <summary>
+    /// Último mensaje de validación de presets en español. Vacío = sin error.
+    /// </summary>
+    [XmlIgnore]
+    [ObservableProperty]
+    public partial string TimerPresetsError { get; set; }
+
+    /// <summary>
     /// Returns whether app filtering is enabled or disabled.
     /// </summary>
     [ObservableProperty]
@@ -1494,6 +1526,11 @@ public partial class UserSettings : ObservableObject
         IslandCompactTitleFontSize = 12;
         IslandExpandedTitleFontSize = 12;
         IslandExpandedArtistFontSize = 12;
+        IslandTimerEnabled = true;
+        IslandTimerShowProgress = true;
+        IslandTimerShowArrows = false;
+        IslandTimerPresets = DefaultTimerPresets();
+        TimerPresetsError = "";
         AppFilteringEnabled = false;
         AppFilteringMode = 0;
         TaskbarVisualizerPosition = 1;
@@ -1593,7 +1630,86 @@ public partial class UserSettings : ObservableObject
         // defaults sensatos si viene de 0 legacy mal migrado
         if (IslandHoverToleranceHorizontal < 0) IslandHoverToleranceHorizontal = 12;
         if (IslandHoverToleranceVertical < 0) IslandHoverToleranceVertical = 4;
+        // Migración de presets: XML antiguos sin la colección o con datos inválidos.
+        IslandTimerPresets ??= DefaultTimerPresets();
+        SanitizeTimerPresets();
         _initializing = false;
+    }
+
+    private static ObservableCollection<TimerPreset> DefaultTimerPresets() =>
+    [
+        new TimerPreset { Name = "1 minuto", DurationSeconds = 60 },
+        new TimerPreset { Name = "5 minutos", DurationSeconds = 300 },
+        new TimerPreset { Name = "15 minutos", DurationSeconds = 900 },
+        new TimerPreset { Name = "25 minutos", DurationSeconds = 1500 },
+    ];
+
+    private void SanitizeTimerPresets()
+    {
+        if (IslandTimerPresets.Count > Classes.IslandTimer.MaxPresets)
+        {
+            foreach (var extra in IslandTimerPresets.Skip(Classes.IslandTimer.MaxPresets).ToList())
+                IslandTimerPresets.Remove(extra);
+        }
+        int i = 1;
+        foreach (var preset in IslandTimerPresets)
+        {
+            if (string.IsNullOrWhiteSpace(preset.Name)) preset.Name = $"Preset {i}";
+            i++;
+        }
+    }
+
+    partial void OnIslandTimerPresetsChanged(ObservableCollection<TimerPreset> oldValue, ObservableCollection<TimerPreset> newValue)
+    {
+        if (oldValue != null)
+        {
+            oldValue.CollectionChanged -= TimerPresets_CollectionChanged;
+            foreach (var item in oldValue) item.PropertyChanged -= TimerPreset_PropertyChanged;
+        }
+        if (newValue != null)
+        {
+            newValue.CollectionChanged += TimerPresets_CollectionChanged;
+            foreach (var item in newValue) item.PropertyChanged += TimerPreset_PropertyChanged;
+        }
+    }
+
+    private void TimerPresets_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems != null)
+            foreach (TimerPreset item in e.OldItems) item.PropertyChanged -= TimerPreset_PropertyChanged;
+        if (e.NewItems != null)
+            foreach (TimerPreset item in e.NewItems) item.PropertyChanged += TimerPreset_PropertyChanged;
+        if (!_initializing) SettingsManager.SaveSettings();
+    }
+
+    private void TimerPreset_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!_initializing && e.PropertyName is nameof(TimerPreset.Name) or nameof(TimerPreset.DurationSeconds))
+            SettingsManager.SaveSettings();
+    }
+
+    /// <summary>
+    /// Crea un preset (máx. 10, con mensaje en español al superarlo). Usado por IslandPage.
+    /// </summary>
+    public bool AddTimerPreset()
+    {
+        if (IslandTimerPresets.Count >= Classes.IslandTimer.MaxPresets)
+        {
+            TimerPresetsError = "Máximo 10 presets. Borra uno para crear otro.";
+            return false;
+        }
+        IslandTimerPresets.Add(new TimerPreset { Name = $"Preset {IslandTimerPresets.Count + 1}", DurationSeconds = 300 });
+        TimerPresetsError = "";
+        return true;
+    }
+
+    /// <summary>
+    /// Borra un preset. La cuenta en curso no cambia (spec 002, casos límite).
+    /// </summary>
+    public void RemoveTimerPreset(TimerPreset preset)
+    {
+        IslandTimerPresets.Remove(preset);
+        TimerPresetsError = "";
     }
 
     partial void OnAppLanguageChanged(string oldValue, string newValue)
@@ -2057,6 +2173,24 @@ public partial class UserSettings : ObservableObject
     {
         if (oldValue == newValue || _initializing) return;
         IslandExpandedArtistFontSize = Math.Clamp(newValue, 10, 24);
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandTimerEnabledChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshTimerEnabled();
+    }
+
+    partial void OnIslandTimerShowProgressChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandTimerShowArrowsChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
     }
 
