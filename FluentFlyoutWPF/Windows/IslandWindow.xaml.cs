@@ -376,13 +376,19 @@ public partial class IslandWindow : Window
                     RefreshUi(session, status);
                     return;
                 }
-                // Con «pausa cuenta como activo» en «Visible mientras activo», la
-                // caja ya visible se sostiene con controles; si estaba oculta solo
-                // aparece con el activador de pausa (001 MOD RF-6).
                 bool keep = SettingsManager.Current.IslandVisibilityMode == 0
                     && SettingsManager.Current.IslandPauseCountsActive && IsBoxShown;
+                // Pausar desde compacto con pausa!=activa en modo 0 debe ir a
+                // inactivo/nada aunque el cursor siga encima (HidePerMode
+                // retorna por IsMouseOverBoxOrStrip). Forzar Hide sin veto hover.
+                bool forceHideFromCompact = !_expanded
+                    && SettingsManager.Current.IslandVisibilityMode == 0
+                    && !SettingsManager.Current.IslandPauseCountsActive
+                    && !SettingsManager.Current.IslandShowOnPause;
                 if (keep || SettingsManager.Current.IslandShowOnPause)
                     ShowMusicCompact(session, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused);
+                else if (forceHideFromCompact)
+                    ShowInactiveOrHidden();
                 else
                     HidePerMode();
             }
