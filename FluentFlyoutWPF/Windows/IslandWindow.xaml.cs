@@ -24,8 +24,9 @@ using static WindowsMediaController.MediaManager;
 namespace FluentFlyoutWPF.Windows;
 
 /// <summary>
-/// Fluent Island: contenedor superior central. Oculta / compacta / expandida.
-/// Hoy aloja música: sigue a la sesión que empezó última; expandido manda sobre compacto.
+/// Fluent Island: contenedor escalable superior central. Inactivo / compacto / expandido.
+/// Aloja funcionalidades registradas (media, temporizador) bajo un contrato común:
+/// habilitada/disponible/activa/seleccionada + vistas + dimensiones + exclusiva (RF-11, RF-13).
 /// Animación de CAJA ÚNICA con muelles por frame (sin Storyboards): el
 /// ancho/alto reales del IslandBox se interpolan, así no hay dos cuadrados
 /// peleándose por Visibility. Re-apuntar a mitad de vuelo es gratis.
@@ -34,6 +35,10 @@ public partial class IslandWindow : Window
 {
     private const int DefaultExpandedIslandWidth = 320;
     private const int DefaultExpandedIslandHeight = 126;
+    // Estados del contenedor (001 MOD RF-11): compacto estándar y la pieza
+    // inactiva (negra, más estrecha que el compacto, sin contenido).
+    private const double CompactPillWidth = 240;
+    private const double InactivePillWidth = 112;
     private double ExpandedIslandWidth => Math.Clamp(
         SettingsManager.Current.IslandExpandedWidth > 0 ? SettingsManager.Current.IslandExpandedWidth : DefaultExpandedIslandWidth,
         280,
@@ -100,12 +105,31 @@ public partial class IslandWindow : Window
     private bool _wasSuppressed;
     private Thickness _expandedMarginOrig;
 
+    // --- Contrato del contenedor escalable (change island-contenedor-escalable) ---
+    // Registro de funcionalidades (001 MOD RF-11, RF-13): media y temporizador
+    // cumplen el contrato habilitada/disponible/activa/seleccionada + vistas +
+    // dimensiones + exclusiva declarable. Futuras funcionalidades = otro registro.
+    private readonly IslandFeatureRegistry _features = new();
+    private IIslandFeature? _selectedFeature; // último-activo: funcionalidad en uso
+    private bool _inactiveShown; // el reposo actual es la pieza inactiva (p=0, q=1)
+    private bool _inactiveHot; // hover vivo sobre la pieza inactiva
+    private double _inactiveHotT; // 0..1 micro-crecimiento del hover
+    private bool _pendingRestAfterCollapse; // expandido->compacto: falta resolver reposo
+
     public IslandWindow(MainWindow main)
     {
         _main = main;
         WindowHelper.SetNoActivate(this);
         InitializeComponent();
         InitTimer();
+        // Contenedor escalable: media y temporizador se registran en orden de
+        // navegación; el contrato decide qué se puede mostrar (RF-11, RF-13).
+        _features.Register(new IslandMediaFeature(this));
+        _features.Register(new IslandTimerFeature(this));
+        // Migración del «Siempre en su lugar» (retirado, 001 REMOVED): un modo
+        // guardado con el valor 2 pasa a «Visible mientras activo».
+        if (SettingsManager.Current.IslandVisibilityMode is < 0 or > 1)
+            SettingsManager.Current.IslandVisibilityMode = 0;
         _expandedMarginOrig = ExpandedLayer.Margin;
         ApplyAlbumArtRadius();
         CompactEq.Source = _eq.Bitmap;
@@ -303,7 +327,10 @@ public partial class IslandWindow : Window
         if (session == null) return;
         var status = SafeStatus(session);
         ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
-        if (!SettingsManager.Current.IslandShowOnPlayPause) return;
+        // «Visible mientras activo» muestra la reproducción sin depender del
+        // activador legacy; «Aviso temporal» lo respeta (001 MOD RF-1).
+        bool mode0 = SettingsManager.Current.IslandVisibilityMode == 0;
+        if (!mode0 && !SettingsManager.Current.IslandShowOnPlayPause) return;
         // El evento de reproducción es el más reciente: reclama la vista aunque
         // el temporizador siga contando (001 MOD RF-24); la cuenta no se toca.
         if (_expanded) RefreshUi(session, status);
@@ -330,7 +357,10 @@ public partial class IslandWindow : Window
                 NotePlay(session.Id);
                 ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id,
                     status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
-                if (!SettingsManager.Current.IslandShowOnPlayPause) return;
+                // «Visible mientras activo» (0): reproduciendo manda sin importar
+                // el activador legacy; «Aviso temporal» (1): respeta el ajuste.
+                bool mode0 = SettingsManager.Current.IslandVisibilityMode == 0;
+                if (!mode0 && !SettingsManager.Current.IslandShowOnPlayPause) return;
                 if (_expanded) RefreshUi(session, status);
                 else ShowMusicCompact(session, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing);
             }
@@ -339,7 +369,19 @@ public partial class IslandWindow : Window
                 // La sesión del snapshot se pausó: conservarla en el snapshot
                 // (punto de estado gris) y decidir presentación por ajuste.
                 ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
-                if (SettingsManager.Current.IslandShowOnPause)
+                if (_expanded)
+                {
+                    // Pausa desde el expandido (botón o visualizador): se queda
+                    // expandido mostrando el estado de pausa con sus controles.
+                    RefreshUi(session, status);
+                    return;
+                }
+                // Con «pausa cuenta como activo» en «Visible mientras activo», la
+                // caja ya visible se sostiene con controles; si estaba oculta solo
+                // aparece con el activador de pausa (001 MOD RF-6).
+                bool keep = SettingsManager.Current.IslandVisibilityMode == 0
+                    && SettingsManager.Current.IslandPauseCountsActive && IsBoxShown;
+                if (keep || SettingsManager.Current.IslandShowOnPause)
                     ShowMusicCompact(session, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused);
                 else
                     HidePerMode();
@@ -426,7 +468,7 @@ public partial class IslandWindow : Window
         ApplyTimerContentVisibility();
         ClearMusicResidue();
         if (TimerKeepsAlive()) ShowTimerCompact();
-        else GoHidden();
+        else ShowInactiveOrHidden();
     }
 
     /// <summary>
@@ -464,7 +506,7 @@ public partial class IslandWindow : Window
         var cts = _hideCts = new CancellationTokenSource();
         int ms = Math.Clamp(SettingsManager.Current.IslandVisibilityDuration, 1000, 10000);
         _ = Task.Delay(ms).ContinueWith(_ =>
-            Dispatcher.Invoke(() => { if (!cts.IsCancellationRequested && !_expanded && !IsMouseOverBoxOrStrip()) GoHidden(); }));
+            Dispatcher.Invoke(() => { if (!cts.IsCancellationRequested && !_expanded && !IsMouseOverBoxOrStrip()) ShowInactiveOrHidden(); }));
     }
 
     private void ShowMusicCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null, bool forceAlbumFlip = false)
@@ -473,6 +515,8 @@ public partial class IslandWindow : Window
         if (!MusicAvailable()) return; // sin snapshot musical no hay vista musical (RF-13)
         _hideCts?.Cancel();
         _hidingViaCompact = false;
+        SelectFeature("media");
+        _inactiveShown = false;
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) { SnapHidden(); return; }
         RefreshUi(session, knownStatus, forceAlbumFlip);
         _expanded = false;
@@ -500,26 +544,216 @@ public partial class IslandWindow : Window
         // Salvo avisando: la alerta manda y persiste expandida hasta X o reinicio.
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
         if (TimerKeepsAlive()) { ShowTimerCompact(); return; }
-        // ponytail: "siempre en su lugar": con sesiones hay compacto al que volver,
-        // sin sesiones se oculta como el resto de modos.
-        if (AlwaysOn() && AnySession() is { } docked)
-        {
-            if (_expanded && IsMouseOverBoxOrStrip()) return;
-            if (_expanded) { CollapseToCompact(); return; }
-            if (!IsBoxShown) ShowMusicCompact(docked);
-            return;
-        }
         if (IsMouseOverBoxOrStrip()) return;
         if (_expanded)
         {
             _expanded = false;
-            if (AnimationsEnabled) { _hidingViaCompact = true; _pT = 0; _qT = 0; EnsureLoop(); return; }
-            GoHidden(); return;
+            if (!AnimationsEnabled) { ShowInactiveOrHidden(); return; }
+            if (ReturnToInactive())
+            {
+                // Minimizado obligatorio (001 MOD RF-4): primero compacta (p->0
+                // con q=1); al asentarse resuelve el reposo (pieza inactiva o nada).
+                _pendingRestAfterCollapse = true;
+                _hidingViaCompact = false;
+                _pT = 0;
+            }
+            else
+            {
+                _hidingViaCompact = true;
+                _pT = 0; _qT = 0;
+            }
+            EnsureLoop();
+            return;
         }
-        GoHidden();
+        ShowInactiveOrHidden();
     }
 
     private void CollapseAll() => SnapHidden();
+
+    // -----------------------------------------------------------------
+    // Contrato del contenedor escalable (001 MOD RF-11, RF-13; 002 MOD RF-1).
+    // Cada funcionalidad declara habilitada/disponible/activa/seleccionada,
+    // aporta sus vistas y puede declarar acceso exclusivo persistente.
+    // -----------------------------------------------------------------
+    internal IslandFeatureState GetMediaFeatureState()
+    {
+        bool enabled = SettingsManager.Current.IslandEnabled && SettingsManager.Current.IslandMediaEnabled;
+        // Disponible con snapshot vigente o con una sesión permitida conocida
+        // (p. ej. pausada desde antes del arranque): el clic abre sus controles.
+        bool available = enabled && (MusicAvailable() || FirstAllowed() != null);
+        bool playing = _music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+        bool active = available && (playing || SettingsManager.Current.IslandPauseCountsActive);
+        return new IslandFeatureState(enabled, available, active,
+            Selected: _selectedFeature?.Id == "media", Exclusive: false);
+    }
+
+    internal IslandFeatureState GetTimerFeatureState()
+    {
+        bool enabled = SettingsManager.Current.IslandEnabled && SettingsManager.Current.IslandTimerEnabled;
+        // Sin media siempre es usable: abre su configuración (001 MOD RF-9).
+        bool available = enabled;
+        bool active = enabled && _timer.IsCounting;
+        // La alerta final es el caso canónico de acceso exclusivo persistente
+        // (002 MOD RF-2): bloquea sustituciones y minimizado hasta X o reinicio.
+        return new IslandFeatureState(enabled, available, active,
+            Selected: _selectedFeature?.Id == "timer",
+            Exclusive: enabled && _timer.State == IslandTimerState.Alerting);
+    }
+
+    private void SelectFeature(string id) =>
+        _selectedFeature = _features.Features.FirstOrDefault(f => f.Id == id);
+
+    /// <summary>
+    /// Última usable para expandir (001 MOD RF-3): manda la funcionalidad en
+    /// uso (último-activo); si ya no es usable, la última activa; si no, la
+    /// primera usable. Sin ninguna usable no abre vista vacía.
+    /// </summary>
+    private IIslandFeature? LastUsableFeature()
+    {
+        if (_selectedFeature is { } sel && sel.State.Usable) return sel;
+        var active = _features.ActiveFeatures().FirstOrDefault(f => f.State.Usable);
+        if (active != null) return active;
+        return _features.UsableFeatures().FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Expande la última usable con repliegue seguro: si la elegida deja de ser
+    /// presentable en el último instante, prueba la siguiente usable; si no hay
+    /// ninguna, resuelve el reposo sin abrir una caja vacía (RF-3, RF-9, RF-16).
+    /// </summary>
+    private bool ExpandLastUsable()
+    {
+        if (Suppressed() || !SettingsManager.Current.IslandEnabled) { SnapHidden(); return false; }
+        var feature = LastUsableFeature();
+        if (feature != null && feature.TryShowExpanded()) return true;
+        var alt = _features.NextUsableAfter(feature);
+        if (alt != null && alt.TryShowExpanded()) return true;
+        HidePerMode();
+        return false;
+    }
+
+    // Implementaciones del contrato que el island presta a media y temporizador.
+    internal bool ShowMediaExpandedFromContract()
+    {
+        var session = Current();
+        if (session == null && MediaContentAvailable())
+        {
+            // Sesión permitida conocida sin snapshot (pausada antes del arranque):
+            // se adopta para que el clic abra sus controles (RF-13).
+            var known = FirstAllowed();
+            if (known != null)
+            {
+                NotePlay(known.Id);
+                ApplyMediaSnapshot(new IslandMediaSnapshot(known.Id,
+                    SafeStatus(known) ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
+                session = known;
+            }
+        }
+        if (session == null) return false;
+        ExpandSession(session);
+        return true;
+    }
+
+    internal bool ShowMediaCompactFromContract()
+    {
+        var session = Current();
+        if (session == null) return false;
+        ShowMusicCompact(session);
+        return true;
+    }
+
+    internal bool ShowTimerExpandedFromContract()
+    {
+        if (!TimerModeAvailable()) return false;
+        ExpandTimer();
+        return true;
+    }
+
+    internal bool ShowTimerCompactFromContract()
+    {
+        if (!TimerModeAvailable()) return false;
+        ShowTimerCompact();
+        return true;
+    }
+
+    /// <summary>¿Hay alguna funcionalidad habilitada y disponible? (001 MOD RF-9)</summary>
+    private bool AnyFeatureUsable() => _features.UsableFeatures().Any();
+
+    /// <summary>
+    /// El toggle «volver a inactivo» decide el reposo: pieza negra visible o
+    /// nada (001 MOD RF-2, por defecto inactivo visible). Sin funcionalidades
+    /// usables no hay pieza: no se ancla una caja vacía.
+    /// </summary>
+    private bool ReturnToInactive() =>
+        SettingsManager.Current.IslandReturnToInactive && AnyFeatureUsable();
+
+    /// <summary>
+    /// Reposo del contenedor (001 MOD RF-2): pieza inactiva o nada según el
+    /// toggle; ante supresión, oculto (la pieza también se suprime, RF-14).
+    /// </summary>
+    private void ShowInactiveOrHidden()
+    {
+        if (Suppressed()) { SnapHidden(); return; }
+        if (ReturnToInactive()) ShowInactive();
+        else GoHidden();
+    }
+
+    /// <summary>
+    /// Estado inactivo (001 MOD RF-11, RF-16): pill negra más estrecha que el
+    /// compacto, sin ninguna vista de contenido; el hover solo la agranda y el
+    /// clic abre la última usable.
+    /// </summary>
+    private void ShowInactive()
+    {
+        _hideCts?.Cancel();
+        _hidingViaCompact = false;
+        _pendingRestAfterCollapse = false;
+        _expanded = false;
+        _timerMode = 0;
+        _inactiveShown = true;
+        _inactiveHot = false;
+        ApplyTimerContentVisibility();
+        PositionTopCenter();
+        if (!AnimationsEnabled)
+        {
+            _p = _pT = 0; _pv = 0;
+            _q = _qT = 1; _qv = 0;
+            _inactiveHotT = 0;
+            ApplyFrame();
+            IslandBox.Visibility = Visibility.Visible;
+            UpdateRotationPauseState();
+            UpdateLine();
+            return;
+        }
+        _pT = 0;
+        _qT = 1;
+        IslandBox.Visibility = Visibility.Visible;
+        UpdateRotationPauseState();
+        UpdateLine();
+        EnsureLoop();
+    }
+
+    // --- pieza inactiva (001 MOD RF-16): hover micro-crece, clic abre la usable ---
+    private void InactiveBorder_Click(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        // El clic completa el crecimiento y abre la última usable; sin usable
+        // no abre vista vacía (001 MOD RF-3, RF-9, RF-16).
+        if (!ExpandLastUsable())
+            _hoverSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
+    }
+
+    /// <summary>
+    /// Clic en cualquier zona del island que no sea un control específico:
+    /// expande la última usable (001 MOD RF-3). Título, álbum, ecualizador y
+    /// reels tienen sus propios manejadores.
+    /// </summary>
+    private void HandleIslandClick(object sender, MouseButtonEventArgs e)
+    {
+        if (_expanded) return;
+        e.Handled = true;
+        ExpandLastUsable();
+    }
 
     private void GoHidden()
     {
@@ -535,6 +769,7 @@ public partial class IslandWindow : Window
 
     private void SnapCompact()
     {
+        _inactiveShown = false;
         _p = _pT = 0; _pv = 0;
         _q = _qT = 1; _qv = 0;
         _hexpShown = _hexp;
@@ -549,6 +784,7 @@ public partial class IslandWindow : Window
     private void SnapHidden()
     {
         _hidingViaCompact = false;
+        _inactiveShown = false;
         _p = _pT = 0; _pv = 0;
         _q = _qT = 0; _qv = 0;
         _hexpShown = _hexp;
@@ -561,33 +797,27 @@ public partial class IslandWindow : Window
         UpdateMediaStatusDot();
     }
 
-    private void Box_MouseEnter(object sender, MouseEventArgs e) => ExpandFromHover();
+    private void Box_MouseEnter(object sender, MouseEventArgs e) => HoverDetected();
 
-    private void ExpandFromHover()
+    /// <summary>
+    /// Detección de puntero (001 MOD RF-3, RF-10): el hover SOLO produce el
+    /// micro-crecimiento vivo; abrir contenido exige un clic explícito
+    /// (HandleIslandClick). La zona de detección se mantiene, pero por sí sola
+    /// nunca despliega contenido.
+    /// </summary>
+    private void HoverDetected()
     {
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
+        if (_expanded || _drag || _reelDragging) return;
         // Anti-reapertura: el usuario acaba de ocultar la caja con el cursor
-        // encima; el poll de la franja no debe volver a abrirla.
+        // encima; la detección no debe devolverle contenido de inmediato.
         if (DateTime.UtcNow < _hoverSnoozeUntil) return;
-        var session = MusicContentShown() ? Current() : null;
-        if (session == null)
+        if (!_inactiveHot)
         {
-            // Sesión permitida conocida sin snapshot aún (p. ej. pausada desde
-            // antes del arranque): se registra y se abren sus controles (RF-13).
-            // Solo si el contenido musical está habilitado.
-            var known = MediaContentAvailable() ? FirstAllowed() : null;
-            if (known != null)
-            {
-                NotePlay(known.Id);
-                ApplyMediaSnapshot(new IslandMediaSnapshot(known.Id,
-                    SafeStatus(known) ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
-                ExpandSession(known);
-                return;
-            }
-            if (TimerModeAvailable() && DateTime.UtcNow >= _timerSnoozeUntil) ExpandTimer();
-            return;
+            _inactiveHot = true;
+            if (AnimationsEnabled) EnsureLoop();
+            else { _inactiveHotT = 1; ApplyFrame(); }
         }
-        ExpandSession(session);
     }
 
     private int HoverTolH => Math.Clamp(SettingsManager.Current.IslandHoverToleranceHorizontal < 0 ? 12 : SettingsManager.Current.IslandHoverToleranceHorizontal, 0, 80);
@@ -607,7 +837,7 @@ public partial class IslandWindow : Window
         if (Math.Abs(p.X - cx) > halfRaw) return;
         double lineTop = primary.workArea.Top + (IsNotch ? 1 : Math.Clamp(SettingsManager.Current.IslandLineTopOffset, 0, 60)) * primary.dpiY / 96.0;
         if (p.Y < primary.monitorArea.Top - 2 || p.Y > lineTop + 3 + tolV) return;
-        ExpandFromHover();
+        HoverDetected();
     }
 
     private void ExpandSession(MediaSession session)
@@ -618,6 +848,8 @@ public partial class IslandWindow : Window
         _hideCts?.Cancel();
         _hidingViaCompact = false;
         _currentId = session.Id;
+        SelectFeature("media");
+        _inactiveShown = false;
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
         _timerMode = 0;
         ApplyTimerContentVisibility();
@@ -648,6 +880,12 @@ public partial class IslandWindow : Window
 
     private void Box_MouseLeave(object sender, MouseEventArgs e)
     {
+        if (_inactiveHot)
+        {
+            _inactiveHot = false;
+            if (AnimationsEnabled) EnsureLoop();
+            else { _inactiveHotT = 0; ApplyFrame(); }
+        }
         if (_drag || _reelDragging || Mouse.LeftButton == MouseButtonState.Pressed) return;
         if (IsLeavingTowardTopEdge()) return; // gracia hacia el borde: Tick colapsa al salir de verdad
         LeaveHover();
@@ -673,7 +911,7 @@ public partial class IslandWindow : Window
         catch { return false; }
     }
 
-    // Siempre en su lugar: repliegue a compacto sin ocultar (el llamador garantiza sesión).
+    // Repliegue a compacto conservando el contenido (último-activo, 001 MOD RF-4).
     private void CollapseToCompact()
     {
         _expanded = false;
@@ -687,30 +925,39 @@ public partial class IslandWindow : Window
     private void LeaveHover()
     {
         if (!_expanded) return;
-        // Alerta de fin: persistente hasta X o reinicio, aunque el ratón se vaya.
+        // Alerta de fin (exclusiva): persistente hasta X o reinicio, aunque el
+        // ratón se vaya; el minimizado ordinario no la toca (001 MOD RF-4).
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
         if (TimerKeepsAlive()) { ShowTimerCompact(); return; }
-        if (AlwaysOn()) { HidePerMode(); return; }
         _expanded = false;
         _hidingViaCompact = false;
-        if (SettingsManager.Current.IslandVisibilityMode == 1) { HidePerMode(); return; }
-        var session = Current();
-        var playing = session?.ControlSession?.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-        if (playing && !Suppressed())
+        // «Aviso temporal» (1): al terminar la interacción el island vuelve al
+        // reposo (inactivo/nada) aunque la media siga sonando; el plazo no se
+        // reinicia ni se prolonga (001 MOD RF-2, 002 MOD RF-8).
+        // «Visible mientras activo» (0): media reproduciendo sigue en compacto;
+        // la pausa no sostiene salvo el ajuste de pausa-activa (001 MOD RF-6).
+        if (SettingsManager.Current.IslandVisibilityMode == 0)
         {
-            UpdateLine();
-            PositionTopCenter();
-            if (!AnimationsEnabled) { _p = _pT = 0; _pv = 0; ApplyFrame(); }
-            else { _pT = 0; EnsureLoop(); }
+            var session = Current();
+            var playing = session?.ControlSession?.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+            if (playing && !Suppressed())
+            {
+                UpdateLine();
+                PositionTopCenter();
+                if (!AnimationsEnabled) { _p = _pT = 0; _pv = 0; ApplyFrame(); }
+                else { _pT = 0; EnsureLoop(); }
+                return;
+            }
         }
-        else HidePerMode();
+        HidePerMode();
     }
 
     // --- motor de muelle ---
 
     private bool AnimationsEnabled => SettingsManager.Current.IslandAnimated && SettingsManager.Current.FlyoutAnimationSpeed != 0;
-    // ponytail: modo 2 "siempre en su lugar": compacto persistente mientras haya sesiones.
-    private bool AlwaysOn() => Math.Clamp(SettingsManager.Current.IslandVisibilityMode, 0, 2) == 2;
+    // ponytail: el modo «Siempre en su lugar» se retiró (001 REMOVED): quedan
+    // «Visible mientras activo» (0) y «Aviso temporal» (1); el reposo lo decide
+    // el toggle «volver a inactivo» (pieza negra) o nada (001 MOD RF-2).
     private MediaSession? AnySession() => !MusicContentShown() || _music == null ? null : Current() ?? NewestPlaying() ?? FirstAllowed();
 
     /// <summary>
@@ -761,15 +1008,24 @@ public partial class IslandWindow : Window
             RefreshAppearance();
             return;
         }
-        // SIN media no hay vista musical; con cuenta viva el hover abre el
+        // SIN media no hay vista musical; con cuenta viva el clic abre el
         // temporizador (RF-13). Never anchoring an empty music box.
         var snap = MediaContentAvailable() ? _music : null;
-        if (snap != null && (AlwaysOn() || snap.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing))
+        bool active = snap != null &&
+            (snap.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
+             || (SettingsManager.Current.IslandPauseCountsActive
+                 && snap.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
+        if (SettingsManager.Current.IslandVisibilityMode == 0 && active)
         {
             var session = Current() ?? NewestPlaying() ?? FirstAllowed();
             if (session != null) ShowMusicCompact(session);
         }
         else if (TimerKeepsAlive()) ShowTimerCompact();
+        else if (IsBoxShown && !_expanded)
+        {
+            // Reposo re-resuelto al cambiar ajustes (pieza o nada).
+            ShowInactiveOrHidden();
+        }
         RefreshAppearance();
     }
 
@@ -786,18 +1042,27 @@ public partial class IslandWindow : Window
             SyncMeasuredHeight();
             return;
         }
-        // Sin media no hay vista por estado musical: el hover con el temporizador
+        // Sin media no hay vista por estado musical: el clic con el temporizador
         // lo cubre (RF-13); salir sin tocar el control multimedia.
         var snapshot = _music;
-        if (snapshot == null) return;
+        if (snapshot == null)
+        {
+            if (!TimerKeepsAlive() && IsBoxShown && !_expanded) ShowInactiveOrHidden();
+            return;
+        }
         var session = Current() ?? NewestPlaying() ?? FirstAllowed();
         if (session == null) return;
 
         var status = snapshot.Status;
+        // «Visible mientras activo»: reproducir es actividad por sí mismo y la
+        // pausa sostiene solo con el ajuste de pausa-activa (001 MOD RF-6);
+        // «Aviso temporal»: rigen los activadores legacy.
         bool showForStatus = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
-            ? SettingsManager.Current.IslandShowOnPlayPause
+            ? (SettingsManager.Current.IslandVisibilityMode == 0 || SettingsManager.Current.IslandShowOnPlayPause)
             : status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused
-                && SettingsManager.Current.IslandShowOnPause;
+                && (SettingsManager.Current.IslandShowOnPause
+                    || (SettingsManager.Current.IslandPauseCountsActive
+                        && SettingsManager.Current.IslandVisibilityMode == 0));
         if (showForStatus)
         {
             _currentId = session.Id;
@@ -866,6 +1131,13 @@ public partial class IslandWindow : Window
         // La altura del expandido persigue a su objetivo: cambios de contenido glideas, no saltos.
         _hexpShown += (_hexp - _hexpShown) * Math.Clamp(dt * 10, 0, 1);
         if (Math.Abs(_hexp - _hexpShown) < 0.5) _hexpShown = _hexp;
+        // Micro-crecimiento vivo del hover (pieza inactiva y caja en reposo).
+        double hotTarget = _inactiveHot ? 1 : 0;
+        if (_inactiveHotT != hotTarget)
+        {
+            _inactiveHotT += (hotTarget - _inactiveHotT) * Math.Clamp(dt * 12, 0, 1);
+            if (Math.Abs(_inactiveHotT - hotTarget) < 0.01) _inactiveHotT = hotTarget;
+        }
         if (_popPlaying) StepPop(dt);
         ApplyFrame(dt);
 
@@ -876,11 +1148,19 @@ public partial class IslandWindow : Window
 
         bool popSettled = !_popPlaying;
         bool hSettled = _hexpShown == _hexp;
+        bool hotSettled = _inactiveHotT == (_inactiveHot ? 1 : 0);
 
-        if (pSettled && qSettled && popSettled && hSettled)
+        if (pSettled && qSettled && popSettled && hSettled && hotSettled)
         {
             StopLoop();
             _lastTick = TimeSpan.Zero;
+            if (_pendingRestAfterCollapse && _pT == 0 && _p == 0 && _qT == 1)
+            {
+                // El compacto ya asentó: resolver el reposo final (pieza o nada).
+                _pendingRestAfterCollapse = false;
+                ShowInactiveOrHidden();
+                return;
+            }
             if (_qT == 0 && _q == 0)
             {
                 IslandBox.Visibility = Visibility.Collapsed;
@@ -964,6 +1244,7 @@ public partial class IslandWindow : Window
         _p = _pT; _q = _qT;
         _pv = _qv = 0;
         _hexpShown = _hexp;
+        _inactiveHotT = _inactiveHot ? 1 : 0;
         ApplyFrame();
     }
 
@@ -976,7 +1257,7 @@ public partial class IslandWindow : Window
         // afuera hacia adentro. Sigue al más rápido (Max): p termina antes
         // que q al emerger expandido, así la línea es 0 cuando el expandido
         // ya salió. En compacto p=0 y queda igual que antes. Sin tween separado.
-        bool allowed = SettingsManager.Current.IslandActivityLine && IsAliveForLine();
+        bool allowed = SettingsManager.Current.IslandActivityLine && !_inactiveShown && IsAliveForLine();
         _lineW = allowed ? LineFullWidth * (1 - Math.Max(Smooth01(p), Smooth01(q))) : 0;
         ActivityLine.Width = _lineW;
         ActivityLine.Visibility = allowed && _lineW > 0.5 ? Visibility.Visible : Visibility.Collapsed;
@@ -990,16 +1271,22 @@ public partial class IslandWindow : Window
 
         bool notch = IsNotch;
         double w, h, notchFillet = 0;
+        // Reposo vivo: la pieza inactiva y el compacto respiran con el hover
+        // (001 MOD RF-3, RF-16): crecen un poco en horizontal y hacia abajo.
+        double hotW = 10 * _inactiveHotT;
+        double hotY = 2 * _inactiveHotT;
         if (notch)
         {
             // Notch: mismo reveal que Island: punto central -> compacto -> expandido.
             const double notchDot = 26;
-            double compactW = 200;
+            double compactW = _inactiveShown ? InactivePillWidth : 200;
             double dotT = Math.Clamp(q / 0.32, 0, 1);
             double stretchT = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
             double baseW = q < 0.32 ? notchDot : Lerp(notchDot, compactW, stretchT);
             w = Lerp(baseW, ExpandedIslandWidth, Smooth01(p));
             h = Lerp(34, _hexpShown, Smooth01(p));
+            // Hover vivo: crece desde el punto y en reposo (también en compacto).
+            w += hotW * (1 - Smooth01(p));
             double revealOpacity = Smooth01(Math.Clamp(q / 0.38, 0, 1));
             IslandBox.Opacity = revealOpacity * revealOpacity * exitTailOpacity;
             // El radio hace morph con p: compacto -> expandido sin saltos.
@@ -1019,7 +1306,7 @@ public partial class IslandWindow : Window
             ExpandedLayer.Width = w;
             ExpandedLayer.Margin = new Thickness(0, _expandedMarginOrig.Top, 0, _expandedMarginOrig.Bottom);
             ExpandedLayer.HorizontalAlignment = HorizontalAlignment.Center;
-            BoxTranslate.Y = 0;
+            BoxTranslate.Y = hotY * (1 - Smooth01(p));
             IslandBox.RenderTransformOrigin = new Point(0.5, 0);
             BoxScale.ScaleX = BoxScale.ScaleY = Lerp(0.68, 1, Smooth01(dotT));
             IslandBox.Clip = CreateNotchClip(IslandBox.Width, h, radius, earReach, notchFillet);
@@ -1027,13 +1314,17 @@ public partial class IslandWindow : Window
         }
         else
         {
-            // Pill: oculto -> punto 26px (circular) -> cápsula 240px -> ancho expandido configurado
+            // Pill: oculto -> punto 26px (circular) -> compacto (o pieza inactiva
+            // más estrecha, 001 MOD RF-11) -> ancho expandido configurado.
             const double pillDot = 26;
             double dotT = Math.Clamp(q / 0.32, 0, 1);
             double stretchT = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
-            double baseW = q < 0.32 ? pillDot : Lerp(pillDot, 240, stretchT);
+            double restW = _inactiveShown ? InactivePillWidth : CompactPillWidth;
+            double baseW = q < 0.32 ? pillDot : Lerp(pillDot, restW, stretchT);
             w = Lerp(baseW, ExpandedIslandWidth, Smooth01(p));
             h = Lerp(34, _hexpShown, Smooth01(p));
+            // Hover vivo: crece desde el punto y en reposo (también en compacto).
+            w += hotW * (1 - Smooth01(p));
             IslandBox.Width = w;
             IslandBox.Height = h;
             ExpandedLayer.Width = double.NaN;
@@ -1047,7 +1338,7 @@ public partial class IslandWindow : Window
                 ? pillDot / 2
                 : Math.Min(morphR, Math.Min(w, h) / 2);
             IslandBox.CornerRadius = new CornerRadius(cr);
-            BoxTranslate.Y = 0;
+            BoxTranslate.Y = hotY * (1 - Smooth01(p));
             BoxScale.ScaleX = BoxScale.ScaleY = Lerp(0.68, 1, Smooth01(dotT));
             IslandBox.RenderTransformOrigin = new Point(0.5, 0.5);
         }
@@ -1116,9 +1407,14 @@ public partial class IslandWindow : Window
             CompactEq.Opacity = q < 0.32 ? 0 : eqOp;
             CompactArtWrap.Opacity = q < 0.15 ? 0 : (q < 0.32 ? Smooth01(dotT2) : 1);
         }
-        CompactLayer.IsHitTestVisible = p < 0.6 && q > 0.35;
+        // En inactivo no hay contenido: la pieza negra va sola, sin vistas ni
+        // restos de la funcionalidad anterior (001 MOD RF-11).
+        double inactiveFade = _inactiveShown ? 0 : 1;
+        compactOp *= inactiveFade;
+        expandedOp *= inactiveFade;
+        CompactLayer.IsHitTestVisible = p < 0.6 && q > 0.35 && !_inactiveShown;
         ExpandedLayer.Opacity = expandedOp * (notch ? q : 1);
-        ExpandedLayer.IsHitTestVisible = p > 0.4 && q > 0.4;
+        ExpandedLayer.IsHitTestVisible = p > 0.4 && q > 0.4 && !_inactiveShown;
 
         double artS = Lerp(0.88, 1, Smooth01(Math.Clamp((p - 0.05) / 0.95, 0, 1)));
         // Pop suma un leve bump al arte/título en cambio de pista
@@ -1405,7 +1701,7 @@ public partial class IslandWindow : Window
             SnapHidden();
             if (_pendingTimerAlert && SettingsManager.Current.IslandEnabled) { _pendingTimerAlert = false; ShowTimerAlert(); }
             else if (TimerKeepsAlive()) ShowTimerCompact();
-            else if (SettingsManager.Current.IslandVisibilityMode == 0 || AlwaysOn())
+            else
                 RefreshVisibilityState();
         }
         SyncExistingMediaState();
@@ -1492,10 +1788,11 @@ public partial class IslandWindow : Window
     private const double LineFullWidth = 120;
     private double _lineW = LineFullWidth;
 
+    /// <summary>El punto de estado solo con contenido visible y sin pieza inactiva.</summary>
     private void UpdateMediaStatusDot()
     {
         // Coupled to the activity line: if the line is off, the dot must not show either.
-        if (!SettingsManager.Current.IslandActivityLine || !IsAliveForLine())
+        if (!SettingsManager.Current.IslandActivityLine || _inactiveShown || !IsAliveForLine())
         {
             MediaStatusDot.Visibility = Visibility.Collapsed;
             return;
@@ -2144,12 +2441,12 @@ public partial class IslandWindow : Window
         ExpandedArt.Opacity = showChevron ? 0.4 : 1;
     }
 
-    // Siempre en su lugar: manda el visualizador; en pausa lo reemplaza el
-    // icono (clic al icono = reanudar + vuelve el visualizador).
+    // En compacto manda el visualizador; en pausa lo reemplaza el icono
+    // (clic al icono = reanudar + vuelve el visualizador).
     private void UpdateEqButton()
     {
         var s = AnySession();
-        bool zone = AlwaysOn() && !_expanded && SettingsManager.Current.IslandEqEnabled && s != null;
+        bool zone = !_expanded && SettingsManager.Current.IslandEqEnabled && s != null;
         bool paused = s != null && zone && SafeStatus(s) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
         EqPlayPauseBtn.Visibility = paused ? Visibility.Visible : Visibility.Collapsed;
         CompactEq.Visibility = paused ? Visibility.Collapsed
@@ -2167,19 +2464,19 @@ public partial class IslandWindow : Window
             CompactEq.Visibility = toIcon ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    // Siempre en su lugar: clic en el medio expande, rueda-abajo expande,
-    // rueda-arriba colapsa (solo según IslandExpandTrigger: 0 clic, 1 rueda, 2 ambos).
+    // Clic en el título del compacto: abre el expandido de la última usable
+    // (001 MOD RF-3); el burbujeo lo resolvería igual, pero se marca a mano.
     private void CompactMiddle_Click(object sender, MouseButtonEventArgs e)
     {
-        if (!AlwaysOn() || _expanded) return;
-        if (Math.Clamp(SettingsManager.Current.IslandExpandTrigger, 0, 2) is not (0 or 2)) return;
-        if (AnySession() is { } s) ExpandSession(s);
+        if (_expanded) return;
+        e.Handled = true;
+        ExpandLastUsable();
     }
 
     private void IslandBox_Wheel(object sender, MouseWheelEventArgs e)
     {
-        // Temporizador: en expandido la rueda cambia de funcionalidad (spec 002 RF-9);
-        // hacia arriba compacta (o deja la línea gris) sin cambiar de modo.
+        // Temporizador: en expandido la rueda cambia de funcionalidad (002 MOD RF-3);
+        // hacia arriba compacta sin cambiar de funcionalidad.
         if (_expanded && TimerModeAvailable())
         {
             if (e.OriginalSource is DependencyObject wheelSrc && (Seekbar.IsAncestorOf(wheelSrc) || TimerPresetList.IsAncestorOf(wheelSrc) || TimerConfigGrid.IsAncestorOf(wheelSrc))) return;
@@ -2188,22 +2485,21 @@ public partial class IslandWindow : Window
             e.Handled = true;
             return;
         }
-        if (!AlwaysOn()) return;
+        if (_expanded) return;
+        // En compacto, la rueda hacia abajo es selección explícita de contenido
+        // (equivale al clic, 001 MOD RF-3); hacia arriba ya está compacto.
         if (Math.Clamp(SettingsManager.Current.IslandExpandTrigger, 0, 2) is not (1 or 2)) return;
         if (e.OriginalSource is DependencyObject src && Seekbar.IsAncestorOf(src)) return;
-        if (e.Delta < 0 && !_expanded)
+        if (e.Delta < 0)
         {
-            if (AnySession() is { } s) ExpandSession(s);
+            ExpandLastUsable();
+            e.Handled = true;
         }
-        else if (e.Delta > 0 && _expanded)
-        {
-            CollapseToCompact();
-        }
-        e.Handled = true;
     }
 
     private void Album_Click(object sender, MouseButtonEventArgs e)
     {
+        e.Handled = true; // el clic del álbum SOLO cambia de medio (001 MOD RF-5)
         var all = _main.mediaManager.CurrentMediaSessions.Values.Where(s => _main.IsSessionAllowed(s)).ToList();
         if (!MusicAvailable() || all.Count <= 1) return;
         int i = all.FindIndex(s => s.Id == _currentId);

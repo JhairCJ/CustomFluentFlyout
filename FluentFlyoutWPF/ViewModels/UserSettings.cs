@@ -1006,8 +1006,10 @@ public partial class UserSettings : ObservableObject
     public bool IslandBackgroundRotateEnabled => IslandBackgroundBlur;
 
     /// <summary>
-    /// Fluent Island: 0 = visible mientras suena, 1 = aviso temporal (N s al reproducir),
-    /// 2 = siempre en su lugar (compacto persistente mientras haya sesiones).
+    /// Fluent Island (001 MOD RF-2): 0 = «Visible mientras activo» (se muestra
+    /// mientras alguna funcionalidad habilitada esté activa),
+    /// 1 = «Aviso temporal» (muestra el contenido del evento 1–10 s y vuelve al
+    /// reposo). El modo «Siempre en su lugar» se retiró (001 REMOVED).
     /// </summary>
     [ObservableProperty]
     public partial int IslandVisibilityMode { get; set; }
@@ -1076,6 +1078,24 @@ public partial class UserSettings : ObservableObject
     /// </summary>
     [ObservableProperty]
     public partial bool IslandShowOnTrackChange { get; set; }
+
+    /// <summary>
+    /// Fluent Island (001 MOD RF-2): toggle «volver a inactivo» del reposo.
+    /// Activado (por defecto): al vencer el aviso o caer sin actividad queda la
+    /// pieza inactiva (negra estrecha) visible. Desactivado: el island se oculta
+    /// por completo (nada). Persistente entre reinicios.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandReturnToInactive { get; set; }
+
+    /// <summary>
+    /// Fluent Island (001 MOD RF-6): ajuste «pausa de media cuenta como activo».
+    /// Activado (por defecto): una sesión pausada sostiene la visibilidad en
+    /// «Visible mientras activo» y muestra sus controles. Desactivado: la pausa
+    /// no cuenta como actividad, aunque se conserva acceso por clic.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandPauseCountsActive { get; set; }
 
     /// <summary>
     /// Fluent Island: línea gris que indica que el Island está activo.
@@ -1515,7 +1535,9 @@ public partial class UserSettings : ObservableObject
         IslandHoverToleranceVertical = 3;
         IslandLineTopOffset = 2;
         IslandTopOffset = 6;
-        IslandVisibilityMode = 1;
+        IslandVisibilityMode = 0;
+        IslandReturnToInactive = true;
+        IslandPauseCountsActive = true;
         IslandExpandTrigger = 2;
         IslandVisibilityDuration = 4000;
         IslandShowOnPlayPause = true;
@@ -2072,6 +2094,25 @@ public partial class UserSettings : ObservableObject
     }
 
     partial void OnIslandShowOnPauseChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshVisibilityState();
+    }
+
+    partial void OnIslandVisibilityModeChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        IslandVisibilityMode = Math.Clamp(newValue, 0, 1);
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshVisibilityState();
+    }
+
+    partial void OnIslandReturnToInactiveChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandPauseCountsActiveChanged(bool oldValue, bool newValue)
     {
         if (oldValue == newValue || _initializing) return;
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshVisibilityState();

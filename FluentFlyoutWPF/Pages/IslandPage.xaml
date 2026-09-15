@@ -15,53 +15,57 @@
 
     <StackPanel MaxWidth="1000" Margin="16">
         <TextBlock Text="Fluent Island" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,8" />
-        <TextBlock Text="Contenedor superior central para el contenido activo. Hoy muestra música; acerca el ratón para ver detalles y controlar la reproducción." FontSize="14" Opacity="0.75" Margin="0,0,0,20" MaxWidth="600" HorizontalAlignment="Left" TextWrapping="WrapWithOverflow" />
+        <TextBlock Text="Contenedor superior central para el contenido activo: muestra música y temporizador. Haz clic para abrir detalles y controles." FontSize="14" Opacity="0.75" Margin="0,0,0,20" MaxWidth="600" HorizontalAlignment="Left" TextWrapping="WrapWithOverflow" />
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="Generales del contenedor" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,6" />
             <ui:CardControl x:Name="IslandEnabledCard" Tag="Indexable" Grid.Row="1" Icon="{ui:SymbolIcon Album24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="Habilitar Fluent Island" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                        <TextBlock Text="Muestra el contenedor arriba al centro para el contenido activo; hoy, música." FontSize="12" Opacity="0.5" />
+                        <TextBlock Text="Muestra el contenedor arriba al centro para el contenido activo: música y temporizador." FontSize="12" Opacity="0.5" />
                     </StackPanel>
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandEnabled, Mode=TwoWay}" />
@@ -79,13 +83,12 @@
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="Visibilidad" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                        <TextBlock Text="Visible mientras suena, o aviso temporal al reproducir." FontSize="12" Opacity="0.5" />
+                        <TextBlock Text="Visible mientras haya actividad, o aviso temporal al evento." FontSize="12" Opacity="0.5" />
                     </StackPanel>
                 </ui:CardControl.Header>
                 <ComboBox SelectedIndex="{Binding IslandVisibilityMode, Mode=TwoWay}">
-                    <ComboBoxItem Content="Visible mientras suena" />
+                    <ComboBoxItem Content="Visible mientras activo" />
                     <ComboBoxItem Content="Aviso temporal" />
-                    <ComboBoxItem Content="Siempre en su lugar" />
                 </ComboBox>
             </ui:CardControl>
             <ui:CardControl x:Name="IslandDurationCard" Tag="Indexable" Grid.Row="4" Icon="{ui:SymbolIcon Clock24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
@@ -101,14 +104,14 @@
                     <TextBlock Text="s" VerticalAlignment="Center" Margin="2,0,0,0" Opacity="0.6" />
                 </StackPanel>
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandLineCard" Tag="Indexable" Grid.Row="8" Icon="{ui:SymbolIcon EyeLines24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
+            <ui:CardControl x:Name="IslandReturnToInactiveCard" Tag="Indexable" Grid.Row="39" Icon="{ui:SymbolIcon EyeLines24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
-                        <TextBlock Text="Línea gris del Island" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                        <TextBlock Text="Indica que el Island está activo." FontSize="12" Opacity="0.5" />
+                        <TextBlock Text="Volver a inactivo" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="Al vencer el aviso o caer sin actividad, muestra la pieza inactiva (negra estrecha) en vez de ocultarse por completo." FontSize="12" Opacity="0.5" />
                     </StackPanel>
                 </ui:CardControl.Header>
-                <ui:ToggleSwitch IsChecked="{Binding IslandActivityLine, Mode=TwoWay}" />
+                <ui:ToggleSwitch IsChecked="{Binding IslandReturnToInactive, Mode=TwoWay}" />
             </ui:CardControl>
             <TextBlock Grid.Row="22" Text="Música" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
             <ui:CardControl x:Name="IslandEqEnabledCard" Tag="Indexable" Grid.Row="26" Icon="{ui:SymbolIcon SoundWaveCircle24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
@@ -224,11 +227,20 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandShowOnTrackChange, Mode=TwoWay}" />
             </ui:CardControl>
+            <ui:CardControl x:Name="IslandPauseCountsActiveCard" Tag="Indexable" Grid.Row="40" Icon="{ui:SymbolIcon Pause24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="Pausa de media cuenta como activo" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="En «Visible mientras activo», una sesión pausada sostiene la visibilidad con sus controles; desactívalo para que la pausa no cuente como actividad." FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:ToggleSwitch IsChecked="{Binding IslandPauseCountsActive, Mode=TwoWay}" />
+            </ui:CardControl>
             <ui:CardControl x:Name="IslandExpandTriggerCard" Tag="Indexable" Grid.Row="9" Icon="{ui:SymbolIcon CursorHover24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
-                        <TextBlock Text="Expandir en 'Siempre en su lugar'" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                        <TextBlock Text="Cómo se expande la isla; rueda-arriba sobre la expandida la colapsa." FontSize="12" Opacity="0.5" />
+                        <TextBlock Text="Expandir con rueda" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="La rueda hacia abajo sobre la isla compacta también expande; hacia arriba colapsa." FontSize="12" Opacity="0.5" />
                     </StackPanel>
                 </ui:CardControl.Header>
                 <ComboBox SelectedIndex="{Binding IslandExpandTrigger, Mode=TwoWay}">

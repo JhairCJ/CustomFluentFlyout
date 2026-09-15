@@ -20,8 +20,22 @@
         <Border x:Name="MediaStatusDot" Width="3" Height="3" CornerRadius="1.5"
                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0"
                 Visibility="Collapsed" IsHitTestVisible="False"/>
-        <!-- Franja hover invisible: ancho/alto ajustables con tolerancia H/V, centrada sobre la línea -->
-        <Border x:Name="HoverStrip" Height="12" Width="120" HorizontalAlignment="Center" VerticalAlignment="Top" Background="Transparent"/>
+        <!-- Franja de detección (001 MOD RF-10): mantiene la zona activa cuando hay
+             una funcionalidad habilitada accesible por clic; por sí sola nunca
+             despliega contenido: el clic en la pieza inactiva es el que abre. -->
+        <Border x:Name="HoverStrip" Height="12" Width="120" HorizontalAlignment="Center" VerticalAlignment="Top" Background="Transparent"
+                MouseLeftButtonUp="InactiveBorder_Click"/>
+
+        <!-- Pieza inactiva (001 MOD RF-11, RF-16): pill negra más estrecha que el
+             compacto, sin contenido; el hover solo la agranda (micro-crecimiento
+             vivo) y el clic abre la última usable. Va DETRÁS de la caja: la caja
+             la tapa cuando muestra compacto o expandido. -->
+        <Border x:Name="InactiveBorder" Width="112" Height="34" CornerRadius="17"
+                HorizontalAlignment="Center" VerticalAlignment="Top"
+                Background="Black" BorderBrush="#22FFFFFF" BorderThickness="1"
+                Cursor="Hand" Visibility="Collapsed"
+                MouseLeftButtonUp="InactiveBorder_Click"
+                MouseEnter="Box_MouseEnter" MouseLeave="Box_MouseLeave"/>
 
         <!-- La caja: Width 240/200<->ancho configurado y Height 34<->expandido animados por código.
              ClipToBounds para que el contenido florezca desde dentro al crecer.
@@ -37,7 +51,8 @@
                 HorizontalAlignment="Center" VerticalAlignment="Top"
                 Background="Black" BorderBrush="#33FFFFFF" BorderThickness="1"
                 Visibility="Collapsed" ClipToBounds="True" RenderTransformOrigin="0.5,0.5"
-                MouseEnter="Box_MouseEnter" MouseLeave="Box_MouseLeave" MouseWheel="IslandBox_Wheel">
+                MouseEnter="Box_MouseEnter" MouseLeave="Box_MouseLeave" MouseWheel="IslandBox_Wheel"
+                MouseLeftButtonUp="HandleIslandClick">
             <Border.RenderTransform>
                 <TransformGroup>
                     <ScaleTransform x:Name="BoxScale" ScaleX="1" ScaleY="1"/>

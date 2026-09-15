@@ -122,7 +122,9 @@ public partial class IslandWindow
         }
         else
         {
-            SeekRow.Visibility = Visibility.Visible;
+            // Sin sesión que presentar: la fila de seek no se deja visible
+            // (no hay vista musical vacía, 001 MOD RF-9).
+            SeekRow.Visibility = Visibility.Collapsed;
         }
         // Los paneles config/progreso los conmuta el fundido; la alerta es instantánea.
         TimerAlert.Visibility = alert ? Visibility.Visible : Visibility.Collapsed;
@@ -210,6 +212,8 @@ public partial class IslandWindow
         _hidingViaCompact = false;
         if (!TimerModeAvailable() || Suppressed()) { SnapHidden(); return; }
         _timerMode = 1;
+        SelectFeature("timer");
+        _inactiveShown = false;
         RefreshTimerUI();
         ApplyTimerContentVisibility();
         _expanded = false;
@@ -232,6 +236,7 @@ public partial class IslandWindow
 
     private void SnapExpandedTimer()
     {
+        _inactiveShown = false;
         _p = _pT = 1; _pv = 0;
         _q = _qT = 1; _qv = 0;
         _hexpShown = _hexp;
@@ -250,6 +255,8 @@ public partial class IslandWindow
         _hidingViaCompact = false;
         bool wasExpanded = _expanded;
         _timerMode = 1;
+        SelectFeature("timer");
+        _inactiveShown = false;
         RefreshTimerUI();
         ApplyTimerContentVisibility();
         _expanded = true;
@@ -283,6 +290,8 @@ public partial class IslandWindow
         _hideCts?.Cancel();
         _hidingViaCompact = false;
         _timerMode = 1;
+        SelectFeature("timer");
+        _inactiveShown = false;
         RefreshTimerUI();
         ApplyTimerContentVisibility();
         _expanded = true;
@@ -473,6 +482,7 @@ public partial class IslandWindow
         _timer.Cancel();
         _staged = TimeSpan.Zero;
         _timerMode = 0;
+        SelectFeature("media");
         // El ratón sigue encima: sin esto HidePerMode retorna y el 00:00:00 queda visible.
         _timerSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
         ApplyTimerContentVisibility();
@@ -481,10 +491,11 @@ public partial class IslandWindow
         var session = Current();
         if (session == null)
         {
-            // Sin sesión: limpiar restos musicales antes de ocultar (002 MOD RF-14).
+            // Sin sesión: limpiar restos musicales antes de resolver el reposo
+            // (002 MOD RF-14): pieza inactiva o nada según el toggle.
             ClearMusicResidue();
             _expanded = false;
-            GoHidden();
+            ShowInactiveOrHidden();
         }
         else if (_expanded) RefreshUi(session);
         else ShowMusicCompact(session);
