@@ -953,32 +953,33 @@ public partial class IslandWindow : Window
         // Alerta de fin (exclusiva): persistente hasta X o reinicio, aunque el
         // ratón se vaya; el minimizado ordinario no la toca (001 MOD RF-4).
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
-        if (TimerKeepsAlive()) { ShowTimerCompact(); return; }
-        // «Aviso temporal» (1): al terminar la interacción el island vuelve al
-        // reposo (inactivo/nada) aunque la media siga sonando; el plazo no se
-        // reinicia ni se prolonga (001 MOD RF-2, 002 MOD RF-8).
-        // «Visible mientras activo» (0): media reproduciendo sigue en compacto;
-        // la pausa no sostiene salvo el ajuste de pausa-activa (001 MOD RF-6).
-        if (SettingsManager.Current.IslandVisibilityMode == 0)
+
+        // Minimizado obligatorio (001 MOD RF-4): media controlada sigue en media
+        // aunque el temporizador corra/pausado. Tres orígenes distinguibles:
+        // 1) media expandida -> SIEMPRE compacto media (CollapseToCompact)
+        // 2) timer expandido -> compacto timer
+        // 3) sin música -> reposo sin residuos
+        if (_timerMode == 0)
         {
+            if (Suppressed()) { HidePerMode(); return; }
             var session = Current();
-            var playing = session?.ControlSession?.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-            if (playing && !Suppressed())
+            if (session != null)
             {
-                _expanded = false;
-                _hidingViaCompact = false;
-                UpdateLine();
-                PositionTopCenter();
-                if (!AnimationsEnabled) { _p = _pT = 0; _pv = 0; ApplyFrame(); }
-                else { _pT = 0; EnsureLoop(); }
+                // Con música disponible: colapsar sin sustituir (RF-4, RF-12).
+                // CollapseToCompact no toca _timerMode ni fuerza timer.
+                CollapseToCompact();
                 return;
             }
+            // Música expandida pero sesión ya no existe -> inactivo/nada.
+            ShowInactiveOrHidden();
+            return;
         }
-        // Pausado/sin actividad: HidePerMode decide. Se conserva _expanded para
-        // que, si el cursor aún está en la zona de tolerancia y HidePerMode
-        // retorna sin colapsar, Tick reintente LeaveHover al salir de verdad
-        // (marcar _expanded = false aquí atascaba la vista expandida: el
-        // reintento de Tick exige _expanded).
+        if (_timerMode == 1)
+        {
+            if (TimerKeepsAlive()) { ShowTimerCompact(); return; }
+            ShowInactiveOrHidden();
+            return;
+        }
         HidePerMode();
     }
 
