@@ -443,14 +443,17 @@ public partial class IslandWindow
         if (!_timer.Start(duration, origin))
             TimerStatus.Text = "Duración no válida: usa 00:00:01 a 24:00:00.";
         else
+        {
+            NoteFeatureEvent("timer");
             TimerStatus.Text = "";
+        }
         RefreshTimerModeView();
     }
 
     private void TimerPause_Click(object sender, RoutedEventArgs e)
     {
         if (_timer.State == IslandTimerState.Running) _timer.Pause();
-        else if (_timer.State == IslandTimerState.Paused) _timer.Resume();
+        else if (_timer.State == IslandTimerState.Paused) { _timer.Resume(); NoteFeatureEvent("timer"); }
         RefreshTimerModeView();
     }
 

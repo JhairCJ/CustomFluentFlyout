@@ -54,6 +54,7 @@ public partial class IslandWindow : Window
 
     private readonly MainWindow _main;
     private readonly Dictionary<string, DateTime> _lastPlay = new();
+    private readonly Dictionary<string, DateTime> _lastFeatureEvent = new();
     private string? _currentId;
     private bool _expanded;
     private bool _drag;
@@ -164,7 +165,8 @@ public partial class IslandWindow : Window
         SnapFrame();
     }
 
-    private void NotePlay(string id) { _lastPlay[id] = DateTime.Now; _currentId = id; }
+    private void NotePlay(string id) { _lastPlay[id] = DateTime.Now; _lastFeatureEvent["media"] = DateTime.UtcNow; _currentId = id; }
+    private void NoteFeatureEvent(string id) => _lastFeatureEvent[id] = DateTime.UtcNow;
 
     private bool _mediaHooksOn;
 
@@ -577,6 +579,20 @@ public partial class IslandWindow : Window
     private void CollapseAll() => SnapHidden();
 
     // -----------------------------------------------------------------
+    private bool IsMediaActiveForContract()
+    {
+        if (!SettingsManager.Current.IslandEnabled || !SettingsManager.Current.IslandMediaEnabled) return false;
+        if (!MusicAvailable() && FirstAllowed() == null) return false;
+        if (_music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) return true;
+        return SettingsManager.Current.IslandPauseCountsActive
+            && _music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
+    }
+
+    private bool IsTimerActiveForCompact() =>
+        SettingsManager.Current.IslandEnabled
+        && SettingsManager.Current.IslandTimerEnabled
+        && _timer.State == IslandTimerState.Running;
+
     // Contrato del contenedor escalable (001 MOD RF-11, RF-13; 002 MOD RF-1).
     // Cada funcionalidad declara habilitada/disponible/activa/seleccionada,
     // aporta sus vistas y puede declarar acceso exclusivo persistente.
@@ -587,8 +603,7 @@ public partial class IslandWindow : Window
         // Disponible con snapshot vigente o con una sesión permitida conocida
         // (p. ej. pausada desde antes del arranque): el clic abre sus controles.
         bool available = enabled && (MusicAvailable() || FirstAllowed() != null);
-        bool playing = _music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-        bool active = available && (playing || SettingsManager.Current.IslandPauseCountsActive);
+        bool active = IsMediaActiveForContract();
         return new IslandFeatureState(enabled, available, active,
             Selected: _selectedFeature?.Id == "media", Exclusive: false);
     }
@@ -604,6 +619,39 @@ public partial class IslandWindow : Window
         return new IslandFeatureState(enabled, available, active,
             Selected: _selectedFeature?.Id == "timer",
             Exclusive: enabled && _timer.State == IslandTimerState.Alerting);
+    }
+
+    private IIslandFeature? ResolveActiveVigenteForVisible()
+    {
+        bool mediaActive = IsMediaActiveForContract();
+        bool timerActive = IsTimerActiveForCompact();
+        var mediaFeat = _features.Features.FirstOrDefault(f => f.Id == "media");
+        var timerFeat = _features.Features.FirstOrDefault(f => f.Id == "timer");
+        bool mediaUsable = mediaFeat?.State.Usable == true;
+        bool timerUsable = timerFeat?.State.Usable == true;
+        var candidates = new List<(IIslandFeature feat, DateTime when)>();
+        if (mediaActive && mediaUsable && mediaFeat != null)
+        {
+            _lastFeatureEvent.TryGetValue("media", out var when);
+            candidates.Add((mediaFeat, when == default ? DateTime.MinValue : when));
+        }
+        if (timerActive && timerUsable && timerFeat != null)
+        {
+            _lastFeatureEvent.TryGetValue("timer", out var when);
+            candidates.Add((timerFeat, when == default ? DateTime.MinValue : when));
+        }
+        if (candidates.Count == 0) return null;
+        if (candidates.Count == 1) return candidates[0].feat;
+        // Gana el evento más reciente; empate determinista: última registrada gana.
+        candidates.Sort((a, b) => a.when.CompareTo(b.when));
+        // Si iguales (default o mismo tick), gana la de mayor índice de registro.
+        if (candidates[0].when == candidates[1].when)
+        {
+            int ia = _features.Features.ToList().IndexOf(candidates[0].feat);
+            int ib = _features.Features.ToList().IndexOf(candidates[1].feat);
+            return ia > ib ? candidates[0].feat : candidates[1].feat;
+        }
+        return candidates[^1].feat;
     }
 
     private void SelectFeature(string id) =>
@@ -959,34 +1007,69 @@ public partial class IslandWindow : Window
         // Alerta de fin (exclusiva): persistente hasta X o reinicio, aunque el
         // ratón se vaya; el minimizado ordinario no la toca (001 MOD RF-4).
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
+        if (HasExclusive()) return;
+        if (Suppressed()) { HidePerMode(); return; }
 
-        // Minimizado obligatorio (001 MOD RF-4): media controlada sigue en media
-        // aunque el temporizador corra/pausado. Tres orígenes distinguibles:
-        // 1) media expandida -> SIEMPRE compacto media (CollapseToCompact)
-        // 2) timer expandido -> compacto timer
-        // 3) sin música -> reposo sin residuos
-        if (_timerMode == 0)
+        // Delta island-compacto-activo-animado: en Visible mientras activo el
+        // compacto al minimizar resuelve a la activa vigente por último evento
+        // (pausa-OFF = inactiva, timer pausado = inactivo); en Aviso temporal
+        // conserva la misma funcionalidad que estaba expandida (001 MOD RF-4/RF-24, 002 MOD RF-7/RF-8).
+        if (SettingsManager.Current.IslandVisibilityMode == 1)
         {
-            if (Suppressed()) { HidePerMode(); return; }
-            var session = Current();
+            if (_timerMode == 0)
+            {
+                var session = Current();
+                if (session != null) { CollapseToCompact(); return; }
+                ShowInactiveOrHidden();
+                return;
+            }
+            if (_timerMode == 1)
+            {
+                if (TimerKeepsAlive()) { ShowTimerCompact(); return; }
+                ShowInactiveOrHidden();
+                return;
+            }
+            HidePerMode();
+            return;
+        }
+
+        // Visible mientras activo: resolver a activo vigente por último evento.
+        var vigente = ResolveActiveVigenteForVisible();
+        if (vigente == null)
+        {
+            ShowInactiveOrHidden();
+            return;
+        }
+        if (vigente.Id == "media")
+        {
+            var session = Current() ?? NewestPlaying() ?? FirstAllowed();
             if (session != null)
             {
-                // Con música disponible: colapsar sin sustituir (RF-4, RF-12).
-                // CollapseToCompact no toca _timerMode ni fuerza timer.
+                // El compacto debe ser media activa vigente sin residuos: volver
+                // a compacto limpio del contenido expandido previo si era timer.
+                if (_timerMode == 1)
+                {
+                    _timerMode = 0;
+                    ApplyTimerContentVisibility();
+                }
+                // Si ya estábamos en media, basta colapsar conservando contenido.
+                if (vigente.TryShowCompact()) return;
+                // Fallback: colapso simple y luego ShowMusicCompact si hace falta.
                 CollapseToCompact();
                 return;
             }
-            // Música expandida pero sesión ya no existe -> inactivo/nada.
             ShowInactiveOrHidden();
             return;
         }
-        if (_timerMode == 1)
+        if (vigente.Id == "timer")
         {
-            if (TimerKeepsAlive()) { ShowTimerCompact(); return; }
+            if (vigente.TryShowCompact()) return;
             ShowInactiveOrHidden();
             return;
         }
-        HidePerMode();
+        // Fallback genérico (futura funcionalidad): usar su compacto.
+        if (vigente.TryShowCompact()) return;
+        ShowInactiveOrHidden();
     }
 
     // --- motor de muelle ---
