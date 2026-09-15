@@ -279,13 +279,13 @@ public partial class IslandWindow
     private void OnTimerFinished() => Dispatcher.Invoke(ShowTimerAlert);
 
     /// <summary>
-    /// Aviso a cero: fuerza el despliegue aunque estuviera oculto; ante
-    /// supresión (pantalla completa o juego) espera sin atravesarla (T9).
+    /// Aviso a cero: fuerza el despliegue aunque estuviera oculto; con acceso
+    /// exclusivo persistente atraviesa supresión (001 RF-8/14, 002 RF-2).
     /// </summary>
     private void ShowTimerAlert()
     {
         if (!TimerModeAvailable()) return;
-        if (Suppressed() || !SettingsManager.Current.IslandEnabled) { _pendingTimerAlert = true; return; }
+        if (!SettingsManager.Current.IslandEnabled) { _pendingTimerAlert = true; return; }
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         _hideCts?.Cancel();
         _hidingViaCompact = false;

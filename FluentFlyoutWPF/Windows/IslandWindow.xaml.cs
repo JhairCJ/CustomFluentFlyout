@@ -629,7 +629,7 @@ public partial class IslandWindow : Window
     /// </summary>
     private bool ExpandLastUsable()
     {
-        if (Suppressed() || !SettingsManager.Current.IslandEnabled) { SnapHidden(); return false; }
+        if ((Suppressed() && !HasExclusive()) || !SettingsManager.Current.IslandEnabled) { SnapHidden(); return false; }
         var feature = LastUsableFeature();
         if (feature != null && feature.TryShowExpanded()) return true;
         var alt = _features.NextUsableAfter(feature);
@@ -699,7 +699,7 @@ public partial class IslandWindow : Window
     /// </summary>
     private void ShowInactiveOrHidden()
     {
-        if (Suppressed()) { SnapHidden(); return; }
+        if (Suppressed() && !HasExclusive()) { SnapHidden(); return; }
         if (ReturnToInactive()) ShowInactive();
         else GoHidden();
     }
@@ -873,7 +873,7 @@ public partial class IslandWindow : Window
 
     private void ExpandSession(MediaSession session)
     {
-        if (_timer.State == Classes.IslandTimerState.Alerting) return;
+        if (HasExclusive()) return;
         if (!MusicAvailable()) return; // sin snapshot musical no hay vista musical (RF-13)
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         _hideCts?.Cancel();
@@ -881,7 +881,7 @@ public partial class IslandWindow : Window
         _currentId = session.Id;
         SelectFeature("media");
         _inactiveShown = false;
-        if (_timer.State == Classes.IslandTimerState.Alerting) return;
+        if (HasExclusive()) return;
         _timerMode = 0;
         ApplyTimerContentVisibility();
         bool wasExpanded = _expanded;
@@ -1716,7 +1716,8 @@ public partial class IslandWindow : Window
             Visibility = Visibility.Collapsed;
             return;
         }
-        if (Suppressed())
+        // Exclusiva persistente (002 RF-2) atraviesa supresión (001 RF-8/14).
+        if (Suppressed() && !HasExclusive())
         {
             if (!_wasSuppressed)
             {
@@ -1739,11 +1740,17 @@ public partial class IslandWindow : Window
         if (_wasSuppressed)
         {
             _wasSuppressed = false;
-            SnapHidden();
-            if (_pendingTimerAlert && SettingsManager.Current.IslandEnabled) { _pendingTimerAlert = false; ShowTimerAlert(); }
+            // Al salir de supresión, la exclusiva ya estaba visible si atravesó.
+            if (HasExclusive() && IsBoxShown) { }
+            else if (_pendingTimerAlert && SettingsManager.Current.IslandEnabled) { _pendingTimerAlert = false; ShowTimerAlert(); }
             else if (TimerKeepsAlive()) ShowTimerCompact();
             else
                 RefreshVisibilityState();
+        }
+        else if (Suppressed() && HasExclusive() && !IsBoxShown)
+        {
+            // Exclusiva llegó estando suprimido: desplegarla aunque siga la supresión.
+            ShowTimerAlert();
         }
         SyncExistingMediaState();
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
@@ -2431,6 +2438,9 @@ public partial class IslandWindow : Window
         Top = primary.workArea.Top * 96.0 / primary.dpiY;
         WindowHelper.SetTopmost(this);
     }
+
+    private bool HasExclusive() =>
+        _features.Features.Any(f => f.State.Exclusive);
 
     private bool Suppressed()
     {
