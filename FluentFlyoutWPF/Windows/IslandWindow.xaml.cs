@@ -713,6 +713,7 @@ public partial class IslandWindow : Window
         _inactiveShown = true;
         _inactiveHot = false;
         ApplyTimerContentVisibility();
+        ClearInactiveResidue();
         PositionTopCenter();
         if (!AnimationsEnabled)
         {
@@ -731,6 +732,30 @@ public partial class IslandWindow : Window
         UpdateRotationPauseState();
         UpdateLine();
         EnsureLoop();
+    }
+
+    /// <summary>
+    /// Limpieza real del estado inactivo (001 MOD RF-11): no basta con fundir
+    /// las capas por opacidad, el contenido residual (grillas compactas con la
+    /// última funcionalidad, carátula, fondo, títulos y textos del temporizador)
+    /// se retira de verdad. La restauración corre por las rutas normales
+    /// (ApplyTimerContentVisibility + RefreshUi/RefreshTimerUI al mostrar
+    /// compacto o expandido).
+    /// </summary>
+    private void ClearInactiveResidue()
+    {
+        // Grillas de contenido compacto: fuera del árbol visual mientras dura el reposo.
+        MusicCompactGrid.Visibility = Visibility.Collapsed;
+        TimerCompactGrid.Visibility = Visibility.Collapsed;
+        // Datos musicales: sin carátula, fondo difuminado, títulos ni seek.
+        ClearMusicResidue();
+        // Datos del temporizador: sin restante ni progreso heredados.
+        TimerRemaining.Text = "00:00:00";
+        TimerProgressFill.Width = 0;
+        TimerRunRemaining.Text = "00:00:00";
+        // Por si algún panel expandido quedó visible de la vista anterior.
+        TimerAlert.Visibility = Visibility.Collapsed;
+        ApplyFrame();
     }
 
     // --- pieza inactiva (001 MOD RF-16): hover micro-crece, clic abre la usable ---
@@ -1277,9 +1302,9 @@ public partial class IslandWindow : Window
         bool notch = IsNotch;
         double w, h, notchFillet = 0;
         // Reposo vivo: la pieza inactiva y el compacto respiran con el hover
-        // (001 MOD RF-3, RF-16): crecen un poco en horizontal y hacia abajo.
+        // (001 MOD RF-3, RF-16): solo crecen en dimensiones, el contenedor
+        // jamás se desplaza de su posición.
         double hotW = 10 * _inactiveHotT;
-        double hotY = 2 * _inactiveHotT;
         if (notch)
         {
             // Notch: mismo reveal que Island: punto central -> compacto -> expandido.
@@ -1311,7 +1336,6 @@ public partial class IslandWindow : Window
             ExpandedLayer.Width = w;
             ExpandedLayer.Margin = new Thickness(0, _expandedMarginOrig.Top, 0, _expandedMarginOrig.Bottom);
             ExpandedLayer.HorizontalAlignment = HorizontalAlignment.Center;
-            BoxTranslate.Y = hotY * (1 - Smooth01(p));
             IslandBox.RenderTransformOrigin = new Point(0.5, 0);
             BoxScale.ScaleX = BoxScale.ScaleY = Lerp(0.68, 1, Smooth01(dotT));
             IslandBox.Clip = CreateNotchClip(IslandBox.Width, h, radius, earReach, notchFillet);
@@ -1343,7 +1367,7 @@ public partial class IslandWindow : Window
                 ? pillDot / 2
                 : Math.Min(morphR, Math.Min(w, h) / 2);
             IslandBox.CornerRadius = new CornerRadius(cr);
-            BoxTranslate.Y = hotY * (1 - Smooth01(p));
+            BoxTranslate.Y = 0;
             BoxScale.ScaleX = BoxScale.ScaleY = Lerp(0.68, 1, Smooth01(dotT));
             IslandBox.RenderTransformOrigin = new Point(0.5, 0.5);
         }
