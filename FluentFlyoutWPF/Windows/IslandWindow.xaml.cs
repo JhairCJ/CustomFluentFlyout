@@ -929,8 +929,6 @@ public partial class IslandWindow : Window
         // ratón se vaya; el minimizado ordinario no la toca (001 MOD RF-4).
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
         if (TimerKeepsAlive()) { ShowTimerCompact(); return; }
-        _expanded = false;
-        _hidingViaCompact = false;
         // «Aviso temporal» (1): al terminar la interacción el island vuelve al
         // reposo (inactivo/nada) aunque la media siga sonando; el plazo no se
         // reinicia ni se prolonga (001 MOD RF-2, 002 MOD RF-8).
@@ -942,6 +940,8 @@ public partial class IslandWindow : Window
             var playing = session?.ControlSession?.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
             if (playing && !Suppressed())
             {
+                _expanded = false;
+                _hidingViaCompact = false;
                 UpdateLine();
                 PositionTopCenter();
                 if (!AnimationsEnabled) { _p = _pT = 0; _pv = 0; ApplyFrame(); }
@@ -949,6 +949,11 @@ public partial class IslandWindow : Window
                 return;
             }
         }
+        // Pausado/sin actividad: HidePerMode decide. Se conserva _expanded para
+        // que, si el cursor aún está en la zona de tolerancia y HidePerMode
+        // retorna sin colapsar, Tick reintente LeaveHover al salir de verdad
+        // (marcar _expanded = false aquí atascaba la vista expandida: el
+        // reintento de Tick exige _expanded).
         HidePerMode();
     }
 
@@ -1412,6 +1417,11 @@ public partial class IslandWindow : Window
         double inactiveFade = _inactiveShown ? 0 : 1;
         compactOp *= inactiveFade;
         expandedOp *= inactiveFade;
+        // El fondo (portada difuminada) también es contenido: sin esto la pieza
+        // inactiva arrastraba la carátula de la última funcionalidad (001 MOD RF-11).
+        bool bgWanted = !_inactiveShown;
+        if ((BackgroundCanvas.Visibility == Visibility.Visible) != bgWanted)
+            BackgroundCanvas.Visibility = bgWanted ? Visibility.Visible : Visibility.Collapsed;
         CompactLayer.IsHitTestVisible = p < 0.6 && q > 0.35 && !_inactiveShown;
         ExpandedLayer.Opacity = expandedOp * (notch ? q : 1);
         ExpandedLayer.IsHitTestVisible = p > 0.4 && q > 0.4 && !_inactiveShown;
