@@ -551,7 +551,18 @@ public partial class IslandWindow : Window
         // Temporizador vivo: repliega a su compacto en vez de ocultar (H2 del spec 002).
         // Salvo avisando: la alerta manda y persiste expandida hasta X o reinicio.
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
-        if (TimerKeepsAlive()) { ShowTimerCompact(); return; }
+        if (TimerKeepsAlive())
+        {
+            // T2: en Visible mientras activo un timer pausado es inactivo
+            // (002 MOD RF-7) y no sostiene compacto: cae a inactivo/nada.
+            if (SettingsManager.Current.IslandVisibilityMode == 0
+                && _timer.State == IslandTimerState.Paused
+                && !IsMediaActiveForContract())
+            {
+                // No hay activa vigente: caer a reposo sin sostener timer pausado.
+            }
+            else { ShowTimerCompact(); return; }
+        }
         if (IsMouseOverBoxOrStrip()) return;
         if (_expanded)
         {
@@ -882,12 +893,22 @@ public partial class IslandWindow : Window
     /// Detección de puntero (001 MOD RF-3, RF-10): el hover SOLO produce el
     /// micro-crecimiento vivo; abrir contenido exige un clic explícito
     /// (HandleIslandClick). La zona de detección se mantiene, pero por sí sola
-    /// nunca despliega contenido.
+    /// nunca despliega contenido. T2: hover sobre inactivo no redespliega hasta
+    /// nuevo activo o clic (001 MOD RF-4, 002 MOD RF-7).
     /// </summary>
     private void HoverDetected()
     {
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
         if (_expanded || _drag || _reelDragging) return;
+        // T2: si ya estamos en reposo inactivo/nada por falta de activa vigente
+        // en Visible mientras activo, el hover NO redespliega compacto.
+        if (_inactiveShown) { /* solo micro-crecimiento, ya lo hace abajo */ }
+        else if (SettingsManager.Current.IslandVisibilityMode == 0 && ResolveActiveVigenteForVisible() == null)
+        {
+            // Sin activa vigente en Visible: no re-desplegar por hover.
+            // Se permite solo micro-crecimiento si ya hay caja visible.
+            if (!IsBoxShown) return;
+        }
         // Anti-reapertura: el usuario acaba de ocultar la caja con el cursor
         // encima; la detección no debe devolverle contenido de inmediato.
         if (DateTime.UtcNow < _hoverSnoozeUntil) return;

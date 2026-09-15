@@ -165,6 +165,26 @@ public partial class IslandWindow
     // El loop lo garantiza SyncMeasuredHeight si el objetivo cambió.
     private void RefreshTimerModeView()
     {
+        // T2: si el timer acaba de pausarse y en Visible mientras activo no hay
+        // otra activa vigente, el expandido debe caer a inactivo/nada; el compacto
+        // pausado solo no lo sostiene.
+        if (_timer.State == IslandTimerState.Paused
+            && SettingsManager.Current.IslandVisibilityMode == 0
+            && !IsMediaActiveForContract()
+            && _expanded)
+        {
+            _expanded = false;
+            ShowInactiveOrHidden();
+            return;
+        }
+        if (_timer.State == IslandTimerState.Paused
+            && SettingsManager.Current.IslandVisibilityMode == 0
+            && !IsMediaActiveForContract()
+            && !_expanded && IsBoxShown && _timerMode == 1)
+        {
+            ShowInactiveOrHidden();
+            return;
+        }
         ApplyTimerContentVisibility();
         RefreshTimerUI();
         SyncMeasuredHeight();
