@@ -1559,7 +1559,11 @@ public partial class UserSettings : ObservableObject
         IslandTimerEnabled = true;
         IslandTimerShowProgress = true;
         IslandTimerShowArrows = false;
-        IslandTimerPresets = DefaultTimerPresets();
+        // Vacía a propósito: el deserializador RELLENA la colección existente con
+        // los presets guardados (no la reemplaza), así que sembrarla aquí los
+        // duplicaba en cada arranque. Los de fábrica los aplica
+        // CompleteInitialization solo cuando el archivo no trae ninguno.
+        IslandTimerPresets = [];
         TimerPresetsError = "";
         AppFilteringEnabled = false;
         AppFilteringMode = 0;
@@ -1660,8 +1664,9 @@ public partial class UserSettings : ObservableObject
         // defaults sensatos si viene de 0 legacy mal migrado
         if (IslandHoverToleranceHorizontal < 0) IslandHoverToleranceHorizontal = 12;
         if (IslandHoverToleranceVertical < 0) IslandHoverToleranceVertical = 4;
-        // Migración de presets: XML antiguos sin la colección o con datos inválidos.
-        IslandTimerPresets ??= DefaultTimerPresets();
+        // Migración de presets: XML antiguos sin la colección, con presets
+        // duplicados (arranques previos) o con datos inválidos.
+        IslandTimerPresets ??= [];
         SanitizeTimerPresets();
         _initializing = false;
     }
@@ -1676,6 +1681,17 @@ public partial class UserSettings : ObservableObject
 
     private void SanitizeTimerPresets()
     {
+        // Autorreparación de duplicados exactos: los archivos guardados por las
+        // versiones que sembraban la colección en el constructor traen la lista
+        // repetida (4+4+2…). Se conserva la primera aparición de cada par
+        // nombre+duración y el resto se descarta.
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var preset in IslandTimerPresets.ToList())
+        {
+            string key = $"{preset.Name.Trim()}\n{preset.DurationSeconds}";
+            if (!seen.Add(key)) IslandTimerPresets.Remove(preset);
+        }
+        if (IslandTimerPresets.Count == 0) IslandTimerPresets = DefaultTimerPresets();
         if (IslandTimerPresets.Count > Classes.IslandTimer.MaxPresets)
         {
             foreach (var extra in IslandTimerPresets.Skip(Classes.IslandTimer.MaxPresets).ToList())

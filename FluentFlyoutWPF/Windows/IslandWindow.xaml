@@ -24,18 +24,13 @@
              una funcionalidad habilitada accesible por clic; por sí sola nunca
              despliega contenido: el clic en la pieza inactiva es el que abre. -->
         <Border x:Name="HoverStrip" Height="12" Width="120" HorizontalAlignment="Center" VerticalAlignment="Top" Background="Transparent"
-                MouseLeftButtonUp="InactiveBorder_Click"/>
+                MouseLeftButtonUp="InactiveZone_Click"/>
 
-        <!-- Pieza inactiva (001 MOD RF-11, RF-16): pill negra más estrecha que el
-             compacto, sin contenido; el hover solo la agranda (micro-crecimiento
-             vivo) y el clic abre la última usable. Va DETRÁS de la caja: la caja
-             la tapa cuando muestra compacto o expandido. -->
-        <Border x:Name="InactiveBorder" Width="112" Height="34" CornerRadius="17"
-                HorizontalAlignment="Center" VerticalAlignment="Top"
-                Background="Black" BorderBrush="#22FFFFFF" BorderThickness="1"
-                Cursor="Hand" Visibility="Collapsed"
-                MouseLeftButtonUp="InactiveBorder_Click"
-                MouseEnter="Box_MouseEnter" MouseLeave="Box_MouseLeave"/>
+        <!-- La pieza inactiva (001 MOD RF-11, RF-16) NO es un elemento aparte: es
+             la misma caja con ancho de reposo estrecho y sin contenido, así el paso
+             compacto <-> inactivo es un morph de una sola superficie (nada de dos
+             cajas cruzándose por Visibility). El hover solo la agranda y el clic
+             abre la última usable. -->
 
         <!-- La caja: Width 240/200<->ancho configurado y Height 34<->expandido animados por código.
              ClipToBounds para que el contenido florezca desde dentro al crecer.
@@ -54,10 +49,7 @@
                 MouseEnter="Box_MouseEnter" MouseLeave="Box_MouseLeave" MouseWheel="IslandBox_Wheel"
                 MouseLeftButtonUp="HandleIslandClick">
             <Border.RenderTransform>
-                <TransformGroup>
-                    <ScaleTransform x:Name="BoxScale" ScaleX="1" ScaleY="1"/>
-                    <TranslateTransform x:Name="BoxTranslate" X="0" Y="0"/>
-                </TransformGroup>
+                <ScaleTransform x:Name="BoxScale" ScaleX="1" ScaleY="1"/>
             </Border.RenderTransform>
             <Grid>
                 <!-- The album art is used as a clipped viewport background, just like

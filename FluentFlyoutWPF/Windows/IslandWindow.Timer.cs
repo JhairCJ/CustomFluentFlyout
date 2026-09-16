@@ -26,7 +26,6 @@ public partial class IslandWindow
     private bool _timerInputCustom = true;
     // Anti-reaparición tras descartar: el ratón sigue encima y el poll re-expandiría.
     private const int TimerReshowSnoozeSeconds = 2;
-    private DateTime _timerSnoozeUntil = DateTime.MinValue;
     // Arrastre de reel: píxeles por unidad y estado del gesto.
     private const double ReelPixelsPerUnit = 24;
     private bool _reelDragging;
@@ -36,6 +35,22 @@ public partial class IslandWindow
 
     private bool TimerModeAvailable() =>
         SettingsManager.Current.IslandEnabled && SettingsManager.Current.IslandTimerEnabled;
+
+    // Implementaciones del contrato del contenedor para el temporizador
+    // (001 MOD RF-11, RF-13): cada vista se abre solo si sigue siendo usable.
+    internal bool ShowTimerExpandedFromContract()
+    {
+        if (!TimerModeAvailable()) return false;
+        ExpandTimer();
+        return true;
+    }
+
+    internal bool ShowTimerCompactFromContract()
+    {
+        if (!TimerModeAvailable()) return false;
+        ShowTimerCompact();
+        return true;
+    }
 
     private bool TimerKeepsAlive() =>
         TimerModeAvailable() && (_timer.IsCounting || _timer.State == IslandTimerState.Alerting || _pendingTimerAlert);
@@ -228,12 +243,15 @@ public partial class IslandWindow
 
     private void ShowTimerCompact()
     {
-        _hideCts?.Cancel();
+        // Repliegue desde el expandido (o desde su fase 1): el compacto se alcanza
+        // pasando por la pieza inactiva, y un aviso vigente conserva su plazo
+        // (001 MOD RF-16).
+        bool collapsing = _expanded || _p > 0.02 || _pendingCompactFeature != null;
         _hidingViaCompact = false;
         if (!TimerModeAvailable() || Suppressed()) { SnapHidden(); return; }
         _timerMode = 1;
         SelectFeature("timer");
-        _inactiveShown = false;
+        SetInactiveRest(false);
         RefreshTimerUI();
         ApplyTimerContentVisibility();
         _expanded = false;
@@ -241,7 +259,7 @@ public partial class IslandWindow
         PositionTopCenter();
         SyncMeasuredHeight();
         if (!AnimationsEnabled) SnapCompact();
-        else
+        else if (!collapsing || TimerFeature is not { } timer || !BeginCollapseThroughInactive(timer))
         {
             _pT = 0;
             _qT = 1;
@@ -250,13 +268,50 @@ public partial class IslandWindow
             UpdateRotationPauseState();
             EnsureLoop();
         }
-        // Sin aviso temporal: la cuenta visible sigue el modo del contenedor
-        // quedando a la vista para controlarla de un vistazo (H2 del spec).
+        // «Aviso temporal»: el compacto del timer es un aviso como el de media y
+        // también vence (002 RF-8/RF-16): se repliega al plazo configurado en vez
+        // de quedarse pegado a la vista. La cuenta sigue intacta por detrás.
+        ArmTemporaryHide(restart: !collapsing);
+    }
+
+    /// <summary>
+    /// Cierre de la cuenta por acción del usuario (X del aviso final o cancelar
+    /// desde el panel de marcha): el Island NO se queda abierto en la
+    /// configuración, se contrae como cualquier otra contracción
+    /// (001 MOD RF-4, 002 RF-6). El veto por puntero encima no aplica aquí —el
+    /// usuario acaba de terminar el temporizador a propósito— y se silencia la
+    /// reapertura por hover para que la caja no vuelva sola a los 150 ms.
+    /// </summary>
+    private void CompactAfterTimerStopped()
+    {
+        _staged = TimeSpan.Zero;
+        TimerStatus.Text = "";
+        _hoverSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
+        _expanded = false;
+        RefreshTimerUI();
+        if (SettingsManager.Current.IslandVisibilityMode == 0)
+        {
+            // Visible mientras activo: manda la activa vigente (pausa-OFF no
+            // sostiene nada y cae a inactivo/nada: 001 MOD RF-4).
+            if (ResolveActiveVigenteForVisible()?.TryShowCompact() == true) return;
+        }
+        else if (ActiveMediaSession() is { } session)
+        {
+            // Aviso temporal: con sesión la vista vuelve a media (002 RF-6) y ese
+            // aviso vuelve a cumplir su propio plazo.
+            ShowMusicCompact(session);
+            return;
+        }
+        // Sin activa vigente ni sesión que presentar: reposo sin residuos.
+        _timerMode = 0;
+        ApplyTimerContentVisibility();
+        ClearMusicResidue();
+        ShowInactiveOrHidden();
     }
 
     private void SnapExpandedTimer()
     {
-        _inactiveShown = false;
+        SetInactiveRest(false);
         _p = _pT = 1; _pv = 0;
         _q = _qT = 1; _qv = 0;
         _hexpShown = _hexp;
@@ -271,12 +326,14 @@ public partial class IslandWindow
     {
         if (!TimerModeAvailable()) return;
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
-        _hideCts?.Cancel();
+        // Expandir no cancela el aviso: solo pospone su repliegue conservando el
+        // plazo que le quedaba (001 RF-2).
+        HoldTemporaryNotice();
         _hidingViaCompact = false;
         bool wasExpanded = _expanded;
         _timerMode = 1;
         SelectFeature("timer");
-        _inactiveShown = false;
+        SetInactiveRest(false);
         RefreshTimerUI();
         ApplyTimerContentVisibility();
         _expanded = true;
@@ -307,11 +364,11 @@ public partial class IslandWindow
         if (!TimerModeAvailable()) return;
         if (!SettingsManager.Current.IslandEnabled) { _pendingTimerAlert = true; return; }
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
-        _hideCts?.Cancel();
+        HoldTemporaryNotice();
         _hidingViaCompact = false;
         _timerMode = 1;
         SelectFeature("timer");
-        _inactiveShown = false;
+        SetInactiveRest(false);
         RefreshTimerUI();
         ApplyTimerContentVisibility();
         _expanded = true;
@@ -487,10 +544,10 @@ public partial class IslandWindow
 
     private void TimerCancel_Click(object sender, RoutedEventArgs e)
     {
+        // Cancelar es un cierre deliberado: el Island se contrae, no se queda
+        // abierto en la configuración (001 MOD RF-4).
         _timer.Cancel();
-        _staged = TimeSpan.Zero;
-        TimerStatus.Text = "";
-        RefreshTimerModeView();
+        CompactAfterTimerStopped();
     }
 
     private void TimerAlertRestart_Click(object sender, RoutedEventArgs e)
@@ -502,25 +559,11 @@ public partial class IslandWindow
 
     private void TimerAlertDismiss_Click(object sender, RoutedEventArgs e)
     {
+        // X del aviso final (002 RF-6): cancela la cuenta y contrae el Island
+        // (a media si hay sesión, si no a inactivo/nada según toggle), sin
+        // quedarse mostrando el aviso descolgado (001 MOD RF-4).
         _timer.Cancel();
-        _staged = TimeSpan.Zero;
-        _timerMode = 0;
         SelectFeature("media");
-        // El ratón sigue encima: sin esto HidePerMode retorna y el 00:00:00 queda visible.
-        _timerSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
-        ApplyTimerContentVisibility();
-        RefreshTimerUI();
-        // Solo el snapshot musical decide (desacoplado del control multimedia):
-        var session = Current();
-        if (session == null)
-        {
-            // Sin sesión: limpiar restos musicales antes de resolver el reposo
-            // (002 MOD RF-14): pieza inactiva o nada según el toggle.
-            ClearMusicResidue();
-            _expanded = false;
-            ShowInactiveOrHidden();
-        }
-        else if (_expanded) RefreshUi(session);
-        else ShowMusicCompact(session);
+        CompactAfterTimerStopped();
     }
 }
