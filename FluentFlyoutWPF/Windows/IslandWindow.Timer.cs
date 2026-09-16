@@ -12,15 +12,16 @@ using System.Windows.Media.Animation;
 namespace FluentFlyoutWPF.Windows;
 
 /// <summary>
-/// Temporizador del Fluent Island (spec 002): segundo contenido del contenedor
-/// junto a música. Compacto con icono + restante + progreso opcional; expandido
-/// con tiempo libre + controles a la izquierda y presets a la derecha; aviso a
-/// cero con despliegue forzado; navegación entre modos con rueda y flechas.
+/// Temporizador del Fluent Island (spec 002): contenido del contenedor junto a
+/// música y al cajón de aplicaciones. Compacto con icono + restante + progreso
+/// opcional; expandido con tiempo libre + controles a la izquierda y presets a
+/// la derecha; aviso a cero con despliegue forzado; navegación entre
+/// funcionalidades con rueda y flechas.
 /// </summary>
 public partial class IslandWindow
 {
     private readonly IslandTimer _timer = new();
-    private int _timerMode; // 0 = música, 1 = temporizador
+    private int _contentMode; // 0 = música, 1 = temporizador, 2 = cajón de aplicaciones
     private bool _pendingTimerAlert;
     private TimeSpan _staged = TimeSpan.Zero; // valor de los reels, origen personalizado
     private bool _timerInputCustom = true;
@@ -70,9 +71,9 @@ public partial class IslandWindow
         {
             _timer.Cancel();
             _pendingTimerAlert = false;
-            if (_timerMode == 1)
+            if (_contentMode == 1)
             {
-                _timerMode = 0;
+                _contentMode = 0;
                 if (_expanded)
                 {
                     // Solo vuelve la música si el contenido musical está
@@ -85,7 +86,7 @@ public partial class IslandWindow
             }
         }
         RefreshTimerUI();
-        ApplyTimerContentVisibility();
+        ApplyContentVisibility();
     }
 
     private void RefreshTimerUI()
@@ -118,9 +119,29 @@ public partial class IslandWindow
         ReelS.Text = $"{total % 60:00}";
     }
 
-    private void ApplyTimerContentVisibility()
+    /// <summary>
+    /// Conmuta las capas de contenido del contenedor (música, temporizador o
+    /// cajón de aplicaciones) en compacto y expandido. Cada capa se muestra solo
+    /// si su funcionalidad sigue siendo usable: sin disponibilidad no hay vista
+    /// vacía (001 MOD RF-9).
+    /// </summary>
+    private void ApplyContentVisibility()
     {
-        bool timer = _timerMode == 1 && TimerModeAvailable();
+        bool apps = _contentMode == AppsContentMode && AppsModeAvailable();
+        bool timer = _contentMode == 1 && TimerModeAvailable();
+        AppsCompactGrid.Visibility = apps ? Visibility.Visible : Visibility.Collapsed;
+        AppsExpanded.Visibility = apps ? Visibility.Visible : Visibility.Collapsed;
+        if (apps) MusicCompactGrid.Visibility = TimerCompactGrid.Visibility = Visibility.Collapsed;
+        if (apps)
+        {
+            MusicExpandedTop.Visibility = Visibility.Collapsed;
+            ControlsRow.Visibility = Visibility.Collapsed;
+            SeekRow.Visibility = Visibility.Collapsed;
+            TimerAlert.Visibility = Visibility.Collapsed;
+            CrossfadeTimerPanels(showConfig: false, showRun: false);
+            UpdateArrows();
+            return;
+        }
         MusicCompactGrid.Visibility = timer ? Visibility.Collapsed : Visibility.Visible;
         TimerCompactGrid.Visibility = timer ? Visibility.Visible : Visibility.Collapsed;
         bool alert = timer && _timer.State == IslandTimerState.Alerting;
@@ -157,7 +178,7 @@ public partial class IslandWindow
 
     // Fundido SOLO en la transición oculto->visible: la opacidad LOCAL del
     // panel es siempre 1 (el valor final), y la animación solo la conduce
-    // durante los 150 ms del fundido. Así, repetir ApplyTimerContentVisibility
+    // durante los 150 ms del fundido. Así, repetir ApplyContentVisibility
     // (actualizaciones del contenedor, settings, start/pause) nunca puede
     // revertir el panel a opacidad 0 y dejar la caja negra (001/002 ADDED RF-1).
     private static void FadeInPanel(UIElement el, bool show)
@@ -195,12 +216,12 @@ public partial class IslandWindow
         if (_timer.State == IslandTimerState.Paused
             && SettingsManager.Current.IslandVisibilityMode == 0
             && !IsMediaActiveForContract()
-            && !_expanded && IsBoxShown && _timerMode == 1)
+            && !_expanded && IsBoxShown && _contentMode == 1)
         {
             ShowInactiveOrHidden();
             return;
         }
-        ApplyTimerContentVisibility();
+        ApplyContentVisibility();
         RefreshTimerUI();
         SyncMeasuredHeight();
     }
@@ -214,7 +235,7 @@ public partial class IslandWindow
     /// </summary>
     private void EnsureTimerContentShown()
     {
-        if (_disposed || _timerMode != 1 || !IsBoxShown || !TimerModeAvailable()) return;
+        if (_disposed || _contentMode != 1 || !IsBoxShown || !TimerModeAvailable()) return;
         if (_timer.State == IslandTimerState.Alerting
             && TimerAlert.Visibility == Visibility.Visible) return;
         bool compactOk = TimerCompactGrid.Visibility == Visibility.Visible;
@@ -228,16 +249,17 @@ public partial class IslandWindow
             _expanded, _timer.State,
             TimerCompactGrid.Visibility, TimerExpanded.Visibility,
             TimerRunPanel.Visibility, TimerAlert.Visibility);
-        ApplyTimerContentVisibility();
+        ApplyContentVisibility();
         RefreshTimerUI();
         SyncMeasuredHeight();
     }
 
     private void UpdateArrows()
     {
-        // Flechas opcionales: solo con dos contenidos disponibles (002 MOD RF-9).
-        bool show = _expanded && TimerModeAvailable() && MediaContentAvailable()
-            && SettingsManager.Current.IslandTimerShowArrows && IsBoxShown;
+        // Flechas opcionales: solo con más de un contenido usable, sean cuales
+        // sean (música, temporizador o cajón de aplicaciones) (002 MOD RF-9).
+        bool show = _expanded && SettingsManager.Current.IslandTimerShowArrows && IsBoxShown
+            && UsableFeatureCount() > 1;
         ModePrevBtn.Visibility = ModeNextBtn.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -249,11 +271,11 @@ public partial class IslandWindow
         bool collapsing = _expanded || _p > 0.02 || _pendingCompactFeature != null;
         _hidingViaCompact = false;
         if (!TimerModeAvailable() || Suppressed()) { SnapHidden(); return; }
-        _timerMode = 1;
+        _contentMode = 1;
         SelectFeature("timer");
         SetInactiveRest(false);
         RefreshTimerUI();
-        ApplyTimerContentVisibility();
+        ApplyContentVisibility();
         _expanded = false;
         UpdateLine();
         PositionTopCenter();
@@ -303,8 +325,8 @@ public partial class IslandWindow
             return;
         }
         // Sin activa vigente ni sesión que presentar: reposo sin residuos.
-        _timerMode = 0;
-        ApplyTimerContentVisibility();
+        _contentMode = 0;
+        ApplyContentVisibility();
         ClearMusicResidue();
         ShowInactiveOrHidden();
     }
@@ -331,11 +353,11 @@ public partial class IslandWindow
         HoldTemporaryNotice();
         _hidingViaCompact = false;
         bool wasExpanded = _expanded;
-        _timerMode = 1;
+        _contentMode = 1;
         SelectFeature("timer");
         SetInactiveRest(false);
         RefreshTimerUI();
-        ApplyTimerContentVisibility();
+        ApplyContentVisibility();
         _expanded = true;
         UpdateLine();
         PositionTopCenter();
@@ -366,11 +388,11 @@ public partial class IslandWindow
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         HoldTemporaryNotice();
         _hidingViaCompact = false;
-        _timerMode = 1;
+        _contentMode = 1;
         SelectFeature("timer");
         SetInactiveRest(false);
         RefreshTimerUI();
-        ApplyTimerContentVisibility();
+        ApplyContentVisibility();
         _expanded = true;
         UpdateLine();
         PositionTopCenter();
@@ -387,34 +409,36 @@ public partial class IslandWindow
         EnsureLoop();
     }
 
-    private void CycleMode()
+    /// <summary>
+    /// Cambia de funcionalidad (rueda o flechas, 002 MOD RF-3/RF-9): recorre las
+    /// usables en orden de registro, con vuelta, en el sentido indicado. Cada
+    /// funcionalidad abre su vista por el contrato, así que sin disponibilidad no
+    /// se aterriza en una vista vacía (001 MOD RF-9).
+    ///
+    /// <para>Nunca se toca el motor de cuenta ni el snapshot: cambiar de vista no
+    /// cancela ni reinicia la cuenta del temporizador (002 MOD RF-9, RF-13).</para>
+    /// </summary>
+    private void CycleMode(int direction = 1)
     {
         // Alerta modal: hasta X o reinicio no se sale al resto de modos.
         if (_timer.State == IslandTimerState.Alerting) return;
-        if (!TimerModeAvailable()) return;
-        if (_timerMode == 0)
-        {
-            if (_expanded) ExpandTimer();
-            else ShowTimerCompact();
-        }
-        else
-        {
-            // Rueda abajo cambia solo al siguiente contenido DISPONIBLE
-            // (002 MOD RF-9): sin snapshot musical no hay música a la que saltar.
-            var session = Current();
-            if (session == null) return;
-            if (_expanded) ExpandSession(session);
-            else ShowMusicCompact(session);
-        }
-        // Nunca se toca el motor de cuenta: cambiar de vista no cancela ni
-        // reinicia la cuenta del temporizador (002 MOD RF-9, RF-13).
+        var usable = UsableFeatures();
+        if (usable.Count < 2) return;
+        int current = usable.FindIndex(f => f.Id == _selectedFeature?.Id);
+        int next = current < 0
+            ? (direction > 0 ? 0 : usable.Count - 1)
+            : WrapUnit(current + direction, usable.Count);
+        var feature = usable[next];
+        if (_expanded) feature.TryShowExpanded();
+        else feature.TryShowCompact();
     }
 
     // --- controles del expandido ---
 
     private void TimerCompact_Click(object sender, MouseButtonEventArgs e) => ExpandTimer();
 
-    private void ModeArrow_Click(object sender, RoutedEventArgs e) => CycleMode();
+    private void ModeArrow_Click(object sender, RoutedEventArgs e) =>
+        CycleMode(ReferenceEquals(sender, ModePrevBtn) ? -1 : 1);
 
     private static int WrapUnit(int value, int count) => ((value % count) + count) % count;
 

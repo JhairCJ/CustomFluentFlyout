@@ -1259,6 +1259,27 @@ public partial class UserSettings : ObservableObject
     public partial string TimerPresetsError { get; set; }
 
     /// <summary>
+    /// Cajón de aplicaciones del Island: funcionalidad habilitada (independiente
+    /// de música y temporizador).
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandAppsEnabled { get; set; }
+
+    /// <summary>
+    /// Cajón de aplicaciones del Island: aplicaciones del cajón (máx. 12) con
+    /// nombre y ruta. Persisten entre reinicios; el icono se lee de la ruta.
+    /// </summary>
+    [ObservableProperty]
+    public partial ObservableCollection<IslandApp> IslandApps { get; set; }
+
+    /// <summary>
+    /// Último mensaje de validación del cajón en español. Vacío = sin error.
+    /// </summary>
+    [XmlIgnore]
+    [ObservableProperty]
+    public partial string IslandAppsError { get; set; }
+
+    /// <summary>
     /// Returns whether app filtering is enabled or disabled.
     /// </summary>
     [ObservableProperty]
@@ -1565,6 +1586,11 @@ public partial class UserSettings : ObservableObject
         // CompleteInitialization solo cuando el archivo no trae ninguno.
         IslandTimerPresets = [];
         TimerPresetsError = "";
+        IslandAppsEnabled = true;
+        // Vacía a propósito, igual que los presets: el deserializador XML RELLENA
+        // la colección existente, sembrarla aquí duplicaría las aplicaciones.
+        IslandApps = [];
+        IslandAppsError = "";
         AppFilteringEnabled = false;
         AppFilteringMode = 0;
         TaskbarVisualizerPosition = 1;
@@ -1668,6 +1694,10 @@ public partial class UserSettings : ObservableObject
         // duplicados (arranques previos) o con datos inválidos.
         IslandTimerPresets ??= [];
         SanitizeTimerPresets();
+        // Migración del cajón: XML antiguos sin la colección o con entradas
+        // repetidas, sin nombre o por encima del máximo.
+        IslandApps ??= [];
+        SanitizeIslandApps();
         _initializing = false;
     }
 
@@ -1756,6 +1786,97 @@ public partial class UserSettings : ObservableObject
     {
         IslandTimerPresets.Remove(preset);
         TimerPresetsError = "";
+    }
+
+    /// <summary>
+    /// Autorreparación del cajón: fuera rutas vacías o repetidas, nombre tomado
+    /// del ejecutable cuando falta y recorte por encima del máximo.
+    /// </summary>
+    private void SanitizeIslandApps()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var app in IslandApps.ToList())
+        {
+            string path = (app.Path ?? "").Trim();
+            if (path.Length == 0 || !seen.Add(path)) { IslandApps.Remove(app); continue; }
+            if (string.IsNullOrWhiteSpace(app.Name)) app.Name = System.IO.Path.GetFileNameWithoutExtension(path);
+        }
+        if (IslandApps.Count > IslandApp.MaxApps)
+        {
+            foreach (var extra in IslandApps.Skip(IslandApp.MaxApps).ToList())
+                IslandApps.Remove(extra);
+        }
+    }
+
+    partial void OnIslandAppsChanged(ObservableCollection<IslandApp> oldValue, ObservableCollection<IslandApp> newValue)
+    {
+        if (oldValue != null)
+        {
+            oldValue.CollectionChanged -= IslandApps_CollectionChanged;
+            foreach (var item in oldValue) item.PropertyChanged -= IslandApp_PropertyChanged;
+        }
+        if (newValue != null)
+        {
+            newValue.CollectionChanged += IslandApps_CollectionChanged;
+            foreach (var item in newValue) item.PropertyChanged += IslandApp_PropertyChanged;
+        }
+    }
+
+    private void IslandApps_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems != null)
+            foreach (IslandApp item in e.OldItems) item.PropertyChanged -= IslandApp_PropertyChanged;
+        if (e.NewItems != null)
+            foreach (IslandApp item in e.NewItems) item.PropertyChanged += IslandApp_PropertyChanged;
+        if (!_initializing) SettingsManager.SaveSettings();
+        // El contenedor necesita saber que el cajón cambió de disponibilidad
+        // (sin aplicaciones no se puede mostrar).
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppsContent();
+    }
+
+    private void IslandApp_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!_initializing && e.PropertyName is nameof(IslandApp.Name)) SettingsManager.SaveSettings();
+    }
+
+    /// <summary>
+    /// Añade una aplicación al cajón del Island (máx. 12 y sin repetir ruta).
+    /// El nombre sale de la descripción del ejecutable. Usado por IslandPage.
+    /// </summary>
+    public bool AddIslandApp(string path)
+    {
+        path = (path ?? "").Trim();
+        if (path.Length == 0)
+        {
+            IslandAppsError = "Selecciona una aplicación para añadir.";
+            return false;
+        }
+        if (IslandApps.Any(a => string.Equals(a.Path, path, StringComparison.OrdinalIgnoreCase)))
+        {
+            IslandAppsError = "Esa aplicación ya está en el cajón.";
+            return false;
+        }
+        if (IslandApps.Count >= IslandApp.MaxApps)
+        {
+            IslandAppsError = $"Máximo {IslandApp.MaxApps} aplicaciones. Quita una para añadir otra.";
+            return false;
+        }
+        string name = "";
+        try { name = System.Diagnostics.FileVersionInfo.GetVersionInfo(path).FileDescription ?? ""; }
+        catch { }
+        if (string.IsNullOrWhiteSpace(name)) name = System.IO.Path.GetFileNameWithoutExtension(path);
+        IslandApps.Add(new IslandApp { Name = name, Path = path });
+        IslandAppsError = "";
+        return true;
+    }
+
+    /// <summary>
+    /// Quita una aplicación del cajón. La app ya abierta no se cierra.
+    /// </summary>
+    public void RemoveIslandApp(IslandApp app)
+    {
+        IslandApps.Remove(app);
+        IslandAppsError = "";
     }
 
     partial void OnAppLanguageChanged(string oldValue, string newValue)
@@ -2251,6 +2372,12 @@ public partial class UserSettings : ObservableObject
     {
         if (oldValue == newValue || _initializing) return;
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshTimerEnabled();
+    }
+
+    partial void OnIslandAppsEnabledChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppsContent();
     }
 
     partial void OnIslandTimerShowProgressChanged(bool oldValue, bool newValue)

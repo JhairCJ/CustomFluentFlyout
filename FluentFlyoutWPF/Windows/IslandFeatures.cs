@@ -130,6 +130,28 @@ public sealed class IslandMediaFeature(IslandWindow owner) : IIslandFeature
 }
 
 /// <summary>
+/// Funcionalidad «cajón de aplicaciones» del island: disponible cuando está
+/// habilitada y tiene al menos una aplicación configurada (sin aplicaciones no
+/// se abre una vista vacía: 001 MOD RF-9). No genera actividad propia —no
+/// reproduce ni cuenta—, así que nunca sostiene el compacto por sí sola: su
+/// vista la sostienen el puntero (Visible mientras activo) o el aviso temporal.
+/// </summary>
+public sealed class IslandAppsFeature(IslandWindow owner) : IIslandFeature
+{
+    public string Id => "apps";
+
+    public IslandFeatureState State => owner.GetAppsFeatureState();
+
+    public double CompactWidth => 240;
+    public double CompactHeight => 34;
+    public double ExpandedPreferredWidth => 0; // ancho común configurado
+    public double ExpandedPreferredHeight => 0; // medir contenido (cuadrícula de iconos)
+
+    public bool TryShowExpanded() => owner.ShowAppsExpandedFromContract();
+    public bool TryShowCompact() => owner.ShowAppsCompactFromContract();
+}
+
+/// <summary>
 /// Funcionalidad «temporizador» del island (002): disponible siempre que esté
 /// habilitada (su configuración es usable sin media); activa con cuenta en
 /// marcha; la alerta final declara acceso exclusivo persistente (002 MOD RF-2).

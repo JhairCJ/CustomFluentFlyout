@@ -176,6 +176,12 @@ public static class MediaPlayerData
         }
     }
 
+    /// <summary>
+    /// Icono asociado a un ejecutable. Se expone para reutilizarlo desde el cajón
+    /// de aplicaciones del Island (misma extracción que usa el flyout de medios).
+    /// </summary>
+    public static ImageSource? GetExecutableIcon(string exePath) => GetIconFromPath(exePath);
+
     private static ImageSource? GetIconFromPath(string exePath)
     {
         try

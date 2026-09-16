@@ -325,8 +325,8 @@ public partial class IslandWindow
         // Al cerrar la última sesión no deben quedar restos musicales:
         // carátula, fondo, título ni estado de reproducción obsoleto
         // (001 MOD RF-24, 002 MOD RF-14).
-        _timerMode = 0;
-        ApplyTimerContentVisibility();
+        _contentMode = 0;
+        ApplyContentVisibility();
         ClearMusicResidue();
         if (TimerKeepsAlive()) ShowTimerCompact();
         else ShowInactiveOrHidden();
@@ -485,8 +485,8 @@ public partial class IslandWindow
         // porque el progreso de la pieza seguía en 1 (001 MOD RF-16).
         SetInactiveRest(false);
         if (HasExclusive()) return;
-        _timerMode = 0;
-        ApplyTimerContentVisibility();
+        _contentMode = 0;
+        ApplyContentVisibility();
         bool wasExpanded = _expanded;
         RefreshUi(session);
         _expanded = true;
@@ -519,8 +519,8 @@ public partial class IslandWindow
         // Alerta modal del timer: los eventos de música esperan a X o reinicio.
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
         // Evento multimedia: el contenido más reciente manda (spec 001 RF-24).
-        _timerMode = 0;
-        ApplyTimerContentVisibility();
+        _contentMode = 0;
+        ApplyContentVisibility();
         var status = knownStatus ?? SafeStatus(session) ?? _lastStatus;
         if (status != null) _lastStatus = status;
         PaintGlyph();

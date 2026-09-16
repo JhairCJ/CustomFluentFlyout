@@ -272,7 +272,7 @@ public partial class IslandWindow
         _collapseFromExpanded = _expanded || _p > 0.02;
         _hidingViaCompact = false;
         _expanded = false;
-        _timerMode = 0;
+        _contentMode = 0;
         _inactiveHot = false;
         SetInactiveRest(true);
         // Animado cuando la pieza todavía no domina la vista (contenido que fundir)
@@ -374,7 +374,8 @@ public partial class IslandWindow
     /// ¿La funcionalidad sigue sosteniendo la vista AHORA? Media lo hace
     /// reproduciendo (o pausada si «pausa cuenta como activo»: 001 MOD RF-6/RF-7) y
     /// el temporizador contando —en «Aviso temporal» también con su alerta vigente
-    /// (002 MOD RF-8)—. La funcionalidad futura lo declara ella.
+    /// (002 MOD RF-8)—. El cajón de aplicaciones no tiene actividad propia: solo
+    /// lo sostiene el plazo de su aviso. La funcionalidad futura lo declara ella.
     /// </summary>
     private bool FeatureSustainsView(IIslandFeature feature) => feature.Id switch
     {
@@ -382,6 +383,9 @@ public partial class IslandWindow
         "timer" => SettingsManager.Current.IslandVisibilityMode == 0
             ? IsTimerActiveForCompact()
             : TimerKeepsAlive(),
+        // El cajón no tiene actividad propia: en «Visible mientras activo» la
+        // vista la sostiene el puntero; en «Aviso temporal», su plazo (001 RF-2).
+        "apps" => AppsKeepsView(),
         _ => feature.State.Active,
     };
 
@@ -398,6 +402,10 @@ public partial class IslandWindow
     /// En «Aviso temporal» el contenido solo vive lo que vive su aviso (001 RF-2,
     /// 002 RF-16): sin plazo vigente la pieza se queda. Devuelve true si la vista
     /// ya está entrando (el reloj de reposo se funde hacia el contenido).
+    ///
+    /// <para>La reapertura usa el reloj RÁPIDO de salida del reposo
+    /// (<see cref="InactiveReopenSeconds"/>): salir de la pieza dura menos que
+    /// entrar en ella, porque el usuario que vuelve mira, no espera.</para>
     /// </summary>
     private bool TryReopenFromInactive()
     {
@@ -448,7 +456,7 @@ public partial class IslandWindow
     /// las capas por opacidad, el contenido residual (grillas compactas con la
     /// última funcionalidad, carátula, fondo, títulos y textos del temporizador)
     /// se retira de verdad. La restauración corre por las rutas normales
-    /// (ApplyTimerContentVisibility + RefreshUi/RefreshTimerUI al mostrar
+    /// (ApplyContentVisibility + RefreshUi/RefreshTimerUI al mostrar
     /// compacto o expandido).
     /// </summary>
     private void ClearInactiveResidue()
@@ -456,6 +464,7 @@ public partial class IslandWindow
         // Grillas de contenido compacto: fuera del árbol visual mientras dura el reposo.
         MusicCompactGrid.Visibility = Visibility.Collapsed;
         TimerCompactGrid.Visibility = Visibility.Collapsed;
+        AppsCompactGrid.Visibility = Visibility.Collapsed;
         // Datos musicales: sin carátula, fondo difuminado, títulos ni seek.
         ClearMusicResidue();
         // Datos del temporizador: sin restante ni progreso heredados.
@@ -464,6 +473,7 @@ public partial class IslandWindow
         TimerRunRemaining.Text = "00:00:00";
         // Por si algún panel expandido quedó visible de la vista anterior.
         TimerAlert.Visibility = Visibility.Collapsed;
+        AppsExpanded.Visibility = Visibility.Collapsed;
         ApplyFrame();
     }
 
@@ -579,7 +589,7 @@ public partial class IslandWindow
             // destello condenado y el repliegue va DIRECTO al reposo (001 RF-2,
             // 001 MOD RF-16). Interactuar nunca prolonga el plazo.
             bool noticeAlive = _noticeUntil > DateTime.UtcNow;
-            if (_timerMode == 0)
+            if (_contentMode == 0)
             {
                 // La vista musical vigente, adoptando sesión si el snapshot no la
                 // tenía: sin esto el aviso temporal caía al reposo con música
@@ -591,7 +601,7 @@ public partial class IslandWindow
                 ShowInactiveOrHidden();
                 return;
             }
-            if (_timerMode == 1)
+            if (_contentMode == 1)
             {
                 // Conserva la funcionalidad expandida (002 RF-8); si el temporizador
                 // ya no sostiene la vista, manda la activa vigente: con música
@@ -600,6 +610,15 @@ public partial class IslandWindow
                 if (noticeAlive && _timer.State != Classes.IslandTimerState.Alerting
                     && ResolveActiveVigenteForVisible() is { } vigente1 && vigente1.TryShowCompact())
                     return;
+                ShowInactiveOrHidden();
+                return;
+            }
+            if (_contentMode == AppsContentMode)
+            {
+                // El cajón es un aviso más: se repliega al compacto mientras su
+                // plazo siga vivo y, si ya venció, al reposo sin destellos
+                // (001 RF-2, 001 MOD RF-16).
+                if (AppsKeepsView()) { ShowAppsCompact(); return; }
                 ShowInactiveOrHidden();
                 return;
             }
@@ -623,10 +642,10 @@ public partial class IslandWindow
             {
                 // El compacto debe ser media activa vigente sin residuos: volver
                 // a compacto limpio del contenido expandido previo si era timer.
-                if (_timerMode == 1)
+                if (_contentMode == 1)
                 {
-                    _timerMode = 0;
-                    ApplyTimerContentVisibility();
+                    _contentMode = 0;
+                    ApplyContentVisibility();
                 }
                 // Si ya estábamos en media, basta colapsar conservando contenido:
                 // la vista entra por el repliegue en dos fases (pieza → compacto).

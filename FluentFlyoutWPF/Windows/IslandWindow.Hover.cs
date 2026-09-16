@@ -34,6 +34,10 @@ namespace FluentFlyoutWPF.Windows;
 /// </summary>
 public partial class IslandWindow
 {
+    // Última comprobación de actividad desde el reposo: limita la frecuencia de
+    // las consultas al gestor multimedia del poll de puntero.
+    private DateTime _lastInactiveActivityCheck = DateTime.MinValue;
+
     private int HoverTolH => Math.Clamp(SettingsManager.Current.IslandHoverToleranceHorizontal < 0 ? 12 : SettingsManager.Current.IslandHoverToleranceHorizontal, 0, 80);
     private int HoverTolV => Math.Clamp(SettingsManager.Current.IslandHoverToleranceVertical < 0 ? 4 : SettingsManager.Current.IslandHoverToleranceVertical, 0, 40);
 
@@ -77,6 +81,10 @@ public partial class IslandWindow
     /// </summary>
     private void PollFringeHover()
     {
+        // La pieza inactiva vuelve al compacto en cuanto hay actividad, a la
+        // cadencia de este poll y no a la del latido del contenedor: es la mitad
+        // del camino de inactivo a compacto, la otra mitad es la animación.
+        PollInactiveActivity();
         if (_expanded || _drag) return;
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
         if (!NativeMethods.GetCursorPos(out var p)) return;
@@ -90,6 +98,25 @@ public partial class IslandWindow
         double lineTop = primary.workArea.Top + (IsNotch ? 1 : Math.Clamp(SettingsManager.Current.IslandLineTopOffset, 0, 60)) * primary.dpiY / 96.0;
         if (p.Y < primary.monitorArea.Top - 2 || p.Y > lineTop + 3 + tolV) return;
         HoverDetected();
+    }
+
+    /// <summary>
+    /// Reapertura del reposo por actividad (001 MOD RF-4, RF-16): si hay algo
+    /// activo vigente —música reproduciendo, cuenta en marcha—, la pieza deja
+    /// paso al compacto sin esperar al latido del contenedor. La comprobación va
+    /// limitada a <see cref="InactiveActivityPollMs"/> porque consulta al gestor
+    /// multimedia.
+    /// </summary>
+    private void PollInactiveActivity()
+    {
+        if (!AtInactiveRest) return;
+        if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
+        if (SettingsManager.Current.IslandVisibilityMode != 0) return;
+        if (_timer.State == Classes.IslandTimerState.Alerting) return;
+        if (DateTime.UtcNow < _hoverSnoozeUntil) return;
+        if ((DateTime.UtcNow - _lastInactiveActivityCheck).TotalMilliseconds < InactiveActivityPollMs) return;
+        _lastInactiveActivityCheck = DateTime.UtcNow;
+        TryReopenFromInactive();
     }
 
     private void Box_MouseLeave(object sender, MouseEventArgs e)
@@ -198,7 +225,9 @@ public partial class IslandWindow
     {
         // Temporizador: en expandido la rueda cambia de funcionalidad (002 MOD RF-3);
         // hacia arriba compacta sin cambiar de funcionalidad.
-        if (_expanded && TimerModeAvailable())
+        // Rueda en expandido: cambia de funcionalidad entre las usables (002 MOD
+        // RF-3/RF-9); hacia arriba compacta sin cambiar de funcionalidad.
+        if (_expanded && UsableFeatureCount() > 1)
         {
             if (e.OriginalSource is DependencyObject wheelSrc && (Seekbar.IsAncestorOf(wheelSrc) || TimerPresetList.IsAncestorOf(wheelSrc) || TimerConfigGrid.IsAncestorOf(wheelSrc))) return;
             if (e.Delta < 0) CycleMode();

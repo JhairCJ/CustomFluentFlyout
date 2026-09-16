@@ -25,8 +25,8 @@ namespace FluentFlyoutWPF.Windows;
 /// <summary>
 /// Fluent Island: contenedor escalable superior central con estados inactivo,
 /// compacto y expandido. Aloja funcionalidades registradas (media,
-/// temporizador) bajo un contrato común —habilitada/disponible/activa/
-/// seleccionada + vistas + dimensiones + exclusiva— (001 RF-11, RF-25).
+/// temporizador, cajón de aplicaciones) bajo un contrato común —habilitada/
+/// disponible/activa/seleccionada + vistas + dimensiones + exclusiva— (001 RF-11, RF-25).
 ///
 /// <para>Este archivo es el ESTADO y el CICLO DE VIDA: constantes de
 /// dimensiones, campos compartidos por todos los partials, arranque/cierre,
@@ -50,6 +50,7 @@ namespace FluentFlyoutWPF.Windows;
 /// <item><c>IslandWindow.Background.cs</c> — fondo de álbum difuminado y
 /// giratorio.</item>
 /// <item><c>IslandWindow.Timer.cs</c> — funcionalidad temporizador.</item>
+/// <item><c>IslandWindow.Apps.cs</c> — funcionalidad cajón de aplicaciones.</item>
 /// <item><c>IslandFeatures.cs</c> — contrato de funcionalidades y registro.</item>
 /// </list>
 /// </summary>
@@ -67,6 +68,16 @@ public partial class IslandWindow : Window
     private const double InactivePillWidth = 112;
     // Ancho de la línea de actividad (y base de la franja de detección).
     private const double LineFullWidth = 120;
+
+    // Cadencia de las dos detecciones del contenedor (ms). El latido es la red
+    // de seguridad de la actividad sin evento; el poll de puntero gobierna el
+    // hover vivo y la salida del reposo inactivo.
+    private const int TickIntervalMs = 200;
+    private const int HoverPollIntervalMs = 40;
+    // Cadencia de la comprobación de actividad desde el reposo (ms): reabre la
+    // pieza en cuanto hay algo activo sin someter al gestor multimedia a
+    // consultas a la frecuencia del poll de puntero.
+    private const int InactiveActivityPollMs = 150;
 
     private double ExpandedIslandWidth => Math.Clamp(
         SettingsManager.Current.IslandExpandedWidth > 0 ? SettingsManager.Current.IslandExpandedWidth : DefaultExpandedIslandWidth,
@@ -208,10 +219,13 @@ public partial class IslandWindow : Window
         WindowHelper.SetNoActivate(this);
         InitializeComponent();
         InitTimer();
-        // Contenedor escalable: media y temporizador se registran en orden de
-        // navegación; el contrato decide qué se puede mostrar (RF-11, RF-13).
+        InitApps();
+        // Contenedor escalable: media, temporizador y cajón de aplicaciones se
+        // registran en orden de navegación; el contrato decide qué se puede
+        // mostrar (RF-11, RF-13).
         _features.Register(new IslandMediaFeature(this));
         _features.Register(new IslandTimerFeature(this));
+        _features.Register(new IslandAppsFeature(this));
         // Migración del «Siempre en su lugar» (retirado, 001 REMOVED): un modo
         // guardado con el valor 2 pasa a «Visible mientras activo».
         if (SettingsManager.Current.IslandVisibilityMode is < 0 or > 1)
@@ -233,10 +247,15 @@ public partial class IslandWindow : Window
         // controla la ventana emergente de música). Sin sesión disponible el
         // contenido se reduce al temporizador (RF-13, RF-14).
         HookMediaEvents(true);
-        _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        // Latido de reconciliación: la actividad que llega sin evento propio
+        // (sesión adoptada tarde, cuenta que arranca) reaparece en el compacto
+        // con el menor retardo posible, no medio segundo después (001 MOD RF-4).
+        _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(TickIntervalMs) };
         _tick.Tick += (_, _) => Tick();
         _tick.Start();
-        _hoverPoll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        // Detección de puntero: la franja y la pieza inactiva responden al
+        // instante (hover vivo y reapertura del reposo), no a 150 ms.
+        _hoverPoll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(HoverPollIntervalMs) };
         _hoverPoll.Tick += (_, _) => PollFringeHover();
         _hoverPoll.Start();
         SyncExistingMediaState();
@@ -330,7 +349,13 @@ public partial class IslandWindow : Window
     private bool AnimationsEnabled => SettingsManager.Current.IslandAnimated && SettingsManager.Current.FlyoutAnimationSpeed != 0;
 
     /// <summary>¿La vista actual es música (no temporizador) con sesión disponible?</summary>
-    private bool MusicContentShown() => _timerMode == 0 && MusicAvailable();
+    private bool MusicContentShown() => _contentMode == 0 && MusicAvailable();
+
+    /// <summary>Funcionalidades usables ahora mismo: gobierna flechas y rueda de cambio.</summary>
+    private int UsableFeatureCount() => _features.UsableFeatures().Count();
+
+    /// <summary>Funcionalidades usables ahora mismo, en orden de registro.</summary>
+    private List<IIslandFeature> UsableFeatures() => _features.UsableFeatures().ToList();
 
     // ------------------------------------------------------------------
     // Ajustes en caliente: aplicar el estado completo del contenedor sin
@@ -361,13 +386,18 @@ public partial class IslandWindow : Window
         }
 
         Visibility = Visibility.Visible;
-        // El temporizador visible se conserva ante actualizaciones del contenedor
-        // (001 ADDED RF-1): no se reconstruye ni se desplaza sin un evento nuevo.
-        if (IsBoxShown && _timerMode == 1)
+        // El contenido visible (temporizador o cajón) se conserva ante
+        // actualizaciones del contenedor (001 ADDED RF-1): no se reconstruye ni
+        // se desplaza sin un evento nuevo.
+        if (IsBoxShown && _contentMode != 0)
         {
-            RefreshTimerUI();
-            ApplyTimerContentVisibility();
-            SyncMeasuredHeight();
+            if (_contentMode == AppsContentMode && !AppsModeAvailable()) FallbackFromAppsView();
+            else
+            {
+                if (_contentMode == 1) RefreshTimerUI();
+                ApplyContentVisibility();
+                SyncMeasuredHeight();
+            }
             RefreshAppearance();
             return;
         }
@@ -394,13 +424,13 @@ public partial class IslandWindow : Window
     public void RefreshVisibilityState()
     {
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
-        if (IsBoxShown && _timerMode == 1)
+        if (IsBoxShown && _contentMode != 0)
         {
-            // Temporizador visible: la actualización re-aplica su estado sin
-            // reconstruir paneles ni ceder la vista a música sin evento nuevo
+            // Temporizador o cajón visible: la actualización re-aplica su estado
+            // sin reconstruir paneles ni ceder la vista a música sin evento nuevo
             // (001 ADDED RF-1, 002 ADDED RF-1).
-            RefreshTimerUI();
-            ApplyTimerContentVisibility();
+            if (_contentMode == 1) RefreshTimerUI();
+            ApplyContentVisibility();
             SyncMeasuredHeight();
             return;
         }

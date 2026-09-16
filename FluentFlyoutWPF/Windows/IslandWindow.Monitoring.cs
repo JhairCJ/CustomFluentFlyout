@@ -34,9 +34,11 @@ namespace FluentFlyoutWPF.Windows;
 public partial class IslandWindow
 {
     /// <summary>
-    /// Latido del contenedor cada 500 ms: aplica supresión, concilia el snapshot
-    /// musical, resuelve reposo/actividad sin evento, mantiene viva la cuenta del
-    /// temporizador y avanza el seek del expandido.
+    /// Latido del contenedor cada <see cref="TickIntervalMs"/> ms: aplica
+    /// supresión, concilia el snapshot musical, resuelve reposo/actividad sin
+    /// evento, mantiene viva la cuenta del temporizador y avanza el seek del
+    /// expandido. Cadencia corta a propósito: la actividad que no trae evento
+    /// propio (001 MOD RF-4) no debe tardar medio segundo en verse.
     /// </summary>
     private void Tick()
     {
@@ -100,7 +102,7 @@ public partial class IslandWindow
         SyncEq();
         _timer.Poll(DateTime.UtcNow);
         UpdateArrows();
-        if (_timerMode == 1 && IsBoxShown)
+        if (_contentMode == 1 && IsBoxShown)
         {
             RefreshTimerUI();
             EnsureTimerContentShown();

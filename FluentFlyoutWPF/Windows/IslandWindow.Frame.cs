@@ -25,12 +25,23 @@ namespace FluentFlyoutWPF.Windows;
 public partial class IslandWindow
 {
     /// <summary>
-    /// Duración de la transición compacto-con-contenido <-> pieza inactiva:
-    /// sigue la velocidad global de animaciones para que sea coherente con el
-    /// resto del Island (001 MOD RF-16).
+    /// Duración de la transición contenido -> pieza inactiva: sigue la velocidad
+    /// global de animaciones para que sea coherente con el resto del Island
+    /// (001 MOD RF-16).
     /// </summary>
     private static double InactiveTransitionSeconds =>
         Math.Clamp(MainWindow.getDuration(), 120, 700) / 1000.0;
+
+    /// <summary>
+    /// Duración de la transición pieza inactiva -> contenido: la MITAD que la de
+    /// entrada al reposo y con suelo bajo, porque es la que el usuario mira
+    /// cuando vuelve la actividad —o cuando la pieza encadena su fase 2 tras un
+    /// repliegue— (001 MOD RF-16). La geometría y la opacidad del contenido
+    /// siguen compartiendo este mismo reloj: el compacto FLORECE desde la pieza,
+    /// nunca aparece de golpe, pero ya.
+    /// </summary>
+    private static double InactiveReopenSeconds =>
+        Math.Clamp(MainWindow.getDuration() * 0.5, 90, 220) / 1000.0;
 
     // Apple-ish: muelle subamortiguado suave, escalado con la duración global.
     private void GetSpring(out double kP, out double cP, out double kQ, out double cQ)
@@ -75,12 +86,15 @@ public partial class IslandWindow
         GetSpring(out double kP, out double cP, out double kQ, out double cQ);
         Step(ref _p, ref _pv, _pT, kP, cP, dt);
         Step(ref _q, ref _qv, _qT, kQ, cQ, dt);
-        // Progreso hacia la pieza inactiva: avance lineal a velocidad constante
-        // (ease-in-out lo aporta Smooth01 al pintar). Reapuntar a mitad de vuelo
-        // mantiene la misma velocidad y jamás da un salto (001 MOD RF-16).
+        // Progreso hacia/desde la pieza inactiva: avance lineal a velocidad
+        // constante (ease-in-out lo aporta Smooth01 al pintar). Reapuntar a mitad
+        // de vuelo mantiene la misma velocidad y jamás da un salto. Cada sentido
+        // tiene su reloj: entrar en el reposo es deliberado, salir de él es
+        // inmediato (001 MOD RF-16).
         if (_inactiveT != _inactiveTt)
         {
-            double step = dt / InactiveTransitionSeconds;
+            bool opening = _inactiveTt < _inactiveT;
+            double step = dt / (opening ? InactiveReopenSeconds : InactiveTransitionSeconds);
             _inactiveT += Math.Sign(_inactiveTt - _inactiveT) * step;
             if (_inactiveTt > _inactiveT ? _inactiveT >= _inactiveTt : _inactiveT <= _inactiveTt)
                 _inactiveT = _inactiveTt;
@@ -185,13 +199,13 @@ public partial class IslandWindow
             // así que es medible.
             ExpandedLayer.Measure(new Size(ContentExpandedWidth, double.PositiveInfinity));
             double measuredHeight = ExpandedLayer.DesiredSize.Height; // DesiredSize ya incluye el Margin vertical
-            // ponytail: el contenido timer manda por medida (sin huecos); música mantiene su ajuste fijo.
-            bool timerContent = TimerExpanded.Visibility == Visibility.Visible
-                || TimerRunPanel.Visibility == Visibility.Visible
-                || TimerAlert.Visibility == Visibility.Visible;
-            double h = IsNotch || timerContent ? measuredHeight : ContentExpandedHeight;
+            // ponytail: el contenido medido manda por medida (sin huecos) —el
+            // temporizador y el cajón de aplicaciones ponen su propio alto—;
+            // música mantiene su ajuste fijo.
+            bool measuredContent = _contentMode != 0;
+            double h = IsNotch || measuredContent ? measuredHeight : ContentExpandedHeight;
             double old = _hexp;
-            if (h > (timerContent ? 34 : 60) && h < 260) _hexp = h;
+            if (h > (measuredContent ? 34 : 60) && h < 260) _hexp = h;
             // El objetivo manda: si cambió, correr frames (o snapping). Si no
             // cambió, ni se toca el loop: música en reposo ni se entera.
             if (_hexp != old)

@@ -147,6 +147,39 @@
                         <TextBlock x:Name="TimerRemaining" Grid.Column="2" Text="00:00:00" Foreground="White" FontSize="12"
                                    VerticalAlignment="Center"/>
                     </Grid>
+                    <!-- Cajón de aplicaciones en compacto: fila de iconos; cada clic lanza su aplicación.
+                         Las que no caben en el renglón viven en el expandido y aquí solo se cuenta. -->
+                    <Grid x:Name="AppsCompactGrid" Margin="6,0,10,0" Visibility="Collapsed">
+                        <ItemsControl x:Name="AppsCompactList" HorizontalAlignment="Left" VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Width="24" Height="24" CornerRadius="7" Margin="0,0,4,0" Cursor="Hand"
+                                            ToolTip="{Binding ToolTip}" MouseLeftButtonUp="AppLaunch_Click">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="#22FFFFFF"/>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Background" Value="#44FFFFFF"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Image Source="{Binding Icon}" Width="16" Height="16" Stretch="Uniform"
+                                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="AppsCompactMore" Text="" Foreground="White" FontSize="11" Opacity="0.6"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   Visibility="Collapsed" IsHitTestVisible="False"/>
+                    </Grid>
                 </Grid>
 
                 <!-- Capa expandida: tarjeta compacta con carátula + título/artista + tiempos + controles.
@@ -347,6 +380,47 @@
                         <TextBlock x:Name="TimerAlertName" Grid.Column="1" Text="Timer" Foreground="White" FontSize="14" FontWeight="SemiBold"
                                    VerticalAlignment="Center" HorizontalAlignment="Right" Margin="12,0,0,0" TextTrimming="CharacterEllipsis"/>
                     </Grid>
+                    <!-- Cajón de aplicaciones en expandido: cuadrícula de iconos con nombre.
+                         La altura la mide el contenedor (SyncMeasuredHeight) y el ancho es el configurado. -->
+                    <StackPanel x:Name="AppsExpanded" Visibility="Collapsed" Margin="0,2,0,2">
+                        <TextBlock x:Name="AppsExpandedHeader" Text="Aplicaciones" FontSize="11" Opacity="0.6"
+                                   Foreground="White" Margin="0,0,0,6"/>
+                        <ItemsControl x:Name="AppsExpandedList">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Width="50" Height="50" CornerRadius="12" Margin="0,0,6,6" Cursor="Hand"
+                                            ToolTip="{Binding ToolTip}" MouseLeftButtonUp="AppLaunch_Click">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="#1AFFFFFF"/>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Background" Value="#3CFFFFFF"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="*" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <Image Grid.Row="0" Source="{Binding Icon}" Width="24" Height="24" Margin="0,7,0,0"
+                                                   VerticalAlignment="Top" Stretch="Uniform"
+                                                   RenderOptions.BitmapScalingMode="HighQuality"/>
+                                            <TextBlock Grid.Row="1" Text="{Binding Name}" Foreground="White" FontSize="9" Opacity="0.75"
+                                                       Margin="4,0,4,4" TextTrimming="CharacterEllipsis" TextAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </Border>
