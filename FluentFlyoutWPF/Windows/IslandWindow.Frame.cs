@@ -70,8 +70,15 @@ public partial class IslandWindow
             double durationScale = configuredDuration > 0 ? configuredDuration / 300.0 : 1.0;
             double frequencyScale = 1.0 / (durationScale * durationScale);
             double dampingScale = 1.0 / durationScale;
-            _springKP = 520 * frequencyScale; _springCP = 34 * dampingScale;
-            _springKQ = 200 * frequencyScale; _springCQ = 28 * dampingScale; // ambos estilos emergen desde el centro como Island
+            // Amortiguamiento elegido para que el muelle REBOTE como los de Apple
+            // (ζ ≈ 0.58 en el morfe, ζ ≈ 0.72 en el revelado): al llegar al tamaño
+            // final se pasa un poco y vuelve. Con amortiguamiento alto (ζ ≈ 0.75 y
+            // ≈ 0.99, los valores anteriores) la isla frenaba en seco y se sentía
+            // estática por mucho que el muelle tuviera overshoot: ApplyFrame lo
+            // recortaba. La duración global escala k y c a la vez, así que la ζ (y
+            // por tanto el rebote) es la misma a cualquier velocidad.
+            _springKP = 520 * frequencyScale; _springCP = 26 * dampingScale;
+            _springKQ = 200 * frequencyScale; _springCQ = 20 * dampingScale; // ambos estilos emergen desde el centro como Island
             if (notch) _springKP *= 1.05;
         }
         kP = _springKP; cP = _springCP; kQ = _springKQ; cQ = _springCQ;
@@ -242,6 +249,40 @@ public partial class IslandWindow
     private static double Smooth01(double t) => t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
     private static double Lerp(double a, double b, double t) => a + (b - a) * t;
 
+    /// <summary>
+    /// Techo del rebote: cuánto puede pasarse la geometría de su tamaño final (o
+    /// quedarse corta al replegarse). Con los muelles de <see cref="GetSpring"/> el
+    /// pico real ronda el 10% en el morfe y el 4% en el revelado; el tope solo
+    /// existe para que ningún ajuste de velocidad pueda desbocar el contenedor.
+    /// </summary>
+    private const double BounceLimit = 0.12;
+
+    /// <summary>
+    /// Progreso con el REBOTE del muelle intacto. El muelle ya es la curva (arranca
+    /// y frena solo, y se pasa de su objetivo); al pintar se usa tal cual para la
+    /// geometría, así el contenedor se pasa un poco de su tamaño y vuelve —el
+    /// rebote de Apple— en lugar de frenar en seco. Las opacidades y los morphs de
+    /// contenido siguen con la curva acotada: el rebote se siente en el cuerpo de
+    /// la isla, nunca desborda ni parpadea.
+    /// </summary>
+    private static double BounceCurve(double t) => Math.Clamp(t, -BounceLimit, 1 + BounceLimit);
+
+    /// <summary>
+    /// Curva del estirón del revelado (oculto -> punto -> ancho de reposo).
+    /// Mantiene la forma suave original (el punto nace sin dar un salto al cruzar su
+    /// umbral de ancho) y deja pasar el rebote SOLO en la cola, cuando el muelle ya
+    /// se ha pasado de su objetivo: entonces el ancho se pasa un poco con él y
+    /// vuelve. Un rebote inyectado en toda la curva multiplicaría el valor del
+    /// umbral y el punto pegaría un tirón al empezar a estirarse.
+    /// </summary>
+    private static double RevealStretch(double q)
+    {
+        double t = (q - 0.18) / 0.82;
+        if (t <= 0) return 0;
+        if (t < 1) return Smooth01(t);
+        return 1 + Math.Min(t - 1, BounceLimit);
+    }
+
     private void SnapFrame()
     {
         // Estado base coherente antes del primer frame
@@ -302,6 +343,10 @@ public partial class IslandWindow
     {
         double p = Math.Clamp(_p, 0, 1);
         double q = Math.Clamp(_q, 0, 1);
+        // Progreso del muelle CON su rebote, solo para geometría (ancho/alto): el
+        // contenedor se pasa un poco de su tamaño final y vuelve. El revelado (q)
+        // lleva el suyo por la curva del estirón, más abajo.
+        double bounceP = BounceCurve(_p);
         // Progreso hacia la pieza inactiva, con ease-in-out: gobierna a la vez el
         // ancho de reposo y el desvanecido de TODO el contenido, así el paso
         // compacto-con-contenido <-> inactivo es una sola transición suave
@@ -346,10 +391,10 @@ public partial class IslandWindow
                 ? InactivePillWidth
                 : Lerp(NotchCompactWidth, InactivePillWidth, inact);
             double dotT = Math.Clamp(q / 0.32, 0, 1);
-            double stretchT = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
+            double stretchT = RevealStretch(q);
             double baseW = q < 0.32 ? notchDot : Lerp(notchDot, compactW, stretchT);
-            w = Lerp(baseW, ContentExpandedWidth, Smooth01(p));
-            h = Lerp(ContentCompactHeight, _hexpShown, Smooth01(p));
+            w = Lerp(baseW, ContentExpandedWidth, bounceP);
+            h = Lerp(ContentCompactHeight, _hexpShown, bounceP);
             // Hover vivo: crece desde el punto y en reposo (también en compacto).
             w += hotW * (1 - Smooth01(p));
             double revealOpacity = Smooth01(Math.Clamp(q / 0.38, 0, 1));
@@ -382,7 +427,7 @@ public partial class IslandWindow
             // más estrecha, 001 MOD RF-11) -> ancho expandido configurado.
             const double pillDot = 26;
             double dotT = Math.Clamp(q / 0.32, 0, 1);
-            double stretchT = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
+            double stretchT = RevealStretch(q);
             // Rumbo a la pieza desde el expandido el ancho de reposo YA es el de la
             // pieza: el morfe va directo de expandido a inactivo sin dibujar de
             // paso la silueta del compacto (que es lo que se leía como «pasa por
@@ -391,8 +436,8 @@ public partial class IslandWindow
                 ? InactivePillWidth
                 : Lerp(ContentCompactWidth, InactivePillWidth, inact);
             double baseW = q < 0.32 ? pillDot : Lerp(pillDot, restW, stretchT);
-            w = Lerp(baseW, ContentExpandedWidth, Smooth01(p));
-            h = Lerp(ContentCompactHeight, _hexpShown, Smooth01(p));
+            w = Lerp(baseW, ContentExpandedWidth, bounceP);
+            h = Lerp(ContentCompactHeight, _hexpShown, bounceP);
             // Hover vivo: crece desde el punto y en reposo (también en compacto).
             w += hotW * (1 - Smooth01(p));
             IslandBox.Width = w;

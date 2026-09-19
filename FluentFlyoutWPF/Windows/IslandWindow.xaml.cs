@@ -270,6 +270,29 @@ public partial class IslandWindow : Window
         PositionTopCenter();
         SyncMeasuredHeight();
         SnapFrame();
+        // Reposo inicial resuelto ya en el arranque (001 MOD RF-2): el contenedor
+        // nace con su vista decidida —activa vigente, pieza inactiva u oculto según
+        // ajustes— en vez de quedarse la caja Collapsed del XAML hasta el primer
+        // evento de media. Ése era el fallo: sin reproducción el Island no existía,
+        // y por tanto no había forma de abrir el temporizador ni el cajón.
+        //
+        // Solo se toca si no hay nada a la vista: si el arranque ya adoptó una
+        // reproducción en curso (SyncExistingMediaState), su vista manda. La caja se
+        // hace visible ANTES de resolver —con q=0 la gobierna el frame, así que
+        // entra con el revelado punto -> pieza— y sin residuos en el árbol.
+        if (!SettingsManager.Current.IslandEnabled)
+        {
+            SnapHidden();
+            Visibility = Visibility.Collapsed;
+            return;
+        }
+        if (IsBoxShown) return;
+        // Nada de residuos en el árbol antes de la primera aparición: sin evento de
+        // media previo, la capa compacta conservaría del XAML su ecualizador y su
+        // titular vacío, y el revelado los enseñaría un instante.
+        ClearInactiveResidue();
+        IslandBox.Visibility = Visibility.Visible;
+        ShowInactiveOrHidden();
     }
 
     private void NotePlay(string id) { _lastPlay[id] = DateTime.Now; _lastFeatureEvent["media"] = DateTime.UtcNow; _currentId = id; }
@@ -416,9 +439,11 @@ public partial class IslandWindow : Window
             if (session0 != null) ShowMusicCompact(session0, status0);
         }
         else if (TimerKeepsAlive()) ShowTimerCompact();
-        else if (IsBoxShown && !_expanded)
+        else if (!_expanded)
         {
-            // Reposo re-resuelto al cambiar ajustes (pieza o nada).
+            // Reposo re-resuelto (pieza o nada) al cambiar ajustes y TAMBIÉN al
+            // arrancar: la condición no puede exigir una caja ya visible, porque el
+            // arranque es justo el caso en que todavía no hay ninguna (001 MOD RF-2).
             ShowInactiveOrHidden();
         }
         RefreshAppearance();
@@ -445,7 +470,9 @@ public partial class IslandWindow : Window
         var session = ActiveMediaSession();
         if (session == null)
         {
-            if (!TimerKeepsAlive() && IsBoxShown && !_expanded) ShowInactiveOrHidden();
+            // Igual que en RefreshEnabledState: el reposo se resuelve aunque la caja
+            // todavía no esté a la vista (arranque), no solo cuando ya lo estaba.
+            if (!TimerKeepsAlive() && !_expanded) ShowInactiveOrHidden();
             return;
         }
         var status = SafeStatus(session) ?? _music?.Status;
