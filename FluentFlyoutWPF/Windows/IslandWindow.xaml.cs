@@ -238,14 +238,16 @@ public partial class IslandWindow : Window
         InitTimer();
         InitApps();
         InitShelf();
-        // Contenedor escalable: media, temporizador, cajón de aplicaciones y estante de
-        // archivos se registran en su orden por defecto; el contrato decide qué se puede
-        // mostrar (RF-11, RF-13) y ApplyFeatureOrder impone después el orden que el
-        // usuario haya elegido en ajustes.
+        InitCalendar();
+        // Contenedor escalable: media, temporizador, cajón de aplicaciones, estante de
+        // archivos y recordatorios de calendario se registran en su orden por defecto;
+        // el contrato decide qué se puede mostrar (RF-11, RF-13) y ApplyFeatureOrder
+        // impone después el orden que el usuario haya elegido en ajustes.
         _features.Register(new IslandMediaFeature(this));
         _features.Register(new IslandTimerFeature(this));
         _features.Register(new IslandAppsFeature(this));
         _features.Register(new IslandShelfFeature(this));
+        _features.Register(new IslandCalendarFeature(this));
         ApplyFeatureOrder();
         // Migración del «Siempre en su lugar» (retirado, 001 REMOVED): un modo
         // guardado con el valor 2 pasa a «Visible mientras activo».
@@ -448,6 +450,9 @@ public partial class IslandWindow : Window
             // Mismo caso para el estante: si dejó de ser usable mientras estaba a la
             // vista (se apagó en ajustes), se repliega a la activa vigente o al reposo.
             else if (_contentMode == IslandContentMode.Shelf && !ShelfModeAvailable()) FallbackFromShelfView();
+            // Y el calendario: sin sesión (o con la funcionalidad apagada) no puede
+            // quedarse pintado (cerrar sesión no deja eventos ajenos a la vista).
+            else if (_contentMode == IslandContentMode.Calendar && !CalendarModeAvailable()) FallbackFromCalendarView();
             else
             {
                 if (_contentMode == IslandContentMode.Timer) RefreshTimerUI();

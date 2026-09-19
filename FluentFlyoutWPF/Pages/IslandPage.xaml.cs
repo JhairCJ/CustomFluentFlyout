@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
+using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Models;
 using FluentFlyoutWPF.ViewModels;
 using System.Diagnostics;
@@ -136,4 +137,95 @@ public partial class IslandPage : Page
         foreach (var item in SettingsManager.Current.IslandShelfItems.ToList())
             SettingsManager.Current.RemoveIslandShelfItem(item);
     }
+
+    // --- recordatorios de Google Calendar ---
+
+    /// <summary>
+    /// Inicia sesión con Google desde ajustes: abre el navegador en la pantalla de
+    /// permiso y captura la respuesta en un bucle local; después guarda los tokens y
+    /// deja el calendario leyéndose solo. Mientras dura, el botón se apaga para que no
+    /// se abran dos autorizaciones a la vez.
+    /// </summary>
+    private async void GoogleCalendarSignIn_Click(object sender, RoutedEventArgs e)
+    {
+        var settings = SettingsManager.Current;
+        var button = sender as Button;
+        if (button != null) button.IsEnabled = false;
+        try
+        {
+            string clientId = settings.GoogleCalendarClientId.Trim();
+            if (clientId.Length == 0)
+            {
+                settings.GoogleCalendarError = "Pega el id del cliente OAuth de tu proyecto de Google.";
+                return;
+            }
+            settings.GoogleCalendarError = "";
+            settings.GoogleCalendarStatus = "Esperando a que autorices en el navegador…";
+            var tokens = await GoogleCalendarClient.AuthorizeAsync(clientId, settings.GoogleCalendarClientSecret.Trim());
+            GoogleCalendarClient.Save(settings, tokens);
+            settings.GoogleCalendarAccount = await GoogleCalendarClient.FetchAccountAsync(tokens.AccessToken);
+            settings.GoogleCalendarStatus = "Sesión iniciada.";
+            // Si alguien se conecta es porque quiere los recordatorios: se enciende la
+            // funcionalidad en el mismo gesto (el interruptor sigue estando ahí).
+            settings.IslandCalendarEnabled = true;
+            SettingsManager.SaveSettings();
+            RefreshIslandCalendar();
+            await GoogleCalendarService.Instance.RefreshNowAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            // El usuario cerró la pestaña o dejó pasar los cinco minutos.
+            settings.GoogleCalendarStatus = "";
+            settings.GoogleCalendarError = "No se completó la autorización: vuelve a intentarlo.";
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "Calendario: inicio de sesión fallido");
+            settings.GoogleCalendarStatus = "";
+            settings.GoogleCalendarError = ex.Message;
+        }
+        finally
+        {
+            if (button != null) button.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Cierra la sesión: se van los tokens y con ellos la lectura del calendario. El id
+    /// y el secreto del cliente se conservan para no volver a pegarlos.
+    /// </summary>
+    private void GoogleCalendarSignOut_Click(object sender, RoutedEventArgs e)
+    {
+        SettingsManager.Current.SignOutGoogleCalendar();
+        RefreshIslandCalendar();
+    }
+
+    /// <summary>Sincroniza ahora mismo, sin esperar al siguiente ciclo del servicio.</summary>
+    private async void GoogleCalendarRefresh_Click(object sender, RoutedEventArgs e)
+    {
+        var settings = SettingsManager.Current;
+        if (!settings.GoogleCalendarSignedIn)
+        {
+            settings.GoogleCalendarError = "Inicia sesión con Google para leer el calendario.";
+            return;
+        }
+        var button = sender as Button;
+        if (button != null) button.IsEnabled = false;
+        settings.GoogleCalendarStatus = "Sincronizando…";
+        try
+        {
+            await GoogleCalendarService.Instance.RefreshNowAsync();
+            settings.GoogleCalendarStatus = settings.GoogleCalendarError.Length == 0 ? "Calendario al día." : "";
+        }
+        finally
+        {
+            if (button != null) button.IsEnabled = true;
+            // La vista del Island se reengancha al estado nuevo (sesión, minutos, orden).
+            RefreshIslandCalendar();
+        }
+    }
+
+    /// <summary>Aplica el ajuste del calendario al contenedor sin reiniciar la app.</summary>
+    private static void RefreshIslandCalendar() =>
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshCalendarContent();
 }

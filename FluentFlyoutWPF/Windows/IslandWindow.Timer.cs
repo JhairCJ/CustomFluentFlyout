@@ -179,6 +179,27 @@ public partial class IslandWindow
             UpdateArrows();
             return;
         }
+        // Calendario: vista propia con actividad (recordatorio vivo), igual de
+        // excluyente con el resto de capas que el estante.
+        bool calendar = _contentMode == IslandContentMode.Calendar && CalendarModeAvailable();
+        CalendarCompactGrid.Visibility = calendar ? Visibility.Visible : Visibility.Collapsed;
+        CalendarExpanded.Visibility = calendar ? Visibility.Visible : Visibility.Collapsed;
+        if (calendar)
+        {
+            MusicCompactGrid.Visibility = Visibility.Collapsed;
+            TimerCompactGrid.Visibility = Visibility.Collapsed;
+            AppsCompactGrid.Visibility = Visibility.Collapsed;
+            ShelfCompactGrid.Visibility = Visibility.Collapsed;
+            MusicExpandedTop.Visibility = Visibility.Collapsed;
+            ControlsRow.Visibility = Visibility.Collapsed;
+            SeekRow.Visibility = Visibility.Collapsed;
+            TimerAlert.Visibility = Visibility.Collapsed;
+            AppsExpanded.Visibility = Visibility.Collapsed;
+            ShelfExpanded.Visibility = Visibility.Collapsed;
+            CrossfadeTimerPanels(showConfig: false, showRun: false);
+            UpdateArrows();
+            return;
+        }
         bool apps = _contentMode == IslandContentMode.Apps && AppsModeAvailable();
         bool timer = _contentMode == IslandContentMode.Timer && TimerModeAvailable();
         AppsCompactGrid.Visibility = apps ? Visibility.Visible : Visibility.Collapsed;

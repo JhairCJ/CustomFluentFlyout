@@ -219,6 +219,23 @@
                                    HorizontalAlignment="Right" VerticalAlignment="Center"
                                    Visibility="Collapsed" IsHitTestVisible="False"/>
                     </Grid>
+                    <!-- Recordatorios de calendario en compacto: glifo (campana cuando el evento
+                         está dentro de su ventana de recordatorio), título del evento que viene y
+                         su cuenta atrás. -->
+                    <Grid x:Name="CalendarCompactGrid" Margin="6,0,10,0" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ui:SymbolIcon x:Name="CalendarCompactGlyph" Grid.Column="0" Symbol="Calendar24" Filled="True"
+                                       Foreground="White" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"
+                                       IsHitTestVisible="False"/>
+                        <TextBlock x:Name="CalendarCompactTitle" Grid.Column="1" Foreground="White" FontSize="12"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" IsHitTestVisible="False"/>
+                        <TextBlock x:Name="CalendarCompactCountdown" Grid.Column="2" Foreground="White" FontSize="11"
+                                   Opacity="0.75" VerticalAlignment="Center" Margin="8,0,0,0" IsHitTestVisible="False"/>
+                    </Grid>
                 </Grid>
 
                 <!-- Capa expandida: tarjeta compacta con carátula + título/artista + tiempos + controles.
@@ -506,6 +523,40 @@
                                             </Border>
                                         </Grid>
                                     </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                    <!-- Recordatorios de calendario en expandido: el evento que va a empezar (o los
+                         próximos) con su franja y su cuenta atrás. La altura la mide el contenedor
+                         (SyncMeasuredHeight). -->
+                    <StackPanel x:Name="CalendarExpanded" Visibility="Collapsed" Margin="0,2,0,2">
+                        <Grid Margin="0,0,0,6">
+                            <TextBlock x:Name="CalendarExpandedHeader" Text="Próximos eventos" FontSize="11" Opacity="0.6"
+                                       Foreground="White" HorizontalAlignment="Left"/>
+                            <TextBlock x:Name="CalendarSyncedText" Text="" FontSize="10" Opacity="0.4"
+                                       Foreground="White" HorizontalAlignment="Right"/>
+                        </Grid>
+                        <TextBlock x:Name="CalendarExpandedEmpty" Text="Sin eventos próximos en el calendario."
+                                   FontSize="12" Opacity="0.55" Foreground="White" Margin="0,0,0,6"
+                                   TextWrapping="WrapWithOverflow" Visibility="Collapsed"/>
+                        <ItemsControl x:Name="CalendarExpandedList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,0,0,6" ToolTip="{Binding ToolTipText}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding WhenText}" FontSize="11" Opacity="0.75"
+                                                   Foreground="White" VerticalAlignment="Center" Width="78"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="12" Foreground="White"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="6,0,6,0"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding CountdownText}" FontSize="11" Opacity="0.6"
+                                                   Foreground="White" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                                    </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>

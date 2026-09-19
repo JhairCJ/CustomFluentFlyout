@@ -26,8 +26,11 @@ public static class IslandFeatureIds
     /// <summary>Estante de archivos.</summary>
     public const string Shelf = "shelf";
 
+    /// <summary>Recordatorios de Google Calendar.</summary>
+    public const string Calendar = "calendar";
+
     /// <summary>Orden por defecto de las funcionalidades del contenedor.</summary>
-    public static readonly IReadOnlyList<string> All = [Media, Timer, Apps, Shelf];
+    public static readonly IReadOnlyList<string> All = [Media, Timer, Apps, Shelf, Calendar];
 
     /// <summary>¿Es un identificador conocido? (los desconocidos se descartan al cargar)</summary>
     public static bool IsKnown(string? id) => id != null && All.Contains(id);
@@ -39,6 +42,7 @@ public static class IslandFeatureIds
         Timer => "Temporizador",
         Apps => "Cajón de aplicaciones",
         Shelf => "Estante de archivos",
+        Calendar => "Recordatorios de calendario",
         _ => id ?? "",
     };
 }

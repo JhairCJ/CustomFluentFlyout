@@ -197,6 +197,29 @@ public sealed class IslandShelfFeature(IslandWindow owner) : IIslandFeature
 }
 
 /// <summary>
+/// Funcionalidad «recordatorios de calendario» del island: disponible cuando está
+/// habilitada y hay sesión de Google iniciada desde ajustes (sin sesión no hay nada
+/// que enseñar). A diferencia del cajón y el estante, SÍ tiene actividad propia: el
+/// recordatorio de un evento la mantiene activa mientras el evento está a punto de
+/// empezar, así que su vista se sostiene sola y el contenedor se despliega al avisar
+/// (001 MOD RF-4).
+/// </summary>
+public sealed class IslandCalendarFeature(IslandWindow owner) : IIslandFeature
+{
+    public string Id => IslandFeatureIds.Calendar;
+
+    public IslandFeatureState State => owner.GetCalendarFeatureState();
+
+    public double CompactWidth => 240;
+    public double CompactHeight => 34;
+    public double ExpandedPreferredWidth => 0; // ancho común configurado
+    public double ExpandedPreferredHeight => 0; // medir contenido (lista de eventos)
+
+    public bool TryShowExpanded() => owner.ShowCalendarExpandedFromContract();
+    public bool TryShowCompact() => owner.ShowCalendarCompactFromContract();
+}
+
+/// <summary>
 /// Funcionalidad «temporizador» del island (002): disponible siempre que esté
 /// habilitada (su configuración es usable sin media); activa con cuenta en
 /// marcha; la alerta final declara acceso exclusivo persistente (002 MOD RF-2).

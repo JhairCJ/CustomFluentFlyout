@@ -1313,6 +1313,98 @@ public partial class UserSettings : ObservableObject
     public partial string IslandShelfError { get; set; }
 
     /// <summary>
+    /// Recordatorios de Google Calendar: funcionalidad habilitada. Con ella apagada no
+    /// se lee el calendario (ni red ni token) y el Island no la ofrece.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandCalendarEnabled { get; set; }
+
+    /// <summary>
+    /// Google Calendar: minutos de antelación del recordatorio (1-60). El aviso sigue
+    /// vivo hasta dos minutos después del comienzo.
+    /// </summary>
+    [ObservableProperty]
+    public partial int GoogleCalendarReminderMinutes { get; set; }
+
+    /// <summary>Google Calendar: cada cuántos minutos se relee el calendario (1-60).</summary>
+    [ObservableProperty]
+    public partial int GoogleCalendarRefreshMinutes { get; set; }
+
+    /// <summary>Google Calendar: cuántos días hacia delante se leen (1-14).</summary>
+    [ObservableProperty]
+    public partial int GoogleCalendarDaysAhead { get; set; }
+
+    /// <summary>
+    /// Id del cliente OAuth del usuario (tipo «Aplicación de escritorio»): es el
+    /// proyecto de Google que autoriza la app, no una credencial de la app.
+    /// </summary>
+    [ObservableProperty]
+    public partial string GoogleCalendarClientId { get; set; }
+
+    /// <summary>
+    /// Secreto del cliente OAuth. Google lo exige también en apps de escritorio y no
+    /// es confidencial (viaja en el binario de cualquier app instalada), pero se
+    /// guarda con los ajustes como el resto.
+    /// </summary>
+    [ObservableProperty]
+    public partial string GoogleCalendarClientSecret { get; set; }
+
+    /// <summary>Token de acceso vigente (se renueva solo con el de refresco).</summary>
+    [ObservableProperty]
+    public partial string GoogleCalendarAccessToken { get; set; }
+
+    /// <summary>
+    /// Token de refresco: es la sesión. Su presencia es lo que define «sesión
+    /// iniciada»; se borra al cerrar sesión, que es lo que revoca el acceso local.
+    /// </summary>
+    [ObservableProperty]
+    public partial string GoogleCalendarRefreshToken { get; set; }
+
+    /// <summary>Caducidad del token de acceso, en UTC.</summary>
+    [ObservableProperty]
+    public partial DateTime GoogleCalendarTokenExpiresUtc { get; set; }
+
+    /// <summary>Cuenta conectada (correo del calendario principal). Vacío = sin sesión.</summary>
+    [ObservableProperty]
+    public partial string GoogleCalendarAccount { get; set; }
+
+    /// <summary>
+    /// Último error del calendario en español. Vacío = sin error. Se pinta en ajustes:
+    /// los fallos de red o de permiso no deben morir en el registro.
+    /// </summary>
+    [XmlIgnore]
+    [ObservableProperty]
+    public partial string GoogleCalendarError { get; set; }
+
+    /// <summary>
+    /// Mensaje de estado del calendario en español: «Conectando con Google…», «Sesión
+    /// iniciada». No persiste (es del momento) y se pinta en ajustes.
+    /// </summary>
+    [XmlIgnore]
+    [ObservableProperty]
+    public partial string GoogleCalendarStatus { get; set; }
+
+    /// <summary>¿Hay sesión de Google iniciada? (no persiste: se deduce del token)</summary>
+    [XmlIgnore]
+    public bool GoogleCalendarSignedIn => GoogleCalendarRefreshToken.Length > 0;
+
+    /// <summary>
+    /// Encender o apagar los recordatorios se aplica en el acto: el contenedor reengancha
+    /// sus vistas y el servicio arranca o para su bucle (con la funcionalidad apagada no
+    /// se gasta red ni token leyendo el calendario).
+    /// </summary>
+    partial void OnIslandCalendarEnabledChanged(bool oldValue, bool newValue) =>
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshCalendarContent();
+
+    partial void OnGoogleCalendarRefreshTokenChanged(string oldValue, string newValue)
+    {
+        // El resto de la app se pregunta por GoogleCalendarSignedIn: al cambiar la
+        // sesión hay que avisar también de esa propiedad.
+        OnPropertyChanged(nameof(GoogleCalendarSignedIn));
+        if (!_initializing) SettingsManager.SaveSettings();
+    }
+
+    /// <summary>
     /// Returns whether app filtering is enabled or disabled.
     /// </summary>
     [ObservableProperty]
@@ -1629,6 +1721,18 @@ public partial class UserSettings : ObservableObject
         // colección existente.
         IslandShelfItems = [];
         IslandShelfError = "";
+        IslandCalendarEnabled = false;
+        GoogleCalendarReminderMinutes = 5;
+        GoogleCalendarRefreshMinutes = 5;
+        GoogleCalendarDaysAhead = 7;
+        GoogleCalendarClientId = "";
+        GoogleCalendarClientSecret = "";
+        GoogleCalendarAccessToken = "";
+        GoogleCalendarRefreshToken = "";
+        GoogleCalendarTokenExpiresUtc = DateTime.MinValue;        GoogleCalendarAccount = "";
+        GoogleCalendarError = "";
+        GoogleCalendarStatus = "";
+
         IslandFeatureOrder = [.. IslandFeatureIds.All];
         AppFilteringEnabled = false;
         AppFilteringMode = 0;
@@ -1745,6 +1849,19 @@ public partial class UserSettings : ObservableObject
         // defecto y cualquier id que no exista se descarta.
         IslandFeatureOrder ??= [.. IslandFeatureIds.All];
         SanitizeIslandFeatureOrder();
+        // Migración del calendario: XML antiguos sin estos ajustes arrancan con la
+        // funcionalidad apagada (nadie concede acceso a su calendario por sorpresa) y
+        // con las ventanas por defecto. Las cadenas nunca son null tras el XML.
+        GoogleCalendarClientId ??= "";
+        GoogleCalendarClientSecret ??= "";
+        GoogleCalendarAccessToken ??= "";
+        GoogleCalendarRefreshToken ??= "";
+        GoogleCalendarAccount ??= "";
+        GoogleCalendarError = "";
+        GoogleCalendarStatus = "";
+        GoogleCalendarReminderMinutes = Math.Clamp(GoogleCalendarReminderMinutes, 1, 60);
+        GoogleCalendarRefreshMinutes = Math.Clamp(GoogleCalendarRefreshMinutes, 1, 60);
+        GoogleCalendarDaysAhead = Math.Clamp(GoogleCalendarDaysAhead, 1, 14);
         _initializing = false;
     }
 
@@ -2010,6 +2127,25 @@ public partial class UserSettings : ObservableObject
 
     partial void OnIslandShelfEnabledChanged(bool oldValue, bool newValue) =>
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshShelfContent();
+
+    // --- Google Calendar ---
+
+    /// <summary>
+    /// Cierra la sesión de Google: se borran los tokens y con ellos la capacidad de
+    /// leer el calendario. Los eventos en memoria los suelta el servicio al
+    /// reconfigurarse (nada de un calendario ajeno pintado tras cerrar sesión). Los
+    /// ajustes del cliente OAuth se conservan para no tener que volver a pegarlos.
+    /// </summary>
+    public void SignOutGoogleCalendar()
+    {
+        GoogleCalendarAccessToken = "";
+        GoogleCalendarRefreshToken = "";
+        GoogleCalendarTokenExpiresUtc = DateTime.MinValue;
+        GoogleCalendarAccount = "";
+        GoogleCalendarError = "";
+        GoogleCalendarStatus = "Sesión cerrada.";
+        GoogleCalendarService.Instance.Configure();
+    }
 
     /// <summary>
     /// Suelta archivos y carpetas en el estante: cada uno se MUEVE a la carpeta del

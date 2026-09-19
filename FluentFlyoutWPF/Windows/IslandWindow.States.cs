@@ -469,6 +469,7 @@ public partial class IslandWindow
         TimerCompactGrid.Visibility = Visibility.Collapsed;
         AppsCompactGrid.Visibility = Visibility.Collapsed;
         ShelfCompactGrid.Visibility = Visibility.Collapsed;
+        CalendarCompactGrid.Visibility = Visibility.Collapsed;
         // Datos musicales: sin carátula, fondo difuminado, títulos ni seek.
         ClearMusicResidue();
         // Datos del temporizador: sin restante ni progreso heredados.
@@ -479,6 +480,7 @@ public partial class IslandWindow
         TimerAlert.Visibility = Visibility.Collapsed;
         AppsExpanded.Visibility = Visibility.Collapsed;
         ShelfExpanded.Visibility = Visibility.Collapsed;
+        CalendarExpanded.Visibility = Visibility.Collapsed;
         ApplyFrame();
     }
 
@@ -634,6 +636,16 @@ public partial class IslandWindow
             {
                 // El estante sigue la misma regla: vive lo que vive su aviso.
                 if (ShelfKeepsView()) { ShowShelfCompact(); return; }
+                ShowInactiveOrHidden();
+                return;
+            }
+            if (_contentMode == IslandContentMode.Calendar)
+            {
+                // El calendario es el único contenido del contenedor con actividad
+                // propia además de música y temporizador: el plazo del aviso no corta
+                // el recordatorio, solo lo devuelve al compacto, que aguanta hasta que
+                // el evento empieza (001 MOD RF-4).
+                if (CalendarKeepsView()) { ShowCalendarCompact(); return; }
                 ShowInactiveOrHidden();
                 return;
             }

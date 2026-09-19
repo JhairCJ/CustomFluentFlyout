@@ -63,6 +63,13 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="Generales del contenedor" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,6" />
             <ui:CardControl x:Name="IslandEnabledCard" Tag="Indexable" Grid.Row="1" Icon="{ui:SymbolIcon Album24}" Margin="0,0,0,3">
@@ -726,7 +733,7 @@
             <TextBlock Grid.Row="44" Text="Estante de archivos" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
             <!-- Estante: los archivos se MUEVEN a la carpeta propia del estante y quitarlos los
                  devuelve a su carpeta original. Nada caduca y nada se borra desde aquí. -->
-            <ui:CardExpander x:Name="IslandShelfCard" Tag="Indexable" Grid.Row="45" Icon="{ui:SymbolIcon Folder24}" ContentPadding="0" Margin="0,0,0,76" IsEnabled="{Binding IslandEnabled}">
+            <ui:CardExpander x:Name="IslandShelfCard" Tag="Indexable" Grid.Row="45" Icon="{ui:SymbolIcon Folder24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardExpander.Header>
                     <Grid ColumnDefinitions="*, Auto">
                         <StackPanel Orientation="Vertical">
@@ -761,6 +768,65 @@
                     </StackPanel>
                 </StackPanel>
             </ui:CardExpander>
+            <TextBlock Grid.Row="46" Text="Recordatorios de calendario" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+            <!-- Google Calendar: el inicio de sesión se hace desde aquí (navegador + bucle
+                 local); los tokens se guardan con los ajustes. La app necesita el cliente
+                 OAuth del propio usuario: no se reparte ninguno. -->
+            <ui:CardExpander x:Name="IslandCalendarCard" Tag="Indexable" Grid.Row="47" Icon="{ui:SymbolIcon Calendar24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+                <ui:CardExpander.Header>
+                    <Grid ColumnDefinitions="*, Auto">
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Recordatorios de Google Calendar" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <TextBlock Text="Avisa en el Island cuando un evento del calendario está a punto de empezar (solo lectura de tu calendario principal)." FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="440" HorizontalAlignment="Left" />
+                        </StackPanel>
+                        <ui:ToggleSwitch Grid.Column="1" IsChecked="{Binding IslandCalendarEnabled, Mode=TwoWay}" Margin="0,0,16,0" />
+                    </Grid>
+                </ui:CardExpander.Header>
+                <StackPanel Margin="0,8,0,8">
+                    <TextBlock Text="Hace falta un cliente OAuth propio: en Google Cloud Console crea uno de tipo «Aplicación de escritorio», habilita la API de Google Calendar y añade tu cuenta como usuario de prueba. Pega aquí su id y su secreto."
+                               FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" Margin="0,0,0,10" MaxWidth="520" HorizontalAlignment="Left" />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="Id de cliente" Width="120" VerticalAlignment="Center" FontSize="14" />
+                        <ui:TextBox Width="360" ClearButtonEnabled="False"
+                                    Text="{Binding GoogleCalendarClientId, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="Secreto de cliente" Width="120" VerticalAlignment="Center" FontSize="14" />
+                        <ui:TextBox Width="360" ClearButtonEnabled="False"
+                                    Text="{Binding GoogleCalendarClientSecret, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Button Content="Iniciar sesión con Google" Click="GoogleCalendarSignIn_Click" Padding="12,4" />
+                        <Button Content="Cerrar sesión" Click="GoogleCalendarSignOut_Click" Padding="12,4" Margin="8,0,0,0" />
+                        <Button Content="Sincronizar ahora" Click="GoogleCalendarRefresh_Click" Padding="12,4" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <TextBlock Text="Cuenta conectada" FontSize="12" Opacity="0.5" Margin="0,10,0,2" />
+                    <TextBlock Text="{Binding GoogleCalendarAccount}" FontSize="13" />
+                    <TextBlock Text="{Binding GoogleCalendarStatus}" FontSize="12" Opacity="0.7" Margin="0,4,0,0" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
+                    <TextBlock Text="{Binding GoogleCalendarError}" Foreground="#E81123" FontSize="12" Margin="0,4,0,0" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <TextBlock Text="Avisar antes" Width="120" VerticalAlignment="Center" FontSize="14" />
+                        <Slider Minimum="1" Maximum="60" Value="{Binding GoogleCalendarReminderMinutes, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" />
+                        <ui:TextBlock Text="{Binding GoogleCalendarReminderMinutes}" Width="24" TextAlignment="Center" Margin="12,0,0,0" />
+                        <TextBlock Text="min" VerticalAlignment="Center" Opacity="0.6" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <TextBlock Text="Sincronizar cada" Width="120" VerticalAlignment="Center" FontSize="14" />
+                        <Slider Minimum="1" Maximum="60" Value="{Binding GoogleCalendarRefreshMinutes, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" />
+                        <ui:TextBlock Text="{Binding GoogleCalendarRefreshMinutes}" Width="24" TextAlignment="Center" Margin="12,0,0,0" />
+                        <TextBlock Text="min" VerticalAlignment="Center" Opacity="0.6" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <TextBlock Text="Leer hasta" Width="120" VerticalAlignment="Center" FontSize="14" />
+                        <Slider Minimum="1" Maximum="14" Value="{Binding GoogleCalendarDaysAhead, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" />
+                        <ui:TextBlock Text="{Binding GoogleCalendarDaysAhead}" Width="24" TextAlignment="Center" Margin="12,0,0,0" />
+                        <TextBlock Text="días" VerticalAlignment="Center" Opacity="0.6" />
+                    </StackPanel>
+                    <TextBlock Text="Es un recordatorio: el próximo evento se lee del calendario principal y el aviso aparece en el Island solo con la sesión iniciada. Cerrar sesión no borra nada del calendario."
+                               FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" Margin="0,10,0,0" MaxWidth="520" HorizontalAlignment="Left" />
+                </StackPanel>
+            </ui:CardExpander>
+            <TextBlock Grid.Row="48" Text=" " FontSize="8" Margin="0,0,0,72" />
         </Grid>
     </StackPanel>
 </Page>

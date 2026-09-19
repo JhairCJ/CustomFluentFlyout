@@ -107,6 +107,9 @@ public partial class IslandWindow
             RefreshTimerUI();
             EnsureTimerContentShown();
         }
+        // El calendario se repinta con el latido: sus cuentas atrás («en 4 min») se
+        // recalculan al pintar, así que envejecen solas sin temporizador propio.
+        if (_contentMode == IslandContentMode.Calendar && IsBoxShown) RefreshCalendarList();
         var s = Current();
         if (s != null && _expanded) UpdateSeek(s);
         UpdateLine();
