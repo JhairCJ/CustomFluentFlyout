@@ -77,7 +77,12 @@ public partial class IslandWindow
             }
         }
 
-        IslandBox.BorderBrush = SettingsManager.Current.IslandBorderEnabled ? IslandBorderBrush : Brushes.Transparent;
+        // Mientras se arrastra algo sobre el Island (estante) el borde se ilumina aunque
+        // el borde configurado esté apagado: es la señal de que ahí se puede soltar, no
+        // decoración.
+        IslandBox.BorderBrush = _shelfDropHot
+            ? ShelfDropBrush
+            : SettingsManager.Current.IslandBorderEnabled ? IslandBorderBrush : Brushes.Transparent;
 
         // CornerRadius lo gobierna ApplyFrame por frame (punto 26→cápsula)
         SyncMeasuredHeight();

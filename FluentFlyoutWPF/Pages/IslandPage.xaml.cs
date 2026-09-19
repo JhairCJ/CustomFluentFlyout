@@ -3,6 +3,10 @@
 
 using FluentFlyout.Classes.Settings;
 using FluentFlyoutWPF.Models;
+using FluentFlyoutWPF.ViewModels;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -10,6 +14,8 @@ namespace FluentFlyoutWPF.Pages;
 
 public partial class IslandPage : Page
 {
+    private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
     public IslandPage()
     {
         InitializeComponent();
@@ -60,5 +66,74 @@ public partial class IslandPage : Page
     {
         if ((sender as Button)?.DataContext is IslandApp app)
             SettingsManager.Current.RemoveIslandApp(app);
+    }
+
+    // --- orden de las funcionalidades del Island ---
+
+    private void IslandFeatureMoveUp_Click(object sender, RoutedEventArgs e) => MoveIslandFeature(sender, -1);
+
+    private void IslandFeatureMoveDown_Click(object sender, RoutedEventArgs e) => MoveIslandFeature(sender, +1);
+
+    /// <summary>
+    /// Sube o baja una funcionalidad en la lista del Island. El elemento de la lista ES
+    /// el identificador (ver <see cref="IslandFeatureIds"/>), así que el botón ya sabe
+    /// qué mueve: el ajuste se guarda solo y el contenedor reordena la navegación en el
+    /// acto (UserSettings.MoveIslandFeature).
+    /// </summary>
+    private static void MoveIslandFeature(object sender, int delta)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not string id) return;
+        SettingsManager.Current.MoveIslandFeature(id, delta);
+    }
+
+    // --- estante de archivos del Island ---
+
+    /// <summary>
+    /// Aparca archivos elegidos a mano: es el mismo gesto que soltarlos sobre el Island
+    /// (se MUEVEN a la carpeta del estante), para quien prefiera un diálogo al arrastre.
+    /// </summary>
+    private void IslandShelfAdd_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Aparcar archivos en el estante del Island",
+            Filter = "Todos los archivos (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = true,
+        };
+        if (dialog.ShowDialog() != true) return;
+        SettingsManager.Current.AddIslandShelfPaths(dialog.FileNames);
+    }
+
+    /// <summary>Abre en el Explorador la carpeta propia del estante.</summary>
+    private void IslandShelfOpenFolder_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(UserSettings.IslandShelfFolder);
+            Process.Start(new ProcessStartInfo(UserSettings.IslandShelfFolder) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "Estante: no se pudo abrir la carpeta {Folder}", UserSettings.IslandShelfFolder);
+            SettingsManager.Current.IslandShelfError = "No se pudo abrir la carpeta del estante.";
+        }
+    }
+
+    private void IslandShelfItemRemove_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.DataContext is IslandShelfItem item)
+            SettingsManager.Current.RemoveIslandShelfItem(item);
+    }
+
+    /// <summary>
+    /// Vacía el estante devolviendo cada elemento a su carpeta original: vaciar no borra
+    /// nada. Los que no puedan volver (su carpeta original ya no existe) se quedan y se
+    /// explica el motivo.
+    /// </summary>
+    private void IslandShelfClear_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var item in SettingsManager.Current.IslandShelfItems.ToList())
+            SettingsManager.Current.RemoveIslandShelfItem(item);
     }
 }

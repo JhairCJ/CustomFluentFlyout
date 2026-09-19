@@ -384,9 +384,11 @@ public partial class IslandWindow
         "timer" => SettingsManager.Current.IslandVisibilityMode == 0
             ? IsTimerActiveForCompact()
             : TimerKeepsAlive(),
-        // El cajón no tiene actividad propia: en «Visible mientras activo» la
-        // vista la sostiene el puntero; en «Aviso temporal», su plazo (001 RF-2).
+        // El cajón y el estante no tienen actividad propia: en «Visible mientras
+        // activo» la vista la sostiene el puntero; en «Aviso temporal», su plazo
+        // (001 RF-2).
         "apps" => AppsKeepsView(),
+        "shelf" => ShelfKeepsView(),
         _ => feature.State.Active,
     };
 
@@ -466,6 +468,7 @@ public partial class IslandWindow
         MusicCompactGrid.Visibility = Visibility.Collapsed;
         TimerCompactGrid.Visibility = Visibility.Collapsed;
         AppsCompactGrid.Visibility = Visibility.Collapsed;
+        ShelfCompactGrid.Visibility = Visibility.Collapsed;
         // Datos musicales: sin carátula, fondo difuminado, títulos ni seek.
         ClearMusicResidue();
         // Datos del temporizador: sin restante ni progreso heredados.
@@ -475,6 +478,7 @@ public partial class IslandWindow
         // Por si algún panel expandido quedó visible de la vista anterior.
         TimerAlert.Visibility = Visibility.Collapsed;
         AppsExpanded.Visibility = Visibility.Collapsed;
+        ShelfExpanded.Visibility = Visibility.Collapsed;
         ApplyFrame();
     }
 
@@ -623,6 +627,13 @@ public partial class IslandWindow
                 // plazo siga vivo y, si ya venció, al reposo sin destellos
                 // (001 RF-2, 001 MOD RF-16).
                 if (AppsKeepsView()) { ShowAppsCompact(); return; }
+                ShowInactiveOrHidden();
+                return;
+            }
+            if (_contentMode == IslandContentMode.Shelf)
+            {
+                // El estante sigue la misma regla: vive lo que vive su aviso.
+                if (ShelfKeepsView()) { ShowShelfCompact(); return; }
                 ShowInactiveOrHidden();
                 return;
             }

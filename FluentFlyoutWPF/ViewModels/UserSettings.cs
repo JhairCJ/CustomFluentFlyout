@@ -12,6 +12,7 @@ using FluentFlyoutWPF.Models;
 using FluentFlyoutWPF.Windows;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Media;
@@ -1280,6 +1281,38 @@ public partial class UserSettings : ObservableObject
     public partial string IslandAppsError { get; set; }
 
     /// <summary>
+    /// Island: orden de las funcionalidades (ids de <see cref="IslandFeatureIds"/>) tal y
+    /// como se navegan con la rueda y las flechas laterales. Es la «lista de islands»
+    /// que el usuario reordena en ajustes. Se autorrepara al cargar: los ids
+    /// desconocidos o repetidos salen y los que falten se añaden al final en su orden
+    /// por defecto, así que ninguna funcionalidad se queda fuera de la navegación.
+    /// </summary>
+    [ObservableProperty]
+    public partial ObservableCollection<string> IslandFeatureOrder { get; set; }
+
+    /// <summary>
+    /// Estante de archivos del Island: funcionalidad habilitada. Por defecto sí: el
+    /// estante vacío es su estado natural (invita a soltar algo encima).
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandShelfEnabled { get; set; }
+
+    /// <summary>
+    /// Estante de archivos del Island: archivos y carpetas aparcados. Persisten entre
+    /// reinicios y NO caducan: solo salen cuando el usuario los arrastra fuera o los
+    /// quita (y quitarlos los devuelve a su carpeta original).
+    /// </summary>
+    [ObservableProperty]
+    public partial ObservableCollection<IslandShelfItem> IslandShelfItems { get; set; }
+
+    /// <summary>
+    /// Último mensaje del estante en español. Vacío = sin error.
+    /// </summary>
+    [XmlIgnore]
+    [ObservableProperty]
+    public partial string IslandShelfError { get; set; }
+
+    /// <summary>
     /// Returns whether app filtering is enabled or disabled.
     /// </summary>
     [ObservableProperty]
@@ -1591,6 +1624,12 @@ public partial class UserSettings : ObservableObject
         // la colección existente, sembrarla aquí duplicaría las aplicaciones.
         IslandApps = [];
         IslandAppsError = "";
+        IslandShelfEnabled = true;
+        // Vacía a propósito, igual que el cajón: el deserializador XML RELLENA la
+        // colección existente.
+        IslandShelfItems = [];
+        IslandShelfError = "";
+        IslandFeatureOrder = [.. IslandFeatureIds.All];
         AppFilteringEnabled = false;
         AppFilteringMode = 0;
         TaskbarVisualizerPosition = 1;
@@ -1698,6 +1737,14 @@ public partial class UserSettings : ObservableObject
         // repetidas, sin nombre o por encima del máximo.
         IslandApps ??= [];
         SanitizeIslandApps();
+        // Migración del estante: XML antiguos sin la colección (o con elementos cuya
+        // ruta ya no existe: se sacaron con la aplicación cerrada) arrancan limpios.
+        IslandShelfItems ??= [];
+        SanitizeIslandShelf();
+        // Migración del orden de funcionalidades: sin la clave rige el orden por
+        // defecto y cualquier id que no exista se descarta.
+        IslandFeatureOrder ??= [.. IslandFeatureIds.All];
+        SanitizeIslandFeatureOrder();
         _initializing = false;
     }
 
@@ -1877,6 +1924,207 @@ public partial class UserSettings : ObservableObject
     {
         IslandApps.Remove(app);
         IslandAppsError = "";
+    }
+
+    // --- orden de las funcionalidades del Island ---
+
+    /// <summary>
+    /// Autorreparación del orden de funcionalidades: fuera los ids desconocidos o
+    /// repetidos y, al final, los que falten en su orden por defecto. Un XML viejo (o
+    /// editado a mano) nunca puede dejar una funcionalidad fuera de la navegación.
+    /// </summary>
+    private void SanitizeIslandFeatureOrder()
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var id in IslandFeatureOrder.ToList())
+            if (!IslandFeatureIds.IsKnown(id) || !seen.Add(id)) IslandFeatureOrder.Remove(id);
+        foreach (var id in IslandFeatureIds.All)
+            if (seen.Add(id)) IslandFeatureOrder.Add(id);
+    }
+
+    /// <summary>
+    /// Sube o baja una funcionalidad en la lista del Island (delta -1 / +1). Los
+    /// extremos no se mueven y la lista no da la vuelta: es una fila, no un ciclo.
+    /// </summary>
+    public void MoveIslandFeature(string id, int delta)
+    {
+        int from = IslandFeatureOrder.IndexOf(id);
+        int to = from + delta;
+        if (from < 0 || to < 0 || to >= IslandFeatureOrder.Count) return;
+        IslandFeatureOrder.Move(from, to);
+    }
+
+    partial void OnIslandFeatureOrderChanged(ObservableCollection<string> oldValue, ObservableCollection<string> newValue)
+    {
+        if (oldValue != null) oldValue.CollectionChanged -= IslandFeatureOrder_CollectionChanged;
+        if (newValue != null) newValue.CollectionChanged += IslandFeatureOrder_CollectionChanged;
+    }
+
+    private void IslandFeatureOrder_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (!_initializing) SettingsManager.SaveSettings();
+        // El contenedor navega en este orden: se reordena en el acto, sin reiniciar.
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.ApplyFeatureOrder();
+    }
+
+    // --- estante de archivos del Island ---
+
+    /// <summary>
+    /// Carpeta propia del estante: aquí se MUEVEN los archivos y carpetas que se sueltan
+    /// sobre el Island. Vive junto a los ajustes, en %APPDATA%\FluentFlyout\IslandShelf,
+    /// y es la carpeta que abre el botón «Abrir carpeta» de ajustes.
+    /// </summary>
+    public static string IslandShelfFolder => System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "FluentFlyout",
+        "IslandShelf");
+
+    /// <summary>
+    /// Autorreparación del estante: fuera los elementos cuya ruta ya no existe (el
+    /// usuario los sacó con la aplicación cerrada) y recorte por encima del máximo.
+    /// Nunca toca el disco: el estante no borra archivos.
+    /// </summary>
+    private void SanitizeIslandShelf()
+    {
+        foreach (var item in IslandShelfItems.ToList())
+            if (!item.Exists) IslandShelfItems.Remove(item);
+        if (IslandShelfItems.Count > IslandShelfItem.MaxItems)
+        {
+            foreach (var extra in IslandShelfItems.Skip(IslandShelfItem.MaxItems).ToList())
+                IslandShelfItems.Remove(extra);
+        }
+    }
+
+    partial void OnIslandShelfItemsChanged(ObservableCollection<IslandShelfItem> oldValue, ObservableCollection<IslandShelfItem> newValue)
+    {
+        if (oldValue != null) oldValue.CollectionChanged -= IslandShelfItems_CollectionChanged;
+        if (newValue != null) newValue.CollectionChanged += IslandShelfItems_CollectionChanged;
+    }
+
+    private void IslandShelfItems_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (!_initializing) SettingsManager.SaveSettings();
+        // El contenedor rellena sus listas (y, con el estante a la vista, lo deja al día).
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshShelfContent();
+    }
+
+    partial void OnIslandShelfEnabledChanged(bool oldValue, bool newValue) =>
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshShelfContent();
+
+    /// <summary>
+    /// Suelta archivos y carpetas en el estante: cada uno se MUEVE a la carpeta del
+    /// estante —nombre libre si el suyo ya está cogido: aquí no se pisa nada— y se apunta
+    /// de dónde vino, para poder devolverlo al quitarlo. Devuelve cuántos entraron.
+    /// </summary>
+    public int AddIslandShelfPaths(IEnumerable<string> paths)
+    {
+        int added = 0;
+        foreach (string? raw in paths)
+        {
+            string source = (raw ?? "").Trim();
+            if (source.Length == 0) continue;
+            // Ya está en el estante: no se duplica.
+            if (IslandShelfItems.Any(i => string.Equals(i.Path, source, StringComparison.OrdinalIgnoreCase))) continue;
+            if (IslandShelfItems.Count >= IslandShelfItem.MaxItems)
+            {
+                IslandShelfError = $"Máximo {IslandShelfItem.MaxItems} elementos en el estante.";
+                break;
+            }
+            bool isFolder = Directory.Exists(source);
+            if (!isFolder && !File.Exists(source)) continue;
+            if (!TryEnsureShelfFolder()) break;
+            string? parked = MoveTo(IslandShelfFolder, source, isFolder);
+            if (parked == null)
+            {
+                IslandShelfError = "No se pudo aparcar algún elemento (revisa el registro).";
+                continue;
+            }
+            IslandShelfItems.Add(new IslandShelfItem { Path = parked, Origin = source, IsFolder = isFolder });
+            added++;
+        }
+        if (added > 0) IslandShelfError = "";
+        return added;
+    }
+
+    /// <summary>
+    /// Quita un elemento del estante devolviéndolo a su carpeta original: quitarlo no
+    /// puede destruir nada del usuario. Si la carpeta original ya no existe —o el nombre
+    /// está ocupado y no se pudo numerar— el elemento se queda y se explica el motivo.
+    /// Devuelve true si salió del estante.
+    /// </summary>
+    public bool RemoveIslandShelfItem(IslandShelfItem item)
+    {
+        try
+        {
+            string originDir = System.IO.Path.GetDirectoryName(item.Origin) ?? "";
+            if (originDir.Length == 0 || !Directory.Exists(originDir))
+            {
+                IslandShelfError = "La carpeta original ya no existe: el elemento sigue en el estante.";
+                return false;
+            }
+            string target = FreeTarget(originDir, System.IO.Path.GetFileName(item.Origin), item.IsFolder);
+            if (item.IsFolder) Directory.Move(item.Path, target);
+            else File.Move(item.Path, target);
+            IslandShelfItems.Remove(item);
+            IslandShelfError = "";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "Estante: no se pudo devolver {Path} a su carpeta original", item.Path);
+            IslandShelfError = "No se pudo devolver el elemento a su carpeta original.";
+            return false;
+        }
+    }
+
+    private bool TryEnsureShelfFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(IslandShelfFolder);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "Estante: no se pudo preparar la carpeta {Folder}", IslandShelfFolder);
+            IslandShelfError = "No se pudo preparar la carpeta del estante.";
+            return false;
+        }
+    }
+
+    /// <summary>Mueve un archivo o carpeta a la carpeta del estante, sin pisar nada.</summary>
+    private static string? MoveTo(string folder, string source, bool isFolder)
+    {
+        try
+        {
+            string target = FreeTarget(folder, System.IO.Path.GetFileName(source), isFolder);
+            if (isFolder) Directory.Move(source, target);
+            else File.Move(source, target);
+            return target;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "Estante: no se pudo mover {Source} a {Folder}", source, folder);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Primera ruta libre de <paramref name="folder"/> para ese nombre: si ya está cogida
+    /// se numera («nombre (2).ext», «nombre (3).ext»…). Nunca devuelve una ruta ocupada,
+    /// así que ningún movimiento del estante pisa un archivo que ya estuviera ahí.
+    /// </summary>
+    private static string FreeTarget(string folder, string name, bool isFolder)
+    {
+        string target = System.IO.Path.Combine(folder, name);
+        int n = 1;
+        while (File.Exists(target) || Directory.Exists(target))
+        {
+            string stem = isFolder ? name : System.IO.Path.GetFileNameWithoutExtension(name);
+            string ext = isFolder ? "" : System.IO.Path.GetExtension(name);
+            target = System.IO.Path.Combine(folder, $"{stem} ({++n}){ext}");
+        }
+        return target;
     }
 
     partial void OnAppLanguageChanged(string oldValue, string newValue)

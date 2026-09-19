@@ -159,6 +159,26 @@ public partial class IslandWindow
     /// </summary>
     private void ApplyContentVisibility()
     {
+        // Estante primero: es la única capa que puede estar visible sin elementos
+        // (vacía invita a soltar), así que se resuelve sola y no comparte la lógica de
+        // música/temporizador.
+        bool shelf = _contentMode == IslandContentMode.Shelf && ShelfModeAvailable();
+        ShelfCompactGrid.Visibility = shelf ? Visibility.Visible : Visibility.Collapsed;
+        ShelfExpanded.Visibility = shelf ? Visibility.Visible : Visibility.Collapsed;
+        if (shelf)
+        {
+            MusicCompactGrid.Visibility = Visibility.Collapsed;
+            TimerCompactGrid.Visibility = Visibility.Collapsed;
+            AppsCompactGrid.Visibility = Visibility.Collapsed;
+            MusicExpandedTop.Visibility = Visibility.Collapsed;
+            ControlsRow.Visibility = Visibility.Collapsed;
+            SeekRow.Visibility = Visibility.Collapsed;
+            TimerAlert.Visibility = Visibility.Collapsed;
+            AppsExpanded.Visibility = Visibility.Collapsed;
+            CrossfadeTimerPanels(showConfig: false, showRun: false);
+            UpdateArrows();
+            return;
+        }
         bool apps = _contentMode == IslandContentMode.Apps && AppsModeAvailable();
         bool timer = _contentMode == IslandContentMode.Timer && TimerModeAvailable();
         AppsCompactGrid.Visibility = apps ? Visibility.Visible : Visibility.Collapsed;

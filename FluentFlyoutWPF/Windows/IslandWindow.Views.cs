@@ -16,6 +16,7 @@ internal enum IslandContentMode
     Media = 0,
     Timer = 1,
     Apps = 2,
+    Shelf = 3,
 }
 
 /// <summary>

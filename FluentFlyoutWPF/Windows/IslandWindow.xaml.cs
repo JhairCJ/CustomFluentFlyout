@@ -118,6 +118,10 @@ public partial class IslandWindow : Window
     private static readonly Brush IslandBorderBrush = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
     private static readonly Brush MediaPlayingBrush = new SolidColorBrush(Color.FromRgb(0xB6, 0xF0, 0xB5));
     private static readonly Brush MediaPausedBrush = new SolidColorBrush(Color.FromRgb(0x76, 0x7B, 0x79));
+    /// <summary>Borde del Island mientras se arrastra algo encima (estante).</summary>
+    private static readonly Brush ShelfDropBrush = new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF));
+    // Hay algo aceptable arrastrándose sobre el Island: el borde se ilumina.
+    private bool _shelfDropHot;
 
     // --- Estado compartido por todos los partials ---
 
@@ -233,12 +237,16 @@ public partial class IslandWindow : Window
         InitializeComponent();
         InitTimer();
         InitApps();
-        // Contenedor escalable: media, temporizador y cajón de aplicaciones se
-        // registran en orden de navegación; el contrato decide qué se puede
-        // mostrar (RF-11, RF-13).
+        InitShelf();
+        // Contenedor escalable: media, temporizador, cajón de aplicaciones y estante de
+        // archivos se registran en su orden por defecto; el contrato decide qué se puede
+        // mostrar (RF-11, RF-13) y ApplyFeatureOrder impone después el orden que el
+        // usuario haya elegido en ajustes.
         _features.Register(new IslandMediaFeature(this));
         _features.Register(new IslandTimerFeature(this));
         _features.Register(new IslandAppsFeature(this));
+        _features.Register(new IslandShelfFeature(this));
+        ApplyFeatureOrder();
         // Migración del «Siempre en su lugar» (retirado, 001 REMOVED): un modo
         // guardado con el valor 2 pasa a «Visible mientras activo».
         if (SettingsManager.Current.IslandVisibilityMode is < 0 or > 1)
@@ -365,6 +373,15 @@ public partial class IslandWindow : Window
     private void SelectFeature(string id) => _selectedFeature = FeatureById(id);
 
     /// <summary>
+    /// Impone el orden de funcionalidades elegido en ajustes (001 MOD RF-3/RF-4): es el
+    /// orden en el que el contenedor navega con la rueda y las flechas laterales, y el
+    /// que desempata cuando varias funcionalidades están activas a la vez. Sin ajuste
+    /// guardado rige el orden por defecto. Se llama al arrancar y en cada cambio.
+    /// </summary>
+    public void ApplyFeatureOrder() =>
+        _features.Reorder(SettingsManager.Current.IslandFeatureOrder);
+
+    /// <summary>
     /// Última usable para expandir (001 MOD RF-3): manda la funcionalidad en
     /// uso (último-activo); si ya no es usable, la última activa; si no, la
     /// primera usable. Sin ninguna usable no abre vista vacía.
@@ -428,6 +445,9 @@ public partial class IslandWindow : Window
         if (IsBoxShown && _contentMode != IslandContentMode.Media)
         {
             if (_contentMode == IslandContentMode.Apps && !AppsModeAvailable()) FallbackFromAppsView();
+            // Mismo caso para el estante: si dejó de ser usable mientras estaba a la
+            // vista (se apagó en ajustes), se repliega a la activa vigente o al reposo.
+            else if (_contentMode == IslandContentMode.Shelf && !ShelfModeAvailable()) FallbackFromShelfView();
             else
             {
                 if (_contentMode == IslandContentMode.Timer) RefreshTimerUI();

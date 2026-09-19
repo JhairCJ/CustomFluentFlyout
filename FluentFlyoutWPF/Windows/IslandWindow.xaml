@@ -46,6 +46,7 @@
                 HorizontalAlignment="Center" VerticalAlignment="Top"
                 Background="Black" BorderBrush="#33FFFFFF" BorderThickness="1"
                 Visibility="Collapsed" ClipToBounds="True" RenderTransformOrigin="0.5,0.5"
+                AllowDrop="True" DragOver="IslandBox_DragOver" DragLeave="IslandBox_DragLeave" Drop="IslandBox_Drop"
                 MouseEnter="Box_MouseEnter" MouseLeave="Box_MouseLeave" MouseWheel="IslandBox_Wheel"
                 MouseLeftButtonUp="HandleIslandClick">
             <Border.RenderTransform>
@@ -180,6 +181,41 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                         <TextBlock x:Name="AppsCompactMore" Text="" Foreground="White" FontSize="11" Opacity="0.6"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   Visibility="Collapsed" IsHitTestVisible="False"/>
+                    </Grid>
+                    <!-- Estante de archivos en compacto: mosaicos de lo aparcado. Arrastra uno
+                         fuera para sacarlo del estante; la celda es la misma que la del cajón
+                         (20x20 + 4 de separación = 24 de paso) para que encajen los mismos. -->
+                    <Grid x:Name="ShelfCompactGrid" Margin="6,0,10,0" Visibility="Collapsed">
+                        <ItemsControl x:Name="ShelfCompactList" HorizontalAlignment="Left" VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Width="20" Height="20" CornerRadius="6" Margin="0,0,4,0" Cursor="Hand"
+                                            ToolTip="{Binding ToolTip}"
+                                            MouseLeftButtonDown="ShelfItem_MouseDown" MouseMove="ShelfItem_MouseMove">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="#22FFFFFF"/>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Background" Value="#44FFFFFF"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <ui:SymbolIcon Symbol="{Binding Glyph}" Filled="True" Foreground="White" FontSize="12"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="ShelfCompactMore" Text="" Foreground="White" FontSize="11" Opacity="0.6"
                                    HorizontalAlignment="Right" VerticalAlignment="Center"
                                    Visibility="Collapsed" IsHitTestVisible="False"/>
                     </Grid>
@@ -418,6 +454,56 @@
                                                    RenderOptions.BitmapScalingMode="HighQuality"/>
                                             <TextBlock Grid.Row="1" Text="{Binding Name}" Foreground="White" FontSize="9" Opacity="0.75"
                                                        Margin="4,0,4,4" TextTrimming="CharacterEllipsis" TextAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                    <!-- Estante de archivos en expandido: mosaicos con su tipo y una cruz para
+                         quitarlos (quitarlos devuelve el archivo a su carpeta original; nunca
+                         se borra). La altura la mide el contenedor (SyncMeasuredHeight). -->
+                    <StackPanel x:Name="ShelfExpanded" Visibility="Collapsed" Margin="0,2,0,2">
+                        <TextBlock x:Name="ShelfExpandedHeader" Text="Estante" FontSize="11" Opacity="0.6"
+                                   Foreground="White" Margin="0,0,0,6"/>
+                        <TextBlock x:Name="ShelfExpandedEmpty" Text="Suelta archivos o carpetas sobre el Island para aparcarlos aquí."
+                                   FontSize="12" Opacity="0.55" Foreground="White" Margin="0,0,0,6"
+                                   TextWrapping="WrapWithOverflow" Visibility="Collapsed"/>
+                        <ItemsControl x:Name="ShelfExpandedList">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Width="50" Height="50" CornerRadius="12" Margin="0,0,6,6" Cursor="Hand"
+                                            ToolTip="{Binding ToolTip}"
+                                            MouseLeftButtonDown="ShelfItem_MouseDown" MouseMove="ShelfItem_MouseMove">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="#1AFFFFFF"/>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Background" Value="#3CFFFFFF"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Grid>
+                                            <StackPanel VerticalAlignment="Center" Margin="2,0">
+                                                <ui:SymbolIcon Symbol="{Binding Glyph}" Filled="True" Foreground="White"
+                                                               FontSize="18" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="{Binding Badge}" Foreground="White" FontSize="9" Opacity="0.85"
+                                                           TextAlignment="Center" Margin="0,1,0,0" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                            <Border Width="14" Height="14" CornerRadius="7" Background="#55000000"
+                                                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,2,0"
+                                                    Cursor="Hand" ToolTip="Quitar del estante (vuelve a su carpeta)"
+                                                    MouseLeftButtonUp="ShelfItemRemove_Click">
+                                                <ui:SymbolIcon Symbol="Dismiss24" Filled="True" Foreground="White" FontSize="10"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>

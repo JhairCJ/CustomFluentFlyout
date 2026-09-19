@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
+using FluentFlyoutWPF.Models;
 
 namespace FluentFlyoutWPF.Windows;
 
@@ -79,6 +80,28 @@ public sealed class IslandFeatureRegistry
         if (!_features.Any(f => f.Id == feature.Id)) _features.Add(feature);
     }
 
+    /// <summary>
+    /// Reordena las funcionalidades según los identificadores dados: es el orden en el
+    /// que el contenedor navega (rueda y flechas) y con el que desempata cuando varias
+    /// están activas a la vez (001 MOD RF-3/RF-4). Los ids no listados quedan al final,
+    /// en su orden actual, así que un ajuste viejo nunca deja una funcionalidad fuera.
+    /// </summary>
+    public void Reorder(IReadOnlyList<string>? ids)
+    {
+        if (ids == null || ids.Count == 0) return;
+        var index = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (int i = 0; i < ids.Count; i++) index.TryAdd(ids[i], i);
+        var ordered = _features.Select((feature, position) => (feature, position)).ToList();
+        ordered.Sort((a, b) =>
+        {
+            int ia = index.TryGetValue(a.feature.Id, out int va) ? va : int.MaxValue;
+            int ib = index.TryGetValue(b.feature.Id, out int vb) ? vb : int.MaxValue;
+            return ia != ib ? ia.CompareTo(ib) : a.position.CompareTo(b.position);
+        });
+        _features.Clear();
+        _features.AddRange(ordered.Select(x => x.feature));
+    }
+
     /// <summary>Funcionalidades habilitadas y disponibles (usables) en orden de registro.</summary>
     public IEnumerable<IIslandFeature> UsableFeatures() =>
         _features.Where(f => f.State.Usable);
@@ -149,6 +172,28 @@ public sealed class IslandAppsFeature(IslandWindow owner) : IIslandFeature
 
     public bool TryShowExpanded() => owner.ShowAppsExpandedFromContract();
     public bool TryShowCompact() => owner.ShowAppsCompactFromContract();
+}
+
+/// <summary>
+/// Funcionalidad «estante de archivos» del island: aparca archivos y carpetas que el
+/// usuario suelta encima del Island y deja arrastrarlos fuera. Como el cajón, no genera
+/// actividad propia —no reproduce ni cuenta—, así que nunca sostiene el compacto por sí
+/// sola: su vista la sostienen el puntero (Visible mientras activo) o el aviso temporal
+/// (001 MOD RF-4/RF-9, 002 RF-8).
+/// </summary>
+public sealed class IslandShelfFeature(IslandWindow owner) : IIslandFeature
+{
+    public string Id => IslandFeatureIds.Shelf;
+
+    public IslandFeatureState State => owner.GetShelfFeatureState();
+
+    public double CompactWidth => 240;
+    public double CompactHeight => 34;
+    public double ExpandedPreferredWidth => 0; // ancho común configurado
+    public double ExpandedPreferredHeight => 0; // medir contenido (mosaicos)
+
+    public bool TryShowExpanded() => owner.ShowShelfExpandedFromContract();
+    public bool TryShowCompact() => owner.ShowShelfCompactFromContract();
 }
 
 /// <summary>
