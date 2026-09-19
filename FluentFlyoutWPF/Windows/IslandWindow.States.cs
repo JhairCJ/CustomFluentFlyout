@@ -289,6 +289,7 @@ public partial class IslandWindow
             // morfa al de la pieza; la limpieza real corre al asentarse
             // (FinishInactive), nunca antes (001 MOD RF-16).
             _pT = 0;
+            _pv = 0;
             _qT = 1;
             PositionTopCenter();
             IslandBox.Visibility = Visibility.Visible;

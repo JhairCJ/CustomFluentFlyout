@@ -114,22 +114,12 @@ public partial class IslandWindow
         _lastTick = now;
 
         GetSpring(out double kP, out double cP, out double kQ, out double cQ);
-        // Repliegue desde el expandido hacia la pieza: el cuerpo lo gobierna el
-        // reloj del reposo y NO el muelle. Es el ÚNICO reloj que viaja del tamaño
-        // expandido al de la pieza, así que alto, ancho, radio y contenido se
-        // encogen a la vez y aterrizan juntos. Con el muelle el ALTO llegaba a su
-        // tamaño final antes que el ANCHO (el muelle es más rápido y el ancho
-        // espera también al reloj del reposo), y el repliegue se veía en dos
-        // etapas: primero se aplastaba y después se estrechaba (001 MOD RF-16).
-        if (_collapseFromExpanded)
-        {
-            _p = 1 - Smooth01(_inactiveT);
-            _pv = 0;
-        }
-        else
-        {
-            Step(ref _p, ref _pv, _pT, kP, cP, dt);
-        }
+        // El mismo muelle gobierna el crecimiento y el cierre. Como ancho y alto
+        // interpolan con este único progreso, ambos llegan juntos a la pieza en
+        // lugar de aplastarse primero y estrecharse después (001 MOD RF-16).
+        // Al cambiar de expansión a cierre se descarta el impulso anterior para
+        // que la isla no se estire un frame antes de empezar a encogerse.
+        Step(ref _p, ref _pv, _pT, kP, cP, dt);
         Step(ref _q, ref _qv, _qT, kQ, cQ, dt);
         // Progreso hacia/desde la pieza inactiva: avance lineal a velocidad
         // constante (ease-in-out lo aporta Smooth01 al pintar). Reapuntar a mitad
@@ -280,11 +270,11 @@ public partial class IslandWindow
     /// compresión se escala con ese salto. Al aterrizar en la pieza —alto de
     /// compacto 34 y expandido de 126 a 172— un margen del 12% dejaba el alto en
     /// ~20 px y el reposo se veía delgado y feo, con el contenido recortado por el
-    /// clip del contenedor. Con el 2% la pieza conserva su grosor (≈33 px) y sigue
-    /// leyéndose como un rebote. Lo que se pasa HACIA ARRIBA no se toca: el
+    /// clip del contenedor. Con el 1.5% la pieza conserva su grosor (≈33 px) y
+    /// sigue leyéndose como un rebote. Lo que se pasa HACIA ARRIBA no se toca: el
     /// overshoot del expandido es el rebote de Apple que se quiere conservar.
     /// </summary>
-    private const double BounceCompress = 0.02;
+    private const double BounceCompress = 0.015;
 
     /// <summary>
     /// Progreso con el REBOTE del muelle intacto. El muelle ya es la curva (arranca
@@ -357,6 +347,7 @@ public partial class IslandWindow
         _inactiveTt = 1;
         _hidingViaCompact = false;
         _pT = 0;
+        _pv = 0;
         _qT = 1;
         IslandBox.Visibility = Visibility.Visible;
         UpdateRotationPauseState();
@@ -376,23 +367,19 @@ public partial class IslandWindow
         double q = Math.Clamp(_q, 0, 1);
         // Progreso del cuerpo (0 = tamaño de reposo, 1 = expandido), solo para
         // geometría (ancho/alto, con el rebote del muelle intacto): el contenedor se
-        // pasa un poco de su tamaño final y vuelve. Durante el repliegue desde el
-        // expandido este progreso ES el reloj del reposo —OnFrame lo fija—, así que
-        // ahí el ancho y el alto viajan juntos y el rebote solo actúa al crecer. El
+        // pasa un poco de su tamaño final y vuelve. En ambos sentidos este progreso
+        // es el único reloj de la geometría, así que ancho y alto viajan juntos. El
         // revelado (q) lleva el suyo por la curva del estirón, más abajo.
         double bounceP = BounceCurve(_p);
-        // Progreso hacia la pieza inactiva, con ease-in-out: gobierna a la vez el
-        // ancho de reposo y el desvanecido de TODO el contenido, así el paso
-        // compacto-con-contenido <-> inactivo es una sola transición suave
-        // (001 MOD RF-16) en lugar de un cambio de ancho con borrado seco.
+        // Progreso hacia la pieza inactiva, con ease-in-out: gobierna el ancho de
+        // reposo y las transiciones que parten del compacto. Cuando el cierre parte
+        // del expandido, el muelle de p gobierna la opacidad para que contenido y
+        // geometría aterricen juntos (001 MOD RF-16).
         double inact = Smooth01(_inactiveT);
-        // Opacidad del contenido con el mismo reloj del reposo que la geometría: el
-        // contenido se apaga exactamente mientras el cuerpo aterriza en la pieza, así
-        // expandido -> inactivo es UNA sola transición y no dos etapas encadenadas
-        // (001 MOD RF-16). En el repliegue desde el expandido el cuerpo viaja con
-        // este mismo reloj (ver OnFrame), de modo que letras, fondo y geometría
-        // terminan a la vez; fuera de él contentOp ya valía exactamente lo mismo.
-        double contentOp = 1 - inact;
+        // Opacidad del contenido con el mismo reloj que la geometría: el contenido
+        // se apaga mientras el cuerpo aterriza en la pieza, así expandido -> inactivo
+        // es UNA sola transición y no dos etapas encadenadas (001 MOD RF-16).
+        double contentOp = _collapseFromExpanded ? Smooth01(p) : 1 - inact;
         // Apertura del contenido desde la pieza: 0 en el reposo, 1 en contenido.
         // Es el MISMO reloj del reposo el que hace florecer al compacto (escala,
         // arte, título y ecualizador convergen desde el centro) además de fundir su
