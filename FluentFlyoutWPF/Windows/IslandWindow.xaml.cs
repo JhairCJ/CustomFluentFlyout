@@ -68,6 +68,9 @@ public partial class IslandWindow : Window
     private const double CompactPillWidth = 240;
     // El estilo notch es más estrecho por diseño (001 RF-15).
     private const double NotchCompactWidth = 200;
+    // Ancho del reposo inactivo (001 MOD RF-11, RF-16): la pieza negra estrecha.
+    // Es a propósito la MISMA en los dos estilos —no deriva del compacto—, porque
+    // el reposo es una presencia mínima, no una cápsula alargada.
     private const double InactivePillWidth = 112;
     // Ancho de la línea de actividad (y base de la franja de detección).
     private const double LineFullWidth = 120;
@@ -213,6 +216,13 @@ public partial class IslandWindow : Window
     // plazo hasta replegarse a inactivo/nada.
     private DateTime _noticeUntil = DateTime.MinValue;
     private int _noticeVersion;
+    // Aviso PENDIENTE del temporizador (002 RF-16): una acción que pone la cuenta
+    // en marcha (empezar, reanudar, reiniciar) dentro del expandido deja su aviso
+    // armado pero sin gastar. El plazo debe correr cuando el compacto del
+    // temporizador se presenta de verdad —no mientras el usuario configura la
+    // cuenta—, así el aviso se ve entero en vez de nacer vencido. Lo consume
+    // ShowTimerCompact y lo descarta ClearTemporaryNotice.
+    private bool _pendingTimerNotice;
 
     // --- Ciclo de vida ---
 

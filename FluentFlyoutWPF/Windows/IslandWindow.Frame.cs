@@ -37,15 +37,16 @@ public partial class IslandWindow
         Math.Clamp(MainWindow.getDuration(), 120, 700) / 1000.0;
 
     /// <summary>
-    /// Duración de la transición pieza inactiva -> contenido: la MITAD que la de
-    /// entrada al reposo y con suelo bajo, porque es la que el usuario mira
-    /// cuando vuelve la actividad —o cuando la pieza encadena su fase 2 tras un
-    /// repliegue— (001 MOD RF-16). La geometría y la opacidad del contenido
-    /// siguen compartiendo este mismo reloj: el compacto FLORECE desde la pieza,
-    /// nunca aparece de golpe, pero ya.
+    /// Duración de la transición pieza inactiva -> contenido: algo más corta que
+    /// la de entrada al reposo (el usuario que vuelve mira, no espera) pero con
+    /// suelo suficiente para que se VEA —el salto de ancho desde la pieza es de
+    /// más de cien píxeles, y con un reloj de 90 ms se leía como un corte seco—
+    /// (001 MOD RF-16). La geometría y la opacidad del contenido comparten este
+    /// mismo reloj: el compacto FLORECE desde la pieza, nunca aparece de golpe,
+    /// pero ya.
     /// </summary>
     private static double InactiveReopenSeconds =>
-        Math.Clamp(MainWindow.getDuration() * 0.5, 90, 220) / 1000.0;
+        Math.Clamp(MainWindow.getDuration() * 0.7, 160, 480) / 1000.0;
 
     // Coeficientes vigentes del muelle: se recalculan solo cuando cambia algo de
     // lo que dependen (velocidad global de animaciones o estilo notch), no en cada
@@ -113,7 +114,22 @@ public partial class IslandWindow
         _lastTick = now;
 
         GetSpring(out double kP, out double cP, out double kQ, out double cQ);
-        Step(ref _p, ref _pv, _pT, kP, cP, dt);
+        // Repliegue desde el expandido hacia la pieza: el cuerpo lo gobierna el
+        // reloj del reposo y NO el muelle. Es el ÚNICO reloj que viaja del tamaño
+        // expandido al de la pieza, así que alto, ancho, radio y contenido se
+        // encogen a la vez y aterrizan juntos. Con el muelle el ALTO llegaba a su
+        // tamaño final antes que el ANCHO (el muelle es más rápido y el ancho
+        // espera también al reloj del reposo), y el repliegue se veía en dos
+        // etapas: primero se aplastaba y después se estrechaba (001 MOD RF-16).
+        if (_collapseFromExpanded)
+        {
+            _p = 1 - Smooth01(_inactiveT);
+            _pv = 0;
+        }
+        else
+        {
+            Step(ref _p, ref _pv, _pT, kP, cP, dt);
+        }
         Step(ref _q, ref _qv, _qT, kQ, cQ, dt);
         // Progreso hacia/desde la pieza inactiva: avance lineal a velocidad
         // constante (ease-in-out lo aporta Smooth01 al pintar). Reapuntar a mitad
@@ -258,14 +274,29 @@ public partial class IslandWindow
     private const double BounceLimit = 0.12;
 
     /// <summary>
+    /// Cuánto puede COMPRIMIRSE la geometría por DEBAJO de su tamaño de destino.
+    /// Un pelo, no el mismo margen que el rebote: el ancho y el alto se pintan
+    /// interpolando desde el tamaño de compacto al expandido, así que la
+    /// compresión se escala con ese salto. Al aterrizar en la pieza —alto de
+    /// compacto 34 y expandido de 126 a 172— un margen del 12% dejaba el alto en
+    /// ~20 px y el reposo se veía delgado y feo, con el contenido recortado por el
+    /// clip del contenedor. Con el 2% la pieza conserva su grosor (≈33 px) y sigue
+    /// leyéndose como un rebote. Lo que se pasa HACIA ARRIBA no se toca: el
+    /// overshoot del expandido es el rebote de Apple que se quiere conservar.
+    /// </summary>
+    private const double BounceCompress = 0.02;
+
+    /// <summary>
     /// Progreso con el REBOTE del muelle intacto. El muelle ya es la curva (arranca
     /// y frena solo, y se pasa de su objetivo); al pintar se usa tal cual para la
     /// geometría, así el contenedor se pasa un poco de su tamaño y vuelve —el
-    /// rebote de Apple— en lugar de frenar en seco. Las opacidades y los morphs de
-    /// contenido siguen con la curva acotada: el rebote se siente en el cuerpo de
-    /// la isla, nunca desborda ni parpadea.
+    /// rebote de Apple— en lugar de frenar en seco. El margen de arriba es amplio y
+    /// el de abajo mínimo (<see cref="BounceCompress"/>): comprimirse por debajo del
+    /// destino se escalaba con el salto al expandido y adelgazaba el reposo. Las
+    /// opacidades y los morphs de contenido siguen con la curva acotada: el rebote
+    /// se siente en el cuerpo de la isla, nunca desborda ni parpadea.
     /// </summary>
-    private static double BounceCurve(double t) => Math.Clamp(t, -BounceLimit, 1 + BounceLimit);
+    private static double BounceCurve(double t) => Math.Clamp(t, -BounceCompress, 1 + BounceLimit);
 
     /// <summary>
     /// Curva del estirón del revelado (oculto -> punto -> ancho de reposo).
@@ -343,21 +374,31 @@ public partial class IslandWindow
     {
         double p = Math.Clamp(_p, 0, 1);
         double q = Math.Clamp(_q, 0, 1);
-        // Progreso del muelle CON su rebote, solo para geometría (ancho/alto): el
-        // contenedor se pasa un poco de su tamaño final y vuelve. El revelado (q)
-        // lleva el suyo por la curva del estirón, más abajo.
+        // Progreso del cuerpo (0 = tamaño de reposo, 1 = expandido), solo para
+        // geometría (ancho/alto, con el rebote del muelle intacto): el contenedor se
+        // pasa un poco de su tamaño final y vuelve. Durante el repliegue desde el
+        // expandido este progreso ES el reloj del reposo —OnFrame lo fija—, así que
+        // ahí el ancho y el alto viajan juntos y el rebote solo actúa al crecer. El
+        // revelado (q) lleva el suyo por la curva del estirón, más abajo.
         double bounceP = BounceCurve(_p);
         // Progreso hacia la pieza inactiva, con ease-in-out: gobierna a la vez el
         // ancho de reposo y el desvanecido de TODO el contenido, así el paso
         // compacto-con-contenido <-> inactivo es una sola transición suave
         // (001 MOD RF-16) en lugar de un cambio de ancho con borrado seco.
         double inact = Smooth01(_inactiveT);
-        // Opacidad del contenido. Sale del reloj del reposo (inact), pero cuando el
-        // repliegue PARTE del expandido manda el reloj de la caja (p): las letras se
-        // apagan exactamente mientras el ancho aterriza en la pieza, así
+        // Opacidad del contenido con el mismo reloj del reposo que la geometría: el
+        // contenido se apaga exactamente mientras el cuerpo aterriza en la pieza, así
         // expandido -> inactivo es UNA sola transición y no dos etapas encadenadas
-        // (001 MOD RF-16).
-        double contentOp = _collapseFromExpanded ? Smooth01(p) : 1 - inact;
+        // (001 MOD RF-16). En el repliegue desde el expandido el cuerpo viaja con
+        // este mismo reloj (ver OnFrame), de modo que letras, fondo y geometría
+        // terminan a la vez; fuera de él contentOp ya valía exactamente lo mismo.
+        double contentOp = 1 - inact;
+        // Apertura del contenido desde la pieza: 0 en el reposo, 1 en contenido.
+        // Es el MISMO reloj del reposo el que hace florecer al compacto (escala,
+        // arte, título y ecualizador convergen desde el centro) además de fundir su
+        // opacidad: sin esto el regreso desde la pieza era un simple fundido que se
+        // leía como un salto (001 MOD RF-16). En contenido vale 1 y no toca nada.
+        double restReveal = Smooth01(Math.Clamp((1 - inact - 0.10) / 0.90, 0, 1));
         // Línea gris con el mismo reloj que la isla (p y q): la isla crece
         // centrada = de adentro hacia afuera, la línea encoge centrada = de
         // afuera hacia adentro. Sigue al más rápido (Max): p termina antes
@@ -387,6 +428,12 @@ public partial class IslandWindow
             // Notch: mismo reveal que Island: punto central -> compacto (más estrecho
         // por diseño) -> expandido.
             const double notchDot = 26;
+            // Rumbo a la pieza desde el expandido el ancho de reposo YA es el de la
+            // pieza: así el ANCHO interpola del expandido a la pieza con el MISMO
+            // progreso que el ALTO y los dos se encogen a la vez. Encadenar aquí el
+            // reloj del reposo (compacto -> pieza) dejaba el ancho esperando a que el
+            // alto hubiera terminado —primero se aplastaba, después se estrechaba—
+            // (001 MOD RF-16).
             double compactW = _collapseFromExpanded
                 ? InactivePillWidth
                 : Lerp(NotchCompactWidth, InactivePillWidth, inact);
@@ -429,9 +476,12 @@ public partial class IslandWindow
             double dotT = Math.Clamp(q / 0.32, 0, 1);
             double stretchT = RevealStretch(q);
             // Rumbo a la pieza desde el expandido el ancho de reposo YA es el de la
-            // pieza: el morfe va directo de expandido a inactivo sin dibujar de
-            // paso la silueta del compacto (que es lo que se leía como «pasa por
-            // el compacto y recién después se hace inactivo»).
+            // pieza: así el ANCHO interpola del expandido a la pieza con el MISMO
+            // progreso que el ALTO y los dos se encogen a la vez. Encadenar aquí el
+            // reloj del reposo (compacto -> pieza) dejaba el ancho esperando a que el
+            // alto hubiera terminado —primero se aplastaba, después se estrechaba—
+            // (001 MOD RF-16). El compacto no florece de paso porque su capa va
+            // apagada, no porque el ancho lo evite.
             double restW = _collapseFromExpanded
                 ? InactivePillWidth
                 : Lerp(ContentCompactWidth, InactivePillWidth, inact);
@@ -484,7 +534,7 @@ public partial class IslandWindow
         if (_collapseFromExpanded) compactOp = 0;
         double expandedOp = Smooth01(Math.Clamp((p - 0.12) / 0.88, 0, 1));
         CompactLayer.Opacity = compactOp * contentOp;
-        CompactScale.ScaleX = CompactScale.ScaleY = Lerp(0.88, 1, Smooth01(contentT));
+        CompactScale.ScaleX = CompactScale.ScaleY = Lerp(0.88, 1, Smooth01(contentT) * restReveal);
         if (q < 0.32)
             CompactScale.ScaleX = CompactScale.ScaleY = Lerp(0.75, 0.88, dotT2);
         else if (notch)
@@ -495,9 +545,10 @@ public partial class IslandWindow
             CompactScale.ScaleY *= pScale;
         }
 
-        // El contenido también florece desde el centro durante el reveal:
+        // El contenido también florece desde el centro durante el reveal —y durante
+        // el regreso desde la pieza, con el reloj del reposo—:
         // diverge(0) = apiñado al centro, diverge(1) = en su sitio.
-        double diverge = Math.Pow(stretchT2, 1.25);
+        double diverge = Math.Pow(stretchT2, 1.25) * restReveal;
         CompactArtTranslate.X = Lerp(42, 0, diverge);
         CompactTitleTranslate.X = Lerp(6, 0, diverge);
         CompactEqTranslate.X = Lerp(-36, 0, diverge);

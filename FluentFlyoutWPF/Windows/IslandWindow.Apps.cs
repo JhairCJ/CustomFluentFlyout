@@ -79,8 +79,15 @@ public partial class IslandWindow
     private void RefreshAppList()
     {
         var apps = SettingsManager.Current.IslandApps;
+        // Cuántas aplicaciones caben en el renglón compacto. La cuenta es la del
+        // XAML: el renglón va con márgenes 6/10 dentro del ancho del compacto y
+        // cada celda ocupa su caja (20) más su separación (4) = 24 de paso.
+        //   · notch: 200 − 16 = 184 útiles; 6 celdas = 144 y el contador «+N»
+        //     (≈24) cabe holgado. La séptima pediría 168 + contador y pisaría el
+        //     contador, así que el notch encaja 6 (001 RF-15).
+        //   · pill:  240 − 16 = 224 útiles; encajan 7 de sobra.
         // El notch es más estrecho por diseño: caben menos iconos en su renglón.
-        int fit = IsNotch ? 5 : IslandApp.MaxCompactApps;
+        int fit = IsNotch ? IslandApp.MaxCompactAppsNotch : IslandApp.MaxCompactApps;
         var compact = apps.Take(fit).ToList();
         AppsCompactList.ItemsSource = compact;
         AppsExpandedList.ItemsSource = apps;

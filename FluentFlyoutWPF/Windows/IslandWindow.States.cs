@@ -89,6 +89,7 @@ public partial class IslandWindow
     {
         _noticeVersion++;
         _noticeUntil = DateTime.MinValue;
+        _pendingTimerNotice = false;
     }
 
     private void ScheduleNoticeRetraction()
@@ -337,12 +338,13 @@ public partial class IslandWindow
     /// <summary>
     /// Punto ÚNICO de entrada al contenido (compacto o expandido, 001 MOD RF-16):
     /// mientras hay una funcionalidad a la vista, el reposo inactivo no aplica ni
-    /// deja residuos. Si la pieza ya domina la vista (reposo real), su progreso se
-    /// funde con el reloj de reposo —crossfade pieza &lt;-&gt; contenido—; si solo era un
-    /// residuo a medio camino (repliegue interrumpido), se descarta de golpe, de modo
-    /// que el residuo accidental nunca se ve. El repliegue DELIBERADO hacia el
-    /// compacto sí atraviesa la pieza: lo hace en dos fases encadenadas por
-    /// <see cref="BeginCollapseThroughInactive"/> (001 MOD RF-16).
+    /// deja residuos. Ahí el reloj de reposo se reapunta a contenido y viaja desde
+    /// donde esté: si la pieza ya domina la vista, el contenido se funde hacia
+    /// fuera de ella; si el repliegue iba a medio camino, se da la vuelta desde su
+    /// progreso actual (nada de saltos: pegar el salto a 0 era justo el corte seco
+    /// que se veía al reapuntar en vuelo). Si el repliegue era deliberado hacia el
+    /// compacto, no pasa por aquí: lo atraviesa en dos fases encadenadas por
+    /// <see cref="BeginCollapseThroughInactive"/>.
     /// </summary>
     private void EnterContent()
     {
@@ -353,14 +355,10 @@ public partial class IslandWindow
         _inactiveShown = false;
         _inactiveTt = 0;
         if (_inactiveT <= 0) return;
-        if (_inactiveT >= 1 && AnimationsEnabled && IsBoxShown)
-        {
-            EnsureLoop(); // la pieza es la vista actual: fundido elegante hacia el contenido
-            return;
-        }
-        // Residuo en camino al reposo: el contenido manda, sin pasar por la pieza.
+        if (AnimationsEnabled && IsBoxShown) { EnsureLoop(); return; }
+        // Sin animaciones (o con la caja fuera del árbol) no hay nada que
+        // interpolar: el progreso se pega al destino.
         _inactiveT = 0;
-        if (AnimationsEnabled && IsBoxShown) EnsureLoop();
     }
 
     /// <summary>
@@ -609,7 +607,10 @@ public partial class IslandWindow
                 // Conserva la funcionalidad expandida (002 RF-8); si el temporizador
                 // ya no sostiene la vista, manda la activa vigente: con música
                 // sonando el compacto es la música, nunca la pieza (001 MOD RF-4).
-                if (TimerKeepsAlive() && noticeAlive) { ShowTimerCompact(); return; }
+                // TimerNoticeAlive() incluye el aviso PENDIENTE de una acción de la
+                // cuenta hecha dentro del expandido: su plazo empieza aquí, al
+                // presentarse el compacto, no cuando se pulsó Iniciar (002 RF-16).
+                if (TimerKeepsAlive() && TimerNoticeAlive()) { ShowTimerCompact(); return; }
                 if (noticeAlive && _timer.State != Classes.IslandTimerState.Alerting
                     && ResolveActiveVigenteForVisible() is { } vigente1 && vigente1.TryShowCompact())
                     return;

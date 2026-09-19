@@ -148,7 +148,10 @@
                                    VerticalAlignment="Center"/>
                     </Grid>
                     <!-- Cajón de aplicaciones en compacto: fila de iconos; cada clic lanza su aplicación.
-                         Las que no caben en el renglón viven en el expandido y aquí solo se cuenta. -->
+                         Las que no caben en el renglón viven en el expandido y aquí solo se cuenta.
+                         Celda pequeña a propósito (20x20 + 4 de separación = 24): así caben 6 en el
+                         ancho del notch sin agrandar el Island. No agrandar sin recalcular el fit
+                         del renglón en IslandWindow.Apps.cs. -->
                     <Grid x:Name="AppsCompactGrid" Margin="6,0,10,0" Visibility="Collapsed">
                         <ItemsControl x:Name="AppsCompactList" HorizontalAlignment="Left" VerticalAlignment="Center">
                             <ItemsControl.ItemsPanel>
@@ -158,7 +161,7 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Width="24" Height="24" CornerRadius="7" Margin="0,0,4,0" Cursor="Hand"
+                                    <Border Width="20" Height="20" CornerRadius="6" Margin="0,0,4,0" Cursor="Hand"
                                             ToolTip="{Binding ToolTip}" MouseLeftButtonUp="AppLaunch_Click">
                                         <Border.Style>
                                             <Style TargetType="Border">
@@ -170,7 +173,7 @@
                                                 </Style.Triggers>
                                             </Style>
                                         </Border.Style>
-                                        <Image Source="{Binding Icon}" Width="16" Height="16" Stretch="Uniform"
+                                        <Image Source="{Binding Icon}" Width="14" Height="14" Stretch="Uniform"
                                                RenderOptions.BitmapScalingMode="HighQuality"/>
                                     </Border>
                                 </DataTemplate>

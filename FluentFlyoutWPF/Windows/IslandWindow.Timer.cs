@@ -56,6 +56,38 @@ public partial class IslandWindow
     private bool TimerKeepsAlive() =>
         TimerModeAvailable() && (_timer.IsCounting || _timer.State == IslandTimerState.Alerting || _pendingTimerAlert);
 
+    /// <summary>
+    /// ¿El temporizador tiene un aviso que mostrar? Vigente = plazo del aviso
+    /// temporal corriendo; PENDIENTE = una acción de la cuenta (empezar,
+    /// reanudar, reiniciar) hecha dentro del expandido, cuyo plazo arranca
+    /// cuando el compacto se presenta (002 RF-16). Sin esto, replegarse desde el
+    /// expandido iba directo al reposo y el aviso del temporizador no se veía
+    /// nunca en «Aviso temporal».
+    /// </summary>
+    private bool TimerNoticeAlive() => _noticeUntil > DateTime.UtcNow || _pendingTimerNotice;
+
+    /// <summary>
+    /// «Aviso temporal» (001 RF-2, 002 RF-16): las acciones que ponen la cuenta
+    /// en marcha —empezar, reanudar, reiniciar— generan el aviso del
+    /// temporizador igual que reproducir genera el de media. El plazo NO corre
+    /// dentro del expandido: queda pendiente y arranca cuando el compacto del
+    /// temporizador se presenta (<see cref="ShowTimerCompact"/>), que es cuando
+    /// el aviso se ve, de modo que el usuario disfruta la duración configurada
+    /// completa. La cuenta no se toca y la alerta final (exclusiva) no admite
+    /// aviso.
+    /// </summary>
+    private void ArmTimerNotice()
+    {
+        if (SettingsManager.Current.IslandVisibilityMode != 1 || !TimerModeAvailable()) return;
+        if (HasExclusive()) { ClearTemporaryNotice(); return; }
+        // Con el compacto del temporizador ya a la vista manda su plazo vigente:
+        // la acción de la cuenta no reinicia un aviso que ya estaba corriendo
+        // (001 RF-2).
+        if (!_expanded && IsBoxShown && _contentMode == IslandContentMode.Timer) return;
+        _pendingTimerNotice = true;
+        if (!_expanded) ShowTimerCompact();
+    }
+
     private void InitTimer()
     {
         _timer.Finished += OnTimerFinished;
@@ -201,6 +233,11 @@ public partial class IslandWindow
     // El loop lo garantiza SyncMeasuredHeight si el objetivo cambió.
     private void RefreshTimerModeView()
     {
+        // Una acción que deja la cuenta en marcha (empezar, reanudar, reiniciar)
+        // genera el aviso del temporizador en «Aviso temporal» (002 RF-16): es el
+        // único punto por el que el motor comunica su estado nuevo, así que el
+        // aviso se arma aquí y no en cada botón.
+        if (_timer.State == IslandTimerState.Running) ArmTimerNotice();
         // T2: si el timer acaba de pausarse y en «Visible mientras activo» no hay
         // otra activa vigente, la vista debe caer a inactivo/nada —el compacto
         // pausado no sostiene nada (002 MOD RF-7)—. Vale tanto si el panel estaba
@@ -262,6 +299,15 @@ public partial class IslandWindow
         if (!TimerModeAvailable()) { SnapHidden(); return; }
         // «Aviso temporal»: el compacto del timer es un aviso como el de media y
         // también vence (002 RF-8/RF-16) con la cuenta intacta por detrás.
+        // Un aviso PENDIENTE (acción de la cuenta dentro del expandido) estrena
+        // aquí su plazo: se descarta el vencimiento heredado —o ya gastado en el
+        // expandido— y ShowCompactView lo arma con la duración configurada, así
+        // el aviso se ve entero en vez de nacer vencido (001 RF-2, 002 RF-16).
+        if (_pendingTimerNotice)
+        {
+            _pendingTimerNotice = false;
+            _noticeUntil = DateTime.MinValue;
+        }
         ShowCompactView(IslandContentMode.Timer, TimerFeature, RefreshTimerUI);
     }
 

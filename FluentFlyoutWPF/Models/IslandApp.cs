@@ -23,6 +23,14 @@ public sealed class IslandApp : INotifyPropertyChanged
     /// <summary>Cuántas aplicaciones caben en la fila compacta (el resto, en el expandido).</summary>
     public const int MaxCompactApps = 7;
 
+    /// <summary>
+    /// Cuántas caben en el compacto del estilo notch, más estrecho por diseño
+    /// (001 RF-15). Son 6 porque el renglón se mide con la celda de icono del
+    /// XAML (20 de caja + 4 de separación): reducir más la celda dejaría los
+    /// iconos ilegibles y agrandar el Island está descartado.
+    /// </summary>
+    public const int MaxCompactAppsNotch = 6;
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private string _name = "";
