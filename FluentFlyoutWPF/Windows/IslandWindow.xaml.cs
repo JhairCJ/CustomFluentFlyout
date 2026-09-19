@@ -129,6 +129,10 @@ public partial class IslandWindow : Window
     private readonly Dictionary<string, DateTime> _lastPlay = new();
     private readonly Dictionary<string, DateTime> _lastFeatureEvent = new();
     private string? _currentId;
+    // Media session pinned by a direct Island interaction. This prevents an OS
+    // focus move caused by pause/play/skip from changing what the Island controls.
+    // A different session that genuinely starts playing releases the pin.
+    private string? _mediaPinnedSessionId;
     private bool _expanded;
     private bool _drag;
     private readonly DispatcherTimer _tick;

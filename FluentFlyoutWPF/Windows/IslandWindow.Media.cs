@@ -116,14 +116,26 @@ public partial class IslandWindow
         return best;
     }
 
+    private string? DisplayedMediaId => _mediaPinnedSessionId ?? _currentId ?? _music?.Id;
+
+    private bool IsDisplayedSession(MediaSession session) =>
+        string.Equals(DisplayedMediaId, session.Id, StringComparison.Ordinal);
+
+    private void PinMediaSession(MediaSession session)
+    {
+        _mediaPinnedSessionId = session.Id;
+        _currentId = session.Id;
+    }
+
     private MediaSession? Current()
     {
-        // Resolución SIEMPRE mediada por el snapshot: sin música disponible no
-        // hay sesión "actual" aunque el control multimedia siga vivo.
-        var snap = _music;
-        if (snap == null) return null;
+        // La sesión de control debe ser exactamente la que está dibujada. El
+        // pin cubre el caso en que Windows mueve el foco a otra app al pausar,
+        // reproducir o saltar una pista.
+        var id = DisplayedMediaId;
+        if (id == null) return null;
         foreach (var s in _main.mediaManager.CurrentMediaSessions.Values)
-            if (s.Id == snap.Id && _main.IsSessionAllowed(s)) return s;
+            if (s.Id == id && _main.IsSessionAllowed(s)) return s;
         return null;
     }
 
@@ -141,12 +153,30 @@ public partial class IslandWindow
         _lastStatus = s?.Status;
         if (s == null)
         {
+            _currentId = null;
             // Sin sesión: cero datos musicales residuales, la vista la decide
             // el contenedor (timer disponible u oculto), nunca música vacía.
             if (existed) ClearMusicResidue();
             return;
         }
+        _currentId = s.Id;
         PaintGlyph();
+    }
+
+    private bool TryShowNewestPlaying(string? excludeId = null)
+    {
+        var session = NewestPlaying();
+        if (session == null || string.Equals(session.Id, excludeId, StringComparison.Ordinal)) return false;
+
+        NotePlay(session.Id);
+        var status = SafeStatus(session) ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+        ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id, status));
+
+        bool mode0 = SettingsManager.Current.IslandVisibilityMode == 0;
+        if (!mode0 && !SettingsManager.Current.IslandShowOnPlayPause) return true;
+        if (_expanded) RefreshUi(session, status);
+        else ShowMusicCompact(session, status);
+        return true;
     }
 
     // El gestor multimedia arranca antes que el Island, así que la primera
@@ -179,18 +209,7 @@ public partial class IslandWindow
         // Sin snapshot: adoptar algo que se esté reproduciendo AHORA (evento de
         // arranque perdido); una sesión pausada NO se adopta sola para no
         // robarle la vista al temporizador ni sorprender al usuario.
-        var session = NewestPlaying();
-        if (session == null) return;
-        var status = SafeStatus(session);
-        ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
-        // «Visible mientras activo» muestra la reproducción sin depender del
-        // activador legacy; «Aviso temporal» lo respeta (001 MOD RF-1).
-        bool mode0 = SettingsManager.Current.IslandVisibilityMode == 0;
-        if (!mode0 && !SettingsManager.Current.IslandShowOnPlayPause) return;
-        // El evento de reproducción es el más reciente: reclama la vista aunque
-        // el temporizador siga contando (001 MOD RF-24); la cuenta no se toca.
-        if (_expanded) RefreshUi(session, status);
-        else ShowMusicCompact(session, status);
+        TryShowNewestPlaying();
     }
 
     private void OnPlayState(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackInfo? info)
@@ -203,11 +222,16 @@ public partial class IslandWindow
             {
                 // Contenido musical deshabilitado: el snapshot se vacía y la
                 // vista queda para el temporizador (o nada).
-                if (_music?.Id == session.Id) OnMusicUnavailable();
+                if (IsDisplayedSession(session)) OnMusicUnavailable();
                 return;
             }
             if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
             {
+                // Igual que el Taskbar Widget: una reproducción nueva sí
+                // cambia la sesión mostrada, pero el foco que Windows mueve al
+                // pausar/reanudar/saltar no debe romper una selección fijada.
+                if (_mediaPinnedSessionId != null && _mediaPinnedSessionId != session.Id)
+                    _mediaPinnedSessionId = null;
                 NotePlay(session.Id);
                 ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id,
                     status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
@@ -218,8 +242,13 @@ public partial class IslandWindow
                 if (_expanded) RefreshUi(session, status);
                 else ShowMusicCompact(session, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing);
             }
-            else if (_music?.Id == session.Id)
+            else if (IsDisplayedSession(session))
             {
+                // Si el usuario no fijó una sesión y otra sigue reproduciendo,
+                // esa reproducción es la más reciente y debe pasar al Island.
+                // Con pin se conserva la sesión que el usuario está viendo.
+                if (_mediaPinnedSessionId == null && TryShowNewestPlaying(session.Id)) return;
+
                 // La sesión del snapshot se pausó: conservarla en el snapshot
                 // (punto de estado gris) y decidir presentación por ajuste.
                 ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
@@ -249,17 +278,11 @@ public partial class IslandWindow
             }
             else
             {
-                var next = NewestPlaying();
-                if (next != null)
-                {
-                    NotePlay(next.Id);
-                    var nextStatus = SafeStatus(next);
-                    ApplyMediaSnapshot(new IslandMediaSnapshot(next.Id, nextStatus ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
-                    if (!SettingsManager.Current.IslandShowOnPlayPause) return;
-                    if (_expanded) RefreshUi(next);
-                    else ShowMusicCompact(next);
-                }
-                else if (_music == null && SettingsManager.Current.IslandShowOnPause
+                // Eventos de sesiones ajenas no pueden secuestrar una selección
+                // fijada al hacer clic en el álbum.
+                if (_mediaPinnedSessionId != null) return;
+                if (TryShowNewestPlaying(session.Id)) return;
+                if (_music == null && SettingsManager.Current.IslandShowOnPause
                     && status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
                 {
                     // Sin snapshot y sin nadie reproduciendo: solo se crea vista
@@ -280,11 +303,17 @@ public partial class IslandWindow
             if (!_main.IsSessionAllowed(session)) return;
             if (!MediaContentAvailable())
             {
-                if (_music?.Id == session.Id) OnMusicUnavailable();
+                if (IsDisplayedSession(session)) OnMusicUnavailable();
                 return;
             }
-            var show = SafeStatus(session) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
-                ? session : NewestPlaying();
+            if (_mediaPinnedSessionId != null && !IsDisplayedSession(session)) return;
+
+            var sessionStatus = SafeStatus(session);
+            var show = IsDisplayedSession(session)
+                ? session
+                : sessionStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
+                    ? session
+                    : NewestPlaying();
             if (show == null) return;
             var showStatus = SafeStatus(show);
             if (showStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
@@ -300,7 +329,9 @@ public partial class IslandWindow
         _lastPlay.Remove(session.Id);
         Dispatcher.Invoke(() =>
         {
-            if (_music?.Id != session.Id && MusicAvailable()) return;
+            if (!IsDisplayedSession(session)) return;
+            if (_mediaPinnedSessionId == session.Id) _mediaPinnedSessionId = null;
+            if (TryShowNewestPlaying(session.Id)) return;
             OnMusicUnavailable();
         });
     }
@@ -310,6 +341,7 @@ public partial class IslandWindow
     // puede recuperar la vista inmediatamente (001 MOD RF-24, 002 MOD RF-14).
     private void OnMusicUnavailable()
     {
+        _mediaPinnedSessionId = null;
         _currentId = null;
         ApplyMediaSnapshot(null);
         // El poll de la franja dispara ExpandFromHover cada 150 ms; sin esta
@@ -384,6 +416,13 @@ public partial class IslandWindow
     private MediaSession? ActiveMediaSession()
     {
         var snap = Current();
+        if (_mediaPinnedSessionId != null)
+        {
+            if (snap != null) return snap;
+            // La sesión fijada desapareció: solo entonces se permite recuperar
+            // la sesión que esté reproduciendo más recientemente.
+            _mediaPinnedSessionId = null;
+        }
         if (snap != null && SafeStatus(snap) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
             return snap;
         // Algo reproduce ahora mismo (aunque no sea la del snapshot): esa es la
@@ -706,9 +745,26 @@ public partial class IslandWindow
 
     private MediaSession? AnySession() => !MusicContentShown() || _music == null ? null : Current() ?? NewestPlaying() ?? FirstAllowed();
 
-    private async void Prev_Click(object sender, RoutedEventArgs e) { if (Current() is { } s) await s.ControlSession.TrySkipPreviousAsync(); }
-    private async void PlayPause_Click(object sender, RoutedEventArgs e) { if (Current() is { } s) await s.ControlSession.TryTogglePlayPauseAsync(); }
-    private async void Next_Click(object sender, RoutedEventArgs e) { if (Current() is { } s) await s.ControlSession.TrySkipNextAsync(); }
+    private async void Prev_Click(object sender, RoutedEventArgs e)
+    {
+        if (Current() is not { } s) return;
+        PinMediaSession(s);
+        await s.ControlSession.TrySkipPreviousAsync();
+    }
+
+    private async void PlayPause_Click(object sender, RoutedEventArgs e)
+    {
+        if (Current() is not { } s) return;
+        PinMediaSession(s);
+        await s.ControlSession.TryTogglePlayPauseAsync();
+    }
+
+    private async void Next_Click(object sender, RoutedEventArgs e)
+    {
+        if (Current() is not { } s) return;
+        PinMediaSession(s);
+        await s.ControlSession.TrySkipNextAsync();
+    }
 
     private void AlbumArt_MouseEnter(object sender, MouseEventArgs e)
     {
@@ -737,13 +793,26 @@ public partial class IslandWindow
         e.Handled = true; // el clic del álbum SOLO cambia de medio (001 MOD RF-5)
         var all = _main.mediaManager.CurrentMediaSessions.Values.Where(s => _main.IsSessionAllowed(s)).ToList();
         if (!MusicAvailable() || all.Count <= 1) return;
-        int i = all.FindIndex(s => s.Id == _currentId);
+        int i = all.FindIndex(s => s.Id == (Current()?.Id ?? DisplayedMediaId));
         var next = all[(i + 1) % all.Count];
-        _currentId = next.Id;
-        if (_expanded) RefreshUi(next, null, true);
-        else ShowMusicCompact(next, null, true);
+        PinMediaSession(next);
+        var nextStatus = SafeStatus(next) ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
+        ApplyMediaSnapshot(new IslandMediaSnapshot(next.Id, nextStatus));
+        if (_expanded) RefreshUi(next, nextStatus, true);
+        else ShowMusicCompact(next, nextStatus, true);
     }
 
     private void Seekbar_Down(object sender, MouseButtonEventArgs e) { _drag = true; if (sender is Slider sl) { var p = e.GetPosition(sl); double ratio = sl.ActualWidth > 0 ? Math.Clamp(p.X / sl.ActualWidth, 0, 1) : 0; sl.Value = ratio * sl.Maximum; } }
-    private async void Seekbar_Up(object sender, MouseButtonEventArgs e) { try { if (Current() is { } s && sender is Slider sl) { var pos = TimeSpan.FromSeconds(Math.Max(sl.Value, 0)); await s.ControlSession.TryChangePlaybackPositionAsync(pos.Ticks); } } catch { } finally { _drag = false; } }
+    private async void Seekbar_Up(object sender, MouseButtonEventArgs e)
+    {
+        try
+        {
+            if (Current() is not { } s || sender is not Slider sl) return;
+            PinMediaSession(s);
+            var pos = TimeSpan.FromSeconds(Math.Max(sl.Value, 0));
+            await s.ControlSession.TryChangePlaybackPositionAsync(pos.Ticks);
+        }
+        catch { }
+        finally { _drag = false; }
+    }
 }
