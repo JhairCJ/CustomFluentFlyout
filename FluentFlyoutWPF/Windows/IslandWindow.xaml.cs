@@ -35,6 +35,9 @@ namespace FluentFlyoutWPF.Windows;
 /// vive en partials vecinos, uno por responsabilidad:</para>
 ///
 /// <list type="bullet">
+/// <item><c>IslandWindow.Views.cs</c> — banda de contenido vigente
+/// (<see cref="IslandContentMode"/>) y las rutas ÚNICAS de presentación en
+/// compacto y expandido que las tres funcionalidades comparten.</item>
 /// <item><c>IslandWindow.Media.cs</c> — sesiones multimedia, snapshot
 /// presentado, carátula, capacidades, seek y controles.</item>
 /// <item><c>IslandWindow.States.cs</c> — máquina de estados: reposo, aviso
@@ -349,7 +352,7 @@ public partial class IslandWindow : Window
     private bool AnimationsEnabled => SettingsManager.Current.IslandAnimated && SettingsManager.Current.FlyoutAnimationSpeed != 0;
 
     /// <summary>¿La vista actual es música (no temporizador) con sesión disponible?</summary>
-    private bool MusicContentShown() => _contentMode == 0 && MusicAvailable();
+    private bool MusicContentShown() => _contentMode == IslandContentMode.Media && MusicAvailable();
 
     /// <summary>Funcionalidades usables ahora mismo: gobierna flechas y rueda de cambio.</summary>
     private int UsableFeatureCount() => _features.UsableFeatures().Count();
@@ -389,12 +392,12 @@ public partial class IslandWindow : Window
         // El contenido visible (temporizador o cajón) se conserva ante
         // actualizaciones del contenedor (001 ADDED RF-1): no se reconstruye ni
         // se desplaza sin un evento nuevo.
-        if (IsBoxShown && _contentMode != 0)
+        if (IsBoxShown && _contentMode != IslandContentMode.Media)
         {
-            if (_contentMode == AppsContentMode && !AppsModeAvailable()) FallbackFromAppsView();
+            if (_contentMode == IslandContentMode.Apps && !AppsModeAvailable()) FallbackFromAppsView();
             else
             {
-                if (_contentMode == 1) RefreshTimerUI();
+                if (_contentMode == IslandContentMode.Timer) RefreshTimerUI();
                 ApplyContentVisibility();
                 SyncMeasuredHeight();
             }
@@ -424,12 +427,12 @@ public partial class IslandWindow : Window
     public void RefreshVisibilityState()
     {
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
-        if (IsBoxShown && _contentMode != 0)
+        if (IsBoxShown && _contentMode != IslandContentMode.Media)
         {
             // Temporizador o cajón visible: la actualización re-aplica su estado
             // sin reconstruir paneles ni ceder la vista a música sin evento nuevo
             // (001 ADDED RF-1, 002 ADDED RF-1).
-            if (_contentMode == 1) RefreshTimerUI();
+            if (_contentMode == IslandContentMode.Timer) RefreshTimerUI();
             ApplyContentVisibility();
             SyncMeasuredHeight();
             return;

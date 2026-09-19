@@ -325,7 +325,7 @@ public partial class IslandWindow
         // Al cerrar la última sesión no deben quedar restos musicales:
         // carátula, fondo, título ni estado de reproducción obsoleto
         // (001 MOD RF-24, 002 MOD RF-14).
-        _contentMode = 0;
+        _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();
         ClearMusicResidue();
         if (TimerKeepsAlive()) ShowTimerCompact();
@@ -443,73 +443,19 @@ public partial class IslandWindow
     {
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
         if (!MusicAvailable()) return; // sin snapshot musical no hay vista musical (RF-13)
-        // Repliegue desde el expandido (o desde su fase 1): el compacto se alcanza
-        // pasando por la pieza inactiva, y el aviso temporal vigente conserva su
-        // plazo en lugar de reiniciarse (001 MOD RF-16).
-        bool collapsing = _expanded || _p > 0.02 || _pendingCompactFeature != null;
-        _hidingViaCompact = false;
-        SelectFeature("media");
-        SetInactiveRest(false);
-        if (!SettingsManager.Current.IslandEnabled || Suppressed()) { SnapHidden(); return; }
-        RefreshUi(session, knownStatus, forceAlbumFlip);
-        _expanded = false;
-        UpdateLine();
-        PositionTopCenter();
-        SyncMeasuredHeight();
-        if (!AnimationsEnabled) SnapCompact();
-        else if (!collapsing || MediaFeature is not { } media || !BeginCollapseThroughInactive(media))
-        {
-            _pT = 0;
-            _qT = 1;
-            IslandBox.Visibility = Visibility.Visible;
-            UpdateMediaStatusDot();
-            UpdateRotationPauseState();
-            EnsureLoop();
-        }
-        ArmTemporaryHide(restart: !collapsing);
+        ShowCompactView(IslandContentMode.Media, MediaFeature,
+            () => RefreshUi(session, knownStatus, forceAlbumFlip));
     }
 
     private void ExpandSession(MediaSession session)
     {
         if (HasExclusive()) return;
         if (!MusicAvailable()) return; // sin snapshot musical no hay vista musical (RF-13)
-        if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
-        // Expandir no cancela el aviso: solo pospone su repliegue conservando el
-        // plazo que le quedaba (001 RF-2).
-        HoldTemporaryNotice();
-        _hidingViaCompact = false;
         _currentId = session.Id;
-        SelectFeature("media");
-        // Entrar al contenido SIEMPRE cancela el reposo inactivo: sin esto la
-        // vista expandida se pintaba con el contenido ya desvanecido (caja negra)
-        // porque el progreso de la pieza seguía en 1 (001 MOD RF-16).
-        SetInactiveRest(false);
-        if (HasExclusive()) return;
-        _contentMode = 0;
-        ApplyContentVisibility();
-        bool wasExpanded = _expanded;
-        RefreshUi(session);
-        _expanded = true;
-        UpdateLine();
-        PositionTopCenter();
-        SyncMeasuredHeight();
-        if (!AnimationsEnabled)
-        {
-            _p = _pT = 1; _pv = 0;
-            _q = _qT = 1; _qv = 0;
-            _pop = 0; _popPlaying = false;
-            ApplyFrame();
-            IslandBox.Visibility = Visibility.Visible;
-            UpdateMediaStatusDot();
-            UpdateRotationPauseState();
-            return;
-        }
-        if (wasExpanded) return; // ya expandido: solo actualizar datos
-        _pT = 1; _qT = 1;
-        IslandBox.Visibility = Visibility.Visible;
-        UpdateMediaStatusDot();
-        UpdateRotationPauseState();
-        EnsureLoop();
+        // guard: la exclusiva se re-comprueba tras cancelar el reposo inactivo —
+        // una alerta de temporizador que llegara en ese mismo turno manda (002 RF-2).
+        ShowExpandedView(IslandContentMode.Media, MediaFeature, () => RefreshUi(session),
+            guard: () => !HasExclusive());
     }
 
     // --- presentación ---
@@ -519,7 +465,7 @@ public partial class IslandWindow
         // Alerta modal del timer: los eventos de música esperan a X o reinicio.
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
         // Evento multimedia: el contenido más reciente manda (spec 001 RF-24).
-        _contentMode = 0;
+        _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();
         var status = knownStatus ?? SafeStatus(session) ?? _lastStatus;
         if (status != null) _lastStatus = status;

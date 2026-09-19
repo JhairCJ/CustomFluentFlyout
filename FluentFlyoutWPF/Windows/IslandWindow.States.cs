@@ -35,7 +35,10 @@ namespace FluentFlyoutWPF.Windows;
 /// <item>«Aviso temporal» muestra el contenido del evento durante el plazo
 /// configurado, que no se reinicia al interactuar (001 RF-2, 002 RF-16).</item>
 /// <item>El repliegue CON contenido pasa por la pieza inactiva en dos fases
-/// (001 MOD RF-16); el repliegue hacia el reposo es una sola transición.</item>
+/// (001 MOD RF-16): la fase 1 apaga el contenido VIGENTE sobre la geometría
+/// encogiéndose y la fase 2 presenta el compacto nuevo ya sobre la pieza, así el
+/// intercambio de contenido nunca se ve. El repliegue hacia el reposo es una sola
+/// transición, también directa.</item>
 /// </list>
 ///
 /// <para>Parte del IslandWindow; el estado vive en <c>IslandWindow.xaml.cs</c>,
@@ -272,7 +275,7 @@ public partial class IslandWindow
         _collapseFromExpanded = _expanded || _p > 0.02;
         _hidingViaCompact = false;
         _expanded = false;
-        _contentMode = 0;
+        _contentMode = IslandContentMode.Media;
         _inactiveHot = false;
         SetInactiveRest(true);
         // Animado cuando la pieza todavía no domina la vista (contenido que fundir)
@@ -589,7 +592,7 @@ public partial class IslandWindow
             // destello condenado y el repliegue va DIRECTO al reposo (001 RF-2,
             // 001 MOD RF-16). Interactuar nunca prolonga el plazo.
             bool noticeAlive = _noticeUntil > DateTime.UtcNow;
-            if (_contentMode == 0)
+            if (_contentMode == IslandContentMode.Media)
             {
                 // La vista musical vigente, adoptando sesión si el snapshot no la
                 // tenía: sin esto el aviso temporal caía al reposo con música
@@ -601,7 +604,7 @@ public partial class IslandWindow
                 ShowInactiveOrHidden();
                 return;
             }
-            if (_contentMode == 1)
+            if (_contentMode == IslandContentMode.Timer)
             {
                 // Conserva la funcionalidad expandida (002 RF-8); si el temporizador
                 // ya no sostiene la vista, manda la activa vigente: con música
@@ -613,7 +616,7 @@ public partial class IslandWindow
                 ShowInactiveOrHidden();
                 return;
             }
-            if (_contentMode == AppsContentMode)
+            if (_contentMode == IslandContentMode.Apps)
             {
                 // El cajón es un aviso más: se repliega al compacto mientras su
                 // plazo siga vivo y, si ya venció, al reposo sin destellos
@@ -640,15 +643,13 @@ public partial class IslandWindow
             var session = ActiveMediaSession();
             if (session != null)
             {
-                // El compacto debe ser media activa vigente sin residuos: volver
-                // a compacto limpio del contenido expandido previo si era timer.
-                if (_contentMode == 1)
-                {
-                    _contentMode = 0;
-                    ApplyContentVisibility();
-                }
-                // Si ya estábamos en media, basta colapsar conservando contenido:
-                // la vista entra por el repliegue en dos fases (pieza → compacto).
+                // NADA de adelantar el contenido aquí: si lo expandido era el
+                // temporizador, el repliegue debe empezar mostrando el
+                // temporizador (el intercambio lo hace la fase 2, sobre la pieza,
+                // donde no se ve). Presentarlo ahora pintaba media en la tarjeta
+                // expandida antes de encogerse: el parpadeo de «se esconde y
+                // aparece lo activo». RefreshUi deja el modo de contenido en media
+                // cuando le toca presentarlo.
                 if (vigente.TryShowCompact()) return;
                 CollapseToCompact(vigente);
                 return;

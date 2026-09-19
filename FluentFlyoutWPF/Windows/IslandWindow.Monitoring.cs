@@ -102,7 +102,7 @@ public partial class IslandWindow
         SyncEq();
         _timer.Poll(DateTime.UtcNow);
         UpdateArrows();
-        if (_contentMode == 1 && IsBoxShown)
+        if (_contentMode == IslandContentMode.Timer && IsBoxShown)
         {
             RefreshTimerUI();
             EnsureTimerContentShown();

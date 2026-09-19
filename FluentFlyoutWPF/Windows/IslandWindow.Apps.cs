@@ -23,9 +23,6 @@ namespace FluentFlyoutWPF.Windows;
 /// </summary>
 public partial class IslandWindow
 {
-    /// <summary>Banda de contenido del cajón (valor de <c>_contentMode</c>).</summary>
-    private const int AppsContentMode = 2;
-
     /// <summary>Lista configurada en ajustes (nunca null tras el arranque).</summary>
     private static ObservableCollection<IslandApp> Apps => SettingsManager.Current.IslandApps;
 
@@ -101,7 +98,7 @@ public partial class IslandWindow
         RefreshAppList();
         if (AppsModeAvailable())
         {
-            if (IsBoxShown && _contentMode == AppsContentMode)
+            if (IsBoxShown && _contentMode == IslandContentMode.Apps)
             {
                 ApplyContentVisibility();
                 SyncMeasuredHeight();
@@ -109,7 +106,7 @@ public partial class IslandWindow
             UpdateArrows();
             return;
         }
-        if (_contentMode == AppsContentMode) FallbackFromAppsView();
+        if (_contentMode == IslandContentMode.Apps) FallbackFromAppsView();
         UpdateArrows();
     });
 
@@ -120,7 +117,7 @@ public partial class IslandWindow
     /// </summary>
     private void FallbackFromAppsView()
     {
-        _contentMode = 0;
+        _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();
         if (SettingsManager.Current.IslandVisibilityMode == 0
             && ResolveActiveVigenteForVisible() is { } vigente && vigente.TryShowCompact())
@@ -131,75 +128,15 @@ public partial class IslandWindow
 
     private void ExpandApps()
     {
-        if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
-        // Expandir no cancela el aviso: solo pospone su repliegue conservando el
-        // plazo que le quedaba (001 RF-2).
-        HoldTemporaryNotice();
-        _hidingViaCompact = false;
-        bool wasExpanded = _expanded;
-        _contentMode = AppsContentMode;
-        SelectFeature("apps");
-        // Entrar al contenido cancela el reposo inactivo: sin esto la vista
-        // expandida se pintaba con el contenido ya desvanecido (001 MOD RF-16).
-        SetInactiveRest(false);
-        RefreshAppList();
-        ApplyContentVisibility();
-        _expanded = true;
-        UpdateLine();
-        PositionTopCenter();
-        SyncMeasuredHeight();
-        UpdateArrows();
-        if (!AnimationsEnabled)
-        {
-            _p = _pT = 1; _pv = 0;
-            _q = _qT = 1; _qv = 0;
-            _pop = 0; _popPlaying = false;
-            _hexpShown = _hexp;
-            ApplyFrame();
-            IslandBox.Visibility = Visibility.Visible;
-            UpdateMediaStatusDot();
-            UpdateRotationPauseState();
-            return;
-        }
-        if (wasExpanded) return; // ya expandido: solo actualiza contenido
-        _pT = 1; _qT = 1;
-        IslandBox.Visibility = Visibility.Visible;
-        UpdateMediaStatusDot();
-        UpdateRotationPauseState();
-        EnsureLoop();
+        ShowExpandedView(IslandContentMode.Apps, AppsFeature, RefreshAppList);
     }
 
     private void ShowAppsCompact()
     {
-        // Repliegue desde el expandido (o desde su fase 1): el compacto se alcanza
-        // pasando por la pieza inactiva, y un aviso vigente conserva su plazo
-        // (001 MOD RF-16).
-        bool collapsing = _expanded || _p > 0.02 || _pendingCompactFeature != null;
-        _hidingViaCompact = false;
-        if (!AppsModeAvailable() || Suppressed()) { SnapHidden(); return; }
-        _contentMode = AppsContentMode;
-        SelectFeature("apps");
-        SetInactiveRest(false);
-        RefreshAppList();
-        ApplyContentVisibility();
-        _expanded = false;
-        UpdateLine();
-        PositionTopCenter();
-        SyncMeasuredHeight();
-        UpdateArrows();
-        if (!AnimationsEnabled) SnapCompact();
-        else if (!collapsing || AppsFeature is not { } apps || !BeginCollapseThroughInactive(apps))
-        {
-            _pT = 0;
-            _qT = 1;
-            IslandBox.Visibility = Visibility.Visible;
-            UpdateMediaStatusDot();
-            UpdateRotationPauseState();
-            EnsureLoop();
-        }
+        if (!AppsModeAvailable()) { SnapHidden(); return; }
         // «Aviso temporal»: el cajón es un aviso como los demás y también vence
         // (001 RF-2): se repliega al plazo configurado en vez de quedarse pegado.
-        ArmTemporaryHide(restart: !collapsing);
+        ShowCompactView(IslandContentMode.Apps, AppsFeature, RefreshAppList);
     }
 
     /// <summary>Funcionalidad «cajón de aplicaciones» registrada (nunca null tras el arranque).</summary>
@@ -250,7 +187,7 @@ public partial class IslandWindow
         if (SettingsManager.Current.IslandVisibilityMode == 0
             && ResolveActiveVigenteForVisible() is { } vigente && vigente.TryShowCompact())
             return;
-        _contentMode = 0;
+        _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();
         ShowInactiveOrHidden();
     }

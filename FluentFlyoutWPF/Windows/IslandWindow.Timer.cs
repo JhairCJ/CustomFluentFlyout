@@ -21,7 +21,7 @@ namespace FluentFlyoutWPF.Windows;
 public partial class IslandWindow
 {
     private readonly IslandTimer _timer = new();
-    private int _contentMode; // 0 = música, 1 = temporizador, 2 = cajón de aplicaciones
+    private IslandContentMode _contentMode; // banda de contenido vigente (IslandWindow.Views.cs)
     private bool _pendingTimerAlert;
     private TimeSpan _staged = TimeSpan.Zero; // valor de los reels, origen personalizado
     private bool _timerInputCustom = true;
@@ -71,9 +71,9 @@ public partial class IslandWindow
         {
             _timer.Cancel();
             _pendingTimerAlert = false;
-            if (_contentMode == 1)
+            if (_contentMode == IslandContentMode.Timer)
             {
-                _contentMode = 0;
+                _contentMode = IslandContentMode.Media;
                 if (_expanded)
                 {
                     // Solo vuelve la música si el contenido musical está
@@ -127,8 +127,8 @@ public partial class IslandWindow
     /// </summary>
     private void ApplyContentVisibility()
     {
-        bool apps = _contentMode == AppsContentMode && AppsModeAvailable();
-        bool timer = _contentMode == 1 && TimerModeAvailable();
+        bool apps = _contentMode == IslandContentMode.Apps && AppsModeAvailable();
+        bool timer = _contentMode == IslandContentMode.Timer && TimerModeAvailable();
         AppsCompactGrid.Visibility = apps ? Visibility.Visible : Visibility.Collapsed;
         AppsExpanded.Visibility = apps ? Visibility.Visible : Visibility.Collapsed;
         if (apps) MusicCompactGrid.Visibility = TimerCompactGrid.Visibility = Visibility.Collapsed;
@@ -201,23 +201,17 @@ public partial class IslandWindow
     // El loop lo garantiza SyncMeasuredHeight si el objetivo cambió.
     private void RefreshTimerModeView()
     {
-        // T2: si el timer acaba de pausarse y en Visible mientras activo no hay
-        // otra activa vigente, el expandido debe caer a inactivo/nada; el compacto
-        // pausado solo no lo sostiene.
+        // T2: si el timer acaba de pausarse y en «Visible mientras activo» no hay
+        // otra activa vigente, la vista debe caer a inactivo/nada —el compacto
+        // pausado no sostiene nada (002 MOD RF-7)—. Vale tanto si el panel estaba
+        // expandido como si el compacto del timer seguía a la vista: una sola
+        // regla, un solo punto de salida.
         if (_timer.State == IslandTimerState.Paused
             && SettingsManager.Current.IslandVisibilityMode == 0
             && !IsMediaActiveForContract()
-            && _expanded)
+            && (_expanded || (IsBoxShown && _contentMode == IslandContentMode.Timer)))
         {
             _expanded = false;
-            ShowInactiveOrHidden();
-            return;
-        }
-        if (_timer.State == IslandTimerState.Paused
-            && SettingsManager.Current.IslandVisibilityMode == 0
-            && !IsMediaActiveForContract()
-            && !_expanded && IsBoxShown && _contentMode == 1)
-        {
             ShowInactiveOrHidden();
             return;
         }
@@ -235,7 +229,7 @@ public partial class IslandWindow
     /// </summary>
     private void EnsureTimerContentShown()
     {
-        if (_disposed || _contentMode != 1 || !IsBoxShown || !TimerModeAvailable()) return;
+        if (_disposed || _contentMode != IslandContentMode.Timer || !IsBoxShown || !TimerModeAvailable()) return;
         if (_timer.State == IslandTimerState.Alerting
             && TimerAlert.Visibility == Visibility.Visible) return;
         bool compactOk = TimerCompactGrid.Visibility == Visibility.Visible;
@@ -265,35 +259,10 @@ public partial class IslandWindow
 
     private void ShowTimerCompact()
     {
-        // Repliegue desde el expandido (o desde su fase 1): el compacto se alcanza
-        // pasando por la pieza inactiva, y un aviso vigente conserva su plazo
-        // (001 MOD RF-16).
-        bool collapsing = _expanded || _p > 0.02 || _pendingCompactFeature != null;
-        _hidingViaCompact = false;
-        if (!TimerModeAvailable() || Suppressed()) { SnapHidden(); return; }
-        _contentMode = 1;
-        SelectFeature("timer");
-        SetInactiveRest(false);
-        RefreshTimerUI();
-        ApplyContentVisibility();
-        _expanded = false;
-        UpdateLine();
-        PositionTopCenter();
-        SyncMeasuredHeight();
-        if (!AnimationsEnabled) SnapCompact();
-        else if (!collapsing || TimerFeature is not { } timer || !BeginCollapseThroughInactive(timer))
-        {
-            _pT = 0;
-            _qT = 1;
-            IslandBox.Visibility = Visibility.Visible;
-            UpdateMediaStatusDot();
-            UpdateRotationPauseState();
-            EnsureLoop();
-        }
+        if (!TimerModeAvailable()) { SnapHidden(); return; }
         // «Aviso temporal»: el compacto del timer es un aviso como el de media y
-        // también vence (002 RF-8/RF-16): se repliega al plazo configurado en vez
-        // de quedarse pegado a la vista. La cuenta sigue intacta por detrás.
-        ArmTemporaryHide(restart: !collapsing);
+        // también vence (002 RF-8/RF-16) con la cuenta intacta por detrás.
+        ShowCompactView(IslandContentMode.Timer, TimerFeature, RefreshTimerUI);
     }
 
     /// <summary>
@@ -325,54 +294,16 @@ public partial class IslandWindow
             return;
         }
         // Sin activa vigente ni sesión que presentar: reposo sin residuos.
-        _contentMode = 0;
+        _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();
         ClearMusicResidue();
         ShowInactiveOrHidden();
     }
 
-    private void SnapExpandedTimer()
-    {
-        SetInactiveRest(false);
-        _p = _pT = 1; _pv = 0;
-        _q = _qT = 1; _qv = 0;
-        _hexpShown = _hexp;
-        _pop = 0; _popPlaying = false;
-        ApplyFrame();
-        IslandBox.Visibility = Visibility.Visible;
-        UpdateMediaStatusDot();
-        UpdateRotationPauseState();
-    }
-
     private void ExpandTimer()
     {
         if (!TimerModeAvailable()) return;
-        if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
-        // Expandir no cancela el aviso: solo pospone su repliegue conservando el
-        // plazo que le quedaba (001 RF-2).
-        HoldTemporaryNotice();
-        _hidingViaCompact = false;
-        bool wasExpanded = _expanded;
-        _contentMode = 1;
-        SelectFeature("timer");
-        SetInactiveRest(false);
-        RefreshTimerUI();
-        ApplyContentVisibility();
-        _expanded = true;
-        UpdateLine();
-        PositionTopCenter();
-        SyncMeasuredHeight();
-        if (!AnimationsEnabled)
-        {
-            SnapExpandedTimer();
-            return;
-        }
-        if (wasExpanded) return; // ya expandido: solo cambia el contenido
-        _pT = 1; _qT = 1;
-        IslandBox.Visibility = Visibility.Visible;
-        UpdateMediaStatusDot();
-        UpdateRotationPauseState();
-        EnsureLoop();
+        ShowExpandedView(IslandContentMode.Timer, TimerFeature, RefreshTimerUI);
     }
 
     private void OnTimerFinished() => Dispatcher.Invoke(ShowTimerAlert);
@@ -385,28 +316,9 @@ public partial class IslandWindow
     {
         if (!TimerModeAvailable()) return;
         if (!SettingsManager.Current.IslandEnabled) { _pendingTimerAlert = true; return; }
-        if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
-        HoldTemporaryNotice();
-        _hidingViaCompact = false;
-        _contentMode = 1;
-        SelectFeature("timer");
-        SetInactiveRest(false);
-        RefreshTimerUI();
-        ApplyContentVisibility();
-        _expanded = true;
-        UpdateLine();
-        PositionTopCenter();
-        SyncMeasuredHeight();
-        if (!AnimationsEnabled)
-        {
-            SnapExpandedTimer();
-            return;
-        }
-        _pT = 1; _qT = 1;
-        IslandBox.Visibility = Visibility.Visible;
-        UpdateMediaStatusDot();
-        UpdateRotationPauseState();
-        EnsureLoop();
+        // skipIfExpanded:false — la alerta es exclusiva y debe imponerse sobre la
+        // vista vigente aunque la caja ya estuviera expandida (002 RF-2/RF-6).
+        ShowExpandedView(IslandContentMode.Timer, TimerFeature, RefreshTimerUI, skipIfExpanded: false);
     }
 
     /// <summary>

@@ -19,6 +19,10 @@ namespace FluentFlyoutWPF.Windows;
 /// - El estado inactivo (pieza negra estrecha) no es otra caja: es el mismo
 ///   contenedor con ancho de reposo estrecho y contenido desvanecido, animado
 ///   con el mismo reloj para que no haya saltos ni dos estados visibles a la vez.
+/// - Repliegue DESDE el expandido hacia la pieza: la geometría va directo a la
+///   pieza (su ancho ya es el de reposo) y la opacidad del contenido viaja con el
+///   reloj de la caja. Es una sola transición, expandido -> inactivo: nunca se
+///   dibuja de paso la silueta del compacto (eso se leía como dos etapas).
 /// - Con las animaciones apagadas todo se aplica de golpe (Snap*).
 /// Parte del IslandWindow; el estado vive en <c>IslandWindow.xaml.cs</c>.
 /// </summary>
@@ -43,16 +47,34 @@ public partial class IslandWindow
     private static double InactiveReopenSeconds =>
         Math.Clamp(MainWindow.getDuration() * 0.5, 90, 220) / 1000.0;
 
-    // Apple-ish: muelle subamortiguado suave, escalado con la duración global.
+    // Coeficientes vigentes del muelle: se recalculan solo cuando cambia algo de
+    // lo que dependen (velocidad global de animaciones o estilo notch), no en cada
+    // frame de una transición que puede durar más de un segundo.
+    private double _springDuration = double.NaN;
+    private bool _springNotch;
+    private double _springKP, _springCP, _springKQ, _springCQ;
+
+    /// <summary>
+    /// Muelles subamortiguados del contenedor (Apple-ish), escalados con la
+    /// duración global de animaciones. Memorizados por (duración, estilo): el
+    /// frame solo lee campos.
+    /// </summary>
     private void GetSpring(out double kP, out double cP, out double kQ, out double cQ)
     {
         double configuredDuration = MainWindow.getDuration();
-        double durationScale = configuredDuration > 0 ? configuredDuration / 300.0 : 1.0;
-        double frequencyScale = 1.0 / (durationScale * durationScale);
-        double dampingScale = 1.0 / durationScale;
-        kP = 520 * frequencyScale; cP = 34 * dampingScale;
-        kQ = 200 * frequencyScale; cQ = 28 * dampingScale; // ambos estilos emergen desde el centro como Island
-        if (IsNotch) kP *= 1.05;
+        bool notch = IsNotch;
+        if (configuredDuration != _springDuration || notch != _springNotch)
+        {
+            _springDuration = configuredDuration;
+            _springNotch = notch;
+            double durationScale = configuredDuration > 0 ? configuredDuration / 300.0 : 1.0;
+            double frequencyScale = 1.0 / (durationScale * durationScale);
+            double dampingScale = 1.0 / durationScale;
+            _springKP = 520 * frequencyScale; _springCP = 34 * dampingScale;
+            _springKQ = 200 * frequencyScale; _springCQ = 28 * dampingScale; // ambos estilos emergen desde el centro como Island
+            if (notch) _springKP *= 1.05;
+        }
+        kP = _springKP; cP = _springCP; kQ = _springKQ; cQ = _springCQ;
     }
 
     private void EnsureLoop()
@@ -202,7 +224,7 @@ public partial class IslandWindow
             // ponytail: el contenido medido manda por medida (sin huecos) —el
             // temporizador y el cajón de aplicaciones ponen su propio alto—;
             // música mantiene su ajuste fijo.
-            bool measuredContent = _contentMode != 0;
+            bool measuredContent = _contentMode != IslandContentMode.Media;
             double h = IsNotch || measuredContent ? measuredHeight : ContentExpandedHeight;
             double old = _hexp;
             if (h > (measuredContent ? 34 : 60) && h < 260) _hexp = h;
@@ -285,7 +307,12 @@ public partial class IslandWindow
         // compacto-con-contenido <-> inactivo es una sola transición suave
         // (001 MOD RF-16) en lugar de un cambio de ancho con borrado seco.
         double inact = Smooth01(_inactiveT);
-        double contentOp = 1 - inact;
+        // Opacidad del contenido. Sale del reloj del reposo (inact), pero cuando el
+        // repliegue PARTE del expandido manda el reloj de la caja (p): las letras se
+        // apagan exactamente mientras el ancho aterriza en la pieza, así
+        // expandido -> inactivo es UNA sola transición y no dos etapas encadenadas
+        // (001 MOD RF-16).
+        double contentOp = _collapseFromExpanded ? Smooth01(p) : 1 - inact;
         // Línea gris con el mismo reloj que la isla (p y q): la isla crece
         // centrada = de adentro hacia afuera, la línea encoge centrada = de
         // afuera hacia adentro. Sigue al más rápido (Max): p termina antes
@@ -315,7 +342,9 @@ public partial class IslandWindow
             // Notch: mismo reveal que Island: punto central -> compacto (más estrecho
         // por diseño) -> expandido.
             const double notchDot = 26;
-            double compactW = Lerp(NotchCompactWidth, InactivePillWidth, inact);
+            double compactW = _collapseFromExpanded
+                ? InactivePillWidth
+                : Lerp(NotchCompactWidth, InactivePillWidth, inact);
             double dotT = Math.Clamp(q / 0.32, 0, 1);
             double stretchT = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
             double baseW = q < 0.32 ? notchDot : Lerp(notchDot, compactW, stretchT);
@@ -344,7 +373,7 @@ public partial class IslandWindow
             ExpandedLayer.HorizontalAlignment = HorizontalAlignment.Center;
             IslandBox.RenderTransformOrigin = new Point(0.5, 0);
             BoxScale.ScaleX = BoxScale.ScaleY = Lerp(0.68, 1, Smooth01(dotT));
-            IslandBox.Clip = CreateNotchClip(IslandBox.Width, h, radius, earReach, notchFillet);
+            ApplyIslandClip(IslandBox.Width, h, radius, earReach, notchFillet, notch: true);
             LayoutBackground(IslandBox.Width, h);
         }
         else
@@ -354,7 +383,13 @@ public partial class IslandWindow
             const double pillDot = 26;
             double dotT = Math.Clamp(q / 0.32, 0, 1);
             double stretchT = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
-            double restW = Lerp(ContentCompactWidth, InactivePillWidth, inact);
+            // Rumbo a la pieza desde el expandido el ancho de reposo YA es el de la
+            // pieza: el morfe va directo de expandido a inactivo sin dibujar de
+            // paso la silueta del compacto (que es lo que se leía como «pasa por
+            // el compacto y recién después se hace inactivo»).
+            double restW = _collapseFromExpanded
+                ? InactivePillWidth
+                : Lerp(ContentCompactWidth, InactivePillWidth, inact);
             double baseW = q < 0.32 ? pillDot : Lerp(pillDot, restW, stretchT);
             w = Lerp(baseW, ContentExpandedWidth, Smooth01(p));
             h = Lerp(ContentCompactHeight, _hexpShown, Smooth01(p));
@@ -379,7 +414,7 @@ public partial class IslandWindow
 
         if (!notch)
         {
-            ApplyIslandClip(w, h, IslandBox.CornerRadius);
+            ApplyIslandClip(w, h, IslandBox.CornerRadius.TopLeft);
             LayoutBackground(w, h);
         }
 
@@ -540,8 +575,43 @@ public partial class IslandWindow
         return geometry;
     }
 
-    private void ApplyIslandClip(double width, double height, CornerRadius radius)
+    // --- memo del clip por frame ---
+    // La geometría de recorte solo se reconstruye cuando sus parámetros cambian de
+    // verdad (fracciones de DIP); con el clip ya asentado se reutiliza el
+    // StreamGeometry congelado. Era la mayor asignación del motor de animación:
+    // uno nuevo por frame, congelado y con arcos, en cada pintado.
+    private const double ClipEpsilon = 0.05;
+    private Geometry? _clipGeometry;
+    private double _clipWidth, _clipHeight, _clipRadius, _clipReach, _clipDrop;
+    private bool _clipNotch;
+
+    /// <summary>
+    /// Aplica el clip del contenedor reutilizando la última geometría construida
+    /// cuando sus parámetros no han cambiado. Con <paramref name="notch"/> usa la
+    /// silueta con orejas y cueva; si no, la cápsula de esquinas redondeadas.
+    /// </summary>
+    private void ApplyIslandClip(double width, double height, double radius,
+        double reach = 0, double drop = 0, bool notch = false)
     {
-        IslandBox.Clip = CreateIslandClip(width, height, radius);
+        if (_clipGeometry != null && _clipNotch == notch
+            && Math.Abs(_clipWidth - width) < ClipEpsilon
+            && Math.Abs(_clipHeight - height) < ClipEpsilon
+            && Math.Abs(_clipRadius - radius) < ClipEpsilon
+            && Math.Abs(_clipReach - reach) < ClipEpsilon
+            && Math.Abs(_clipDrop - drop) < ClipEpsilon)
+        {
+            if (!ReferenceEquals(IslandBox.Clip, _clipGeometry)) IslandBox.Clip = _clipGeometry;
+            return;
+        }
+        _clipWidth = width;
+        _clipHeight = height;
+        _clipRadius = radius;
+        _clipReach = reach;
+        _clipDrop = drop;
+        _clipNotch = notch;
+        _clipGeometry = notch
+            ? CreateNotchClip(width, height, radius, reach, drop)
+            : CreateIslandClip(width, height, new CornerRadius(radius));
+        IslandBox.Clip = _clipGeometry;
     }
 }
