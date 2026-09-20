@@ -81,9 +81,12 @@ public partial class IslandWindow
     public void ApplyScreens()
     {
         _screens.Clear();
+        var assigned = new HashSet<string>(StringComparer.Ordinal);
         foreach (var raw in SettingsManager.Current.IslandScreens)
         {
-            var ids = IslandFeatureIds.ParseScreen(raw);
+            var ids = IslandFeatureIds.ParseScreen(raw)
+                .Where(assigned.Add)
+                .ToList();
             if (ids.Count > 0) _screens.Add([.. ids]);
         }
         if (_screens.Count == 0)
@@ -121,15 +124,28 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Pantalla «de» una funcionalidad para resolver su vista: la VIGENTE si la
-    /// contiene —una funcionalidad puede estar en varias pantallas y manda la que se
-    /// está viendo— y, si no, la primera que la contiene (-1 si no está en ninguna).
+    /// Pantalla «de» una funcionalidad para resolver su vista. La configuración se
+    /// sanea para que cada funcionalidad pertenezca como máximo a una pantalla, pero
+    /// la búsqueda sigue siendo defensiva por si llega una colección antigua.
     /// </summary>
     private int ResolveScreenIndexFor(string id)
     {
-        if (CurrentScreenIds().Contains(id)) return Math.Clamp(_screenIndex, 0, _screens.Count - 1);
         return ScreenIndexOfFeature(id);
     }
+
+    private static IslandContentMode ModeForFeature(string id) => id switch
+    {
+        IslandFeatureIds.Media => IslandContentMode.Media,
+        IslandFeatureIds.Timer => IslandContentMode.Timer,
+        IslandFeatureIds.Apps => IslandContentMode.Apps,
+        IslandFeatureIds.Shelf => IslandContentMode.Shelf,
+        IslandFeatureIds.Calendar => IslandContentMode.Calendar,
+        IslandFeatureIds.Bluetooth => IslandContentMode.Bluetooth,
+        IslandFeatureIds.Clipboard => IslandContentMode.Clipboard,
+        IslandFeatureIds.Weather => IslandContentMode.Weather,
+        IslandFeatureIds.Power => IslandContentMode.Power,
+        _ => IslandContentMode.Media,
+    };
 
     /// <summary>
     /// ¿La funcionalidad está en alguna pantalla? Sin pantalla no hay vista: una
@@ -271,9 +287,6 @@ public partial class IslandWindow
     /// </summary>
     private bool ShowScreenOfFeature(IIslandFeature feature)
     {
-        // La pantalla vigente manda si ya contiene la funcionalidad: una funcionalidad
-        // puede estar en varias pantallas y mostrar otra sería cambiar de pantalla sin
-        // que el usuario lo haya pedido.
         int index = ResolveScreenIndexFor(feature.Id);
         if (index < 0) return false;
         _screenIndex = index;

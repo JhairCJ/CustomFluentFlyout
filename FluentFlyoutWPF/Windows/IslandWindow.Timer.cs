@@ -188,19 +188,38 @@ public partial class IslandWindow
         if (_contentMode == IslandContentMode.Screen)
         {
             // El modo PANTALLA es la composición del EXPANDIDO (sus columnas, de
-            // izquierda a derecha): es lo que abre el clic. Replegada —o con una sola
-            // funcionalidad usable, o sin columnas que enseñar— la pantalla no compone
-            // nada y vuelve a la vista rica de la funcionalidad que manda (RF-1), que en
-            // el compacto es UNA sola. Sin ninguna usable no hay nada que componer.
-            if (!_expanded || !ScreenIsCombined())
+            // izquierda a derecha): es lo que abre el clic. El pintado no puede llamar
+            // a ExpandCurrentScreen/ShowCurrentScreenCompact porque esas rutas vuelven
+            // a entrar aquí y mezclan estados. Si la disponibilidad dejó una sola
+            // funcionalidad, se cambia el modo y se deja que el pintado normal la
+            // presente como vista rica.
+            var members = CurrentScreenFeatures();
+            if (_expanded && members.Count > 1 && CurrentScreenColumnCount() > 0)
             {
-                if (CurrentScreenFeatures().Count > 0
-                    && (_expanded ? ExpandCurrentScreen() : ShowCurrentScreenCompact())) return;
+                ApplyScreenLayerVisibility();
+                return;
+            }
+            IIslandFeature? owner = _expanded
+                ? members.FirstOrDefault()
+                : CompactMemberOfCurrentScreen();
+            if (owner is { } feature && (!_expanded || ColumnFor(feature.Id) != null))
+            {
+                _contentMode = ModeForFeature(feature.Id);
+                SelectFeature(feature.Id);
+            }
+            else if (_expanded && owner is { })
+            {
+                // Bluetooth y batería solo tienen superficie compacta. No se deja el
+                // contenedor expandido con una pantalla sin columnas que enseñar.
+                _expanded = false;
+                _contentMode = ModeForFeature(owner.Id);
+                SelectFeature(owner.Id);
+            }
+            else
+            {
                 ShowInactiveOrHidden();
                 return;
             }
-            ApplyScreenLayerVisibility();
-            return;
         }
         // Fuera de una pantalla combinada los paneles del expandido viven en su sitio
         // de siempre (no-op si no se había movido ninguno a una columna).

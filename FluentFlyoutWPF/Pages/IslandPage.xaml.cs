@@ -94,6 +94,10 @@ public partial class IslandPage : Page
     {
         var settings = SettingsManager.Current;
         IslandScreensPanel.Children.Clear();
+        IslandScreenNewButton.IsEnabled = settings.HasUnassignedIslandFeature();
+        var assigned = settings.IslandScreens
+            .SelectMany(IslandFeatureIds.ParseScreen)
+            .ToHashSet(StringComparer.Ordinal);
         for (int i = 0; i < settings.IslandScreens.Count; i++)
         {
             string screen = settings.IslandScreens[i];
@@ -134,14 +138,13 @@ public partial class IslandPage : Page
             }
             row.Children.Add(cards);
 
-            // Añadir: solo las funcionalidades que no están ya en esta pantalla y solo
-            // mientras quede hueco. Una pantalla admite hasta MaxFeaturesPerScreen: es lo
-            // que cabe en una sola pantalla del Island (una ficha por funcionalidad en el
-            // compacto y una columna en el expandido).
+            // Añadir: solo las funcionalidades que no están asignadas a NINGUNA otra
+            // pantalla y solo mientras quede hueco. Una pantalla admite hasta
+            // MaxFeaturesPerScreen: es lo que cabe en una sola pantalla del Island.
             bool full = ids.Count >= IslandFeatureIds.MaxFeaturesPerScreen;
             var missing = full
                 ? new List<string>()
-                : IslandFeatureIds.All.Where(id => !ids.Contains(id)).ToList();
+                : IslandFeatureIds.All.Where(id => !assigned.Contains(id)).ToList();
             var addRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
             addRow.Children.Add(new TextBlock
             {
@@ -176,7 +179,7 @@ public partial class IslandPage : Page
             add.SelectionChanged += (_, e) =>
             {
                 if (e.AddedItems.Count == 0 || e.AddedItems[0] is not string name) return;
-                string featureId = missing.FirstOrDefault(id => IslandFeatureIds.DisplayName(id) == name);
+                var featureId = missing.FirstOrDefault(id => IslandFeatureIds.DisplayName(id) == name);
                 if (featureId != null && settings.AddIslandScreenFeature(screen, featureId))
                     RefreshScreensEditor();
             };
@@ -259,8 +262,7 @@ public partial class IslandPage : Page
 
     private void IslandScreenNew_Click(object sender, RoutedEventArgs e)
     {
-        SettingsManager.Current.AddIslandScreen();
-        RefreshScreensEditor();
+        if (SettingsManager.Current.AddIslandScreen()) RefreshScreensEditor();
     }
 
     /// <summary>

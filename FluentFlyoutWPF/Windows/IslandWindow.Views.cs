@@ -125,6 +125,10 @@ public partial class IslandWindow
             && BeginCollapseThroughInactive(feature);
         if (!throughPiece)
         {
+            // La vista compacta debe estar resuelta antes de pintar. Mantener _expanded
+            // vivo aquí hacía que una actualización intermedia de la pantalla leyera el
+            // estado expandido y mezclara paneles de las dos presentaciones.
+            _expanded = false;
             _contentMode = mode;
             present();
             ApplyContentVisibility();
@@ -182,12 +186,15 @@ public partial class IslandWindow
         }
         if (guard != null && !guard()) return;
         _contentMode = mode;
+        // El contenido y la composición deben conocer el estado final antes de
+        // renderizar. Si se marcaba después, una pantalla combinada entraba por la rama
+        // compacta, volvía a llamar a ExpandCurrentScreen y además se medía con el
+        // ancho compacto.
+        _expanded = true;
         present();
         ApplyContentVisibility();
-        _expanded = true;
         // Con la vista ya expandida, las flechas de navegación entran en el mismo
-        // turno (su visibilidad depende de _expanded, que ApplyContentVisibility
-        // todavía veía en reposo).
+        // turno.
         UpdateArrows();
         UpdateLine();
         PositionTopCenter();

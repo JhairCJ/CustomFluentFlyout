@@ -294,7 +294,11 @@ public partial class IslandWindow
         if (primary.monitorArea.Width == 0) return;
         double content = _expanded || _p > 0.05 ? ContentExpandedWidth : ContentCompactWidth;
         // El margen deja sitio a las flechas laterales del expandido.
-        double wanted = Math.Max(DefaultWindowWidth, content + 80);
+        double monitorWidth = primary.dpiX > 0
+            ? primary.workArea.Width * 96.0 / primary.dpiX
+            : DefaultWindowWidth;
+        double maxWindow = Math.Max(280, monitorWidth - 24);
+        double wanted = Math.Min(Math.Max(DefaultWindowWidth, content + 80), maxWindow);
         if (Math.Abs(Width - wanted) > 0.5) Width = wanted;
         double rawW = Width * primary.dpiX / 96.0;
         Left = (primary.workArea.Left + primary.workArea.Width / 2 - rawW / 2) * 96.0 / primary.dpiX;

@@ -2240,12 +2240,19 @@ public partial class UserSettings : ObservableObject
             for (int at = 0; at < header; at++) IslandScreens.RemoveAt(0);
         }
         var cleaned = new List<string>();
+        var assigned = new HashSet<string>(StringComparer.Ordinal);
         // Una pantalla repetida EXACTA no es una decisión del usuario: nadie quiere la
         // misma vista dos veces en el recorrido, y era justo lo que dejaba el bug.
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var screen in IslandScreens.ToList())
         {
-            var ids = IslandFeatureIds.ParseScreen(screen);
+            // Una funcionalidad solo puede pertenecer a una pantalla. Se conserva la
+            // primera aparición para mantener el orden que el usuario ya tenía y se
+            // retiran las apariciones posteriores, incluso si la cadena de pantalla
+            // completa no era idéntica.
+            var ids = IslandFeatureIds.ParseScreen(screen)
+                .Where(assigned.Add)
+                .ToList();
             for (int at = 0; at < ids.Count; at += IslandFeatureIds.MaxFeaturesPerScreen)
             {
                 string normalized = IslandFeatureIds.FormatScreen(
@@ -2329,6 +2336,11 @@ public partial class UserSettings : ObservableObject
         var ids = IslandFeatureIds.ParseScreen(screen).ToList();
         if (ids.Count >= IslandFeatureIds.MaxFeaturesPerScreen) return false;
         if (ids.Contains(featureId)) return false;
+        for (int at = 0; at < IslandScreens.Count; at++)
+        {
+            if (at != index && IslandFeatureIds.ParseScreen(IslandScreens[at]).Contains(featureId))
+                return false;
+        }
         ids.Add(featureId);
         IslandScreens[index] = IslandFeatureIds.FormatScreen(ids);
         return true;
@@ -2366,16 +2378,20 @@ public partial class UserSettings : ObservableObject
 
     /// <summary>
     /// Añade una pantalla nueva. Nace con la primera funcionalidad que no esté en
-    /// ninguna pantalla y, si ya están todas repartidas, con la música: una pantalla
-    /// vacía no existe (no habría nada que enseñar).
+    /// ninguna pantalla; si ya están todas repartidas no crea una pantalla duplicada.
     /// </summary>
-    internal void AddIslandScreen()
+    internal bool AddIslandScreen()
     {
-        string id = IslandFeatureIds.All.FirstOrDefault(candidate =>
-            !IslandScreens.Any(screen => IslandFeatureIds.ParseScreen(screen).Contains(candidate)))
-            ?? IslandFeatureIds.Media;
+        string? id = IslandFeatureIds.All.FirstOrDefault(candidate =>
+            !IslandScreens.Any(screen => IslandFeatureIds.ParseScreen(screen).Contains(candidate)));
+        if (id == null) return false;
         IslandScreens.Add(id);
+        return true;
     }
+
+    /// <summary>Indica si todavía puede crearse una pantalla sin duplicar una funcionalidad.</summary>
+    internal bool HasUnassignedIslandFeature() => IslandFeatureIds.All.Any(candidate =>
+        !IslandScreens.Any(screen => IslandFeatureIds.ParseScreen(screen).Contains(candidate)));
 
     /// <summary>Quita una pantalla; la última no se puede quitar (navegación vacía).</summary>
     internal void RemoveIslandScreen(string screen)
