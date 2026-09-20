@@ -42,6 +42,14 @@ public sealed class IslandTimer
     /// </summary>
     public event Action? Finished;
 
+    /// <summary>
+    /// Se eleva en CADA cambio de estado (iniciar, pausar, reanudar, reiniciar,
+    /// cancelar y vencimiento) — 002 MOD RF-2. El host lo usa para notificar la
+    /// actividad, rearmar su despertador único de vencimiento y refrescar solo
+    /// lo visible; la cuenta NO depende de ningún latido global (002 MOD RF-13).
+    /// </summary>
+    public event Action? Changed;
+
     public TimeSpan Remaining
     {
         get
@@ -93,6 +101,7 @@ public sealed class IslandTimer
         _endUtc = DateTime.UtcNow + duration;
         _frozen = TimeSpan.Zero;
         State = IslandTimerState.Running;
+        Changed?.Invoke();
         return true;
     }
 
@@ -101,6 +110,7 @@ public sealed class IslandTimer
         if (State != IslandTimerState.Running) return;
         _frozen = Remaining;
         State = IslandTimerState.Paused;
+        Changed?.Invoke();
     }
 
     public void Resume()
@@ -108,6 +118,7 @@ public sealed class IslandTimer
         if (State != IslandTimerState.Paused) return;
         _endUtc = DateTime.UtcNow + _frozen;
         State = IslandTimerState.Running;
+        Changed?.Invoke();
     }
 
     /// <summary>
@@ -117,6 +128,7 @@ public sealed class IslandTimer
     {
         _frozen = TimeSpan.Zero;
         State = IslandTimerState.Idle;
+        Changed?.Invoke();
     }
 
     /// <summary>
@@ -128,11 +140,14 @@ public sealed class IslandTimer
         OriginLabel = "Timer";
         _frozen = TimeSpan.Zero;
         State = IslandTimerState.Idle;
+        Changed?.Invoke();
     }
 
     /// <summary>
-    /// Sondeo desde el tick del host. Al pasar la hora objetivo detiene la cuenta
-    /// y pasa a avisando una sola vez (RF-6).
+    /// Comprobación de vencimiento. El host la dispara desde su despertador
+    /// ÚNICO sobre la hora objetivo (y desde su red de recuperación de 5 s tras
+    /// una suspensión), nunca desde un latido global: al pasar la hora objetivo
+    /// detiene la cuenta y pasa a avisando una sola vez (RF-6).
     /// </summary>
     public void Poll(DateTime utcNow)
     {
@@ -140,6 +155,7 @@ public sealed class IslandTimer
         if (utcNow < _endUtc) return;
         _frozen = TimeSpan.Zero;
         State = IslandTimerState.Alerting;
+        Changed?.Invoke();
         Finished?.Invoke();
     }
 

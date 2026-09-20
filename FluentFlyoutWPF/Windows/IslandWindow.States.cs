@@ -88,16 +88,37 @@ public partial class IslandWindow
     private void ClearTemporaryNotice()
     {
         _noticeVersion++;
+        _noticeCheckActive = false;
         _noticeUntil = DateTime.MinValue;
         _pendingTimerNotice = false;
     }
 
+    /// <summary>
+    /// Programa el vencimiento del aviso con un temporizador de UN SOLO disparo
+    /// (nada de latido): a la hora absoluta del plazo se repliega. Si el disparo
+    /// se perdiera, la recuperación de 5 s lo detecta y lo cumple
+    /// (change island-actividad-orientada-eventos, 001 MOD RF-2).
+    /// </summary>
     private void ScheduleNoticeRetraction()
     {
         int version = ++_noticeVersion;
         TimeSpan wait = _noticeUntil - DateTime.UtcNow;
         if (wait < TimeSpan.Zero) wait = TimeSpan.Zero;
-        _ = Task.Delay(wait).ContinueWith(_ => Dispatcher.Invoke(() => RetractTemporaryNotice(version)));
+        ScheduleNoticeCheck(version, wait);
+    }
+
+    /// <summary>
+    /// Deja armado un único chequeo del aviso. <c>_noticeCheckActive</c> evita
+    /// cadenas duplicadas cuando la recuperación lenta repara un disparo perdido.
+    /// </summary>
+    private void ScheduleNoticeCheck(int version, TimeSpan wait)
+    {
+        _noticeCheckActive = true;
+        _ = Task.Delay(wait).ContinueWith(_ => Dispatcher.Invoke(() =>
+        {
+            _noticeCheckActive = false;
+            RetractTemporaryNotice(version);
+        }));
     }
 
     /// <summary>
@@ -122,7 +143,7 @@ public partial class IslandWindow
         }
         if (_expanded || IsMouseOverBoxOrStrip())
         {
-            _ = Task.Delay(250).ContinueWith(_ => Dispatcher.Invoke(() => RetractTemporaryNotice(version)));
+            ScheduleNoticeCheck(version, TimeSpan.FromMilliseconds(250));
             return;
         }
         ClearTemporaryNotice();
@@ -514,6 +535,9 @@ public partial class IslandWindow
         IslandBox.Visibility = Visibility.Visible;
         UpdateMediaStatusDot();
         UpdateRotationPauseState();
+        // Cadencia por contenido coherente con la vista que acaba de aterrizar.
+        SyncEq();
+        UpdateVisibleRefresh();
     }
 
     private void SnapHidden()
@@ -534,6 +558,9 @@ public partial class IslandWindow
         UpdateRotationPauseState();
         UpdateLine();
         UpdateMediaStatusDot();
+        // Sin caja no hay nada que refrescar ni que visualizar.
+        SyncEq();
+        UpdateVisibleRefresh();
     }
 
     // --- repliegue del puntero ---

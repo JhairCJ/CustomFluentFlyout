@@ -53,6 +53,15 @@ public static partial class NativeMethods
     internal const int WM_KEYUP = 0x0101;
     internal const int WM_SETTINGCHANGE = 0x001A;
 
+    // Mouse Hook (change island-actividad-orientada-eventos, 001 MOD RF-3):
+    // notificación de entrada/salida de la franja sin sondeo continuo.
+    internal const int WH_MOUSE_LL = 14;
+    internal const int WM_MOUSEMOVE = 0x0200;
+
+    // WinEvent Hook (001 MOD RF-12): contexto por eventos de Windows.
+    internal const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+    internal const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+
     // Shell Hook Messages
     internal const int HSHELL_APPCOMMAND = 12;
 
@@ -134,6 +143,17 @@ public static partial class NativeMethods
     {
         public int X;
         public int Y;
+    }
+
+    /// <summary>Payload de un evento de <c>WH_MOUSE_LL</c> (solo se usa <c>pt</c>).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MSLLHOOKSTRUCT
+    {
+        public POINT pt;
+        public uint mouseData;
+        public uint flags;
+        public uint time;
+        public IntPtr dwExtraInfo;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -255,6 +275,10 @@ public static partial class NativeMethods
     internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
     internal delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdcMonitor, ref RECT lprcMonitor, IntPtr dwData);
     internal delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+    internal delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    /// <summary>Callback de <see cref="SetWinEventHook"/> (eventos de sistema en contexto externo).</summary>
+    internal delegate void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
 
     #endregion
 
@@ -357,6 +381,17 @@ public static partial class NativeMethods
 
     [LibraryImport("user32.dll", EntryPoint = "SetWindowsHookExW", SetLastError = true)]
     internal static partial IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [LibraryImport("user32.dll", EntryPoint = "SetWindowsHookExW", SetLastError = true)]
+    internal static partial IntPtr SetWindowsHookExMouse(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [LibraryImport("user32.dll", EntryPoint = "SetWinEventHook", SetLastError = true)]
+    internal static partial IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
+        WinEventProc lpfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool UnhookWinEvent(IntPtr hWinEventHook);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -277,10 +277,14 @@ public partial class IslandWindow
 
     // --- posición ---
 
-    /// <summary>Centra la ventana en la parte superior del monitor principal.</summary>
+    /// <summary>
+    /// Centra la ventana en la parte superior del monitor principal. Usa la
+    /// instantánea de contexto cacheada (001 MOD RF-12): la geometría del monitor
+    /// solo se relee cuando Windows avisa de un cambio.
+    /// </summary>
     private void PositionTopCenter()
     {
-        var primary = MonitorUtil.GetMonitors().FirstOrDefault(m => m.isPrimary);
+        var primary = PrimaryMonitor();
         if (primary.monitorArea.Width == 0) return;
         double rawW = Width * primary.dpiX / 96.0;
         Left = (primary.workArea.Left + primary.workArea.Width / 2 - rawW / 2) * 96.0 / primary.dpiX;

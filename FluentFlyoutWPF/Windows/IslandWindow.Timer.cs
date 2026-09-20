@@ -91,6 +91,10 @@ public partial class IslandWindow
     private void InitTimer()
     {
         _timer.Finished += OnTimerFinished;
+        // Notificación de cambio de estado (002 MOD RF-2/RF-13): el host rearma su
+        // despertador único de vencimiento y publica la actividad; la cuenta NO
+        // depende de ningún latido.
+        _timer.Changed += OnTimerChanged;
         TimerPresetList.ItemsSource = SettingsManager.Current.IslandTimerPresets;
     }
 
@@ -152,12 +156,25 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Conmuta las capas de contenido del contenedor (música, temporizador o
-    /// cajón de aplicaciones) en compacto y expandido. Cada capa se muestra solo
-    /// si su funcionalidad sigue siendo usable: sin disponibilidad no hay vista
-    /// vacía (001 MOD RF-9).
+    /// Conmuta las capas de contenido y, con el mismo cambio, ajusta las
+    /// cadencias por contenido y el ecualizador: el refresco de vista y el
+    /// visualizador solo corren con su contenido en pantalla (001 MOD RF-14/16;
+    /// 002 MOD RF-15).
     /// </summary>
     private void ApplyContentVisibility()
+    {
+        ApplyContentVisibilityCore();
+        SyncEq();
+        UpdateVisibleRefresh();
+    }
+
+    /// <summary>
+    /// Conmuta las capas de contenido del contenedor (música, temporizador,
+    /// cajón, estante o calendario) en compacto y expandido. Cada capa se muestra
+    /// solo si su funcionalidad sigue siendo usable: sin disponibilidad no hay
+    /// vista vacía (001 MOD RF-9).
+    /// </summary>
+    private void ApplyContentVisibilityCore()
     {
         // Estante primero: es la única capa que puede estar visible sin elementos
         // (vacía invita a soltar), así que se resuelve sola y no comparte la lógica de

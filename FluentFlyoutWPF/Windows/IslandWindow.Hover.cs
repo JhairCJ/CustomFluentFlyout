@@ -34,10 +34,6 @@ namespace FluentFlyoutWPF.Windows;
 /// </summary>
 public partial class IslandWindow
 {
-    // Última comprobación de actividad desde el reposo: limita la frecuencia de
-    // las consultas al gestor multimedia del poll de puntero.
-    private DateTime _lastInactiveActivityCheck = DateTime.MinValue;
-
     private int HoverTolH => Math.Clamp(SettingsManager.Current.IslandHoverToleranceHorizontal < 0 ? 12 : SettingsManager.Current.IslandHoverToleranceHorizontal, 0, 80);
     private int HoverTolV => Math.Clamp(SettingsManager.Current.IslandHoverToleranceVertical < 0 ? 4 : SettingsManager.Current.IslandHoverToleranceVertical, 0, 40);
 
@@ -48,7 +44,8 @@ public partial class IslandWindow
     /// micro-crecimiento vivo; abrir contenido exige un clic explícito
     /// (HandleIslandClick). La zona de detección se mantiene, pero por sí sola
     /// nunca despliega contenido. T2: hover sobre inactivo no redespliega hasta
-    /// nuevo activo o clic (001 MOD RF-4, 002 MOD RF-7).
+    /// nuevo activo o clic (001 MOD RF-4, 002 MOD RF-7). La dispara la
+    /// notificación nativa de entrada a la franja (o su fallback de 250 ms).
     /// </summary>
     private void HoverDetected()
     {
@@ -75,48 +72,57 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Franja de detección pegada al borde superior del monitor: cubre el hueco
-    /// entre el borde físico y la línea/isla para que acercar el cursor al borde
-    /// despierte el hover (y, con ello, el micro-crecimiento) sin exigir puntería.
+    /// ¿El puntero está dentro de la franja de detección? Prueba de rectángulo
+    /// contra la geometría cacheada (001 MOD RF-12): sin enumerar monitores, sin
+    /// consultar multimedia y sin despertar nada. La usa el hook nativo y el
+    /// fallback de 250 ms (001 MOD RF-3).
     /// </summary>
-    private void PollFringeHover()
+    private bool FringeContains(int x, int y)
     {
-        // La pieza inactiva vuelve al compacto en cuanto hay actividad, a la
-        // cadencia de este poll y no a la del latido del contenedor: es la mitad
-        // del camino de inactivo a compacto, la otra mitad es la animación.
-        PollInactiveActivity();
-        if (_expanded || _drag) return;
-        if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
-        if (!NativeMethods.GetCursorPos(out var p)) return;
-        var primary = MonitorUtil.GetMonitors().FirstOrDefault(m => m.isPrimary);
-        if (primary.monitorArea.Width == 0) return;
+        if (_disposed || !SettingsManager.Current.IslandEnabled || Suppressed()) return false;
+        var primary = PrimaryMonitor();
+        if (primary.monitorArea.Width == 0) return false;
         double tolH = HoverTolH * primary.dpiX / 96.0;
         double tolV = HoverTolV * primary.dpiY / 96.0;
         double halfRaw = LineFullWidth * 0.5 * primary.dpiX / 96.0 + tolH;
         double cx = primary.workArea.Left + primary.workArea.Width / 2;
-        if (Math.Abs(p.X - cx) > halfRaw) return;
+        if (Math.Abs(x - cx) > halfRaw) return false;
         double lineTop = primary.workArea.Top + (IsNotch ? 1 : Math.Clamp(SettingsManager.Current.IslandLineTopOffset, 0, 60)) * primary.dpiY / 96.0;
-        if (p.Y < primary.monitorArea.Top - 2 || p.Y > lineTop + 3 + tolV) return;
-        HoverDetected();
+        return y >= primary.monitorArea.Top - 2 && y <= lineTop + 3 + tolV;
     }
 
     /// <summary>
-    /// Reapertura del reposo por actividad (001 MOD RF-4, RF-16): si hay algo
-    /// activo vigente —música reproduciendo, cuenta en marcha—, la pieza deja
-    /// paso al compacto sin esperar al latido del contenedor. La comprobación va
-    /// limitada a <see cref="InactiveActivityPollMs"/> porque consulta al gestor
-    /// multimedia.
+    /// El puntero salió de la franja: solo se apaga el micro-crecimiento; el
+    /// repliegue real lo decide la reconciliación, que re-comprueba si el puntero
+    /// sigue sobre la caja o su franja (sin falsos cierres al pasar de la franja
+    /// a la caja).
     /// </summary>
-    private void PollInactiveActivity()
+    private void PointerLeftFringe()
     {
-        if (!AtInactiveRest) return;
-        if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
-        if (SettingsManager.Current.IslandVisibilityMode != 0) return;
-        if (_timer.State == Classes.IslandTimerState.Alerting) return;
-        if (DateTime.UtcNow < _hoverSnoozeUntil) return;
-        if ((DateTime.UtcNow - _lastInactiveActivityCheck).TotalMilliseconds < InactiveActivityPollMs) return;
-        _lastInactiveActivityCheck = DateTime.UtcNow;
-        TryReopenFromInactive();
+        if (_inactiveHot)
+        {
+            _inactiveHot = false;
+            if (AnimationsEnabled) EnsureLoop();
+            else { _inactiveHotT = 0; ApplyFrame(); }
+        }
+        PostActivity(IslandActivityReason.Pointer);
+    }
+
+    /// <summary>
+    /// Fallback acotado de la franja (001 MOD RF-3): solo corre si el hook nativo
+    /// no está disponible; detecta cruces cada 250 ms y NUNCA consulta el gestor
+    /// multimedia. El clic abre igual, porque la franja sigue siendo hit-testeable.
+    /// </summary>
+    private void PollFringeFallback()
+    {
+        if (_disposed || Suppressed()) return;
+        if (!SettingsManager.Current.IslandEnabled) return;
+        if (!NativeMethods.GetCursorPos(out var p)) return;
+        bool inside = FringeContains(p.X, p.Y);
+        if (inside == _fallbackInside) return;
+        _fallbackInside = inside;
+        if (inside) HoverDetected();
+        else PointerLeftFringe();
     }
 
     private void Box_MouseLeave(object sender, MouseEventArgs e)
@@ -128,18 +134,18 @@ public partial class IslandWindow
             else { _inactiveHotT = 0; ApplyFrame(); }
         }
         if (_drag || _reelDragging || Mouse.LeftButton == MouseButtonState.Pressed) return;
-        if (IsLeavingTowardTopEdge()) return; // gracia hacia el borde: Tick colapsa al salir de verdad
+        if (IsLeavingTowardTopEdge()) return; // gracia hacia el borde: se repliega al salir de verdad
         LeaveHover();
     }
 
     // Cursor saliendo por arriba hacia el borde (hueco entre borde e isla): no colapsar,
-    // si no el poll de franja lo re-expande a los ~150ms y se ve encoger-crecer.
+    // si no la notificación de entrada a la franja lo re-expande y se ve encoger-crecer.
     private bool IsLeavingTowardTopEdge()
     {
         try
         {
             if (!NativeMethods.GetCursorPos(out var p)) return false;
-            var primary = MonitorUtil.GetMonitors().FirstOrDefault(m => m.isPrimary);
+            var primary = PrimaryMonitor();
             if (primary.monitorArea.Width == 0) return false;
             double islandOff = (IsNotch ? 0 : Math.Clamp(SettingsManager.Current.IslandTopOffset, 0, 80)) * primary.dpiY / 96.0;
             double islandTop = primary.workArea.Top + islandOff;
@@ -164,7 +170,7 @@ public partial class IslandWindow
             if (IsMouseOver) return true;
             if (IslandBox.IsMouseOver || HoverStrip.IsMouseOver) return true;
             if (!NativeMethods.GetCursorPos(out var p)) return false;
-            var primary = MonitorUtil.GetMonitors().FirstOrDefault(m => m.isPrimary);
+            var primary = PrimaryMonitor();
             if (primary.monitorArea.Width == 0) return false;
             double tolH = HoverTolH * primary.dpiX / 96.0;
             double tolV = HoverTolV * primary.dpiY / 96.0;

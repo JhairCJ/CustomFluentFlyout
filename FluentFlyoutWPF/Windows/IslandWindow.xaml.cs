@@ -46,8 +46,10 @@ namespace FluentFlyoutWPF.Windows;
 /// tolerancia y clics de apertura.</item>
 /// <item><c>IslandWindow.Presentation.cs</c> — estilo, tipografía, línea de
 /// actividad, punto de estado y posición.</item>
-/// <item><c>IslandWindow.Monitoring.cs</c> — tick de vigilancia, supresión
-/// contextual y ecualizador.</item>
+/// <item><c>IslandWindow.Activity.cs</c> — buzón coalescido de actividad,
+/// reconciliación única, cadencias por contenido y contexto por eventos.</item>
+/// <item><c>IslandWindow.Monitoring.cs</c> — supresión contextual cacheada y
+/// ecualizador condicionado a reproducción visible.</item>
 /// <item><c>IslandWindow.Frame.cs</c> — motor de animación por frame y
 /// geometría del contenedor.</item>
 /// <item><c>IslandWindow.Background.cs</c> — fondo de álbum difuminado y
@@ -75,15 +77,10 @@ public partial class IslandWindow : Window
     // Ancho de la línea de actividad (y base de la franja de detección).
     private const double LineFullWidth = 120;
 
-    // Cadencia de las dos detecciones del contenedor (ms). El latido es la red
-    // de seguridad de la actividad sin evento; el poll de puntero gobierna el
-    // hover vivo y la salida del reposo inactivo.
-    private const int TickIntervalMs = 200;
-    private const int HoverPollIntervalMs = 40;
-    // Cadencia de la comprobación de actividad desde el reposo (ms): reabre la
-    // pieza en cuanto hay algo activo sin someter al gestor multimedia a
-    // consultas a la frecuencia del poll de puntero.
-    private const int InactiveActivityPollMs = 150;
+    // Sin latido global: la actividad llega por el buzón coalescido de
+    // IslandWindow.Activity.cs (001 MOD RF-1/RF-16, ADDED RF-3) y cada refresco
+    // vive solo mientras su contenido lo necesita. Aquí no hay ningún ciclo
+    // permanente de 40–200 ms.
 
     private double ExpandedIslandWidth => Math.Clamp(
         SettingsManager.Current.IslandExpandedWidth > 0 ? SettingsManager.Current.IslandExpandedWidth : DefaultExpandedIslandWidth,
@@ -135,8 +132,6 @@ public partial class IslandWindow : Window
     private string? _mediaPinnedSessionId;
     private bool _expanded;
     private bool _drag;
-    private readonly DispatcherTimer _tick;
-    private readonly DispatcherTimer _hoverPoll;
     private readonly Visualizer _eq = new(Visualizer.Options.Island);
     private int _eqBars = -1;
     private bool _eqRunning;
@@ -224,6 +219,9 @@ public partial class IslandWindow : Window
     // plazo hasta replegarse a inactivo/nada.
     private DateTime _noticeUntil = DateTime.MinValue;
     private int _noticeVersion;
+    // ¿Hay un chequeo de vencimiento del aviso armado ahora mismo? Lo consulta la
+    // recuperación de 5 s para reparar un disparo perdido sin duplicar cadenas.
+    private bool _noticeCheckActive;
     // Aviso PENDIENTE del temporizador (002 RF-16): una acción que pone la cuenta
     // en marcha (empezar, reanudar, reiniciar) dentro del expandido deja su aviso
     // armado pero sin gastar. El plazo debe correr cuando el compacto del
@@ -274,17 +272,10 @@ public partial class IslandWindow : Window
         // controla la ventana emergente de música). Sin sesión disponible el
         // contenido se reduce al temporizador (RF-13, RF-14).
         HookMediaEvents(true);
-        // Latido de reconciliación: la actividad que llega sin evento propio
-        // (sesión adoptada tarde, cuenta que arranca) reaparece en el compacto
-        // con el menor retardo posible, no medio segundo después (001 MOD RF-4).
-        _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(TickIntervalMs) };
-        _tick.Tick += (_, _) => Tick();
-        _tick.Start();
-        // Detección de puntero: la franja y la pieza inactiva responden al
-        // instante (hover vivo y reapertura del reposo), no a 150 ms.
-        _hoverPoll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(HoverPollIntervalMs) };
-        _hoverPoll.Tick += (_, _) => PollFringeHover();
-        _hoverPoll.Start();
+        // Actividad orientada a eventos: buzón coalescido, notificación nativa de
+        // puntero, contexto por eventos de Windows y red de recuperación de 5 s
+        // (001 MOD RF-1/RF-3/RF-12/RF-28). Sin latido de 200 ms ni poll de 40 ms.
+        InitActivity();
         SyncExistingMediaState();
     }
 
@@ -325,8 +316,7 @@ public partial class IslandWindow : Window
     public void Dispose()
     {
         _disposed = true;
-        _tick.Stop();
-        _hoverPoll.Stop();
+        ShutdownActivity();
         ClearTemporaryNotice();
         StopLoop();
         StopBackgroundRotation();
@@ -486,6 +476,9 @@ public partial class IslandWindow : Window
             ShowInactiveOrHidden();
         }
         RefreshAppearance();
+        // El ajuste ya presentó la vista; el buzón reconcilia una sola vez el
+        // estado final (ecualizador, flechas, cadencia por contenido).
+        PostActivity(IslandActivityReason.Settings);
     }
 
     public void RefreshVisibilityState()
@@ -536,5 +529,6 @@ public partial class IslandWindow : Window
         {
             HidePerMode();
         }
+        PostActivity(IslandActivityReason.Settings);
     }
 }

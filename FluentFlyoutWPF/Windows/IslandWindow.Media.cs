@@ -44,6 +44,10 @@ public partial class IslandWindow
         GlobalSystemMediaTransportControlsSessionPlaybackStatus Status);
 
     private IslandMediaSnapshot? _music;
+    // ¿El último cambio de media trajo metadata nueva (título/portada)? Se
+    // consume en la reconciliación para decidir el activador de cambio de pista
+    // sin inspeccionar eventos ya coalescidos (001 MOD RF-1).
+    private bool _mediaMetadataChanged;
     private GlobalSystemMediaTransportControlsSessionPlaybackStatus? _lastStatus;
 
     private bool MusicAvailable() => _music != null;
@@ -94,6 +98,8 @@ public partial class IslandWindow
         }
         UpdateMediaStatusDot();
         RefreshAppearance();
+        // El buzón reconcilia el estado final una sola vez (001 MOD RF-1).
+        PostActivity(IslandActivityReason.Settings);
     });
 
     /// <summary>
@@ -163,33 +169,34 @@ public partial class IslandWindow
         PaintGlyph();
     }
 
-    private bool TryShowNewestPlaying(string? excludeId = null)
-    {
-        var session = NewestPlaying();
-        if (session == null || string.Equals(session.Id, excludeId, StringComparison.Ordinal)) return false;
-
-        NotePlay(session.Id);
-        var status = SafeStatus(session) ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-        ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id, status));
-
-        bool mode0 = SettingsManager.Current.IslandVisibilityMode == 0;
-        if (!mode0 && !SettingsManager.Current.IslandShowOnPlayPause) return true;
-        if (_expanded) RefreshUi(session, status);
-        else ShowMusicCompact(session, status);
-        return true;
-    }
-
     // El gestor multimedia arranca antes que el Island, así que la primera
-    // reproducción puede no emitir un evento que esta ventana alcance a ver.
-    // Concilia el snapshot con las sesiones actuales: mientras la sesión
-    // presentada SIGA EXISTIENDO se conserva (aunque esté pausada); solo se
-    // libera cuando desaparece o pasa a no permitida. Así el tick nunca
-    // arranca la vista a las manos del hover ni del usuario.
+    // reproducción puede no emitir un evento que el Island alcance a ver.
     private void SyncExistingMediaState()
     {
         if (!MediaContentAvailable() || Suppressed()) return;
-        var snap = _music;
-        if (snap != null)
+        var before = _music?.Id;
+        SyncMediaSnapshotFromSessions();
+        // Adoptar una reproducción en curso sin evento: solo entonces se presenta
+        // por la ruta normal de la actividad (001 MOD RF-4/RF-28).
+        if (_music != null && _music.Id != before
+            && _music.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+        {
+            bool mode0 = SettingsManager.Current.IslandVisibilityMode == 0;
+            if (mode0 || SettingsManager.Current.IslandShowOnPlayPause)
+                PresentMediaSnapshot(_music.Status);
+        }
+    }
+
+    /// <summary>
+    /// Concilia el snapshot musical con las sesiones actuales SIN presentar: la
+    /// sesión presentada que siga viva conserva su identidad (aunque esté
+    /// pausada); si desapareció se libera, y sin snapshot se adopta la que esté
+    /// reproduciendo AHORA (evento de arranque perdido). Es la base de la
+    /// reconciliación, así que no toca la vista (001 MOD RF-1/RF-11/RF-13).
+    /// </summary>
+    private void SyncMediaSnapshotFromSessions()
+    {
+        if (_music != null)
         {
             // La sesión presentada sigue viva y permitida: conservarla tal cual
             // (el punto de estado ya refleja play/pausa). NADA de revocarla por
@@ -198,142 +205,181 @@ public partial class IslandWindow
             if (held != null)
             {
                 var heldStatus = SafeStatus(held);
-                if (heldStatus != null && heldStatus != snap.Status)
-                    ApplyMediaSnapshot(new IslandMediaSnapshot(snap.Id, heldStatus.Value));
+                if (heldStatus != null && heldStatus != _music.Status)
+                    ApplyMediaSnapshot(new IslandMediaSnapshot(_music.Id, heldStatus.Value));
                 return;
             }
             // Ya no existe (o no está permitida): liberar y limpiar residuos.
             OnMusicUnavailable();
-            snap = null;
         }
         // Sin snapshot: adoptar algo que se esté reproduciendo AHORA (evento de
         // arranque perdido); una sesión pausada NO se adopta sola para no
         // robarle la vista al temporizador ni sorprender al usuario.
-        TryShowNewestPlaying();
+        var playing = NewestPlaying();
+        if (playing != null)
+        {
+            NotePlay(playing.Id);
+            ApplyMediaSnapshot(new IslandMediaSnapshot(playing.Id,
+                GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
+        }
     }
 
-    private void OnPlayState(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackInfo? info)
+    /// <summary>
+    /// Presentación musical reconciliada (001 MOD RF-1): se llama UNA vez por
+    /// ráfaga de eventos de media, con el snapshot ya conciliado. Decide la vista
+    /// con las mismas reglas que los eventos individuales, pero sin repetir el
+    /// trabajo por evento ni perder el estado final.
+    /// </summary>
+    private void ReconcileMediaState()
     {
-        var status = info?.PlaybackStatus ?? session.ControlSession?.GetPlaybackInfo()?.PlaybackStatus;
-        Dispatcher.Invoke(() =>
+        bool metadata = _mediaMetadataChanged;
+        _mediaMetadataChanged = false;
+        if (_disposed) return;
+        // La alerta del temporizador es exclusiva: los eventos de música esperan.
+        if (_timer.State == IslandTimerState.Alerting) return;
+        // La supresión la resuelve ReconcileCore (ya se llamó con el motivo Context).
+        if (Suppressed() && !HasExclusive()) return;
+        if (!MediaContentAvailable())
         {
-            if (!_main.IsSessionAllowed(session)) return;
-            if (!MediaContentAvailable())
+            // Contenido musical deshabilitado: el snapshot se vacía y la vista
+            // queda para el temporizador (o nada).
+            if (_music != null) OnMusicUnavailable();
+            return;
+        }
+        SyncMediaSnapshotFromSessions();
+
+        var snap = _music;
+        if (snap == null)
+        {
+            // Sin actividad musical no hay vista musical que presentar. Solo se
+            // toca la vista si era la música la que estaba delante (una caja
+            // musical vacía no vale, RF-13); el resto de funcionalidades mandan
+            // sobre su propia vista y su aviso.
+            if (_contentMode == IslandContentMode.Media)
             {
-                // Contenido musical deshabilitado: el snapshot se vacía y la
-                // vista queda para el temporizador (o nada).
-                if (IsDisplayedSession(session)) OnMusicUnavailable();
+                if (TimerKeepsAlive()) ShowTimerCompact();
+                else if (!_expanded) ShowInactiveOrHidden();
+            }
+            return;
+        }
+
+        var status = snap.Status;
+        bool mode0 = SettingsManager.Current.IslandVisibilityMode == 0;
+        bool pauseCounts = SettingsManager.Current.IslandPauseCountsActive;
+
+        if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+        {
+            bool show = mode0 || SettingsManager.Current.IslandShowOnPlayPause
+                || (metadata && SettingsManager.Current.IslandShowOnTrackChange);
+            if (!show) return; // activador apagado: no se interrumpe la vista vigente
+            PresentMediaSnapshot(status);
+            return;
+        }
+
+        if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
+        {
+            // Pausa desde el expandido (botón o visualizador): se queda expandido
+            // mostrando el estado de pausa con sus controles.
+            if (_expanded)
+            {
+                if (Current() is { } expandedSession) RefreshUi(expandedSession, status);
                 return;
             }
+            bool show = SettingsManager.Current.IslandShowOnPause || (pauseCounts && mode0)
+                || (metadata && SettingsManager.Current.IslandShowOnTrackChange);
+            if (show) { PresentMediaSnapshot(status); return; }
+            // Pausa que no cuenta como activa: no sostiene una vista compacta, en
+            // los DOS modos (001 MOD RF-4/RF-7).
+            if (_contentMode == IslandContentMode.Media)
+            {
+                bool forceHideFromCompact = !pauseCounts && !SettingsManager.Current.IslandShowOnPause;
+                if (forceHideFromCompact) ShowInactiveOrHidden();
+                else HidePerMode();
+            }
+            return;
+        }
+
+        // Detenida o desconocida: no hay actividad musical nueva que sostenga la
+        // vista. Solo se repliega la propia vista musical; una vista de otra
+        // funcionalidad (temporizador, cajón, estante, calendario) no se toca.
+        if (_contentMode == IslandContentMode.Media && !_expanded && !TimerKeepsAlive())
+            ShowInactiveOrHidden();
+    }
+
+    /// <summary>
+    /// Presenta la vista musical vigente (compacto o expandido) de la sesión
+    /// actual, adoptándola si el snapshot no la tenía (001 MOD RF-4/RF-11/RF-13).
+    /// </summary>
+    private void PresentMediaSnapshot(GlobalSystemMediaTransportControlsSessionPlaybackStatus status)
+    {
+        var session = Current() ?? ActiveMediaSession();
+        if (session == null) return;
+        _currentId = session.Id;
+        if (_expanded) RefreshUi(session, status);
+        else ShowMusicCompact(session, status);
+    }
+
+    /// <summary>
+    /// Cambio de estado de reproducción (001 MOD RF-1): solo actualiza la
+    /// identidad ligera (fijación explícita y último-play) y publica el motivo de
+    /// actividad. La presentación la resuelve UNA reconciliación con el último
+    /// estado, así una ráfaga no repinta por evento ni pierde el estado final.
+    /// </summary>
+    private void OnPlayState(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackInfo? info)
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_disposed) return;
+            if (!_main.IsSessionAllowed(session)) return;
+            var status = info?.PlaybackStatus ?? session.ControlSession?.GetPlaybackInfo()?.PlaybackStatus;
             if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
             {
-                // Igual que el Taskbar Widget: una reproducción nueva sí
-                // cambia la sesión mostrada, pero el foco que Windows mueve al
-                // pausar/reanudar/saltar no debe romper una selección fijada.
+                // Una reproducción nueva sí suelta la sesión fijada, pero el foco
+                // que Windows mueve al pausar, reanudar o saltar no debe romper
+                // una selección explícita.
                 if (_mediaPinnedSessionId != null && _mediaPinnedSessionId != session.Id)
                     _mediaPinnedSessionId = null;
                 NotePlay(session.Id);
-                ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id,
-                    status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
-                // «Visible mientras activo» (0): reproduciendo manda sin importar
-                // el activador legacy; «Aviso temporal» (1): respeta el ajuste.
-                bool mode0 = SettingsManager.Current.IslandVisibilityMode == 0;
-                if (!mode0 && !SettingsManager.Current.IslandShowOnPlayPause) return;
-                if (_expanded) RefreshUi(session, status);
-                else ShowMusicCompact(session, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing);
             }
-            else if (IsDisplayedSession(session))
-            {
-                // Si el usuario no fijó una sesión y otra sigue reproduciendo,
-                // esa reproducción es la más reciente y debe pasar al Island.
-                // Con pin se conserva la sesión que el usuario está viendo.
-                if (_mediaPinnedSessionId == null && TryShowNewestPlaying(session.Id)) return;
-
-                // La sesión del snapshot se pausó: conservarla en el snapshot
-                // (punto de estado gris) y decidir presentación por ajuste.
-                ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
-                if (_expanded)
-                {
-                    // Pausa desde el expandido (botón o visualizador): se queda
-                    // expandido mostrando el estado de pausa con sus controles.
-                    RefreshUi(session, status);
-                    return;
-                }
-                bool pauseCounts = SettingsManager.Current.IslandPauseCountsActive;
-                bool keep = SettingsManager.Current.IslandVisibilityMode == 0
-                    && pauseCounts && IsBoxShown;
-                // Pausar desde compacto con pausa!=activa va a inactivo/nada aunque
-                // el cursor siga encima (HidePerMode retorna por
-                // IsMouseOverBoxOrStrip, y en Aviso temporal el aviso pediría plazo).
-                // Vale en los DOS modos: la pausa configurada como inactiva no
-                // sostiene una vista compacta (001 MOD RF-4, RF-7).
-                bool forceHideFromCompact = !_expanded && !pauseCounts
-                    && !SettingsManager.Current.IslandShowOnPause;
-                if (keep || SettingsManager.Current.IslandShowOnPause)
-                    ShowMusicCompact(session, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused);
-                else if (forceHideFromCompact)
-                    ShowInactiveOrHidden();
-                else
-                    HidePerMode();
-            }
-            else
-            {
-                // Eventos de sesiones ajenas no pueden secuestrar una selección
-                // fijada al hacer clic en el álbum.
-                if (_mediaPinnedSessionId != null) return;
-                if (TryShowNewestPlaying(session.Id)) return;
-                if (_music == null && SettingsManager.Current.IslandShowOnPause
-                    && status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
-                {
-                    // Sin snapshot y sin nadie reproduciendo: solo se crea vista
-                    // si el usuario muestra pausas; nunca una vista sin datos.
-                    NotePlay(session.Id);
-                    ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id,
-                        status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
-                    ShowMusicCompact(session, status ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused);
-                }
-            }
-        });
+            PostActivity(IslandActivityReason.Media);
+        }));
     }
 
+    /// <summary>
+    /// Cambio de metadata (título, artista, portada): solo marca que hubo cambio
+    /// y publica actividad; el snapshot y la presentación los resuelve la
+    /// reconciliación con la metadata MÁS RECIENTE (001 MOD RF-1). Así una ráfaga
+    /// del reproductor (título primero, miniatura después) pinta una vez y con el
+    /// estado final, sin carreras.
+    /// </summary>
     private void OnMediaProp(MediaSession session, GlobalSystemMediaTransportControlsSessionMediaProperties _)
     {
-        Dispatcher.Invoke(() =>
+        Dispatcher.BeginInvoke(new Action(() =>
         {
+            if (_disposed) return;
             if (!_main.IsSessionAllowed(session)) return;
-            if (!MediaContentAvailable())
-            {
-                if (IsDisplayedSession(session)) OnMusicUnavailable();
-                return;
-            }
+            // Eventos de sesiones ajenas no pueden secuestrar una selección fijada.
             if (_mediaPinnedSessionId != null && !IsDisplayedSession(session)) return;
-
-            var sessionStatus = SafeStatus(session);
-            var show = IsDisplayedSession(session)
-                ? session
-                : sessionStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
-                    ? session
-                    : NewestPlaying();
-            if (show == null) return;
-            var showStatus = SafeStatus(show);
-            if (showStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
-                NotePlay(show.Id);
-            ApplyMediaSnapshot(new IslandMediaSnapshot(show.Id, showStatus ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
-            if (_expanded || IslandBox.Visibility == Visibility.Visible) RefreshUi(show);
-            else if (SettingsManager.Current.IslandShowOnTrackChange) ShowMusicCompact(show);
-        });
+            _mediaMetadataChanged = true;
+            PostActivity(IslandActivityReason.Media);
+        }));
     }
 
+    /// <summary>
+    /// Cierre de sesión: suelta la identidad ligera y publica actividad para que
+    /// la reconciliación resuelva la vista siguiente (otra reproducción, el
+    /// temporizador o el reposo) una sola vez (001 MOD RF-1/RF-24).
+    /// </summary>
     private void OnClosed(MediaSession session)
     {
-        _lastPlay.Remove(session.Id);
-        Dispatcher.Invoke(() =>
+        Dispatcher.BeginInvoke(new Action(() =>
         {
-            if (!IsDisplayedSession(session)) return;
-            if (_mediaPinnedSessionId == session.Id) _mediaPinnedSessionId = null;
-            if (TryShowNewestPlaying(session.Id)) return;
-            OnMusicUnavailable();
-        });
+            if (_disposed) return;
+            _lastPlay.Remove(session.Id);
+            if (IsDisplayedSession(session) && _mediaPinnedSessionId == session.Id)
+                _mediaPinnedSessionId = null;
+            PostActivity(IslandActivityReason.Media);
+        }));
     }
 
     // La música desapareció (cierre de la última sesión o candidata inválida):
