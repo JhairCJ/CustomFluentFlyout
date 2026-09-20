@@ -43,6 +43,22 @@ public partial class IslandWindow
     private const double BatteryRingThickness = 2;
     /// <summary>Verde de la parte restante de la batería (el resto es el trazo gris del XAML).</summary>
     private static readonly Brush BatteryRemainingBrush = Frozen(Color.FromRgb(0x6C, 0xCB, 0x5F));
+    /// <summary>Rojo del aviso de desconexión: rayo y porcentaje (001 MOD RF-6).</summary>
+    private static readonly Brush BluetoothAlertBrush = Frozen(Color.FromRgb(0xFF, 0x6B, 0x6B));
+    private static readonly Brush BluetoothGlyphBrush = Frozen(Colors.White);
+
+    /// <summary>
+    /// Variante del aviso de Bluetooth a la vista (001 MOD RF-6):
+    /// <list type="bullet">
+    /// <item><see cref="Connected"/> — dispositivo conectado: su icono, su nombre y
+    /// su batería en aro (si Windows la conoce).</item>
+    /// <item><see cref="Charging"/> — conectado Y cargando: rayo verde a la
+    /// izquierda y el porcentaje en números verdes a la derecha.</item>
+    /// <item><see cref="Disconnected"/> — se desconectó: rayo rojo a la izquierda y
+    /// el último porcentaje conocido en rojo a la derecha.</item>
+    /// </list>
+    /// </summary>
+    private enum BluetoothNoticeKind { Connected, Charging, Disconnected }
 
     private static Brush Frozen(Color color)
     {
@@ -60,6 +76,8 @@ public partial class IslandWindow
     private string? _bluetoothShownId;
     private DateTime _bluetoothShownAt = DateTime.MinValue;
     private static readonly TimeSpan BluetoothReboundGuard = TimeSpan.FromSeconds(2);
+    // Variante del aviso a la vista (conectado, cargando o desconectado).
+    private BluetoothNoticeKind _bluetoothNotice = BluetoothNoticeKind.Connected;
 
     /// <summary>Funcionalidad «dispositivos Bluetooth» registrada (nunca null tras el arranque).</summary>
     private IIslandFeature? BluetoothFeature => FeatureById(IslandFeatureIds.Bluetooth);
@@ -149,6 +167,9 @@ public partial class IslandWindow
     {
         if (_disposed) return;
         _bluetoothDevice = device;
+        // Conectado cargando: el aviso es el del rayo y el porcentaje (001 MOD RF-6).
+        _bluetoothNotice = device.Charging == true
+            ? BluetoothNoticeKind.Charging : BluetoothNoticeKind.Connected;
         NoteFeatureEvent(IslandFeatureIds.Bluetooth);
         if (!SettingsManager.Current.IslandEnabled || !BluetoothModeAvailable()) return;
         if (Suppressed() || HasExclusive() || _expanded) return;
@@ -171,6 +192,13 @@ public partial class IslandWindow
         if (_disposed) return;
         if (_bluetoothDevice?.Id != device.Id) return;
         _bluetoothDevice = device;
+        // El dispositivo empezó a cargar con su aviso a la vista (o dejó de
+        // cargar): el aviso cambia de variante en el sitio, sin reiniciar su plazo
+        // (001 MOD RF-6).
+        if (_contentMode == IslandContentMode.Bluetooth && IsBoxShown
+            && _bluetoothNotice != BluetoothNoticeKind.Disconnected)
+            _bluetoothNotice = device.Charging == true
+                ? BluetoothNoticeKind.Charging : BluetoothNoticeKind.Connected;
         PostActivity(IslandActivityReason.Bluetooth);
     }));
 
@@ -181,8 +209,16 @@ public partial class IslandWindow
     private void OnBluetoothDisconnected(string id) => Dispatcher.BeginInvoke(new Action(() =>
     {
         if (_disposed) return;
-        if (_bluetoothDevice?.Id != id) return;
-        if (IsBoxShown && _contentMode == IslandContentMode.Bluetooth) FallbackFromBluetoothView();
+        var device = _bluetoothDevice;
+        if (device?.Id != id) return;
+        // El aviso de desconexión es un evento nuevo: rayo rojo y el último
+        // porcentaje conocido en rojo, con un plazo entero por delante (001 MOD RF-6).
+        _bluetoothNotice = BluetoothNoticeKind.Disconnected;
+        _bluetoothShownId = id;
+        _bluetoothShownAt = DateTime.UtcNow;
+        if (!SettingsManager.Current.IslandEnabled || !BluetoothModeAvailable()) return;
+        if (Suppressed() || HasExclusive() || _expanded) return;
+        ShowBluetoothCompact(restartNotice: true);
     }));
 
     // ------------------------------------------------------------------
@@ -202,18 +238,28 @@ public partial class IslandWindow
             forceNotice: true, restartNotice: restartNotice);
     }
 
-    /// <summary>Pinta el contenido del aviso: glifo del tipo, nombre y aro de batería si la hay.</summary>
+    /// <summary>
+    /// Pinta el contenido del aviso según su variante (001 MOD RF-6): conectado
+    /// (icono del tipo + nombre + aro de batería), conectado cargando (rayo verde +
+    /// porcentaje verde) o desconectado (rayo rojo + porcentaje rojo). Sin batería
+    /// conocida la zona derecha no muestra nada (RF-5).
+    /// </summary>
     private void RefreshBluetoothUI()
     {
         var device = _bluetoothDevice;
         if (device == null) return;
-        BluetoothGlyph.Symbol = device.Glyph;
         BluetoothName.Text = device.Name;
-        if (device.BatteryPercent is int percent)
+        bool ring = _bluetoothNotice == BluetoothNoticeKind.Connected;
+        bool alert = _bluetoothNotice == BluetoothNoticeKind.Disconnected;
+        BluetoothGlyph.Symbol = ring ? device.Glyph : Wpf.Ui.Controls.SymbolRegular.Flash24;
+        BluetoothGlyph.Foreground = ring ? BluetoothGlyphBrush
+            : alert ? BluetoothAlertBrush : BatteryRemainingBrush;
+        // Zona derecha: el aro del conectado o el porcentaje en números del rayo.
+        if (ring && device.BatteryPercent is int ringPercent)
         {
             BluetoothBatteryZone.Visibility = Visibility.Visible;
             BluetoothBatteryArc.Stroke = BatteryRemainingBrush;
-            BluetoothBatteryArc.Data = BuildBatteryArc(percent);
+            BluetoothBatteryArc.Data = BuildBatteryArc(ringPercent);
             BluetoothBatteryZone.ToolTip = device.BatteryText;
         }
         else
@@ -224,8 +270,30 @@ public partial class IslandWindow
             BluetoothBatteryZone.ToolTip = null;
             BluetoothBatteryArc.Data = null;
         }
-        BluetoothCompactGrid.ToolTip = device.BatteryText is { } battery
-            ? $"{device.Name} conectado · {battery}" : $"{device.Name} conectado";
+        if (!ring && device.BatteryPercent is int percent)
+        {
+            BluetoothPercent.Text = $"{percent} %";
+            BluetoothPercent.Foreground = alert ? BluetoothAlertBrush : BatteryRemainingBrush;
+            BluetoothPercent.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            BluetoothPercent.Visibility = Visibility.Collapsed;
+            BluetoothPercent.Text = "";
+        }
+        BluetoothCompactGrid.ToolTip = BluetoothTooltip(device);
+    }
+
+    /// <summary>Tooltip del aviso: dice qué pasó y, si se conoce, la batería.</summary>
+    private string BluetoothTooltip(IslandBluetoothDevice device)
+    {
+        string head = _bluetoothNotice switch
+        {
+            BluetoothNoticeKind.Charging => $"{device.Name} conectado y cargando",
+            BluetoothNoticeKind.Disconnected => $"{device.Name} desconectado",
+            _ => $"{device.Name} conectado",
+        };
+        return device.BatteryText is { } battery ? $"{head} · {battery}" : head;
     }
 
     /// <summary>

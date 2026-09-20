@@ -254,16 +254,21 @@
                         <TextBlock x:Name="BluetoothName" Grid.Column="1" Foreground="White" FontSize="12"
                                    Margin="8,0,4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                    IsHitTestVisible="False"/>
-                        <Grid x:Name="BluetoothBatteryZone" Grid.Column="2" Width="18" Height="18"
-                              VerticalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="False">
-                            <!-- Fondo del aro (lo que queda por delante) y el arco verde encima. El
-                                 Path mide 18x18 con Stretch=None para que las coordenadas absolutas
-                                 de BuildBatteryArc caigan exactamente en esta zona. -->
-                            <Ellipse Width="16" Height="16" Stroke="#59FFFFFF" StrokeThickness="2"/>
-                            <Path x:Name="BluetoothBatteryArc" Width="18" Height="18" Stretch="None"
-                                  HorizontalAlignment="Left" VerticalAlignment="Top"
-                                  Stroke="#6CCB5F" StrokeThickness="2"
-                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                        <Grid Grid.Column="2" VerticalAlignment="Center" IsHitTestVisible="False">
+                            <Grid x:Name="BluetoothBatteryZone" Width="18" Height="18" Visibility="Collapsed">
+                                <!-- Fondo del aro (lo que queda por delante) y el arco verde encima. El
+                                     Path mide 18x18 con Stretch=None para que las coordenadas absolutas
+                                     de BuildBatteryArc caigan exactamente en esta zona. -->
+                                <Ellipse Width="16" Height="16" Stroke="#59FFFFFF" StrokeThickness="2"/>
+                                <Path x:Name="BluetoothBatteryArc" Width="18" Height="18" Stretch="None"
+                                      HorizontalAlignment="Left" VerticalAlignment="Top"
+                                      Stroke="#6CCB5F" StrokeThickness="2"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                            </Grid>
+                            <!-- Porcentaje en números: verde al conectar cargando, rojo al
+                                 desconectarse (el color y el glifo del rayo los pone el código). -->
+                            <TextBlock x:Name="BluetoothPercent" Foreground="#6CCB5F" FontSize="12"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" Visibility="Collapsed"/>
                         </Grid>
                     </Grid>
                 </Grid>

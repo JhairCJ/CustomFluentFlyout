@@ -9,15 +9,16 @@ namespace FluentFlyoutWPF.Classes;
 
 /// <summary>
 /// Dispositivo Bluetooth conectado tal y como lo publica el vigía: identidad para
-/// reconocerlo, nombre visible, glifo de su tipo y batería cuando Windows la
-/// conoce (los dispositivos que no la informan salen con <c>null</c> y el Island
-/// no pinta aro: nada de un aro «0 %» inventado).
+/// reconocerlo, nombre visible, glifo de su tipo, batería cuando Windows la conoce
+/// (los dispositivos que no la informan salen con <c>null</c> y el Island no pinta
+/// aro: nada de un aro «0 %» inventado) y estado de carga cuando lo reporta.
 /// </summary>
 public sealed record IslandBluetoothDevice(
     string Id,
     string Name,
     SymbolRegular Glyph,
-    int? BatteryPercent)
+    int? BatteryPercent,
+    bool? Charging)
 {
     /// <summary>Texto de batería para el tooltip; null si el dispositivo no la informa.</summary>
     public string? BatteryText => BatteryPercent is int p ? $"Batería {p} %" : null;
@@ -64,8 +65,15 @@ public sealed class IslandBluetoothMonitor : IDisposable
         "System.Devices.Aep.IsConnected",
         "System.Devices.Aep.Bluetooth.Cod.Major",
         "System.Devices.Aep.Bluetooth.Cod.Services.Audio",
+        // Batería: BatteryLife es el PORCENTAJE exacto («Remaining battery life, as
+        // a percentage»); BatteryPlusCharging es el nivel grueso que usa Windows
+        // para su texto (0-100 descargando, 101-200 cargando) y su variante de
+        // texto queda como último recurso.
+        "System.Devices.BatteryLife",
         "System.Devices.BatteryPlusCharging",
         "System.Devices.BatteryPlusChargingText",
+        // Estado de carga: 0 no carga, 1 cargando, 2 desconocido.
+        "System.Devices.ChargingState",
     ];
 
     // Reintentos de batería: acumulativos (2,5 s, 9 s y 21 s tras conectar) y
@@ -76,6 +84,7 @@ public sealed class IslandBluetoothMonitor : IDisposable
     private readonly Dictionary<string, SymbolRegular> _glyphs = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, bool> _connected = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int?> _battery = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, bool?> _charging = new(StringComparer.OrdinalIgnoreCase);
 
     private DeviceWatcher? _watcher;
     private bool _seeding = true;
@@ -176,6 +185,7 @@ public sealed class IslandBluetoothMonitor : IDisposable
             bool connected = ReadConnected(info.Properties);
             _connected[id] = connected;
             if (ReadBattery(info.Properties) is int battery) _battery[id] = battery;
+            _charging[id] = ReadCharging(info.Properties);
             // La conexión de verdad avisa; la siembra de arranque solo observa.
             if (connected && !_seeding)
             {
@@ -197,12 +207,17 @@ public sealed class IslandBluetoothMonitor : IDisposable
             string id = update.Id;
             var props = update.Properties;
             int? incoming = ReadBattery(props);
-            if (incoming is int battery
-                && (!_battery.TryGetValue(id, out int? known) || known != battery))
+            bool? charging = ReadCharging(props);
+            bool batteryNews = incoming is int battery
+                && (!_battery.TryGetValue(id, out int? known) || known != battery);
+            bool chargingNews = charging != null
+                && (!_charging.TryGetValue(id, out bool? wasCharging) || wasCharging != charging);
+            if (batteryNews) _battery[id] = incoming;
+            if (chargingNews) _charging[id] = charging;
+            if (batteryNews || chargingNews)
             {
-                _battery[id] = battery;
-                // Batería nueva de un dispositivo ya conectado: se refina (solo
-                // repinta si su aviso sigue a la vista).
+                // Batería o carga nuevas de un dispositivo ya conectado: se refina
+                // (solo repinta si su aviso sigue a la vista).
                 if (_connected.TryGetValue(id, out bool live) && live && _names.ContainsKey(id))
                 {
                     Updated?.Invoke(Build(id));
@@ -235,6 +250,7 @@ public sealed class IslandBluetoothMonitor : IDisposable
         _glyphs.Remove(id);
         _connected.Remove(id);
         _battery.Remove(id);
+        _charging.Remove(id);
         if (was) Disconnected?.Invoke(id);
     }
 
@@ -263,7 +279,8 @@ public sealed class IslandBluetoothMonitor : IDisposable
         id,
         _names.TryGetValue(id, out var name) ? name : UnknownName,
         _glyphs.TryGetValue(id, out var glyph) ? glyph : SymbolRegular.Bluetooth24,
-        _battery.TryGetValue(id, out int? battery) ? battery : null);
+        _battery.TryGetValue(id, out int? battery) ? battery : null,
+        _charging.TryGetValue(id, out bool? charging) ? charging : null);
 
     /// <summary>
     /// Reintento contado de la batería (ADDED RF-4): Windows la rellena unos
@@ -276,6 +293,8 @@ public sealed class IslandBluetoothMonitor : IDisposable
         {
             try { await Task.Delay(delay).ConfigureAwait(false); } catch { return; }
             if (_disposed || generation != _generation) return;
+            // Con el nivel YA conocido no hay nada que buscar; el estado de carga se
+            // vigila por los eventos del vigía (llega con el mismo Updated).
             if (_battery.TryGetValue(id, out int? known) && known != null) return;
             if (!_connected.TryGetValue(id, out bool live) || !live) return;
             try
@@ -284,8 +303,20 @@ public sealed class IslandBluetoothMonitor : IDisposable
                     .ConfigureAwait(false);
                 if (_disposed || generation != _generation) return;
                 if (info == null) return;
-                if (ReadBattery(info.Properties) is not int battery) continue;
-                _battery[id] = battery;
+                bool news = false;
+                if (ReadBattery(info.Properties) is int battery
+                    && (!_battery.TryGetValue(id, out int? current) || current != battery))
+                {
+                    _battery[id] = battery;
+                    news = true;
+                }
+                if (ReadCharging(info.Properties) is bool chargingState
+                    && (!_charging.TryGetValue(id, out bool? wasCharging) || wasCharging != chargingState))
+                {
+                    _charging[id] = chargingState;
+                    news = true;
+                }
+                if (!news) continue;
                 Updated?.Invoke(Build(id));
                 return;
             }
@@ -307,24 +338,22 @@ public sealed class IslandBluetoothMonitor : IDisposable
 
     /// <summary>
     /// Batería restante en porcentaje, o null si el dispositivo no la informa.
-    /// Windows la publica en <c>System.Devices.BatteryPlusCharging</c> (la usan
-    /// la propia página de Bluetooth de Ajustes) y, en algunos dispositivos, solo
-    /// como texto («78 %»).
+    /// Fuentes, en orden: <c>System.Devices.BatteryLife</c> (el porcentaje exacto),
+    /// <c>System.Devices.BatteryPlusCharging</c> —el nivel grueso que usa Windows
+    /// en su texto: 0-100 descargando y 101-200 cargando, donde el nivel es el
+    /// valor menos 100— y, por último, el texto («78 %»).
     /// </summary>
     private static int? ReadBattery(IReadOnlyDictionary<string, object> props)
     {
-        if (props.TryGetValue("System.Devices.BatteryPlusCharging", out var raw))
+        if (ReadNumber(props, "System.Devices.BatteryLife") is int life && life is >= 0 and <= 100)
+            return life;
+        if (ReadNumber(props, "System.Devices.BatteryPlusCharging") is int plus
+            && plus is >= 0 and <= 200)
         {
-            int? value = raw switch
-            {
-                byte b => b,
-                ushort u => u,
-                short sh => sh,
-                int i => i,
-                uint ui => (int)ui,
-                _ => null,
-            };
-            if (value is int percent && percent is >= 0 and <= 100) return percent;
+            // 101-200 = cargando: el nivel es el valor menos 100 (así lo define la
+            // lista enumerada del sistema).
+            if (plus >= 101) plus -= 100;
+            if (plus is >= 0 and <= 100) return plus;
         }
         if (props.TryGetValue("System.Devices.BatteryPlusChargingText", out var text) && text is string s)
         {
@@ -332,6 +361,41 @@ public sealed class IslandBluetoothMonitor : IDisposable
             if (int.TryParse(digits, out int percent) && percent is >= 0 and <= 100) return percent;
         }
         return null;
+    }
+
+    /// <summary>
+    /// ¿El dispositivo se está cargando? (item 3: rayo verde al conectar cargando).
+    /// <c>System.Devices.ChargingState</c>: 0 no carga, 1 cargando, 2 desconocido.
+    /// Sin ese dato se deduce del nivel combinado (101-200 = cargando); con nada
+    /// concluyente devuelve null, que el Island trata como «no se sabe».
+    /// </summary>
+    private static bool? ReadCharging(IReadOnlyDictionary<string, object> props)
+    {
+        if (ReadNumber(props, "System.Devices.ChargingState") is int state)
+        {
+            if (state == 1) return true;
+            if (state == 0) return false;
+        }
+        if (ReadNumber(props, "System.Devices.BatteryPlusCharging") is int plus && plus is >= 101 and <= 200)
+            return true;
+        return null;
+    }
+
+    /// <summary>Valor numérico de una propiedad, sea cual sea su ancho entero.</summary>
+    private static int? ReadNumber(IReadOnlyDictionary<string, object> props, string key)
+    {
+        if (!props.TryGetValue(key, out var raw)) return null;
+        return raw switch
+        {
+            byte b => b,
+            sbyte sb => sb,
+            ushort u => u,
+            short sh => sh,
+            int i => i,
+            uint ui => (int)ui,
+            bool flag => flag ? 1 : 0,
+            _ => null,
+        };
     }
 
     /// <summary>
