@@ -1885,7 +1885,13 @@ public partial class UserSettings : ObservableObject
         GoogleCalendarError = "";
         GoogleCalendarStatus = "";
 
-        IslandScreens = [.. IslandFeatureIds.DefaultScreens];
+        // Vacía a propósito, igual que los presets, el cajón y el estante: el
+        // deserializador XML RELLENA la colección existente en vez de reemplazarla,
+        // así que sembrar aquí las pantallas por defecto las añadía a las del usuario
+        // en CADA arranque (el usuario veía sus pantallas más las de fábrica, y el
+        // guardado las escribía todas). Las de fábrica las aplica
+        // CompleteInitialization solo cuando el archivo no trae ninguna.
+        IslandScreens = [];
         AppFilteringEnabled = false;
         AppFilteringMode = 0;
         TaskbarVisualizerPosition = 1;
@@ -2198,16 +2204,32 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Sanea las pantallas del Island: cada una se reescribe con sus funcionalidades
-    /// conocidas y sin repetir, y las que se quedan sin ninguna se descartan. Una
-    /// pantalla con más funcionalidades de las que caben se REPARTE en pantallas de
-    /// <see cref="IslandFeatureIds.MaxFeaturesPerScreen"/> (nada se pierde al cargar un
-    /// ajuste viejo o editado a mano). Sin ninguna pantalla válida rige una por
-    /// funcionalidad (nunca una navegación vacía).
+    /// Sanea las pantallas del Island: se retira la cabecera de fábrica que inyectaba el
+    /// bug de arranque, se descartan las repetidas, cada pantalla se reescribe con sus
+    /// funcionalidades conocidas y sin repetir, y las que se quedan sin ninguna se
+    /// descartan. Una pantalla con más funcionalidades de las que caben se REPARTE en
+    /// pantallas de <see cref="IslandFeatureIds.MaxFeaturesPerScreen"/> (nada se pierde
+    /// al cargar un ajuste viejo o editado a mano). Sin ninguna pantalla válida rigen
+    /// las de fábrica (nunca una navegación vacía).
     /// </summary>
     internal void SanitizeIslandScreens()
     {
+        // Autorreparación del bug de arranque: aquella versión sembraba las pantallas de
+        // fábrica en el constructor y el deserializador XML AÑADE a la colección
+        // existente, así que los archivos de entonces empiezan por la lista de fábrica
+        // ENTERA y EN ORDEN, delante de las pantallas del usuario (una vez por arranque).
+        // Esa cabecera no la eligió nadie: se retira cuando hay algo detrás. Con la lista
+        // de fábrica a solas no se toca: quien nunca editó sus pantallas conserva su
+        // Island tal y como lo tenía.
+        int header = LegacyFactoryScreensHeaderLength();
+        if (header > 0 && header < IslandScreens.Count)
+        {
+            for (int at = 0; at < header; at++) IslandScreens.RemoveAt(0);
+        }
         var cleaned = new List<string>();
+        // Una pantalla repetida EXACTA no es una decisión del usuario: nadie quiere la
+        // misma vista dos veces en el recorrido, y era justo lo que dejaba el bug.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var screen in IslandScreens.ToList())
         {
             var ids = IslandFeatureIds.ParseScreen(screen);
@@ -2215,17 +2237,37 @@ public partial class UserSettings : ObservableObject
             {
                 string normalized = IslandFeatureIds.FormatScreen(
                     ids.Skip(at).Take(IslandFeatureIds.MaxFeaturesPerScreen));
-                if (normalized.Length > 0) cleaned.Add(normalized);
+                if (normalized.Length > 0 && seen.Add(normalized)) cleaned.Add(normalized);
             }
         }
         IslandScreens.Clear();
-        // Las pantallas repetidas se conservan: dos pantallas iguales son una
-        // decisión del usuario (y se pueden quitar), no un dato roto.
         foreach (var screen in cleaned) IslandScreens.Add(screen);
         if (IslandScreens.Count == 0)
         {
             foreach (var screen in IslandFeatureIds.DefaultScreens) IslandScreens.Add(screen);
         }
+    }
+
+    /// <summary>
+    /// Cuántas entradas INICIALES son exactamente la lista de fábrica ANTIGUA (una
+    /// pantalla por funcionalidad, en el orden de <see cref="IslandFeatureIds.All"/>), en
+    /// orden: 0 si el archivo no empieza por ellas. Reconoce la cabecera que dejaba el bug
+    /// de arranque, repetida tantas veces como arranques sufriera el archivo. Es una
+    /// huella exacta: una pantalla por funcionalidad, todas, y en ese orden.
+    /// </summary>
+    private int LegacyFactoryScreensHeaderLength()
+    {
+        var legacy = IslandFeatureIds.All;
+        int length = 0;
+        while (length + legacy.Count <= IslandScreens.Count)
+        {
+            bool matches = true;
+            for (int at = 0; at < legacy.Count && matches; at++)
+                matches = string.Equals(IslandScreens[length + at], legacy[at], StringComparison.Ordinal);
+            if (!matches) break;
+            length += legacy.Count;
+        }
+        return length;
     }
 
     /// <summary>

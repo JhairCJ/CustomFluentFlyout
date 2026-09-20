@@ -15,6 +15,10 @@ namespace FluentFlyoutWPF.Models;
 /// <para>Cada pantalla lleva como máximo <see cref="MaxFeaturesPerScreen"/>
 /// funcionalidades: son las que caben en su composición (las columnas del expandido).
 /// En el compacto la pantalla enseña UNA sola: la funcionalidad que sostiene la vista.</para>
+///
+/// <para>Las pantallas son una AGRUPACIÓN: no hace falta una por funcionalidad. El
+/// defecto son dos pantallas de contenido (música/temporizador/cajón/estante e
+/// información del día) más los avisos, que van juntos.</para>
 /// </summary>
 public static class IslandFeatureIds
 {
@@ -59,10 +63,21 @@ public static class IslandFeatureIds
     public const int MaxFeaturesPerScreen = 4;
 
     /// <summary>
-    /// Pantallas por defecto: una por funcionalidad, en el orden de <see cref="All"/>.
-    /// Es el comportamiento histórico (cada funcionalidad con su vista rica).
+    /// Pantallas por defecto de una instalación nueva: agrupan por lo que la
+    /// funcionalidad ES (contenido del Island, información del día y avisos), no una
+    /// pantalla por funcionalidad. Cada grupo cabe en una sola pantalla (máximo
+    /// <see cref="MaxFeaturesPerScreen"/> funcionalidades) y ninguna queda fuera: sin
+    /// pantalla una funcionalidad no se muestra (change island-pantallas).
     /// </summary>
-    public static IReadOnlyList<string> DefaultScreens => [.. All];
+    public static IReadOnlyList<string> DefaultScreens =>
+    [
+        Screen(Media, Timer, Apps, Shelf),
+        Screen(Calendar, Clipboard, Weather),
+        Screen(Bluetooth, Power),
+    ];
+
+    /// <summary>Compone una pantalla con las funcionalidades dadas (formato guardado).</summary>
+    private static string Screen(params string[] ids) => FormatScreen(ids);
 
     /// <summary>
     /// Lee una pantalla configurada («media+timer») y devuelve sus funcionalidades
