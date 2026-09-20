@@ -124,6 +124,15 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandReturnToInactive, Mode=TwoWay}" />
             </ui:CardControl>
+            <ui:CardControl x:Name="IslandHideOnFullscreenCard" Tag="Indexable" Grid.Row="11" Icon="{ui:SymbolIcon Shield24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="Ocultar a pantalla completa" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="El Island se aparta con un juego o un vídeo a pantalla completa (también sin bordes), en una presentación o con el equipo bloqueado. El ajuste es del Island: no depende del de las notificaciones." FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="440" HorizontalAlignment="Left" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:ToggleSwitch IsChecked="{Binding IslandHideOnFullscreen, Mode=TwoWay}" />
+            </ui:CardControl>
             <TextBlock Grid.Row="22" Text="Música" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
             <ui:CardControl x:Name="IslandEqEnabledCard" Tag="Indexable" Grid.Row="27" Icon="{ui:SymbolIcon SoundWaveCircle24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>

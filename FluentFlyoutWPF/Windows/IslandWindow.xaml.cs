@@ -397,6 +397,19 @@ public partial class IslandWindow : Window
         _features.Reorder(SettingsManager.Current.IslandFeatureOrder);
 
     /// <summary>
+    /// Ajuste de pantalla completa en caliente: la supresión se sirve desde una
+    /// instantánea cacheada, así que se invalida, se recalcula con el valor nuevo y
+    /// se publica el contexto. Si el Island tenía que apartarse, se aparta en el
+    /// acto, sin esperar a los 5 s de la recuperación (001 MOD RF-8/14).
+    /// </summary>
+    public void RefreshSuppressionState() => Dispatcher.Invoke(() =>
+    {
+        _ctxValid = false;
+        RefreshContextSnapshot();
+        PostActivity(IslandActivityReason.Context);
+    });
+
+    /// <summary>
     /// Última usable para expandir (001 MOD RF-3): manda la funcionalidad en
     /// uso (último-activo); si ya no es usable, la última activa; si no, la
     /// primera usable. Sin ninguna usable no abre vista vacía.

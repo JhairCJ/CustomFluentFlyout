@@ -34,10 +34,19 @@ public partial class IslandWindow
     /// todo el monitor principal apagan el Island; el escritorio Progman/WorkerW
     /// no cuenta como aplicación). Es una consulta impura: se llama solo al
     /// refrescar la instantánea de contexto.
+    ///
+    /// <para>La pantalla completa se detecta con el estado del shell (D3D
+    /// exclusivo, juegos y vídeos sin bordes, presentaciones y equipo bloqueado) y
+    /// la decide el ajuste PROPIO del Island, con el global del Media Flyout como
+    /// acompañante: tener apagado uno no deja el Island encima de un juego
+    /// (001 MOD RF-8/14).</para>
     /// </summary>
     private bool ComputeSuppressed()
     {
-        if (FullscreenDetector.IsFullscreenApplicationRunning()) return true;
+        if (FullscreenDetector.IsFullscreenOrAwayState()
+            && (SettingsManager.Current.IslandHideOnFullscreen
+                || SettingsManager.Current.DisableIfFullscreen))
+            return true;
         try
         {
             var fg = NativeMethods.GetForegroundWindow();

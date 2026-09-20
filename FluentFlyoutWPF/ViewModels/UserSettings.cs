@@ -1313,6 +1313,16 @@ public partial class UserSettings : ObservableObject
     public partial string IslandShelfError { get; set; }
 
     /// <summary>
+    /// ¿El Island se aparta cuando hay algo a pantalla completa (juego, vídeo sin
+    /// bordes, presentación o equipo bloqueado)? Por defecto sí: quedarse encima de
+    /// un juego es justo lo que no debe pasar. El ajuste es del Island, así que
+    /// apagar «ocultar si hay pantalla completa» en el sistema no se lo lleva por
+    /// delante (ese sigue mandando como acompañante).
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandHideOnFullscreen { get; set; }
+
+    /// <summary>
     /// Recordatorios de Google Calendar: funcionalidad habilitada. Con ella apagada no
     /// se lee el calendario (ni red ni token) y el Island no la ofrece.
     /// </summary>
@@ -1411,6 +1421,14 @@ public partial class UserSettings : ObservableObject
     /// </summary>
     partial void OnIslandBluetoothEnabledChanged(bool oldValue, bool newValue) =>
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshBluetoothContent();
+
+    /// <summary>
+    /// El ajuste de pantalla completa se aplica en el acto: la supresión es una
+    /// instantánea cacheada, así que se invalida y se recalcula con el valor nuevo
+    /// (si el Island tenía que apartarse, se aparta ya).
+    /// </summary>
+    partial void OnIslandHideOnFullscreenChanged(bool oldValue, bool newValue) =>
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshSuppressionState();
 
     partial void OnGoogleCalendarRefreshTokenChanged(string oldValue, string newValue)
     {
@@ -1737,6 +1755,7 @@ public partial class UserSettings : ObservableObject
         // colección existente.
         IslandShelfItems = [];
         IslandShelfError = "";
+        IslandHideOnFullscreen = true;
         IslandCalendarEnabled = false;
         // Sí por defecto: un aviso al conectar (que además usa el plazo del aviso
         // temporal) es justo lo que se espera de la funcionalidad, y no toca nada
