@@ -771,9 +771,17 @@ public partial class IslandWindow
     private bool ExpandLastUsable()
     {
         if ((Suppressed() && !HasExclusive()) || !SettingsManager.Current.IslandEnabled) { SnapHidden(); return false; }
-        // Con una pantalla COMBINADA delante, el clic la expande entera (sus paneles
-        // apilados), no una de sus funcionalidades suelta (change island-pantallas RF-4).
-        if (_contentMode == IslandContentMode.Screen && ScreenIsCombined() && ExpandCurrentScreen()) return true;
+        // La unidad de la vista es la PANTALLA (change island-pantallas RF-4): el clic
+        // abre la pantalla del contenido que sostiene la vista (la activa vigente) o,
+        // sin ella, la pantalla vigente entera —simple o combinada—, nunca una
+        // funcionalidad suelta que el usuario no configuró.
+        if (ResolveActiveVigenteForVisible() is { } vigente && ScreenIndexOfFeature(vigente.Id) >= 0)
+        {
+            int index = ScreenIndexOfFeature(vigente.Id);
+            _screenIndex = index;
+            if (ExpandCurrentScreen()) return true;
+        }
+        if (MoveToNearestUsableScreen() && ExpandCurrentScreen()) return true;
         var feature = LastUsableFeature();
         if (feature != null && feature.TryShowExpanded()) return true;
         var alt = _features.NextUsableAfter(feature);

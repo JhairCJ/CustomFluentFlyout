@@ -700,6 +700,21 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </StackPanel>
+                    <!-- PANTALLA COMBINADA en expandido: las funcionalidades que la componen van
+                         de izquierda a derecha, una columna por funcionalidad (change
+                         island-pantallas RF-2/RF-3). Los paneles de cada una se MUEVEN aquí
+                         mientras la pantalla combinada está delante y vuelven a su sitio al
+                         salir (IslandWindow.Screens.cs); las columnas que no componen la
+                         pantalla se ocultan y el ancho de la caja es dinámico (el ancho lo
+                         fija el número de columnas). -->
+                    <StackPanel x:Name="ScreenExpandedRow" Orientation="Horizontal" Visibility="Collapsed">
+                        <StackPanel x:Name="ScreenColumnMedia" Margin="0,0,14,0" Visibility="Collapsed"/>
+                        <StackPanel x:Name="ScreenColumnTimer" Margin="0,0,14,0" Visibility="Collapsed"/>
+                        <StackPanel x:Name="ScreenColumnApps" Margin="0,0,14,0" Visibility="Collapsed"/>
+                        <StackPanel x:Name="ScreenColumnShelf" Margin="0,0,14,0" Visibility="Collapsed"/>
+                        <StackPanel x:Name="ScreenColumnCalendar" Margin="0,0,14,0" Visibility="Collapsed"/>
+                        <StackPanel x:Name="ScreenColumnClipboard" Margin="0,0,14,0" Visibility="Collapsed"/>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </Border>

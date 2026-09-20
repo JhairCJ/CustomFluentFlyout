@@ -194,6 +194,9 @@ public partial class IslandWindow
             ApplyScreenLayerVisibility();
             return;
         }
+        // Fuera de una pantalla combinada los paneles del expandido viven en su sitio
+        // de siempre (no-op si no se había movido ninguno a una columna).
+        RestoreExpandedHomes();
         // Portapapeles: fila de piezas copiadas (o lista en el expandido), excluyente
         // con el resto de capas, como el cajón y el estante.
         bool clipboard = _contentMode == IslandContentMode.Clipboard && ClipboardModeAvailable();

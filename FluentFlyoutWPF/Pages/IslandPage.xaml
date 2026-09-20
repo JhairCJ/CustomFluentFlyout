@@ -138,19 +138,21 @@
             <TextBlock Grid.Row="12" Text="Pantallas" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
             <!-- Pantallas del Island: cada una agrupa una o varias funcionalidades y la
                  rueda y las flechas recorren pantallas. El editor lo construye el
-                 code-behind (una casilla por funcionalidad en cada pantalla). -->
+                 code-behind: una tarjeta por funcionalidad, EN ORDEN (ese orden es el de
+                 presentación: de izquierda a derecha), con ◀ ▶ para colocarla y ✕ para
+                 sacarla, más la lista de las que faltan. -->
             <ui:CardExpander x:Name="IslandScreensCard" Tag="Indexable" Grid.Row="13" Icon="{ui:SymbolIcon Grid24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardExpander.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="Pantallas del Island" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                        <TextBlock Text="Agrupa funcionalidades en pantallas: la rueda y las flechas las recorren en orden, y una pantalla con varias muestra sus fichas juntas (icono y un dato corto) con ancho y alto dinámicos. Con una sola funcionalidad la pantalla se ve como siempre." FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="440" HorizontalAlignment="Left" />
+                        <TextBlock Text="Agrupa funcionalidades en pantallas: la rueda y las flechas las recorren en orden. Una pantalla con varias va de izquierda a derecha —sus fichas en el compacto y sus columnas en el expandido— con ancho y alto dinámicos, y el orden de las tarjetas es ese orden. Con una sola funcionalidad la pantalla se ve como siempre." FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="440" HorizontalAlignment="Left" />
                     </StackPanel>
                 </ui:CardExpander.Header>
                 <StackPanel Margin="0,8,0,8">
                     <StackPanel x:Name="IslandScreensPanel" />
                     <Button Content="Nueva pantalla" Click="IslandScreenNew_Click" Padding="12,4" Margin="0,8,0,0" HorizontalAlignment="Left"
                             ToolTip="Nace con la primera funcionalidad que no esté en ninguna pantalla" />
-                    <TextBlock Text="Una pantalla vacía no se guarda: cada pantalla necesita al menos una funcionalidad." FontSize="12" Opacity="0.5" Margin="0,6,0,0" />
+                    <TextBlock Text="Una pantalla vacía no se guarda: cada pantalla necesita al menos una funcionalidad. Lo que cambies aquí se ve en el Island al momento si está a la vista." FontSize="12" Opacity="0.5" Margin="0,6,0,0" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
             </ui:CardExpander>
             <TextBlock Grid.Row="22" Text="Música" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />

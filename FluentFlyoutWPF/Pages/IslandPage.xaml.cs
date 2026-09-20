@@ -10,6 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace FluentFlyoutWPF.Pages;
 
@@ -29,9 +30,11 @@ public partial class IslandPage : Page
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Editor de pantallas: una fila por pantalla con una casilla por funcionalidad,
-    /// más subir/bajar/quitar. Se construye en código (las casillas son dinámicas:
-    /// una por funcionalidad conocida) y se reconstruye entero tras cada cambio, así
+    /// Editor de pantallas: una fila por pantalla con las funcionalidades que la
+    /// componen como TARJETAS EN ORDEN, de izquierda a derecha —el mismo orden en el
+    /// que la pantalla las presenta en el Island, en sus fichas del compacto y en sus
+    /// columnas del expandido—, cada una movible con ◀ ▶ y quitables con ✕, más una
+    /// lista para añadir las que falten. Se reconstruye entero tras cada cambio, así
     /// el editor siempre enseña lo que hay guardado.
     /// </summary>
     private void RefreshScreensEditor()
@@ -42,23 +45,23 @@ public partial class IslandPage : Page
         {
             string screen = settings.IslandScreens[i];
             var ids = IslandFeatureIds.ParseScreen(screen);
-            var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+            var row = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
 
             var header = new Grid();
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var title = new TextBlock
             {
-                Text = $"Pantalla {i + 1}: {string.Join(", ", ids.Select(IslandFeatureIds.DisplayName))}",
+                Text = $"Pantalla {i + 1}",
                 FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
-                TextTrimming = TextTrimming.CharacterEllipsis,
             };
             Grid.SetColumn(title, 0);
             header.Children.Add(title);
             var actions = new StackPanel { Orientation = Orientation.Horizontal };
-            actions.Children.Add(ScreenButton("Subir", $"Subir la pantalla {i + 1}", () => MoveScreen(screen, -1)));
-            actions.Children.Add(ScreenButton("Bajar", $"Bajar la pantalla {i + 1}", () => MoveScreen(screen, +1)));
+            actions.Children.Add(ScreenButton("Subir", $"Subir la pantalla {i + 1} en el recorrido de la rueda y las flechas", () => MoveScreen(screen, -1)));
+            actions.Children.Add(ScreenButton("Bajar", $"Bajar la pantalla {i + 1} en el recorrido de la rueda y las flechas", () => MoveScreen(screen, +1)));
             actions.Children.Add(ScreenButton("Quitar", "Quitar esta pantalla (la última no se puede quitar)", () =>
             {
                 settings.RemoveIslandScreen(screen);
@@ -68,26 +71,106 @@ public partial class IslandPage : Page
             header.Children.Add(actions);
             row.Children.Add(header);
 
-            var chips = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
-            foreach (var id in IslandFeatureIds.All)
+            // Tarjetas en orden: el orden de la fila ES el orden de la pantalla.
+            var cards = new WrapPanel { Margin = new Thickness(0, 6, 0, 0), MaxWidth = 520, HorizontalAlignment = HorizontalAlignment.Left };
+            for (int position = 0; position < ids.Count; position++)
             {
-                string featureId = id;
-                chips.Children.Add(new CheckBox
-                {
-                    Content = IslandFeatureIds.DisplayName(id),
-                    IsChecked = ids.Contains(id),
-                    Margin = new Thickness(0, 0, 14, 4),
-                    VerticalContentAlignment = VerticalAlignment.Center,
-                });
-                if (chips.Children[^1] is CheckBox box)
-                {
-                    box.Checked += (_, _) => ToggleScreenFeature(screen, featureId, true);
-                    box.Unchecked += (_, _) => ToggleScreenFeature(screen, featureId, false);
-                }
+                string featureId = ids[position];
+                int at = position;
+                cards.Children.Add(ScreenFeatureCard(screen, featureId, at, ids.Count));
             }
-            row.Children.Add(chips);
+            row.Children.Add(cards);
+
+            // Añadir: solo las funcionalidades que no están ya en esta pantalla.
+            var missing = IslandFeatureIds.All.Where(id => !ids.Contains(id)).ToList();
+            var addRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            addRow.Children.Add(new TextBlock
+            {
+                Text = "Añadir:",
+                FontSize = 12,
+                Opacity = 0.6,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
+            });
+            var add = new ComboBox
+            {
+                Width = 240,
+                IsEnabled = missing.Count > 0,
+                ToolTip = "Se añade al final de la pantalla; colócala con ◀ ▶",
+            };
+            if (missing.Count == 0)
+            {
+                add.Items.Add("La pantalla las lleva todas");
+                add.SelectedIndex = 0;
+                add.IsEnabled = false;
+            }
+            else
+            {
+                foreach (var id in missing) add.Items.Add(IslandFeatureIds.DisplayName(id));
+            }
+            add.SelectionChanged += (_, e) =>
+            {
+                if (e.AddedItems.Count == 0 || e.AddedItems[0] is not string name) return;
+                string featureId = missing.FirstOrDefault(id => IslandFeatureIds.DisplayName(id) == name);
+                if (featureId != null && settings.AddIslandScreenFeature(screen, featureId))
+                    RefreshScreensEditor();
+            };
+            addRow.Children.Add(add);
+            row.Children.Add(addRow);
             IslandScreensPanel.Children.Add(row);
         }
+    }
+
+    /// <summary>
+    /// Tarjeta de una funcionalidad dentro de una pantalla: su nombre y los mandos
+    /// para colocarla (◀ ▶) o sacarla (✕). El orden de las tarjetas es el orden en el
+    /// que la pantalla la muestra, de izquierda a derecha.
+    /// </summary>
+    private Border ScreenFeatureCard(string screen, string featureId, int position, int total)
+    {
+        var card = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(0x18, 0xFF, 0xFF, 0xFF)),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(8, 3, 4, 3),
+            Margin = new Thickness(0, 0, 8, 8),
+        };
+        var content = new StackPanel { Orientation = Orientation.Horizontal };
+        content.Children.Add(new TextBlock
+        {
+            Text = IslandFeatureIds.DisplayName(featureId),
+            FontSize = 13,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0),
+        });
+        // Posición dentro de la pantalla: se ve el orden de un vistazo.
+        content.Children.Add(new TextBlock
+        {
+            Text = $"{position + 1}º",
+            FontSize = 11,
+            Opacity = 0.5,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0),
+        });
+        var moveLeft = ScreenButton("◀", "Mover antes en la pantalla", () =>
+        {
+            if (SettingsManager.Current.MoveIslandScreenFeature(screen, featureId, -1)) RefreshScreensEditor();
+        });
+        moveLeft.IsEnabled = position > 0;
+        var moveRight = ScreenButton("▶", "Mover después en la pantalla", () =>
+        {
+            if (SettingsManager.Current.MoveIslandScreenFeature(screen, featureId, +1)) RefreshScreensEditor();
+        });
+        moveRight.IsEnabled = position < total - 1;
+        var remove = ScreenButton("✕", "Sacar esta funcionalidad de la pantalla (la última no se puede sacar)", () =>
+        {
+            if (SettingsManager.Current.RemoveIslandScreenFeature(screen, featureId)) RefreshScreensEditor();
+        });
+        content.Children.Add(moveLeft);
+        content.Children.Add(moveRight);
+        content.Children.Add(remove);
+        card.Child = content;
+        return card;
     }
 
     private static Button ScreenButton(string text, string tooltip, Action action)
@@ -112,30 +195,6 @@ public partial class IslandPage : Page
     private void IslandScreenNew_Click(object sender, RoutedEventArgs e)
     {
         SettingsManager.Current.AddIslandScreen();
-        RefreshScreensEditor();
-    }
-
-    /// <summary>
-    /// Mete o saca una funcionalidad de una pantalla. Quitar la última dejaría una
-    /// pantalla vacía (no habría nada que enseñar): en ese caso no se aplica y el
-    /// editor vuelve a pintar la casilla marcada.
-    /// </summary>
-    private void ToggleScreenFeature(string screen, string featureId, bool included)
-    {
-        var settings = SettingsManager.Current;
-        int index = settings.IslandScreens.IndexOf(screen);
-        if (index < 0) return;
-        var ids = IslandFeatureIds.ParseScreen(screen).ToList();
-        if (included)
-        {
-            if (!ids.Contains(featureId)) ids.Add(featureId);
-        }
-        else
-        {
-            ids.Remove(featureId);
-        }
-        string updated = IslandFeatureIds.FormatScreen(ids);
-        if (updated.Length > 0) settings.IslandScreens[index] = updated;
         RefreshScreensEditor();
     }
 

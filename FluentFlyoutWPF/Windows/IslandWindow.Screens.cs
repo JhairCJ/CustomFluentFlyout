@@ -6,6 +6,7 @@ using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Models;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace FluentFlyoutWPF.Windows;
 
@@ -43,6 +44,14 @@ public partial class IslandWindow
     private const double ScreenChipWidth = 96;
     /// <summary>Ancho de reposo del compacto de una sola funcionalidad (CompactLayer del XAML).</summary>
     private const double SingleCompactLayerWidth = 240;
+    /// <summary>Ancho de una columna del expandido de una pantalla combinada.</summary>
+    private const double ScreenColumnWidth = 236;
+    /// <summary>Separación entre columnas del expandido (igual que el margen del XAML).</summary>
+    private const double ScreenColumnGap = 14;
+    /// <summary>Relleno lateral del contenido expandido (el margen del ExpandedLayer: 16+16).</summary>
+    private const double ScreenRowPadding = 32;
+    /// <summary>Ancho máximo del expandido de una pantalla combinada.</summary>
+    private const double ScreenExpandedMaxWidth = 900;
 
     /// <summary>Pantallas configuradas, ya saneadas y en orden de navegación.</summary>
     private readonly List<string[]> _screens = [];
@@ -121,7 +130,10 @@ public partial class IslandWindow
         return true;
     }
 
-    /// <summary>Expande la pantalla vigente (paneles apilados si es combinada).</summary>
+    /// <summary>
+    /// Expande la pantalla vigente: la vista rica de su única funcionalidad si es
+    /// simple, y sus columnas de IZQUIERDA A DERECHA si es combinada.
+    /// </summary>
     private bool ExpandCurrentScreen()
     {
         var members = CurrentScreenFeatures();
@@ -130,6 +142,46 @@ public partial class IslandWindow
         ShowExpandedView(IslandContentMode.Screen, members[0], RefreshScreenMembers);
         return true;
     }
+
+    /// <summary>
+    /// La pantalla vigente deja paso a otra que sí tenga algo usable: se busca la
+    /// siguiente en orden de navegación y se adopta como vigente. Se usa cuando un
+    /// ajuste deja la pantalla actual sin nada que enseñar (una funcionalidad
+    /// apagada, una pantalla editada) para no quedarse con una vista vacía.
+    /// </summary>
+    private bool MoveToNearestUsableScreen()
+    {
+        for (int step = 0; step < _screens.Count; step++)
+        {
+            int index = (_screenIndex + step) % _screens.Count;
+            if (ScreenUsableFeatures(_screens[index]).Count == 0) continue;
+            _screenIndex = index;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// El ajuste de pantallas cambió (o se apagó una funcionalidad): se relee la
+    /// configuración y, si el Island está a la vista, se vuelve a presentar la
+    /// pantalla vigente —compacto o expandido— para que el cambio se VEA en el acto
+    /// y el contenedor se adapte (ancho y alto del contenido nuevo). Oculto no se
+    /// despliega nada: la próxima aparición ya usa la configuración nueva.
+    /// </summary>
+    public void RefreshScreensContent() => Dispatcher.Invoke(() =>
+    {
+        ApplyScreens();
+        if (!IsBoxShown || _disposed) return;
+        if (_contentMode == IslandContentMode.Screen)
+        {
+            if (!MoveToNearestUsableScreen()) { ShowInactiveOrHidden(); return; }
+            if (_expanded ? ExpandCurrentScreen() : ShowCurrentScreenCompact()) return;
+        }
+        // Otra vista delante (música, temporizador, un aviso…): solo se re-mide y se
+        // recoloca la caja, que es lo que el ajuste de pantallas puede cambiarle.
+        SyncMeasuredHeight();
+        PositionTopCenter();
+    });
 
     private void ShowCombinedScreenCompact(List<IIslandFeature> members) =>
         ShowCompactView(IslandContentMode.Screen, members[0], RefreshScreenMembers);
@@ -227,6 +279,8 @@ public partial class IslandWindow
     private void ApplyScreenLayerVisibility()
     {
         var members = CurrentScreenFeatures();
+        // Pantalla simple (o sin miembros usables): los paneles vuelven a su sitio.
+        if (members.Count <= 1) RestoreExpandedHomes();
         ScreenCompactGrid.Visibility = Visibility.Visible;
         CompactLayer.Width = ScreenWidthForMembers(members.Count);
         MusicCompactGrid.Visibility = Visibility.Collapsed;
@@ -237,6 +291,9 @@ public partial class IslandWindow
         BluetoothCompactGrid.Visibility = Visibility.Collapsed;
         ClipboardCompactGrid.Visibility = Visibility.Collapsed;
         HideAllExpandedPanels();
+        // El expandido va de IZQUIERDA A DERECHA: los paneles de cada miembro se
+        // trasladan a su columna, en el orden de la pantalla (RF-2/RF-3).
+        ComposeScreenExpandedRow(members);
         foreach (var member in members) ShowMemberPanels(member.Id);
         UpdateArrows();
     }
@@ -300,4 +357,128 @@ public partial class IslandWindow
     /// funcionalidades esté activa, la pantalla se queda.
     /// </summary>
     private bool ScreenSustainsView() => CurrentScreenFeatures().Any(SingleFeatureSustainsView);
+
+    // ------------------------------------------------------------------
+    // Composición del expandido (izquierda a derecha)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Paneles del expandido que pertenecen a cada funcionalidad: son los que se
+    /// MUEVEN a su columna cuando la pantalla es combinada (cada uno vive en un solo
+    /// contenedor a la vez, así que se traslada, no se copia).
+    /// </summary>
+    private IEnumerable<UIElement> MemberPanels(string id) => id switch
+    {
+        "media" => [MusicExpandedTop, SeekRow, ControlsRow],
+        "timer" => [TimerAlert, TimerExpanded, TimerRunPanel],
+        "apps" => [AppsExpanded],
+        "shelf" => [ShelfExpanded],
+        "calendar" => [CalendarExpanded],
+        IslandFeatureIds.Clipboard => [ClipboardExpanded],
+        // Bluetooth no tiene expandido: su aviso vive en el compacto.
+        _ => [],
+    };
+
+    /// <summary>Columna del expandido que aloja los paneles de una funcionalidad (null si no tiene).</summary>
+    private StackPanel? ColumnFor(string id) => id switch
+    {
+        "media" => ScreenColumnMedia,
+        "timer" => ScreenColumnTimer,
+        "apps" => ScreenColumnApps,
+        "shelf" => ScreenColumnShelf,
+        "calendar" => ScreenColumnCalendar,
+        IslandFeatureIds.Clipboard => ScreenColumnClipboard,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Dónde vivía cada panel antes de entrar en una columna: devolverlo a su sitio
+    /// es lo que permite volver a las vistas simples sin duplicar paneles ni
+    /// reordenar el expandido a mano.
+    /// </summary>
+    private readonly Dictionary<UIElement, (Panel Parent, int Index)> _expandedHomes = [];
+
+    /// <summary>
+    /// Compone el expandido de una pantalla combinada: una columna por funcionalidad,
+    /// de IZQUIERDA A DERECHA en el orden de la pantalla, con los paneles de cada una
+    /// dentro. Las columnas que no componen la pantalla se ocultan y reciben el ancho
+    /// que les toca (el ancho total de la caja es dinámico: lo fija el número de
+    /// columnas).
+    /// </summary>
+    private void ComposeScreenExpandedRow(List<IIslandFeature> members)
+    {
+        RestoreExpandedHomes();
+        var columns = new List<(string Id, StackPanel Host)>();
+        foreach (var member in members)
+        {
+            if (ColumnFor(member.Id) is { } host) columns.Add((member.Id, host));
+        }
+        foreach (var column in AllScreenColumns())
+        {
+            bool used = columns.Any(c => ReferenceEquals(c.Host, column));
+            column.Visibility = used ? Visibility.Visible : Visibility.Collapsed;
+            column.Width = used ? ScreenColumnWidth : double.NaN;
+        }
+        ScreenExpandedRow.Visibility = columns.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var (id, host) in columns)
+        {
+            foreach (var panel in MemberPanels(id)) MoveToColumn(panel, host);
+        }
+    }
+
+    private IEnumerable<StackPanel> AllScreenColumns() =>
+        [ScreenColumnMedia, ScreenColumnTimer, ScreenColumnApps, ScreenColumnShelf, ScreenColumnCalendar, ScreenColumnClipboard];
+
+    /// <summary>Mueve un panel a su columna recordando su sitio original (una sola vez).</summary>
+    private void MoveToColumn(UIElement panel, Panel host)
+    {
+        if (VisualTreeHelper.GetParent(panel) is not Panel parent) return;
+        if (ReferenceEquals(parent, host)) return;
+        if (!_expandedHomes.ContainsKey(panel)) _expandedHomes[panel] = (parent, parent.Children.IndexOf(panel));
+        parent.Children.Remove(panel);
+        host.Children.Add(panel);
+    }
+
+    /// <summary>
+    /// Devuelve todos los paneles a su sitio original. Se llama al componer (punto de
+    /// partida limpio) y al salir de una pantalla combinada; sin paneles movidos no
+    /// hace nada.
+    /// </summary>
+    private void RestoreExpandedHomes()
+    {
+        if (_expandedHomes.Count == 0)
+        {
+            ScreenExpandedRow.Visibility = Visibility.Collapsed;
+            return;
+        }
+        foreach (var (panel, home) in _expandedHomes.OrderBy(kv => kv.Value.Index))
+        {
+            if (VisualTreeHelper.GetParent(panel) is Panel parent && !ReferenceEquals(parent, home.Parent))
+                parent.Children.Remove(panel);
+            home.Parent.Children.Insert(Math.Min(home.Index, home.Parent.Children.Count), panel);
+        }
+        _expandedHomes.Clear();
+        ScreenExpandedRow.Visibility = Visibility.Collapsed;
+        foreach (var column in AllScreenColumns())
+        {
+            column.Children.Clear();
+            column.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>
+    /// Ancho del expandido de una pantalla combinada: dinámico, una columna por
+    /// funcionalidad, sin pasarse del monitor.
+    /// </summary>
+    private double ScreenExpandedWidthForMembers(int members)
+    {
+        // Cada columna lleva su separación a la derecha (el margen del XAML), así que
+        // el ancho necesario es una columna + su separación por cada miembro, más el
+        // relleno lateral del contenido. Si faltara ese último margen, la última
+        // columna quedaría recortada por el borde de la caja.
+        double total = members * (ScreenColumnWidth + ScreenColumnGap) + ScreenRowPadding;
+        var primary = PrimaryMonitor();
+        double monitorWidth = primary.dpiX > 0 ? primary.workArea.Width * 96.0 / primary.dpiX : ScreenExpandedMaxWidth;
+        return Math.Clamp(total, 280, Math.Min(ScreenExpandedMaxWidth, Math.Max(280, monitorWidth - 24)));
+    }
 }

@@ -2188,9 +2188,10 @@ public partial class UserSettings : ObservableObject
     private void IslandScreens_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
         if (!_initializing) SettingsManager.SaveSettings();
-        // El contenedor navega por estas pantallas: se releen en el acto, sin
-        // reiniciar la aplicación (change island-pantallas RF-2).
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.ApplyScreens();
+        // El contenedor navega por estas pantallas: se releen en el acto y, si el
+        // Island está a la vista, se vuelve a presentar la pantalla vigente con la
+        // composición nueva, sin reiniciar la aplicación (change island-pantallas RF-2).
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshScreensContent();
     }
 
     // --- pantallas del Island (change island-pantallas) ---
@@ -2202,6 +2203,54 @@ public partial class UserSettings : ObservableObject
         int to = from + delta;
         if (from < 0 || to < 0 || to >= IslandScreens.Count) return;
         IslandScreens.Move(from, to);
+    }
+
+    /// <summary>
+    /// Añade una funcionalidad al FINAL de una pantalla. El orden de dentro de la
+    /// pantalla es el orden en el que sus funcionalidades se presentan (de izquierda a
+    /// derecha: fichas del compacto y columnas del expandido), así que la nueva entra
+    /// al final y el usuario la coloca con <see cref="MoveIslandScreenFeature"/>.
+    /// </summary>
+    internal bool AddIslandScreenFeature(string screen, string featureId)
+    {
+        if (!IslandFeatureIds.IsKnown(featureId)) return false;
+        int index = IslandScreens.IndexOf(screen);
+        if (index < 0) return false;
+        var ids = IslandFeatureIds.ParseScreen(screen).ToList();
+        if (ids.Contains(featureId)) return false;
+        ids.Add(featureId);
+        IslandScreens[index] = IslandFeatureIds.FormatScreen(ids);
+        return true;
+    }
+
+    /// <summary>
+    /// Mueve una funcionalidad dentro de su pantalla (el orden de presentación).
+    /// </summary>
+    internal bool MoveIslandScreenFeature(string screen, string featureId, int delta)
+    {
+        int index = IslandScreens.IndexOf(screen);
+        if (index < 0) return false;
+        var ids = IslandFeatureIds.ParseScreen(screen).ToList();
+        int from = ids.IndexOf(featureId);
+        int to = from + delta;
+        if (from < 0 || to < 0 || to >= ids.Count) return false;
+        (ids[from], ids[to]) = (ids[to], ids[from]);
+        IslandScreens[index] = IslandFeatureIds.FormatScreen(ids);
+        return true;
+    }
+
+    /// <summary>
+    /// Saca una funcionalidad de su pantalla. La última no se puede sacar: una pantalla
+    /// sin funciones no tendría nada que enseñar (no existe).
+    /// </summary>
+    internal bool RemoveIslandScreenFeature(string screen, string featureId)
+    {
+        int index = IslandScreens.IndexOf(screen);
+        if (index < 0) return false;
+        var ids = IslandFeatureIds.ParseScreen(screen).ToList();
+        if (ids.Count <= 1 || !ids.Remove(featureId)) return false;
+        IslandScreens[index] = IslandFeatureIds.FormatScreen(ids);
+        return true;
     }
 
     /// <summary>

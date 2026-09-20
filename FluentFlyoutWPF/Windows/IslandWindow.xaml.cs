@@ -101,9 +101,13 @@ public partial class IslandWindow : Window
     // con 0 (lo que hacen media y temporizador) valen el ancho configurado común
     // y la altura medida del contenido. Así una funcionalidad futura con otra
     // geometría no necesita tocar el motor del contenedor.
-    private double ContentExpandedWidth => _selectedFeature is { ExpandedPreferredWidth: > 0 } f
-        ? Math.Clamp(f.ExpandedPreferredWidth, 200, 600)
-        : ExpandedIslandWidth;
+    private double ContentExpandedWidth => _contentMode == IslandContentMode.Screen && ScreenIsCombined()
+        // Pantalla combinada: una columna por funcionalidad, de izquierda a derecha, y
+        // el ancho es DINÁMICO (lo fija el número de columnas; change island-pantallas RF-3).
+        ? ScreenExpandedWidthForMembers(CurrentScreenFeatures().Count)
+        : _selectedFeature is { ExpandedPreferredWidth: > 0 } f
+            ? Math.Clamp(f.ExpandedPreferredWidth, 200, 600)
+            : ExpandedIslandWidth;
     private double ContentExpandedHeight => _selectedFeature is { ExpandedPreferredHeight: > 0 } f
         ? Math.Clamp(f.ExpandedPreferredHeight, 80, 260)
         : ExpandedIslandHeight;
