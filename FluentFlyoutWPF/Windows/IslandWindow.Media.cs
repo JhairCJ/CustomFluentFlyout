@@ -449,6 +449,14 @@ public partial class IslandWindow
             RefreshUi(session, status);
             return;
         }
+        // El aviso de Bluetooth está delante con su plazo vivo: la media no se lo
+        // lleva por delante con un evento ordinario (play/pausa o metadata), porque
+        // ese aviso es una notificación más reciente y corta. Un cambio de canción
+        // sí es un evento nuevo y toma la vista (change island-bluetooth-conectado
+        // RF-1).
+        if (!trackChanged && IsBoxShown && _contentMode == IslandContentMode.Bluetooth
+            && _noticeUntil > DateTime.UtcNow)
+            return;
         // Ya a la vista con su aviso vigente: un evento repetido del reproductor no
         // debe reiniciar el plazo ni hacer REAPARECER el aviso cada pocos segundos
         // (001 MOD RF-2). Un cambio de canción sí estrena aviso.

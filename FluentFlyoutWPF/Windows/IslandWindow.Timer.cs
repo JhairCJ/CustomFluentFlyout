@@ -176,6 +176,30 @@ public partial class IslandWindow
     /// </summary>
     private void ApplyContentVisibilityCore()
     {
+        // Bluetooth: su vista es un aviso temporal (icono, nombre y batería) y es
+        // excluyente con el resto de capas, como el estante y el calendario. Se
+        // resuelve de una vez al principio, así ninguna otra rama puede dejar su
+        // capa visible por venir de la vista anterior.
+        bool bluetooth = _contentMode == IslandContentMode.Bluetooth && BluetoothModeAvailable();
+        BluetoothCompactGrid.Visibility = bluetooth ? Visibility.Visible : Visibility.Collapsed;
+        if (bluetooth)
+        {
+            MusicCompactGrid.Visibility = Visibility.Collapsed;
+            TimerCompactGrid.Visibility = Visibility.Collapsed;
+            AppsCompactGrid.Visibility = Visibility.Collapsed;
+            ShelfCompactGrid.Visibility = Visibility.Collapsed;
+            CalendarCompactGrid.Visibility = Visibility.Collapsed;
+            MusicExpandedTop.Visibility = Visibility.Collapsed;
+            ControlsRow.Visibility = Visibility.Collapsed;
+            SeekRow.Visibility = Visibility.Collapsed;
+            TimerAlert.Visibility = Visibility.Collapsed;
+            AppsExpanded.Visibility = Visibility.Collapsed;
+            ShelfExpanded.Visibility = Visibility.Collapsed;
+            CalendarExpanded.Visibility = Visibility.Collapsed;
+            CrossfadeTimerPanels(showConfig: false, showRun: false);
+            UpdateArrows();
+            return;
+        }
         // Estante primero: es la única capa que puede estar visible sin elementos
         // (vacía invita a soltar), así que se resuelve sola y no comparte la lógica de
         // música/temporizador.

@@ -29,8 +29,11 @@ public static class IslandFeatureIds
     /// <summary>Recordatorios de Google Calendar.</summary>
     public const string Calendar = "calendar";
 
+    /// <summary>Dispositivos Bluetooth conectados.</summary>
+    public const string Bluetooth = "bluetooth";
+
     /// <summary>Orden por defecto de las funcionalidades del contenedor.</summary>
-    public static readonly IReadOnlyList<string> All = [Media, Timer, Apps, Shelf, Calendar];
+    public static readonly IReadOnlyList<string> All = [Media, Timer, Apps, Shelf, Calendar, Bluetooth];
 
     /// <summary>¿Es un identificador conocido? (los desconocidos se descartan al cargar)</summary>
     public static bool IsKnown(string? id) => id != null && All.Contains(id);
@@ -43,6 +46,7 @@ public static class IslandFeatureIds
         Apps => "Cajón de aplicaciones",
         Shelf => "Estante de archivos",
         Calendar => "Recordatorios de calendario",
+        Bluetooth => "Dispositivos Bluetooth",
         _ => id ?? "",
     };
 }

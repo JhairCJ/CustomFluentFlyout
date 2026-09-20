@@ -61,10 +61,18 @@ public partial class IslandWindow
     /// nuevo): fija el vencimiento. Con false (repliegue de un aviso ya vigente,
     /// p. ej. al volver a compacto tras expandirlo) se conserva el vencimiento que
     /// ya tenía, así interactuar nunca prolonga el plazo (001 RF-2).</para>
+    ///
+    /// <para><paramref name="force"/> = true para los contenidos cuyo aviso es
+    /// SIEMPRE temporal, aunque el modo sea «Visible mientras activo» (dispositivos
+    /// Bluetooth, change island-bluetooth-conectado RF-1). El aviso forzado es de
+    /// la vista que lo pidió: cualquier armado sin force lo descarta, así una vista
+    /// de música o de temporizador que tome el relevo no hereda un vencimiento que
+    /// no le toca (001 MOD RF-2).</para>
     /// </summary>
-    private void ArmTemporaryHide(bool restart = true)
+    private void ArmTemporaryHide(bool restart = true, bool force = false)
     {
-        if (SettingsManager.Current.IslandVisibilityMode != 1 || HasExclusive())
+        _noticeForced = force;
+        if (HasExclusive() || (!force && SettingsManager.Current.IslandVisibilityMode != 1))
         {
             ClearTemporaryNotice();
             return;
@@ -90,6 +98,7 @@ public partial class IslandWindow
         _noticeVersion++;
         _noticeCheckActive = false;
         _noticeUntil = DateTime.MinValue;
+        _noticeForced = false;
         _pendingTimerNotice = false;
     }
 
@@ -131,7 +140,9 @@ public partial class IslandWindow
     private void RetractTemporaryNotice(int version)
     {
         if (_disposed || version != _noticeVersion) return;
-        if (SettingsManager.Current.IslandVisibilityMode != 1 || HasExclusive())
+        // El aviso forzado (Bluetooth) vence también en «Visible mientras activo»:
+        // su vista es una notificación y no se queda pegada al contenedor.
+        if (HasExclusive() || (SettingsManager.Current.IslandVisibilityMode != 1 && !_noticeForced))
         {
             ClearTemporaryNotice();
             return;
@@ -183,8 +194,9 @@ public partial class IslandWindow
             // El puntero estorba: el aviso temporal no se cierra bajo el cursor,
             // pero tampoco se queda pegado — se le pone plazo si no hubiera uno
             // vigente (restart:false respeta el que ya corría), para que venza en
-            // cuanto el ratón se aparte (001 RF-2, 002 RF-16).
-            ArmTemporaryHide(restart: false);
+            // cuanto el ratón se aparte (001 RF-2, 002 RF-16). Un aviso forzado
+            // vigente (Bluetooth) se conserva tal cual: no es de esta ruta.
+            ArmTemporaryHide(restart: false, force: _noticeForced);
             return;
         }
         if (_expanded)
@@ -403,6 +415,9 @@ public partial class IslandWindow
     private bool FeatureSustainsView(IIslandFeature feature) => feature.Id switch
     {
         "media" => IsMediaActiveForContract(),
+        // Bluetooth: su vista es un aviso y vive lo que vive su plazo; el
+        // dispositivo desconectado ya la habrá retirado él mismo.
+        "bluetooth" => BluetoothActive(),
         "timer" => SettingsManager.Current.IslandVisibilityMode == 0
             ? IsTimerActiveForCompact()
             : TimerKeepsAlive(),
@@ -492,6 +507,7 @@ public partial class IslandWindow
         AppsCompactGrid.Visibility = Visibility.Collapsed;
         ShelfCompactGrid.Visibility = Visibility.Collapsed;
         CalendarCompactGrid.Visibility = Visibility.Collapsed;
+        BluetoothCompactGrid.Visibility = Visibility.Collapsed;
         // Datos musicales: sin carátula, fondo difuminado, títulos ni seek.
         ClearMusicResidue();
         // Datos del temporizador: sin restante ni progreso heredados.
@@ -587,7 +603,7 @@ public partial class IslandWindow
         // (001 MOD RF-16). El aviso temporal vigente conserva su plazo.
         if (BeginCollapseThroughInactive(target))
         {
-            ArmTemporaryHide(restart: false);
+            ArmTemporaryHide(restart: false, force: _noticeForced);
             return;
         }
         // Ya en el compacto: sin geometría que replegar, solo se cancela el reposo.
@@ -674,6 +690,15 @@ public partial class IslandWindow
                 // el recordatorio, solo lo devuelve al compacto, que aguanta hasta que
                 // el evento empieza (001 MOD RF-4).
                 if (CalendarKeepsView()) { ShowCalendarCompact(); return; }
+                ShowInactiveOrHidden();
+                return;
+            }
+            if (_contentMode == IslandContentMode.Bluetooth)
+            {
+                // El aviso de Bluetooth es siempre temporal: se repliega al compacto
+                // mientras su plazo siga vivo y, ya vencido, al reposo sin destellos
+                // (change island-bluetooth-conectado RF-1).
+                if (BluetoothActive()) { ShowBluetoothCompact(restartNotice: false); return; }
                 ShowInactiveOrHidden();
                 return;
             }

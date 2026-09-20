@@ -29,6 +29,8 @@ internal enum IslandActivityReason
     Calendar = 1 << 5,
     /// <summary>Red lenta de recuperación: cubre eventos perdidos sin sondeo.</summary>
     Recovery = 1 << 6,
+    /// <summary>Dispositivos Bluetooth: conexión y refinamiento de su batería.</summary>
+    Bluetooth = 1 << 7,
 }
 
 /// <summary>
@@ -280,6 +282,12 @@ public partial class IslandWindow
             else if ((reasons & IslandActivityReason.Recovery) != 0)
                 ReconcileMediaState(recoveryOnly: true);
         }
+
+        // Bluetooth: una conexión presenta su aviso por sí misma (OnBluetoothConnected);
+        // aquí solo se refina lo que YA está a la vista (batería que llega tarde),
+        // nunca se re-despliega (change island-bluetooth-conectado RF-3/RF-5).
+        if ((reasons & IslandActivityReason.Bluetooth) != 0)
+            ReconcileBluetoothState();
 
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         if (_expanded && !_drag && !_reelDragging && !IsMouseOverBoxOrStrip()) LeaveHover();

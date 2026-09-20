@@ -56,6 +56,11 @@ namespace FluentFlyoutWPF.Windows;
 /// giratorio.</item>
 /// <item><c>IslandWindow.Timer.cs</c> — funcionalidad temporizador.</item>
 /// <item><c>IslandWindow.Apps.cs</c> — funcionalidad cajón de aplicaciones.</item>
+/// <item><c>IslandWindow.Shelf.cs</c> — funcionalidad estante de archivos.</item>
+/// <item><c>IslandWindow.Calendar.cs</c> — funcionalidad recordatorios de
+/// calendario.</item>
+/// <item><c>IslandWindow.Bluetooth.cs</c> — funcionalidad dispositivos Bluetooth
+/// conectados (aviso siempre temporal).</item>
 /// <item><c>IslandFeatures.cs</c> — contrato de funcionalidades y registro.</item>
 /// </list>
 /// </summary>
@@ -222,6 +227,11 @@ public partial class IslandWindow : Window
     // ¿Hay un chequeo de vencimiento del aviso armado ahora mismo? Lo consulta la
     // recuperación de 5 s para reparar un disparo perdido sin duplicar cadenas.
     private bool _noticeCheckActive;
+    // El aviso vigente es FORZADO: vence también en «Visible mientras activo».
+    // Es el de los contenidos que notifican siempre de forma temporal (dispositivos
+    // Bluetooth, change island-bluetooth-conectado RF-1). Cualquier armado sin
+    // force lo descarta, así la vista siguiente no hereda un vencimiento ajeno.
+    private bool _noticeForced;
     // Aviso PENDIENTE del temporizador (002 RF-16): una acción que pone la cuenta
     // en marcha (empezar, reanudar, reiniciar) dentro del expandido deja su aviso
     // armado pero sin gastar. El plazo debe correr cuando el compacto del
@@ -241,15 +251,18 @@ public partial class IslandWindow : Window
         InitApps();
         InitShelf();
         InitCalendar();
+        InitBluetooth();
         // Contenedor escalable: media, temporizador, cajón de aplicaciones, estante de
-        // archivos y recordatorios de calendario se registran en su orden por defecto;
-        // el contrato decide qué se puede mostrar (RF-11, RF-13) y ApplyFeatureOrder
-        // impone después el orden que el usuario haya elegido en ajustes.
+        // archivos, recordatorios de calendario y dispositivos Bluetooth se registran
+        // en su orden por defecto; el contrato decide qué se puede mostrar (RF-11,
+        // RF-13) y ApplyFeatureOrder impone después el orden que el usuario haya
+        // elegido en ajustes.
         _features.Register(new IslandMediaFeature(this));
         _features.Register(new IslandTimerFeature(this));
         _features.Register(new IslandAppsFeature(this));
         _features.Register(new IslandShelfFeature(this));
         _features.Register(new IslandCalendarFeature(this));
+        _features.Register(new IslandBluetoothFeature(this));
         ApplyFeatureOrder();
         // Migración del «Siempre en su lugar» (retirado, 001 REMOVED): un modo
         // guardado con el valor 2 pasa a «Visible mientras activo».
@@ -317,6 +330,7 @@ public partial class IslandWindow : Window
     {
         _disposed = true;
         ShutdownActivity();
+        ShutdownBluetooth();
         ClearTemporaryNotice();
         StopLoop();
         StopBackgroundRotation();
@@ -447,6 +461,10 @@ public partial class IslandWindow : Window
             // Y el calendario: sin sesión (o con la funcionalidad apagada) no puede
             // quedarse pintado (cerrar sesión no deja eventos ajenos a la vista).
             else if (_contentMode == IslandContentMode.Calendar && !CalendarModeAvailable()) FallbackFromCalendarView();
+            // El aviso de Bluetooth, igual: apagado el ajuste no puede quedarse su
+            // capa puesta (RefreshBluetoothContent ya lo repliega, pero el ajuste del
+            // contenedor puede llegar por esta ruta).
+            else if (_contentMode == IslandContentMode.Bluetooth && !BluetoothModeAvailable()) FallbackFromBluetoothView();
             else
             {
                 if (_contentMode == IslandContentMode.Timer) RefreshTimerUI();

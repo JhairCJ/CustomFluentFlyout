@@ -1320,6 +1320,14 @@ public partial class UserSettings : ObservableObject
     public partial bool IslandCalendarEnabled { get; set; }
 
     /// <summary>
+    /// Dispositivos Bluetooth conectados: funcionalidad habilitada. Con ella apagada el
+    /// vigía se para y el Island no la ofrece (ni avisos ni consumo). El aviso de una
+    /// conexión es SIEMPRE temporal, con la duración configurada del aviso.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandBluetoothEnabled { get; set; }
+
+    /// <summary>
     /// Google Calendar: minutos de antelación del recordatorio (1-60). El aviso sigue
     /// vivo hasta dos minutos después del comienzo.
     /// </summary>
@@ -1395,6 +1403,14 @@ public partial class UserSettings : ObservableObject
     /// </summary>
     partial void OnIslandCalendarEnabledChanged(bool oldValue, bool newValue) =>
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshCalendarContent();
+
+    /// <summary>
+    /// Encender o apagar los avisos de Bluetooth se aplica en el acto: el vigía
+    /// arranca o se para (con la funcionalidad apagada no se observa nada) y, si su
+    /// vista estaba puesta, el contenedor se repliega sin dejar una superficie vacía.
+    /// </summary>
+    partial void OnIslandBluetoothEnabledChanged(bool oldValue, bool newValue) =>
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshBluetoothContent();
 
     partial void OnGoogleCalendarRefreshTokenChanged(string oldValue, string newValue)
     {
@@ -1722,6 +1738,10 @@ public partial class UserSettings : ObservableObject
         IslandShelfItems = [];
         IslandShelfError = "";
         IslandCalendarEnabled = false;
+        // Sí por defecto: un aviso al conectar (que además usa el plazo del aviso
+        // temporal) es justo lo que se espera de la funcionalidad, y no toca nada
+        // del sistema: solo observa conexiones.
+        IslandBluetoothEnabled = true;
         GoogleCalendarReminderMinutes = 5;
         GoogleCalendarRefreshMinutes = 5;
         GoogleCalendarDaysAhead = 7;

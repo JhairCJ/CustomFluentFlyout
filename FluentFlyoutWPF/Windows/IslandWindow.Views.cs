@@ -18,6 +18,7 @@ internal enum IslandContentMode
     Apps = 2,
     Shelf = 3,
     Calendar = 4,
+    Bluetooth = 5,
 }
 
 /// <summary>
@@ -69,8 +70,15 @@ public partial class IslandWindow
     /// el compacto entra en la fase 2, sobre la pieza y ya sin intercambio a la
     /// vista. Así replegar un temporizador no enseña media de golpe y luego la
     /// música otra vez: se ve UNA transición, la del contenido que había.</para>
+    ///
+    /// <para><paramref name="forceNotice"/> y <paramref name="restartNotice"/> son
+    /// para los contenidos cuyo aviso es SIEMPRE temporal (dispositivos Bluetooth,
+    /// change island-bluetooth-conectado RF-1): el aviso vence aunque el modo sea
+    /// «Visible mientras activo», y re-presentarlo no reinicia su plazo —solo un
+    /// evento nuevo lo hace—.</para>
     /// </summary>
-    private void ShowCompactView(IslandContentMode mode, IIslandFeature? feature, Action present)
+    private void ShowCompactView(IslandContentMode mode, IIslandFeature? feature, Action present,
+        bool forceNotice = false, bool restartNotice = true)
     {
         // El repliegue se mide ANTES de tocar nada: define si el compacto es una
         // transición en dos fases (venía del expandido) o una entrada directa.
@@ -106,7 +114,7 @@ public partial class IslandWindow
         // «Aviso temporal» (001 RF-2, 002 RF-16): la vista compacta vence al plazo
         // configurado. restart:false conserva el plazo que ya corría, así
         // interactuar (expandir y volver) nunca prolonga el aviso.
-        ArmTemporaryHide(restart: !collapsing);
+        ArmTemporaryHide(restart: restartNotice && !collapsing, force: forceNotice);
     }
 
     /// <summary>

@@ -220,6 +220,36 @@ public sealed class IslandCalendarFeature(IslandWindow owner) : IIslandFeature
 }
 
 /// <summary>
+/// Funcionalidad «dispositivos Bluetooth» del island: disponible cuando está
+/// habilitada y ya se conoce un dispositivo (el último conectado); su vista
+/// compacta es SIEMPRE un aviso temporal —nombre y batería durante el plazo
+/// configurado—, así que no tiene expandido propio y no genera actividad que
+/// sostenga la caja más allá de su aviso (change island-bluetooth-conectado,
+/// RF-1/RF-3).
+/// </summary>
+public sealed class IslandBluetoothFeature(IslandWindow owner) : IIslandFeature
+{
+    public string Id => IslandFeatureIds.Bluetooth;
+
+    public IslandFeatureState State => owner.GetBluetoothFeatureState();
+
+    public double CompactWidth => 240;
+    public double CompactHeight => 34;
+    public double ExpandedPreferredWidth => 0; // sin expandido propio
+    public double ExpandedPreferredHeight => 0;
+
+    /// <summary>
+    /// Sin tarjeta expandida: el aviso de Bluetooth es una notificación (icono,
+    /// nombre y batería) y no tiene controles que abrir. Devolver false hace que
+    /// el contenedor pruebe la siguiente funcionalidad usable en vez de abrir una
+    /// vista vacía (001 MOD RF-3/RF-9).
+    /// </summary>
+    public bool TryShowExpanded() => false;
+
+    public bool TryShowCompact() => owner.ShowBluetoothCompactFromContract();
+}
+
+/// <summary>
 /// Funcionalidad «temporizador» del island (002): disponible siempre que esté
 /// habilitada (su configuración es usable sin media); activa con cuenta en
 /// marcha; la alerta final declara acceso exclusivo persistente (002 MOD RF-2).

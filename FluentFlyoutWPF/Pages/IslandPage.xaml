@@ -826,7 +826,26 @@
                                FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" Margin="0,10,0,0" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
             </ui:CardExpander>
-            <TextBlock Grid.Row="48" Text=" " FontSize="8" Margin="0,0,0,72" />
+            <TextBlock Grid.Row="49" Text="Dispositivos Bluetooth" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+            <!-- Bluetooth: solo se observan conexiones (nada se envía ni se modifica) y
+                 el aviso es SIEMPRE temporal, con la duración del aviso configurada,
+                 aunque el contenedor esté en «Visible mientras activo». -->
+            <ui:CardExpander x:Name="IslandBluetoothCard" Tag="Indexable" Grid.Row="50" Icon="{ui:SymbolIcon Bluetooth24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+                <ui:CardExpander.Header>
+                    <Grid ColumnDefinitions="*, Auto">
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Dispositivos Bluetooth conectados" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <TextBlock Text="Avisa en el Island cuando un dispositivo Bluetooth se conecta: su icono, su nombre y su batería si el dispositivo la informa. El aviso siempre es temporal y se retira al vencer la duración configurada." FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="440" HorizontalAlignment="Left" />
+                        </StackPanel>
+                        <ui:ToggleSwitch Grid.Column="1" IsChecked="{Binding IslandBluetoothEnabled, Mode=TwoWay}" Margin="0,0,16,0" />
+                    </Grid>
+                </ui:CardExpander.Header>
+                <StackPanel Margin="0,8,0,8">
+                    <TextBlock Text="La batería solo se muestra si Windows la conoce para ese dispositivo (auriculares y altavoces que la informan); los que no la informan salen sin aro y sin nada en esa zona. Una conexión no interrumpe una vista expandida que estés mirando ni aparece sobre un juego a pantalla completa."
+                               FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
+                </StackPanel>
+            </ui:CardExpander>
+            <TextBlock Grid.Row="51" Text=" " FontSize="8" Margin="0,0,0,72" />
         </Grid>
     </StackPanel>
 </Page>

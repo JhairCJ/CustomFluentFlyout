@@ -236,6 +236,36 @@
                         <TextBlock x:Name="CalendarCompactCountdown" Grid.Column="2" Foreground="White" FontSize="11"
                                    Opacity="0.75" VerticalAlignment="Center" Margin="8,0,0,0" IsHitTestVisible="False"/>
                     </Grid>
+                    <!-- Bluetooth en compacto: icono del tipo de dispositivo a la izquierda,
+                         nombre al medio y batería a la derecha SOLO si el dispositivo la
+                         informa: un aro de dos colores, verde lo que queda y gris claro el
+                         resto (la geometría del arco la pinta IslandWindow.Bluetooth.cs).
+                         Es SIEMPRE un aviso temporal: se retira al vencer su plazo. -->
+                    <Grid x:Name="BluetoothCompactGrid" Margin="6,0,10,0" Visibility="Collapsed"
+                          Cursor="Hand" ToolTip="Dispositivo Bluetooth conectado">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="24"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ui:SymbolIcon x:Name="BluetoothGlyph" Grid.Column="0" Symbol="Bluetooth24" Filled="True"
+                                       Foreground="White" FontSize="15" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" IsHitTestVisible="False"/>
+                        <TextBlock x:Name="BluetoothName" Grid.Column="1" Foreground="White" FontSize="12"
+                                   Margin="8,0,4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                   IsHitTestVisible="False"/>
+                        <Grid x:Name="BluetoothBatteryZone" Grid.Column="2" Width="18" Height="18"
+                              VerticalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="False">
+                            <!-- Fondo del aro (lo que queda por delante) y el arco verde encima. El
+                                 Path mide 18x18 con Stretch=None para que las coordenadas absolutas
+                                 de BuildBatteryArc caigan exactamente en esta zona. -->
+                            <Ellipse Width="16" Height="16" Stroke="#59FFFFFF" StrokeThickness="2"/>
+                            <Path x:Name="BluetoothBatteryArc" Width="18" Height="18" Stretch="None"
+                                  HorizontalAlignment="Left" VerticalAlignment="Top"
+                                  Stroke="#6CCB5F" StrokeThickness="2"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                        </Grid>
+                    </Grid>
                 </Grid>
 
                 <!-- Capa expandida: tarjeta compacta con carátula + título/artista + tiempos + controles.
