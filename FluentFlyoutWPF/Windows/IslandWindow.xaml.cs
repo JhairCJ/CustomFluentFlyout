@@ -217,6 +217,11 @@ public partial class IslandWindow : Window
 
     // Anti-reapertura por hover tras ocultar/colapsar la caja bajo el cursor.
     private DateTime _hoverSnoozeUntil = DateTime.MinValue;
+    // Tolerancia al abandonar el expandido (001 MOD RF-4): hay una espera armada
+    // para replegar cuando el puntero se fue, y la versión invalida el disparo
+    // cuando el puntero vuelve antes de que venza.
+    private bool _hoverLeavePending;
+    private int _hoverLeaveVersion;
     // Aviso temporal (001 RF-2, 002 RF-16): vencimiento ABSOLUTO del aviso vigente
     // y versión que invalida los repliegues obsoletos. El plazo no se prolonga al
     // expandir, interactuar ni recibir datos: expandir solo lo POSPONE conservando

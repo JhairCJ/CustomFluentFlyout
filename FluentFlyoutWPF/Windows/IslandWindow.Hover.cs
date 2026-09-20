@@ -37,6 +37,13 @@ public partial class IslandWindow
     private int HoverTolH => Math.Clamp(SettingsManager.Current.IslandHoverToleranceHorizontal < 0 ? 12 : SettingsManager.Current.IslandHoverToleranceHorizontal, 0, 80);
     private int HoverTolV => Math.Clamp(SettingsManager.Current.IslandHoverToleranceVertical < 0 ? 4 : SettingsManager.Current.IslandHoverToleranceVertical, 0, 40);
 
+    /// <summary>
+    /// Tolerancia al abandonar el Island expandido (001 MOD RF-4): segundos de
+    /// espera a que el puntero vuelva antes de replegarse. Un roce al cambiar de
+    /// contenido o pasar de camino a otra ventana no debe cerrar la tarjeta.
+    /// </summary>
+    private const int HoverLeaveGraceMs = 2000;
+
     private void Box_MouseEnter(object sender, MouseEventArgs e) => HoverDetected();
 
     /// <summary>
@@ -49,6 +56,10 @@ public partial class IslandWindow
     /// </summary>
     private void HoverDetected()
     {
+        // El puntero volvió: se descarta la espera del repliegue en curso. Va
+        // antes de cualquier salida temprana porque el gesto del usuario es el
+        // mismo aunque el Island esté a punto de replegarse (001 MOD RF-4).
+        CancelHoverLeave();
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
         if (_expanded || _drag || _reelDragging) return;
         // T2: si ya estamos en reposo inactivo/nada por falta de activa vigente
@@ -137,6 +148,54 @@ public partial class IslandWindow
         if (IsLeavingTowardTopEdge()) return; // gracia hacia el borde: se repliega al salir de verdad
         LeaveHover();
     }
+
+    // ------------------------------------------------------------------
+    // Tolerancia al abandonar el expandido (001 MOD RF-4)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Espera del repliegue por puntero: al salir del expandido NO se repliega de
+    /// inmediato. Se espera <see cref="HoverLeaveGraceMs"/> a que el puntero vuelva
+    /// —mover el ratón a otra ventana, pasar por encima de camino a otro sitio o
+    /// un roce al cambiar de contenido no deben cerrar la tarjeta— y solo si no
+    /// vuelve se resuelve el repliegue. La espera se arma UNA vez: mientras está
+    /// pendiente, los avisos de la reconciliación no la prolongan ni la reinician.
+    /// </summary>
+    private void ArmHoverLeave()
+    {
+        if (_disposed || !_expanded || _drag || _reelDragging) return;
+        if (_hoverLeavePending) return;
+        _hoverLeavePending = true;
+        int version = ++_hoverLeaveVersion;
+        _ = Task.Delay(HoverLeaveGraceMs).ContinueWith(_ => Dispatcher.Invoke(() =>
+        {
+            if (_disposed || version != _hoverLeaveVersion) return;
+            _hoverLeavePending = false;
+            // El puntero está otra vez sobre el Island (o hay una interacción en
+            // curso): la tarjeta se queda como estaba.
+            if (!_expanded || _drag || _reelDragging || IsMouseOverBoxOrStrip()) return;
+            if (Suppressed()) { HidePerMode(); return; }
+            CollapseFromHover();
+        }));
+    }
+
+    /// <summary>
+    /// Cancela la espera vigente (el puntero volvió). El contador de versión
+    /// invalida el disparo programado, así que no queda ninguna cadena viva.
+    /// </summary>
+    private void CancelHoverLeave()
+    {
+        if (!_hoverLeavePending) return;
+        _hoverLeavePending = false;
+        _hoverLeaveVersion++;
+    }
+
+    /// <summary>
+    /// Entrada del repliegue por puntero con tolerancia: arma la espera en vez de
+    /// replegar. La usan la salida del ratón, la rueda hacia arriba y la
+    /// reconciliación cuando el puntero ya no está encima.
+    /// </summary>
+    private void LeaveHover() => ArmHoverLeave();
 
     // Cursor saliendo por arriba hacia el borde (hueco entre borde e isla): no colapsar,
     // si no la notificación de entrada a la franja lo re-expande y se ve encoger-crecer.
@@ -237,7 +296,8 @@ public partial class IslandWindow
         {
             if (e.OriginalSource is DependencyObject wheelSrc && (Seekbar.IsAncestorOf(wheelSrc) || TimerPresetList.IsAncestorOf(wheelSrc) || TimerConfigGrid.IsAncestorOf(wheelSrc))) return;
             if (e.Delta < 0) CycleMode();
-            else if (e.Delta > 0) LeaveHover();
+            // Gesto explícito: la rueda repliega ya, sin la tolerancia del puntero.
+            else if (e.Delta > 0) CollapseFromHover();
             e.Handled = true;
             return;
         }

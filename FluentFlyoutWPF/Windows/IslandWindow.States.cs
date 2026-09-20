@@ -613,14 +613,15 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// El puntero se alejó del island expandido (001 MOD RF-4): resuelve a qué
-    /// vista se repliega. En «Aviso temporal» conserva la misma funcionalidad que
-    /// estaba expandida (002 RF-8) cuando sigue sosteniendo la vista y si no manda
-    /// la activa vigente (con música sonando el compacto es la música, nunca la
-    /// pieza: 001 MOD RF-4); en «Visible mientras activo» manda la activa vigente
-    /// por último evento. Sin activa vigente el repliegue va al reposo.
+    /// El puntero se alejó del island expandido Y ya venció su tolerancia
+    /// (<see cref="HoverLeaveGraceMs"/>): resuelve a qué vista se repliega. En
+    /// «Aviso temporal» conserva la misma funcionalidad que estaba expandida
+    /// (002 RF-8) cuando sigue sosteniendo la vista y si no manda la activa vigente
+    /// (con música sonando el compacto es la música, nunca la pieza: 001 MOD RF-4);
+    /// en «Visible mientras activo» manda la activa vigente por último evento. Sin
+    /// activa vigente el repliegue va al reposo.
     /// </summary>
-    private void LeaveHover()
+    private void CollapseFromHover()
     {
         if (!_expanded) return;
         // Alerta de fin (exclusiva): persistente hasta X o reinicio, aunque el
