@@ -288,11 +288,10 @@ public partial class IslandWindow
 
     private void IslandBox_Wheel(object sender, MouseWheelEventArgs e)
     {
-        // Temporizador: en expandido la rueda cambia de funcionalidad (002 MOD RF-3);
-        // hacia arriba compacta sin cambiar de funcionalidad.
-        // Rueda en expandido: cambia de funcionalidad entre las usables (002 MOD
-        // RF-3/RF-9); hacia arriba compacta sin cambiar de funcionalidad.
-        if (_expanded && UsableFeatureCount() > 1)
+        // Rueda en expandido: pasa a la siguiente PANTALLA con algo usable (002 MOD
+        // RF-3/RF-9; change island-pantallas RF-4: la unidad es la pantalla); hacia
+        // arriba compacta sin cambiar de pantalla.
+        if (_expanded && UsableScreenCount() > 1)
         {
             if (e.OriginalSource is DependencyObject wheelSrc && (Seekbar.IsAncestorOf(wheelSrc) || TimerPresetList.IsAncestorOf(wheelSrc) || TimerConfigGrid.IsAncestorOf(wheelSrc))) return;
             if (e.Delta < 0) CycleMode();

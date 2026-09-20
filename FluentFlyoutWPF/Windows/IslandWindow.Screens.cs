@@ -11,20 +11,28 @@ using System.Windows.Media;
 namespace FluentFlyoutWPF.Windows;
 
 /// <summary>
-/// PANTALLAS del Island (change island-pantallas): el contenedor deja de navegar
-/// por funcionalidades sueltas y navega por pantallas configuradas, y una pantalla
-/// puede llevar VARIAS funcionalidades a la vez.
+/// PANTALLAS del Island (change island-pantallas): el contenedor no navega por
+/// funcionalidades sueltas —ni las ordena con ninguna lista aparte— sino por pantallas
+/// configuradas, y una pantalla puede llevar VARIAS funcionalidades a la vez.
 ///
 /// <para>Reglas que sostiene:</para>
 /// <list type="bullet">
-/// <item><b>Pantalla simple = vista de siempre</b> (RF-1): con una sola
-/// funcionalidad la pantalla presenta su vista rica (música con carátula y
-/// ecualizador, temporizador con sus reels…), así que nada del comportamiento
-/// actual cambia por el hecho de configurar pantallas.</item>
-/// <item><b>Pantalla combinada = resumen + paneles</b> (RF-2/RF-3): en compacto se
-/// ve una fila de fichas (icono y un dato corto por funcionalidad, «78 %»,
-/// «12:30», «en 5 min») y en expandido se apilan los paneles de todas ellas. El
-/// ancho del compacto lo fija el número de fichas y el alto lo mide el contenido:
+/// <item><b>La pantalla es la vista</b>: cuando una funcionalidad entra en escena
+/// (reproduce, cuenta, avisa…), el Island presenta SU PANTALLA, no la vista de la
+/// funcionalidad suelta. Con una sola funcionalidad usable esa pantalla es su vista
+/// rica de siempre y nada cambia (RF-1); con varias, el compacto es su fila de fichas
+/// y el expandido sus columnas (RF-2/RF-3).</item>
+/// <item><b>Sin pantalla no hay vista</b>: una funcionalidad que no está en ninguna
+/// pantalla no se muestra aunque esté activa; el contenedor resuelve otra pantalla o
+/// el reposo, nunca su vista suelta.</item>
+/// <item><b>Hasta cuatro por pantalla</b>
+/// (<see cref="IslandFeatureIds.MaxFeaturesPerScreen"/>): son las que caben en una
+/// sola pantalla, de izquierda a derecha. El ajuste no guarda más y el ancho de las
+/// columnas se reparte para que todas se vean enteras.</item>
+/// <item><b>Orden propio</b> (RF-2/RF-3): el orden de una pantalla es el de sus
+/// funcionalidades, y es el que siguen las fichas del compacto y las columnas del
+/// expandido, siempre de izquierda a derecha. No hay ninguna otra lista de orden.
+/// El ancho del compacto lo fija el número de fichas y el alto lo mide el contenido:
 /// el tamaño de una pantalla combinada es DINÁMICO por construcción.</item>
 /// <item><b>Una sola navegación</b> (RF-4): la rueda y las flechas recorren
 /// pantallas (no funcionalidades) y se saltan las que no tienen nada usable; la
@@ -44,14 +52,18 @@ public partial class IslandWindow
     private const double ScreenChipWidth = 96;
     /// <summary>Ancho de reposo del compacto de una sola funcionalidad (CompactLayer del XAML).</summary>
     private const double SingleCompactLayerWidth = 240;
-    /// <summary>Ancho de una columna del expandido de una pantalla combinada.</summary>
+    /// <summary>Ancho MÁXIMO de una columna del expandido de una pantalla combinada.</summary>
     private const double ScreenColumnWidth = 236;
     /// <summary>Separación entre columnas del expandido (igual que el margen del XAML).</summary>
     private const double ScreenColumnGap = 14;
     /// <summary>Relleno lateral del contenido expandido (el margen del ExpandedLayer: 16+16).</summary>
     private const double ScreenRowPadding = 32;
-    /// <summary>Ancho máximo del expandido de una pantalla combinada.</summary>
-    private const double ScreenExpandedMaxWidth = 900;
+    /// <summary>
+    /// Ancho máximo del expandido de una pantalla combinada: con cuatro columnas (el
+    /// máximo de <see cref="IslandFeatureIds.MaxFeaturesPerScreen"/>) entran a su ancho
+    /// completo, y nunca se pasa del monitor.
+    /// </summary>
+    private const double ScreenExpandedMaxWidth = 1100;
 
     /// <summary>Pantallas configuradas, ya saneadas y en orden de navegación.</summary>
     private readonly List<string[]> _screens = [];
@@ -105,18 +117,152 @@ public partial class IslandWindow
         return -1;
     }
 
+    /// <summary>
+    /// Pantalla «de» una funcionalidad para resolver su vista: la VIGENTE si la
+    /// contiene —una funcionalidad puede estar en varias pantallas y manda la que se
+    /// está viendo— y, si no, la primera que la contiene (-1 si no está en ninguna).
+    /// </summary>
+    private int ResolveScreenIndexFor(string id)
+    {
+        if (CurrentScreenIds().Contains(id)) return Math.Clamp(_screenIndex, 0, _screens.Count - 1);
+        return ScreenIndexOfFeature(id);
+    }
+
+    /// <summary>
+    /// ¿La funcionalidad está en alguna pantalla? Sin pantalla no hay vista: una
+    /// funcionalidad que se quedó fuera de todas (p. ej. al borrar su pantalla) no se
+    /// muestra aunque esté activa.
+    /// </summary>
+    private bool FeatureInAnyScreen(IIslandFeature feature) => ResolveScreenIndexFor(feature.Id) >= 0;
+
+    /// <summary>
+    /// Una funcionalidad sin pantalla NO tiene vista (change island-pantallas)… salvo una
+    /// EXCLUSIVA: la alerta final del temporizador necesita superficie para poder
+    /// cerrarse (002 RF-2), y sin vista se quedaría bloqueando el contenedor sin forma
+    /// de quitarla. Es la única excepción y vale solo mientras declara acceso exclusivo.
+    /// </summary>
+    private static bool ScreenlessFeatureKeepsOwnView(IIslandFeature feature) => feature.State.Exclusive;
+
+    /// <summary>
+    /// ¿La pantalla de la funcionalidad es COMBINADA ahora mismo? (varias
+    /// funcionalidades usables). Entonces su vista no es la suya suelta, sino la
+    /// pantalla entera: fichas en el compacto y una columna por funcionalidad en el
+    /// expandido.
+    /// </summary>
+    private bool ScreenOfFeatureIsCombined(IIslandFeature feature)
+    {
+        int index = ResolveScreenIndexFor(feature.Id);
+        return index >= 0 && ScreenUsableFeatures(_screens[index]).Count > 1;
+    }
+
+    /// <summary>
+    /// Resuelve la presentación de una funcionalidad a su PANTALLA. Adopta su índice y,
+    /// con una pantalla combinada, reescribe el modo y el contenido a la composición de
+    /// la pantalla. Devuelve false si la funcionalidad no está en ninguna pantalla: sin
+    /// pantalla no hay vista que presentar.
+    /// </summary>
+    private bool AdoptScreenFor(IIslandFeature feature, ref IslandContentMode mode, ref Action present)
+    {
+        int index = ResolveScreenIndexFor(feature.Id);
+        if (index < 0) return false;
+        _screenIndex = index;
+        if (mode == IslandContentMode.Screen) return true;
+        if (ScreenUsableFeatures(_screens[index]).Count > 1)
+        {
+            mode = IslandContentMode.Screen;
+            present = RefreshScreenMembers;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Funcionalidades registradas EN ORDEN DE PANTALLA (una entrada por funcionalidad
+    /// con su posición): es el orden que sustituye a la antigua lista reordenable, tanto
+    /// para desempatar la activa vigente como para cualquier recorrido del contenedor.
+    /// Las que no están en ninguna pantalla se quedan fuera.
+    /// </summary>
+    private IEnumerable<(IIslandFeature Feature, int Order)> ScreenOrderedFeatures()
+    {
+        for (int i = 0; i < _screens.Count; i++)
+        {
+            for (int j = 0; j < _screens[i].Length; j++)
+            {
+                if (FeatureById(_screens[i][j]) is { } feature)
+                    yield return (feature, i * IslandFeatureIds.MaxFeaturesPerScreen + j);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Funcionalidad que sostiene la vista vigente (null con una pantalla delante, en el
+    /// reposo o cuando la vista es de una funcionalidad desconocida).
+    /// </summary>
+    private IIslandFeature? ViewOwnerFeature() => _contentMode switch
+    {
+        IslandContentMode.Media => FeatureById(IslandFeatureIds.Media),
+        IslandContentMode.Timer => FeatureById(IslandFeatureIds.Timer),
+        IslandContentMode.Apps => FeatureById(IslandFeatureIds.Apps),
+        IslandContentMode.Shelf => FeatureById(IslandFeatureIds.Shelf),
+        IslandContentMode.Calendar => FeatureById(IslandFeatureIds.Calendar),
+        IslandContentMode.Bluetooth => FeatureById(IslandFeatureIds.Bluetooth),
+        IslandContentMode.Clipboard => FeatureById(IslandFeatureIds.Clipboard),
+        IslandContentMode.Weather => FeatureById(IslandFeatureIds.Weather),
+        IslandContentMode.Power => FeatureById(IslandFeatureIds.Power),
+        _ => null,
+    };
+
     /// <summary>Pantallas con algo usable ahora mismo: es la unidad de navegación (RF-4).</summary>
     private int UsableScreenCount() => _screens.Count(screen => ScreenUsableFeatures(screen).Count > 0);
+
+    /// <summary>¿La pantalla vigente contiene esta funcionalidad?</summary>
+    private bool CurrentScreenContains(string id) => CurrentScreenIds().Contains(id);
+
+    /// <summary>
+    /// ¿La vista vigente enseña esta funcionalidad? Con una PANTALLA delante la enseñan
+    /// sus miembros (una pantalla combinada puede tener varias a la vez); con una vista
+    /// rica, solo la suya. Es el portero de los refrescos «pinta lo que ya está delante»
+    /// de cada funcionalidad.
+    /// </summary>
+    private bool ViewShowsFeature(string id) =>
+        _contentMode == IslandContentMode.Screen ? CurrentScreenContains(id) : ViewOwnerFeature()?.Id == id;
+
+    /// <summary>
+    /// ¿La vista vigente es una PANTALLA que contiene la música? Entonces la composición
+    /// la manda la pantalla y un evento de música solo repinta su contenido: no cambia
+    /// el modo ni las capas (si lo hiciera, el compacto saltaría de las fichas a la
+    /// vista musical suelta y la pantalla desaparecería).
+    /// </summary>
+    private bool ScreenOwnsMediaView() =>
+        _contentMode == IslandContentMode.Screen && CurrentScreenContains(IslandFeatureIds.Media);
+
+    /// <summary>
+    /// La vista vigente perdió a uno de sus miembros (se apagó una funcionalidad, se le
+    /// cerró la sesión…): si era una PANTALLA, se recompone con los que quedan —y vuelve
+    /// a la vista rica de su única funcionalidad si solo queda una—. Devuelve true si la
+    /// pantalla ya resolvió la vista (nada más que replantear).
+    /// </summary>
+    private bool RecoverScreensAfterMemberLost()
+    {
+        if (_contentMode != IslandContentMode.Screen) return false;
+        ApplyContentVisibility();
+        SyncMeasuredHeight();
+        return true;
+    }
 
     /// <summary>
     /// Presenta la pantalla que contiene la funcionalidad dada (compacto). Es el
     /// punto por el que las rutas de «activa vigente» muestran el grupo entero al
-    /// que pertenece lo activo, en vez de arrancar su pantalla del grupo.
+    /// que pertenece lo activo. Sin pantalla (la funcionalidad se quedó fuera de todas)
+    /// no presenta nada y devuelve false.
     /// </summary>
     private bool ShowScreenOfFeature(IIslandFeature feature)
     {
-        int index = ScreenIndexOfFeature(feature.Id);
-        if (index >= 0) _screenIndex = index;
+        // La pantalla vigente manda si ya contiene la funcionalidad: una funcionalidad
+        // puede estar en varias pantallas y mostrar otra sería cambiar de pantalla sin
+        // que el usuario lo haya pedido.
+        int index = ResolveScreenIndexFor(feature.Id);
+        if (index < 0) return false;
+        _screenIndex = index;
         return ShowCurrentScreenCompact();
     }
 
@@ -132,13 +278,16 @@ public partial class IslandWindow
 
     /// <summary>
     /// Expande la pantalla vigente: la vista rica de su única funcionalidad si es
-    /// simple, y sus columnas de IZQUIERDA A DERECHA si es combinada.
+    /// simple, y sus columnas de IZQUIERDA A DERECHA si es combinada. Una pantalla
+    /// combinada sin columnas que enseñar (solo avisos que viven en el compacto) no
+    /// abre nada: devolver false deja paso a la siguiente pantalla que sí pueda.
     /// </summary>
     private bool ExpandCurrentScreen()
     {
         var members = CurrentScreenFeatures();
         if (members.Count == 0) return false;
         if (members.Count == 1) return members[0].TryShowExpanded();
+        if (CurrentScreenColumnCount() == 0) return false;
         ShowExpandedView(IslandContentMode.Screen, members[0], RefreshScreenMembers);
         return true;
     }
@@ -162,23 +311,35 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// El ajuste de pantallas cambió (o se apagó una funcionalidad): se relee la
-    /// configuración y, si el Island está a la vista, se vuelve a presentar la
-    /// pantalla vigente —compacto o expandido— para que el cambio se VEA en el acto
-    /// y el contenedor se adapte (ancho y alto del contenido nuevo). Oculto no se
-    /// despliega nada: la próxima aparición ya usa la configuración nueva.
+    /// El ajuste de pantallas cambió (o se apagó una funcionalidad, o la funcionalidad
+    /// vigente entró/salió de una pantalla): se relee la configuración y, si el Island
+    /// está a la vista, se vuelve a presentar la vista vigente —compacto o expandido—
+    /// para que el cambio se VEA en el acto y el contenedor se adapte (ancho y alto del
+    /// contenido nuevo). Oculto no se despliega nada: la próxima aparición ya usa la
+    /// configuración nueva.
     /// </summary>
     public void RefreshScreensContent() => Dispatcher.Invoke(() =>
     {
         ApplyScreens();
         if (!IsBoxShown || _disposed) return;
-        if (_contentMode == IslandContentMode.Screen)
+        // La vista vigente se re-presenta cuando es una PANTALLA (pudo cambiar su
+        // composición) o cuando es la vista de una funcionalidad cuya pantalla acaba de
+        // pasar a ser combinada o de desaparecer (sin pantalla no hay vista).
+        var owner = ViewOwnerFeature();
+        bool repaint = _contentMode == IslandContentMode.Screen
+            || (owner != null && (ScreenOfFeatureIsCombined(owner) || !FeatureInAnyScreen(owner)));
+        if (repaint)
         {
-            if (!MoveToNearestUsableScreen()) { ShowInactiveOrHidden(); return; }
-            if (_expanded ? ExpandCurrentScreen() : ShowCurrentScreenCompact()) return;
+            if (owner != null && FeatureInAnyScreen(owner)) _screenIndex = ResolveScreenIndexFor(owner.Id);
+            if (MoveToNearestUsableScreen())
+            {
+                if (_expanded ? ExpandCurrentScreen() : ShowCurrentScreenCompact()) return;
+            }
+            ShowInactiveOrHidden();
+            return;
         }
-        // Otra vista delante (música, temporizador, un aviso…): solo se re-mide y se
-        // recoloca la caja, que es lo que el ajuste de pantallas puede cambiarle.
+        // Otra vista delante (un aviso, el reposo): solo se re-mide y se recoloca la
+        // caja, que es lo que el ajuste de pantallas puede cambiarle.
         SyncMeasuredHeight();
         PositionTopCenter();
     });
@@ -194,31 +355,60 @@ public partial class IslandWindow
     /// </summary>
     private void RefreshScreenMembers()
     {
-        var members = CurrentScreenFeatures();
-        ScreenCompactList.ItemsSource = members
-            .Select(feature => feature.Summary)
-            .Select(summary => new ScreenChip(summary.Glyph, summary.Text))
-            .ToList();
-        foreach (var member in members) RefreshMemberContent(member.Id);
+        RefreshScreenChips();
+        foreach (var member in CurrentScreenFeatures()) RefreshMemberContent(member.Id);
     }
 
     /// <summary>
-    /// Refresco periódico de una pantalla combinada con el expandido delante (su
-    /// cadencia por contenido): cuenta atrás del temporizador, cuentas del calendario
-    /// y seek de la música. El resto no envejece mientras se mira.
+    /// Repinta la fila de fichas del compacto de la pantalla vigente: un icono y un
+    /// dato corto por funcionalidad, en el orden de la pantalla (de izquierda a
+    /// derecha).
+    /// </summary>
+    private void RefreshScreenChips()
+    {
+        ScreenCompactList.ItemsSource = CurrentScreenFeatures()
+            .Select(feature => feature.Summary)
+            .Select(summary => new ScreenChip(summary.Glyph, summary.Text))
+            .ToList();
+    }
+
+    /// <summary>
+    /// ¿Alguna ficha de la pantalla envejece mientras se mira? (cuenta atrás del
+    /// temporizador, cuentas del calendario). Solo esas fichas del compacto se
+    /// repintan; el resto no envejece.
+    /// </summary>
+    private bool ScreenHasLiveChips() => CurrentScreenFeatures().Any(f => f.Id switch
+    {
+        IslandFeatureIds.Timer => _timer.IsCounting,
+        IslandFeatureIds.Calendar => true,
+        _ => false,
+    });
+
+    /// <summary>
+    /// Refresco periódico de una pantalla combinada que está delante (su cadencia por
+    /// contenido): en el expandido, cuenta atrás del temporizador, cuentas del
+    /// calendario y seek de la música; en el compacto, las fichas que envejecen. El
+    /// resto no envejece mientras se mira.
     /// </summary>
     private void RefreshCombinedScreenTick()
     {
-        if (_disposed || !IsBoxShown || _contentMode != IslandContentMode.Screen || !_expanded) return;
+        if (_disposed || !IsBoxShown || _contentMode != IslandContentMode.Screen) return;
+        if (!_expanded)
+        {
+            if (ScreenHasLiveChips()) RefreshScreenChips();
+            return;
+        }
         foreach (var member in CurrentScreenFeatures())
         {
             switch (member.Id)
             {
                 case "timer":
                     RefreshTimerUI();
+                    RefreshScreenChips();
                     break;
                 case "calendar":
                     RefreshCalendarList();
+                    RefreshScreenChips();
                     break;
                 case "media":
                     if (Current() is { } session) UpdateSeek(session);
@@ -265,9 +455,30 @@ public partial class IslandWindow
     /// </summary>
     private sealed record ScreenChip(Wpf.Ui.Controls.SymbolRegular Glyph, string Text);
 
-    /// <summary>Ancho que necesita el compacto de una pantalla combinada (RF-3).</summary>
+    /// <summary>
+    /// Ancho que necesita el compacto de una pantalla combinada (RF-3): una ficha por
+    /// funcionalidad, hasta <see cref="IslandFeatureIds.MaxFeaturesPerScreen"/>.
+    /// </summary>
     private static double ScreenWidthForMembers(int members) =>
         Math.Clamp(members * ScreenChipWidth + 24, 160, 480);
+
+    /// <summary>
+    /// Ancho de reposo del compacto vigente: el que necesita la fila de fichas de una
+    /// PANTALLA combinada —que no cabe en el ancho del estilo— o, si no, el del estilo
+    /// (cápsula o notch). Lo usan el motor de frame y el estilo para que las fichas
+    /// nunca queden recortadas.
+    /// </summary>
+    private double CompactScreenAwareWidth(double styleWidth) =>
+        _contentMode == IslandContentMode.Screen && ScreenIsCombined()
+            ? ScreenWidthForMembers(CurrentScreenFeatures().Count)
+            : styleWidth;
+
+    /// <summary>
+    /// Columnas que ocupará el expandido de la pantalla vigente: una por funcionalidad
+    /// con paneles propios. Las que solo viven en el compacto (Bluetooth, cargador) no
+    /// cuentan: su ancho no se reserva.
+    /// </summary>
+    private int CurrentScreenColumnCount() => CurrentScreenFeatures().Count(m => ColumnFor(m.Id) != null);
 
     // ------------------------------------------------------------------
     // Visibilidad de las capas de una pantalla combinada
@@ -282,6 +493,10 @@ public partial class IslandWindow
     private void ApplyScreenLayerVisibility()
     {
         var members = CurrentScreenFeatures();
+        // Las fichas del compacto se reconstruyen con los miembros USABLES de ahora:
+        // así una composición que cambió (se apagó una funcionalidad, se cerró una
+        // sesión) nunca deja una ficha de algo que ya no está en la pantalla.
+        RefreshScreenChips();
         // Pantalla simple (o sin miembros usables): los paneles vuelven a su sitio.
         if (members.Count <= 1) RestoreExpandedHomes();
         ScreenCompactGrid.Visibility = Visibility.Visible;
@@ -413,9 +628,11 @@ public partial class IslandWindow
     /// <summary>
     /// Compone el expandido de una pantalla combinada: una columna por funcionalidad,
     /// de IZQUIERDA A DERECHA en el orden de la pantalla, con los paneles de cada una
-    /// dentro. Las columnas que no componen la pantalla se ocultan y reciben el ancho
-    /// que les toca (el ancho total de la caja es dinámico: lo fija el número de
-    /// columnas).
+    /// dentro. Las columnas se COLOCAN en ese orden (el orden del XAML no manda: una
+    /// pantalla «timer+media» enseña el temporizador a la izquierda) y las que no
+    /// componen la pantalla se aparcan al final, ocultas. El ancho de cada columna se
+    /// reparte para que todas quepan enteras en la caja (el ancho total es dinámico: lo
+    /// fija el número de columnas).
     /// </summary>
     private void ComposeScreenExpandedRow(List<IIslandFeature> members)
     {
@@ -425,17 +642,39 @@ public partial class IslandWindow
         {
             if (ColumnFor(member.Id) is { } host) columns.Add((member.Id, host));
         }
+        // Las columnas usadas van delante, en el orden de la pantalla; detrás quedan
+        // (ocultas) las demás, para no perder ninguna referencia del XAML.
+        ScreenExpandedRow.Children.Clear();
+        foreach (var (_, host) in columns) ScreenExpandedRow.Children.Add(host);
+        foreach (var column in AllScreenColumns())
+        {
+            if (!columns.Any(c => ReferenceEquals(c.Host, column))) ScreenExpandedRow.Children.Add(column);
+        }
+        double columnWidth = ScreenColumnWidthForCount(columns.Count);
         foreach (var column in AllScreenColumns())
         {
             bool used = columns.Any(c => ReferenceEquals(c.Host, column));
             column.Visibility = used ? Visibility.Visible : Visibility.Collapsed;
-            column.Width = used ? ScreenColumnWidth : double.NaN;
+            column.Width = used ? columnWidth : double.NaN;
         }
         ScreenExpandedRow.Visibility = columns.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         foreach (var (id, host) in columns)
         {
             foreach (var panel in MemberPanels(id)) MoveToColumn(panel, host);
         }
+    }
+
+    /// <summary>
+    /// Ancho de cada columna del expandido de una pantalla combinada: se reparte el
+    /// ancho disponible (el de la caja, ya clavado al monitor) entre las columnas que se
+    /// van a ver, para que la última no quede recortada por el borde.
+    /// </summary>
+    private double ScreenColumnWidthForCount(int columns)
+    {
+        if (columns <= 0) return ScreenColumnWidth;
+        double available = ScreenExpandedWidthForMembers(columns) - ScreenRowPadding
+            - Math.Max(0, columns - 1) * ScreenColumnGap;
+        return Math.Clamp(available / columns, 150, ScreenColumnWidth);
     }
 
     private IEnumerable<StackPanel> AllScreenColumns() =>
@@ -461,6 +700,7 @@ public partial class IslandWindow
         if (_expandedHomes.Count == 0)
         {
             ScreenExpandedRow.Visibility = Visibility.Collapsed;
+            RestoreScreenColumnOrder();
             return;
         }
         foreach (var (panel, home) in _expandedHomes.OrderBy(kv => kv.Value.Index))
@@ -471,6 +711,7 @@ public partial class IslandWindow
         }
         _expandedHomes.Clear();
         ScreenExpandedRow.Visibility = Visibility.Collapsed;
+        RestoreScreenColumnOrder();
         foreach (var column in AllScreenColumns())
         {
             column.Children.Clear();
@@ -479,16 +720,32 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Ancho del expandido de una pantalla combinada: dinámico, una columna por
-    /// funcionalidad, sin pasarse del monitor.
+    /// Devuelve las columnas del expandido a su orden del XAML: componer una pantalla
+    /// las reordena (izquierda a derecha según la pantalla) y fuera de ella se aparcan
+    /// en su sitio.
     /// </summary>
-    private double ScreenExpandedWidthForMembers(int members)
+    private void RestoreScreenColumnOrder()
+    {
+        var canonical = AllScreenColumns().ToList();
+        if (ScreenExpandedRow.Children.Count == canonical.Count
+            && canonical.All(column => ScreenExpandedRow.Children.Contains(column)))
+        {
+            ScreenExpandedRow.Children.Clear();
+            foreach (var column in canonical) ScreenExpandedRow.Children.Add(column);
+        }
+    }
+
+    /// <summary>
+    /// Ancho del expandido de una pantalla combinada: dinámico, una columna por
+    /// funcionalidad visible en el expandido, sin pasarse del monitor.
+    /// </summary>
+    private double ScreenExpandedWidthForMembers(int columns)
     {
         // Cada columna lleva su separación a la derecha (el margen del XAML), así que
-        // el ancho necesario es una columna + su separación por cada miembro, más el
+        // el ancho necesario es una columna + su separación por cada columna, más el
         // relleno lateral del contenido. Si faltara ese último margen, la última
         // columna quedaría recortada por el borde de la caja.
-        double total = members * (ScreenColumnWidth + ScreenColumnGap) + ScreenRowPadding;
+        double total = columns * (ScreenColumnWidth + ScreenColumnGap) + ScreenRowPadding;
         var primary = PrimaryMonitor();
         double monitorWidth = primary.dpiX > 0 ? primary.workArea.Width * 96.0 / primary.dpiX : ScreenExpandedMaxWidth;
         return Math.Clamp(total, 280, Math.Min(ScreenExpandedMaxWidth, Math.Max(280, monitorWidth - 24)));

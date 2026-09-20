@@ -68,6 +68,8 @@ public partial class IslandWindow : Window
 {
     // --- Dimensiones del contenedor (001 MOD RF-11, RF-15, RF-25) ---
 
+    /// <summary>Ancho del lienzo transparente de la ventana (crece con el contenido: <see cref="PositionTopCenter"/>).</summary>
+    private const double DefaultWindowWidth = 640;
     private const int DefaultExpandedIslandWidth = 320;
     private const int DefaultExpandedIslandHeight = 126;
     // Estados del contenedor (001 MOD RF-11): compacto estándar y la pieza
@@ -104,7 +106,7 @@ public partial class IslandWindow : Window
     private double ContentExpandedWidth => _contentMode == IslandContentMode.Screen && ScreenIsCombined()
         // Pantalla combinada: una columna por funcionalidad, de izquierda a derecha, y
         // el ancho es DINÁMICO (lo fija el número de columnas; change island-pantallas RF-3).
-        ? ScreenExpandedWidthForMembers(CurrentScreenFeatures().Count)
+        ? ScreenExpandedWidthForMembers(CurrentScreenColumnCount())
         : _selectedFeature is { ExpandedPreferredWidth: > 0 } f
             ? Math.Clamp(f.ExpandedPreferredWidth, 200, 600)
             : ExpandedIslandWidth;
@@ -268,10 +270,9 @@ public partial class IslandWindow : Window
         InitWeather();
         InitPower();
         // Contenedor escalable: media, temporizador, cajón de aplicaciones, estante de
-        // archivos, recordatorios de calendario, dispositivos Bluetooth y portapapeles
-        // se registran en su orden por defecto; el contrato decide qué se puede mostrar
-        // (RF-11, RF-13) y ApplyFeatureOrder impone después el orden que el usuario
-        // haya elegido en ajustes.
+        // archivos, recordatorios de calendario, dispositivos Bluetooth, portapapeles,
+        // clima y cargador se registran una vez; el contrato decide qué se puede mostrar
+        // (RF-11, RF-13) y las pantallas configuradas mandan el orden y la composición.
         _features.Register(new IslandMediaFeature(this));
         _features.Register(new IslandTimerFeature(this));
         _features.Register(new IslandAppsFeature(this));
@@ -281,9 +282,9 @@ public partial class IslandWindow : Window
         _features.Register(new IslandClipboardFeature(this));
         _features.Register(new IslandWeatherFeature(this));
         _features.Register(new IslandPowerFeature(this));
-        ApplyFeatureOrder();
-        // Pantallas configuradas: el contenedor navega por ellas y una pantalla
-        // puede llevar varias funcionalidades juntas (change island-pantallas).
+        // Pantallas configuradas: son la ÚNICA fuente del orden y de la vista —el
+        // contenedor navega por ellas y una pantalla puede llevar varias
+        // funcionalidades juntas, de izquierda a derecha (change island-pantallas).
         ApplyScreens();
         // Migración del «Siempre en su lugar» (retirado, 001 REMOVED): un modo
         // guardado con el valor 2 pasa a «Visible mientras activo».
@@ -407,15 +408,6 @@ public partial class IslandWindow : Window
     private void SelectFeature(string id) => _selectedFeature = FeatureById(id);
 
     /// <summary>
-    /// Impone el orden de funcionalidades elegido en ajustes (001 MOD RF-3/RF-4): es el
-    /// orden en el que el contenedor navega con la rueda y las flechas laterales, y el
-    /// que desempata cuando varias funcionalidades están activas a la vez. Sin ajuste
-    /// guardado rige el orden por defecto. Se llama al arrancar y en cada cambio.
-    /// </summary>
-    public void ApplyFeatureOrder() =>
-        _features.Reorder(SettingsManager.Current.IslandFeatureOrder);
-
-    /// <summary>
     /// Ajuste de pantalla completa en caliente: la supresión se sirve desde una
     /// instantánea cacheada, así que se invalida, se recalcula con el valor nuevo y
     /// se publica el contexto. Si el Island tenía que apartarse, se aparta en el
@@ -428,19 +420,6 @@ public partial class IslandWindow : Window
         PostActivity(IslandActivityReason.Context);
     });
 
-    /// <summary>
-    /// Última usable para expandir (001 MOD RF-3): manda la funcionalidad en
-    /// uso (último-activo); si ya no es usable, la última activa; si no, la
-    /// primera usable. Sin ninguna usable no abre vista vacía.
-    /// </summary>
-    private IIslandFeature? LastUsableFeature()
-    {
-        if (_selectedFeature is { } sel && sel.State.Usable) return sel;
-        var active = _features.ActiveFeatures().FirstOrDefault(f => f.State.Usable);
-        if (active != null) return active;
-        return _features.UsableFeatures().FirstOrDefault();
-    }
-
     private bool HasExclusive() =>
         _features.Features.Any(f => f.State.Exclusive);
 
@@ -450,12 +429,6 @@ public partial class IslandWindow : Window
 
     /// <summary>¿La vista actual es música (no temporizador) con sesión disponible?</summary>
     private bool MusicContentShown() => _contentMode == IslandContentMode.Media && MusicAvailable();
-
-    /// <summary>Funcionalidades usables ahora mismo: gobierna flechas y rueda de cambio.</summary>
-    private int UsableFeatureCount() => _features.UsableFeatures().Count();
-
-    /// <summary>Funcionalidades usables ahora mismo, en orden de registro.</summary>
-    private List<IIslandFeature> UsableFeatures() => _features.UsableFeatures().ToList();
 
     // ------------------------------------------------------------------
     // Ajustes en caliente: aplicar el estado completo del contenedor sin

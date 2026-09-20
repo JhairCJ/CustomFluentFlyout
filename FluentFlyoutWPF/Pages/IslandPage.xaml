@@ -158,7 +158,7 @@
                     <StackPanel x:Name="IslandScreensPanel" />
                     <Button Content="Nueva pantalla" Click="IslandScreenNew_Click" Padding="12,4" Margin="0,8,0,0" HorizontalAlignment="Left"
                             ToolTip="Nace con la primera funcionalidad que no esté en ninguna pantalla" />
-                    <TextBlock Text="Una pantalla vacía no se guarda: cada pantalla necesita al menos una funcionalidad. Lo que cambies aquí se ve en el Island al momento si está a la vista." FontSize="12" Opacity="0.5" Margin="0,6,0,0" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
+                    <TextBlock Text="Cada pantalla lleva hasta 4 funcionalidades: es lo que cabe en una sola pantalla del Island (las fichas del compacto y las columnas del expandido, de izquierda a derecha). Una pantalla vacía no se guarda: cada pantalla necesita al menos una funcionalidad. Lo que cambies aquí se ve en el Island al momento si está a la vista." FontSize="12" Opacity="0.5" Margin="0,6,0,0" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
             </ui:CardExpander>
             <TextBlock Grid.Row="9" Text="Música" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
@@ -732,41 +732,10 @@
                     </StackPanel>
                 </StackPanel>
             </ui:CardExpander>
-            <TextBlock Grid.Row="45" Text="Orden de las funcionalidades" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
-            <!-- Orden de la «lista de islands»: es el que siguen la rueda del ratón y las
-                 flechas laterales al recorrer las funcionalidades, y el que desempata cuando
-                 varias están activas a la vez. El ajuste se guarda solo (UserSettings.MoveIslandFeature)
-                 y el contenedor lo aplica en el acto, sin reiniciar. -->
-            <ui:CardExpander x:Name="IslandOrderCard" Tag="Indexable" Grid.Row="46" Icon="{ui:SymbolIcon ArrowSort24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
-                <ui:CardExpander.Header>
-                    <StackPanel Orientation="Vertical">
-                        <TextBlock Text="Orden de la lista" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                        <TextBlock Text="Orden en el que la rueda del ratón y las flechas recorren las funcionalidades. Las deshabilitadas se saltan, pero conservan su sitio." FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="440" HorizontalAlignment="Left" />
-                    </StackPanel>
-                </ui:CardExpander.Header>
-                <ItemsControl ItemsSource="{Binding IslandFeatureOrder}" Margin="0,8,0,8">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="14"
-                                           Text="{Binding Converter={StaticResource IslandFeatureNameConverter}}" />
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0">
-                                    <Button Click="IslandFeatureMoveUp_Click" Padding="8,2" Margin="0,0,4,0" ToolTip="Subir en la lista">
-                                        <ui:SymbolIcon Symbol="ArrowUp24" FontSize="12" />
-                                    </Button>
-                                    <Button Click="IslandFeatureMoveDown_Click" Padding="8,2" ToolTip="Bajar en la lista">
-                                        <ui:SymbolIcon Symbol="ArrowDown24" FontSize="12" />
-                                    </Button>
-                                </StackPanel>
-                            </Grid>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ui:CardExpander>
+            <!-- La antigua lista de orden de funcionalidades se retiró: el único orden del
+                 Island es el de las PANTALLAS (arriba), tanto para la rueda y las flechas
+                 como para la composición de cada vista. Las filas 45 y 46 quedan vacías a
+                 propósito para no renumerar el resto del panel. -->
             <TextBlock Grid.Row="47" Text="Estante de archivos" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
             <!-- Estante: los archivos se MUEVEN a la carpeta propia del estante y quitarlos los
                  devuelve a su carpeta original. Nada caduca y nada se borra desde aquí. -->

@@ -116,7 +116,7 @@ public partial class IslandWindow
         RefreshAppList();
         if (AppsModeAvailable())
         {
-            if (IsBoxShown && _contentMode == IslandContentMode.Apps)
+            if (IsBoxShown && ViewShowsFeature(IslandFeatureIds.Apps))
             {
                 ApplyContentVisibility();
                 SyncMeasuredHeight();
@@ -124,7 +124,7 @@ public partial class IslandWindow
             UpdateArrows();
             return;
         }
-        if (_contentMode == IslandContentMode.Apps) FallbackFromAppsView();
+        if (ViewShowsFeature(IslandFeatureIds.Apps)) FallbackFromAppsView();
         UpdateArrows();
     });
 
@@ -135,6 +135,8 @@ public partial class IslandWindow
     /// </summary>
     private void FallbackFromAppsView()
     {
+        // Con una pantalla delante, se recompone con sus miembros usables.
+        if (RecoverScreensAfterMemberLost()) return;
         _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();
         if (SettingsManager.Current.IslandVisibilityMode == 0

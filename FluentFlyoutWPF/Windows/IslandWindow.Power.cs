@@ -110,7 +110,7 @@ public partial class IslandWindow
         else
         {
             _power?.Stop();
-            if (IsBoxShown && _contentMode == IslandContentMode.Power) FallbackFromPowerView();
+            if (IsBoxShown && ViewShowsFeature(IslandFeatureIds.Power)) FallbackFromPowerView();
         }
         ApplyContentVisibility();
         SyncMeasuredHeight();
@@ -195,7 +195,7 @@ public partial class IslandWindow
     private void ReconcilePowerState()
     {
         if (!PowerModeAvailable() || _powerStatus == null) return;
-        if (!IsBoxShown || _contentMode != IslandContentMode.Power) return;
+        if (!IsBoxShown || !ViewShowsFeature(IslandFeatureIds.Power)) return;
         RefreshPowerUI();
     }
 
@@ -206,6 +206,8 @@ public partial class IslandWindow
     private void FallbackFromPowerView()
     {
         if (_noticeForced) ClearTemporaryNotice();
+        // Con una pantalla delante, se recompone con sus miembros usables.
+        if (RecoverScreensAfterMemberLost()) return;
         _expanded = false;
         _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();

@@ -75,10 +75,11 @@ public readonly record struct IslandFeatureState(
 }
 
 /// <summary>
-/// Registro de funcionalidades del contenedor: una lista ordenada que el
-/// island recorre para elegir la última usable (001 MOD RF-3, RF-11).
-/// Añadir una funcionalidad futura = registrar otra implementación del
-/// contrato; ninguna regla del contenedor cambia.
+/// Registro de funcionalidades del contenedor: cada funcionalidad se registra una vez
+/// y el contenedor la busca por su id estable (001 MOD RF-3, RF-11). El orden del
+/// registro no significa nada —el orden de la vista lo fijan las PANTALLAS—: añadir
+/// una funcionalidad futura = registrar otra implementación del contrato, sin tocar
+/// ninguna regla del contenedor.
 /// </summary>
 public sealed class IslandFeatureRegistry
 {
@@ -89,57 +90,6 @@ public sealed class IslandFeatureRegistry
     public void Register(IIslandFeature feature)
     {
         if (!_features.Any(f => f.Id == feature.Id)) _features.Add(feature);
-    }
-
-    /// <summary>
-    /// Reordena las funcionalidades según los identificadores dados: es el orden en el
-    /// que el contenedor navega (rueda y flechas) y con el que desempata cuando varias
-    /// están activas a la vez (001 MOD RF-3/RF-4). Los ids no listados quedan al final,
-    /// en su orden actual, así que un ajuste viejo nunca deja una funcionalidad fuera.
-    /// </summary>
-    public void Reorder(IReadOnlyList<string>? ids)
-    {
-        if (ids == null || ids.Count == 0) return;
-        var index = new Dictionary<string, int>(StringComparer.Ordinal);
-        for (int i = 0; i < ids.Count; i++) index.TryAdd(ids[i], i);
-        var ordered = _features.Select((feature, position) => (feature, position)).ToList();
-        ordered.Sort((a, b) =>
-        {
-            int ia = index.TryGetValue(a.feature.Id, out int va) ? va : int.MaxValue;
-            int ib = index.TryGetValue(b.feature.Id, out int vb) ? vb : int.MaxValue;
-            return ia != ib ? ia.CompareTo(ib) : a.position.CompareTo(b.position);
-        });
-        _features.Clear();
-        _features.AddRange(ordered.Select(x => x.feature));
-    }
-
-    /// <summary>Funcionalidades habilitadas y disponibles (usables) en orden de registro.</summary>
-    public IEnumerable<IIslandFeature> UsableFeatures() =>
-        _features.Where(f => f.State.Usable);
-
-    /// <summary>Funcionalidades activas (con actividad real) en orden de registro.</summary>
-    public IEnumerable<IIslandFeature> ActiveFeatures() =>
-        _features.Where(f => f.State.Enabled && f.State.Active);
-
-    /// <summary>Índice de la funcionalidad seleccionada en la lista de registradas; -1 si ninguna.</summary>
-    public int SelectedIndex()
-    {
-        for (int i = 0; i < _features.Count; i++)
-            if (_features[i].State.Selected) return i;
-        return -1;
-    }
-
-    public IIslandFeature? SelectedFeature()
-    {
-        int i = SelectedIndex();
-        return i >= 0 ? _features[i] : null;
-    }
-
-    /// <summary>Última usable distinta de <paramref name="exclude"/>, si la hay.</summary>
-    public IIslandFeature? NextUsableAfter(IIslandFeature? exclude)
-    {
-        var usable = UsableFeatures().Where(f => !ReferenceEquals(f, exclude)).ToList();
-        return usable.Count > 0 ? usable[0] : null;
     }
 }
 

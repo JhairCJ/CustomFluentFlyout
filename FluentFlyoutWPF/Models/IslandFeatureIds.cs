@@ -4,13 +4,17 @@
 namespace FluentFlyoutWPF.Models;
 
 /// <summary>
-/// Identificadores estables de las funcionalidades del Island y su orden por defecto.
+/// Identificadores estables de las funcionalidades del Island.
 ///
-/// <para>El orden de <see cref="All"/> es el que usa el contenedor para navegar (rueda
-/// del ratón y flechas laterales) y para desempatar la activa vigente cuando varias
-/// funcionalidades lo están a la vez. El usuario puede cambiarlo desde ajustes: se
-/// guarda en <c>IslandFeatureOrder</c> y el contenedor reordena su registro en el
-/// acto.</para>
+/// <para>El orden de <see cref="All"/> es el orden por defecto de las PANTALLAS (una
+/// por funcionalidad) y el orden en el que las funcionalidades se ofrecen en el editor.
+/// La navegación y la vista las manda <c>IslandScreens</c>: la rueda y las flechas
+/// recorren pantallas y cada pantalla compone sus funcionalidades de izquierda a
+/// derecha. No hay ninguna otra lista de orden.</para>
+///
+/// <para>Cada pantalla lleva como máximo <see cref="MaxFeaturesPerScreen"/>
+/// funcionalidades: son las que caben en su composición (fichas del compacto y
+/// columnas del expandido).</para>
 /// </summary>
 public static class IslandFeatureIds
 {
@@ -48,6 +52,13 @@ public static class IslandFeatureIds
     public const char ScreenSeparator = '+';
 
     /// <summary>
+    /// Máximo de funcionalidades por pantalla: es lo que cabe en una sola pantalla del
+    /// Island (una ficha por funcionalidad en el compacto y una columna en el
+    /// expandido). Una pantalla nunca se guarda con más.
+    /// </summary>
+    public const int MaxFeaturesPerScreen = 4;
+
+    /// <summary>
     /// Pantallas por defecto: una por funcionalidad, en el orden de <see cref="All"/>.
     /// Es el comportamiento histórico (cada funcionalidad con su vista rica).
     /// </summary>
@@ -55,8 +66,10 @@ public static class IslandFeatureIds
 
     /// <summary>
     /// Lee una pantalla configurada («media+timer») y devuelve sus funcionalidades
-    /// en orden. Descarta ids desconocidos, vacíos y repetidos: una pantalla nunca
-    /// se cae por un ajuste viejo ni muestra la misma funcionalidad dos veces.
+    /// en orden, como máximo <see cref="MaxFeaturesPerScreen"/>. Descarta ids
+    /// desconocidos, vacíos y repetidos: una pantalla nunca se cae por un ajuste viejo
+    /// ni muestra la misma funcionalidad dos veces. El saneado de los ajustes reparte
+    /// en varias pantallas lo que viniera de más (nada se pierde al cargar).
     /// </summary>
     public static IReadOnlyList<string> ParseScreen(string? screen)
     {
@@ -67,6 +80,7 @@ public static class IslandFeatureIds
             string id = raw.Trim();
             if (!IsKnown(id) || ids.Contains(id)) continue;
             ids.Add(id);
+            if (ids.Count == MaxFeaturesPerScreen) break;
         }
         return ids;
     }

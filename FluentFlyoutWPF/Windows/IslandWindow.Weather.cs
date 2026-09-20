@@ -114,7 +114,7 @@ public partial class IslandWindow
     private void RefreshWeatherContentCore()
     {
         ApplyWeatherSettings();
-        if (!WeatherModeAvailable() && _contentMode == IslandContentMode.Weather && IsBoxShown)
+        if (!WeatherModeAvailable() && ViewShowsFeature(IslandFeatureIds.Weather) && IsBoxShown)
         {
             FallbackFromWeatherView();
             return;
@@ -186,7 +186,7 @@ public partial class IslandWindow
         SettingsManager.Current.IslandWeatherStatus = $"Actualizado a las {snapshot.UpdatedUtc.ToLocalTime():HH:mm}.";
         // El dato nuevo solo repinta si la vista del clima está delante (nunca la
         // despliega: el clima no es un evento que deba abrir la caja).
-        if (previous == null || _contentMode == IslandContentMode.Weather)
+        if (previous == null || ViewShowsFeature(IslandFeatureIds.Weather))
         {
             ApplyContentVisibility();
             SyncMeasuredHeight();
@@ -245,7 +245,7 @@ public partial class IslandWindow
     private void ReconcileWeatherState()
     {
         if (!WeatherModeAvailable() || _weatherSnapshot == null) return;
-        if (!IsBoxShown || _contentMode != IslandContentMode.Weather) return;
+        if (!IsBoxShown || !ViewShowsFeature(IslandFeatureIds.Weather)) return;
         RefreshWeatherUI();
     }
 
@@ -256,6 +256,9 @@ public partial class IslandWindow
     /// </summary>
     private void FallbackFromWeatherView()
     {
+        // Con una pantalla delante, se recompone con sus miembros usables: la vista no
+        // se cae por perder a uno de ellos (change island-pantallas).
+        if (RecoverScreensAfterMemberLost()) return;
         _expanded = false;
         _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();

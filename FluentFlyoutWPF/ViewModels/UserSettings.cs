@@ -1281,22 +1281,17 @@ public partial class UserSettings : ObservableObject
     public partial string IslandAppsError { get; set; }
 
     /// <summary>
-    /// Island: orden de las funcionalidades (ids de <see cref="IslandFeatureIds"/>) tal y
-    /// como se navegan con la rueda y las flechas laterales. Es la «lista de islands»
-    /// que el usuario reordena en ajustes. Se autorrepara al cargar: los ids
-    /// desconocidos o repetidos salen y los que falten se añaden al final en su orden
-    /// por defecto, así que ninguna funcionalidad se queda fuera de la navegación.
-    /// </summary>
-    [ObservableProperty]
-    public partial ObservableCollection<string> IslandFeatureOrder { get; set; }
-
-    /// <summary>
     /// Pantallas del Island (change island-pantallas): cada entrada es una pantalla
     /// con las funcionalidades que se muestran JUNTAS, por su id
-    /// (<see cref="IslandFeatureIds"/>) unidas por '+'. El orden es el de la
-    /// navegación (rueda y flechas). Sin nada configurado rige una pantalla por
-    /// funcionalidad, que es el comportamiento histórico; se autorrepara al cargar:
-    /// los ids desconocidos o repetidos salen y las pantallas vacías se descartan.
+    /// (<see cref="IslandFeatureIds"/>) unidas por '+'. Son la ÚNICA fuente del orden y
+    /// de la composición del Island: el orden de la lista es el de la navegación (rueda
+    /// y flechas), el de dentro de cada pantalla es el de presentación (de izquierda a
+    /// derecha) y una funcionalidad que no esté en ninguna pantalla no se muestra. Cada
+    /// pantalla lleva como máximo <see cref="IslandFeatureIds.MaxFeaturesPerScreen"/>
+    /// funcionalidades. Sin nada configurado rige una pantalla por funcionalidad, que es
+    /// el comportamiento histórico; se autorrepara al cargar: los ids desconocidos o
+    /// repetidos salen, las pantallas vacías se descartan y lo que viniera de más se
+    /// reparte en pantallas nuevas.
     /// </summary>
     [ObservableProperty]
     public partial ObservableCollection<string> IslandScreens { get; set; }
@@ -1890,7 +1885,6 @@ public partial class UserSettings : ObservableObject
         GoogleCalendarError = "";
         GoogleCalendarStatus = "";
 
-        IslandFeatureOrder = [.. IslandFeatureIds.All];
         IslandScreens = [.. IslandFeatureIds.DefaultScreens];
         AppFilteringEnabled = false;
         AppFilteringMode = 0;
@@ -2003,13 +1997,10 @@ public partial class UserSettings : ObservableObject
         // ruta ya no existe: se sacaron con la aplicación cerrada) arrancan limpios.
         IslandShelfItems ??= [];
         SanitizeIslandShelf();
-        // Migración del orden de funcionalidades: sin la clave rige el orden por
-        // defecto y cualquier id que no exista se descarta.
-        IslandFeatureOrder ??= [.. IslandFeatureIds.All];
-        SanitizeIslandFeatureOrder();
         // Migración de las pantallas: XML antiguos sin el ajuste arrancan con una
         // pantalla por funcionalidad (el comportamiento de siempre) y cualquier
-        // pantalla vacía o con ids desconocidos se sanea.
+        // pantalla vacía, con ids desconocidos o con más funcionalidades de las que
+        // caben se sanea.
         IslandScreens ??= [.. IslandFeatureIds.DefaultScreens];
         SanitizeIslandScreens();
         // Migración del calendario: XML antiguos sin estos ajustes arrancan con la
@@ -2206,34 +2197,26 @@ public partial class UserSettings : ObservableObject
         IslandAppsError = "";
     }
 
-    // --- orden de las funcionalidades del Island ---
-
-    /// <summary>
-    /// Autorreparación del orden de funcionalidades: fuera los ids desconocidos o
-    /// repetidos y, al final, los que falten en su orden por defecto. Un XML viejo (o
-    /// editado a mano) nunca puede dejar una funcionalidad fuera de la navegación.
-    /// </summary>
-    private void SanitizeIslandFeatureOrder()
-    {
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var id in IslandFeatureOrder.ToList())
-            if (!IslandFeatureIds.IsKnown(id) || !seen.Add(id)) IslandFeatureOrder.Remove(id);
-        foreach (var id in IslandFeatureIds.All)
-            if (seen.Add(id)) IslandFeatureOrder.Add(id);
-    }
-
     /// <summary>
     /// Sanea las pantallas del Island: cada una se reescribe con sus funcionalidades
-    /// conocidas y sin repetir, y las que se quedan sin ninguna se descartan. Sin
-    /// ninguna pantalla válida rige una por funcionalidad (nunca una navegación vacía).
+    /// conocidas y sin repetir, y las que se quedan sin ninguna se descartan. Una
+    /// pantalla con más funcionalidades de las que caben se REPARTE en pantallas de
+    /// <see cref="IslandFeatureIds.MaxFeaturesPerScreen"/> (nada se pierde al cargar un
+    /// ajuste viejo o editado a mano). Sin ninguna pantalla válida rige una por
+    /// funcionalidad (nunca una navegación vacía).
     /// </summary>
     internal void SanitizeIslandScreens()
     {
         var cleaned = new List<string>();
         foreach (var screen in IslandScreens.ToList())
         {
-            string normalized = IslandFeatureIds.FormatScreen(IslandFeatureIds.ParseScreen(screen));
-            if (normalized.Length > 0) cleaned.Add(normalized);
+            var ids = IslandFeatureIds.ParseScreen(screen);
+            for (int at = 0; at < ids.Count; at += IslandFeatureIds.MaxFeaturesPerScreen)
+            {
+                string normalized = IslandFeatureIds.FormatScreen(
+                    ids.Skip(at).Take(IslandFeatureIds.MaxFeaturesPerScreen));
+                if (normalized.Length > 0) cleaned.Add(normalized);
+            }
         }
         IslandScreens.Clear();
         // Las pantallas repetidas se conservan: dos pantallas iguales son una
@@ -2279,7 +2262,9 @@ public partial class UserSettings : ObservableObject
     /// Añade una funcionalidad al FINAL de una pantalla. El orden de dentro de la
     /// pantalla es el orden en el que sus funcionalidades se presentan (de izquierda a
     /// derecha: fichas del compacto y columnas del expandido), así que la nueva entra
-    /// al final y el usuario la coloca con <see cref="MoveIslandScreenFeature"/>.
+    /// al final y el usuario la coloca con <see cref="MoveIslandScreenFeature"/>. Una
+    /// pantalla llena (<see cref="IslandFeatureIds.MaxFeaturesPerScreen"/>) no acepta
+    /// más: es el máximo que cabe en una sola pantalla del Island.
     /// </summary>
     internal bool AddIslandScreenFeature(string screen, string featureId)
     {
@@ -2287,6 +2272,7 @@ public partial class UserSettings : ObservableObject
         int index = IslandScreens.IndexOf(screen);
         if (index < 0) return false;
         var ids = IslandFeatureIds.ParseScreen(screen).ToList();
+        if (ids.Count >= IslandFeatureIds.MaxFeaturesPerScreen) return false;
         if (ids.Contains(featureId)) return false;
         ids.Add(featureId);
         IslandScreens[index] = IslandFeatureIds.FormatScreen(ids);
@@ -2341,31 +2327,6 @@ public partial class UserSettings : ObservableObject
     {
         if (IslandScreens.Count <= 1) return;
         IslandScreens.Remove(screen);
-    }
-
-    /// <summary>
-    /// Sube o baja una funcionalidad en la lista del Island (delta -1 / +1). Los
-    /// extremos no se mueven y la lista no da la vuelta: es una fila, no un ciclo.
-    /// </summary>
-    public void MoveIslandFeature(string id, int delta)
-    {
-        int from = IslandFeatureOrder.IndexOf(id);
-        int to = from + delta;
-        if (from < 0 || to < 0 || to >= IslandFeatureOrder.Count) return;
-        IslandFeatureOrder.Move(from, to);
-    }
-
-    partial void OnIslandFeatureOrderChanged(ObservableCollection<string> oldValue, ObservableCollection<string> newValue)
-    {
-        if (oldValue != null) oldValue.CollectionChanged -= IslandFeatureOrder_CollectionChanged;
-        if (newValue != null) newValue.CollectionChanged += IslandFeatureOrder_CollectionChanged;
-    }
-
-    private void IslandFeatureOrder_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
-    {
-        if (!_initializing) SettingsManager.SaveSettings();
-        // El contenedor navega en este orden: se reordena en el acto, sin reiniciar.
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.ApplyFeatureOrder();
     }
 
     // --- estante de archivos del Island ---

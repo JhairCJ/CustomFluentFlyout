@@ -111,7 +111,7 @@ public partial class IslandWindow
         else
         {
             _clipboard.Stop();
-            if (IsBoxShown && _contentMode == IslandContentMode.Clipboard) FallbackFromClipboardView();
+            if (IsBoxShown && ViewShowsFeature(IslandFeatureIds.Clipboard)) FallbackFromClipboardView();
         }
         ApplyContentVisibility();
         SyncMeasuredHeight();
@@ -126,7 +126,7 @@ public partial class IslandWindow
         if (_disposed) return;
         // La lista cambió: se repinta lo que ya esté a la vista (nunca se despliega
         // solo: copiar no es un evento que deba abrir el Island).
-        if (IsBoxShown && _contentMode == IslandContentMode.Clipboard)
+        if (IsBoxShown && ViewShowsFeature(IslandFeatureIds.Clipboard))
         {
             ApplyContentVisibility();
             SyncMeasuredHeight();
@@ -170,6 +170,8 @@ public partial class IslandWindow
     /// </summary>
     private void FallbackFromClipboardView()
     {
+        // Con una pantalla delante, se recompone con sus miembros usables.
+        if (RecoverScreensAfterMemberLost()) return;
         _expanded = false;
         _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();

@@ -133,7 +133,7 @@ public partial class IslandWindow
         GoogleCalendarService.Instance.Configure();
         if (CalendarModeAvailable())
         {
-            if (IsBoxShown && _contentMode == IslandContentMode.Calendar)
+            if (IsBoxShown && ViewShowsFeature(IslandFeatureIds.Calendar))
             {
                 ApplyContentVisibility();
                 SyncMeasuredHeight();
@@ -141,7 +141,7 @@ public partial class IslandWindow
             UpdateArrows();
             return;
         }
-        if (_contentMode == IslandContentMode.Calendar) FallbackFromCalendarView();
+        if (ViewShowsFeature(IslandFeatureIds.Calendar)) FallbackFromCalendarView();
         UpdateArrows();
     });
 
@@ -151,6 +151,8 @@ public partial class IslandWindow
     /// </summary>
     private void FallbackFromCalendarView()
     {
+        // Con una pantalla delante, se recompone con sus miembros usables.
+        if (RecoverScreensAfterMemberLost()) return;
         _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();
         if (SettingsManager.Current.IslandVisibilityMode == 0
@@ -220,6 +222,6 @@ public partial class IslandWindow
     {
         RefreshCalendarList();
         if (!IsBoxShown) return;
-        if (_contentMode == IslandContentMode.Calendar) SyncMeasuredHeight();
+        if (ViewShowsFeature(IslandFeatureIds.Calendar)) SyncMeasuredHeight();
     });
 }

@@ -66,7 +66,7 @@ public partial class IslandPage : Page
             IslandCategory.Content => [36, 37],
             IslandCategory.Timer => [38, 39, 40, 41, 42],
             IslandCategory.Apps => [43, 44],
-            IslandCategory.Organization => [45, 46, 47, 48],
+            IslandCategory.Organization => [47, 48],
             IslandCategory.Tools => [49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59],
             _ => [],
         };
@@ -102,7 +102,7 @@ public partial class IslandPage : Page
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var title = new TextBlock
             {
-                Text = $"Pantalla {i + 1}",
+                Text = $"Pantalla {i + 1} · {ids.Count}/{IslandFeatureIds.MaxFeaturesPerScreen}",
                 FontSize = 14,
                 FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -131,8 +131,14 @@ public partial class IslandPage : Page
             }
             row.Children.Add(cards);
 
-            // Añadir: solo las funcionalidades que no están ya en esta pantalla.
-            var missing = IslandFeatureIds.All.Where(id => !ids.Contains(id)).ToList();
+            // Añadir: solo las funcionalidades que no están ya en esta pantalla y solo
+            // mientras quede hueco. Una pantalla admite hasta MaxFeaturesPerScreen: es lo
+            // que cabe en una sola pantalla del Island (una ficha por funcionalidad en el
+            // compacto y una columna en el expandido).
+            bool full = ids.Count >= IslandFeatureIds.MaxFeaturesPerScreen;
+            var missing = full
+                ? new List<string>()
+                : IslandFeatureIds.All.Where(id => !ids.Contains(id)).ToList();
             var addRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
             addRow.Children.Add(new TextBlock
             {
@@ -146,9 +152,15 @@ public partial class IslandPage : Page
             {
                 Width = 240,
                 IsEnabled = missing.Count > 0,
-                ToolTip = "Se añade al final de la pantalla; colócala con ◀ ▶",
+                ToolTip = $"Se añade al final de la pantalla; colócala con ◀ ▶ (máx. {IslandFeatureIds.MaxFeaturesPerScreen} por pantalla)",
             };
-            if (missing.Count == 0)
+            if (full)
+            {
+                add.Items.Add($"Pantalla completa ({IslandFeatureIds.MaxFeaturesPerScreen}/{IslandFeatureIds.MaxFeaturesPerScreen})");
+                add.SelectedIndex = 0;
+                add.IsEnabled = false;
+            }
+            else if (missing.Count == 0)
             {
                 add.Items.Add("La pantalla las lleva todas");
                 add.SelectedIndex = 0;
@@ -389,24 +401,6 @@ public partial class IslandPage : Page
     /// <summary>Refresco a mano del dato (el ciclo periódico sigue igual).</summary>
     private void IslandWeatherRefresh_Click(object sender, RoutedEventArgs e) =>
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshWeatherNow();
-
-    // --- orden de las funcionalidades del Island ---
-
-    private void IslandFeatureMoveUp_Click(object sender, RoutedEventArgs e) => MoveIslandFeature(sender, -1);
-
-    private void IslandFeatureMoveDown_Click(object sender, RoutedEventArgs e) => MoveIslandFeature(sender, +1);
-
-    /// <summary>
-    /// Sube o baja una funcionalidad en la lista del Island. El elemento de la lista ES
-    /// el identificador (ver <see cref="IslandFeatureIds"/>), así que el botón ya sabe
-    /// qué mueve: el ajuste se guarda solo y el contenedor reordena la navegación en el
-    /// acto (UserSettings.MoveIslandFeature).
-    /// </summary>
-    private static void MoveIslandFeature(object sender, int delta)
-    {
-        if ((sender as FrameworkElement)?.DataContext is not string id) return;
-        SettingsManager.Current.MoveIslandFeature(id, delta);
-    }
 
     // --- estante de archivos del Island ---
 

@@ -68,12 +68,12 @@ public partial class IslandWindow
             if (style == 1)
             {
                 IslandBox.BorderThickness = new Thickness(1, 0, 1, 1);
-                CompactLayer.Width = NotchCompactWidth;
+                CompactLayer.Width = CompactScreenAwareWidth(NotchCompactWidth);
             }
             else
             {
                 IslandBox.BorderThickness = new Thickness(1);
-                CompactLayer.Width = CompactPillWidth;
+                CompactLayer.Width = CompactScreenAwareWidth(CompactPillWidth);
             }
         }
 
@@ -281,11 +281,21 @@ public partial class IslandWindow
     /// Centra la ventana en la parte superior del monitor principal. Usa la
     /// instantánea de contexto cacheada (001 MOD RF-12): la geometría del monitor
     /// solo se relee cuando Windows avisa de un cambio.
+    ///
+    /// <para>La ventana es el lienzo transparente del Island: si el contenido vigente
+    /// pide más ancho que el de siempre —una pantalla combinada con sus columnas
+    /// (change island-pantallas RF-3)— se ensancha ANTES de centrar, porque WPF recorta
+    /// lo que sobresale de la ventana. Lo transparente sigue siendo click-through, así
+    /// que ensanchar no le quita el ratón a nadie.</para>
     /// </summary>
     private void PositionTopCenter()
     {
         var primary = PrimaryMonitor();
         if (primary.monitorArea.Width == 0) return;
+        double content = _expanded || _p > 0.05 ? ContentExpandedWidth : ContentCompactWidth;
+        // El margen deja sitio a las flechas laterales del expandido.
+        double wanted = Math.Max(DefaultWindowWidth, content + 80);
+        if (Math.Abs(Width - wanted) > 0.5) Width = wanted;
         double rawW = Width * primary.dpiX / 96.0;
         Left = (primary.workArea.Left + primary.workArea.Width / 2 - rawW / 2) * 96.0 / primary.dpiX;
         Top = primary.workArea.Top * 96.0 / primary.dpiY;

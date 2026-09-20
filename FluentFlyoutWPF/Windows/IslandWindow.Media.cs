@@ -342,11 +342,7 @@ public partial class IslandWindow
             // toca la vista si era la música la que estaba delante (una caja
             // musical vacía no vale, RF-13); el resto de funcionalidades mandan
             // sobre su propia vista y su aviso.
-            if (_contentMode == IslandContentMode.Media)
-            {
-                if (TimerKeepsAlive()) ShowTimerCompact();
-                else if (!_expanded) ShowInactiveOrHidden();
-            }
+            if (MediaOwnsView()) DropMediaView();
             return;
         }
 
@@ -401,10 +397,10 @@ public partial class IslandWindow
             if (show) { PresentMediaSnapshot(status); return; }
             // Pausa que no cuenta como activa: no sostiene una vista compacta, en
             // los DOS modos (001 MOD RF-4/RF-7).
-            if (_contentMode == IslandContentMode.Media)
+            if (MediaOwnsView())
             {
                 bool forceHideFromCompact = !pauseCounts && !SettingsManager.Current.IslandShowOnPause;
-                if (forceHideFromCompact) ShowInactiveOrHidden();
+                if (forceHideFromCompact) DropMediaView();
                 else HidePerMode();
             }
             return;
@@ -416,19 +412,49 @@ public partial class IslandWindow
         // cambio de canción ya se atendió arriba para cualquier estado). Solo se
         // repliega la propia vista musical; una vista de otra funcionalidad
         // (temporizador, cajón, estante, calendario) no se toca.
-        if (_contentMode == IslandContentMode.Media && !_expanded && !TimerKeepsAlive())
-            ShowInactiveOrHidden();
+        if (MediaOwnsView() && !_expanded) DropMediaView();
+    }
+
+    /// <summary>
+    /// ¿La vista vigente es la música? Vale con su vista rica delante y también cuando
+    /// la música vive dentro de una PANTALLA que la contiene (change island-pantallas):
+    /// en los dos casos un evento de música la afecta a ella y no a otra vista.
+    /// </summary>
+    private bool MediaOwnsView() =>
+        _contentMode == IslandContentMode.Media || ScreenOwnsMediaView();
+
+    /// <summary>
+    /// La música dejó de sostener la vista: se repliega a lo que corresponda. Con una
+    /// PANTALLA delante, la vista la sostiene la pantalla entera, así que se queda si
+    /// alguna otra de sus funcionalidades sigue sosteniéndola (el temporizador contando,
+    /// un aviso vivo) y, si no, se repliega igual que su vista rica.
+    /// </summary>
+    private void DropMediaView()
+    {
+        if (_contentMode == IslandContentMode.Screen)
+        {
+            if (ScreenSustainsView())
+            {
+                if (_expanded) { RefreshScreenMembers(); return; }
+                if (ShowCurrentScreenCompact()) return;
+            }
+            if (!_expanded) ShowInactiveOrHidden();
+            return;
+        }
+        if (TimerKeepsAlive()) ShowTimerCompact();
+        else if (!_expanded) ShowInactiveOrHidden();
     }
 
     /// <summary>
     /// Con la vista musical ya delante, un cambio de metadata re-pinta su
     /// título/portada sin re-desplegar nada ni tocar el plazo del aviso
-    /// (001 MOD RF-1/RF-2).
+    /// (001 MOD RF-1/RF-2). Con la música dentro de una pantalla, repinta su ficha y
+    /// su panel sin tocar la composición.
     /// </summary>
     private void RefreshVisibleMediaIfShown(bool metadataChanged)
     {
         if (!metadataChanged || !IsBoxShown) return;
-        if (_contentMode != IslandContentMode.Media) return;
+        if (!MediaOwnsView()) return;
         if (Current() is { } shown) RefreshUi(shown);
     }
 
@@ -459,8 +485,9 @@ public partial class IslandWindow
             return;
         // Ya a la vista con su aviso vigente: un evento repetido del reproductor no
         // debe reiniciar el plazo ni hacer REAPARECER el aviso cada pocos segundos
-        // (001 MOD RF-2). Un cambio de canción sí estrena aviso.
-        if (IsBoxShown && _contentMode == IslandContentMode.Media
+        // (001 MOD RF-2). Un cambio de canción sí estrena aviso. Con la música dentro de
+        // una pantalla vale lo mismo: su vista ya está delante.
+        if (IsBoxShown && MediaOwnsView()
             && _noticeUntil > DateTime.UtcNow && !trackChanged)
         {
             RefreshUi(session, status);
@@ -728,9 +755,15 @@ public partial class IslandWindow
     {
         // Alerta modal del timer: los eventos de música esperan a X o reinicio.
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
-        // Evento multimedia: el contenido más reciente manda (spec 001 RF-24).
-        _contentMode = IslandContentMode.Media;
-        ApplyContentVisibility();
+        // Con una PANTALLA combinada delante que contiene la música, la composición la
+        // manda ella: la música solo repinta su contenido (fichas y paneles de cada
+        // columna). Si no, el evento multimedia adopta su vista de siempre: el contenido
+        // más reciente manda (spec 001 RF-24).
+        if (!ScreenOwnsMediaView())
+        {
+            _contentMode = IslandContentMode.Media;
+            ApplyContentVisibility();
+        }
         var status = knownStatus ?? SafeStatus(session) ?? _lastStatus;
         if (status != null) _lastStatus = status;
         PaintGlyph();

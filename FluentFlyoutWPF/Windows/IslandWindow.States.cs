@@ -226,9 +226,12 @@ public partial class IslandWindow
     /// RF-12). Actividad = contrato: media reproduciendo (o pausada si «pausa
     /// cuenta como activo») y timer en marcha; una pausa/timer pausado no
     /// sostiene el compacto. Con varias candidatas gana la del evento más
-    /// reciente y, ante empate (mismo instante o sin evento registrado), la de
-    /// mayor índice de registro: desempate explícito, sin depender del orden
-    /// que devuelva un sort inestable.
+    /// reciente y, ante empate (mismo instante o sin evento registrado), la primera
+    /// en el ORDEN DE LAS PANTALLAS: desempate explícito, sin depender del orden que
+    /// devuelva un sort inestable ni de ninguna lista de orden aparte.
+    ///
+    /// <para>Solo entran las funcionalidades que están en alguna pantalla: sin pantalla
+    /// no hay vista, así que tampoco pueden sostener el compacto.</para>
     /// </summary>
     private IIslandFeature? ResolveActiveVigenteForVisible()
     {
@@ -236,10 +239,9 @@ public partial class IslandWindow
         bool timerActive = IsTimerActiveForCompact();
         IIslandFeature? best = null;
         DateTime bestWhen = DateTime.MinValue;
-        int bestIndex = -1;
-        for (int i = 0; i < _features.Features.Count; i++)
+        int bestOrder = int.MaxValue;
+        foreach (var (feature, order) in ScreenOrderedFeatures())
         {
-            var feature = _features.Features[i];
             bool active = feature.Id switch
             {
                 "media" => mediaActive,
@@ -248,18 +250,18 @@ public partial class IslandWindow
             };
             if (!active || !feature.State.Usable) continue;
             DateTime when = _lastFeatureEvent.TryGetValue(feature.Id, out var stamp) ? stamp : DateTime.MinValue;
-            if (best == null || when > bestWhen || (when == bestWhen && i > bestIndex))
+            if (best == null || when > bestWhen || (when == bestWhen && order < bestOrder))
             {
                 best = feature;
                 bestWhen = when;
-                bestIndex = i;
+                bestOrder = order;
             }
         }
         return best;
     }
 
-    /// <summary>¿Hay alguna funcionalidad habilitada y disponible? (001 MOD RF-9)</summary>
-    private bool AnyFeatureUsable() => _features.UsableFeatures().Any();
+    /// <summary>¿Hay alguna PANTALLA con algo usable? (001 MOD RF-9): sin pantalla usable no hay vista que anclar.</summary>
+    private bool AnyScreenUsable() => UsableScreenCount() > 0;
 
     /// <summary>
     /// El toggle «volver a inactivo» decide el reposo: pieza negra visible o
@@ -267,7 +269,7 @@ public partial class IslandWindow
     /// usables no hay pieza: no se ancla una caja vacía.
     /// </summary>
     private bool ReturnToInactive() =>
-        SettingsManager.Current.IslandReturnToInactive && AnyFeatureUsable();
+        SettingsManager.Current.IslandReturnToInactive && AnyScreenUsable();
 
     /// <summary>
     /// Reposo del contenedor (001 MOD RF-2): pieza inactiva o nada según el
@@ -733,6 +735,18 @@ public partial class IslandWindow
                 ShowInactiveOrHidden();
                 return;
             }
+            if (_contentMode == IslandContentMode.Screen)
+            {
+                // La pantalla vigente es un aviso más (change island-pantallas): vuelve
+                // a su compacto —su fila de fichas— mientras su plazo siga vivo y algo
+                // de ella sostenga la vista; si no, la activa vigente o el reposo, sin
+                // destellos (001 RF-2, RF-16).
+                if (noticeAlive && ScreenSustainsView() && ShowCurrentScreenCompact()) return;
+                if (ResolveActiveVigenteForVisible() is { } vigenteScreen
+                    && ShowScreenOfFeature(vigenteScreen)) return;
+                ShowInactiveOrHidden();
+                return;
+            }
             HidePerMode();
             return;
         }
@@ -781,18 +795,22 @@ public partial class IslandWindow
         // La unidad de la vista es la PANTALLA (change island-pantallas RF-4): el clic
         // abre la pantalla del contenido que sostiene la vista (la activa vigente) o,
         // sin ella, la pantalla vigente entera —simple o combinada—, nunca una
-        // funcionalidad suelta que el usuario no configuró.
-        if (ResolveActiveVigenteForVisible() is { } vigente && ScreenIndexOfFeature(vigente.Id) >= 0)
+        // funcionalidad suelta: el orden de las pantallas es el único orden.
+        if (ResolveActiveVigenteForVisible() is { } vigente)
         {
-            int index = ScreenIndexOfFeature(vigente.Id);
+            int index = ResolveScreenIndexFor(vigente.Id);
+            if (index >= 0) _screenIndex = index;
+        }
+        // Se abre la pantalla usable más cercana, orillando las que no pueden abrir
+        // nada (las que solo llevan avisos sin expandido) para que el clic nunca se
+        // quede sin efecto teniendo algo que enseñar.
+        for (int step = 0; step < _screens.Count; step++)
+        {
+            int index = WrapUnit(_screenIndex + step, _screens.Count);
+            if (ScreenUsableFeatures(_screens[index]).Count == 0) continue;
             _screenIndex = index;
             if (ExpandCurrentScreen()) return true;
         }
-        if (MoveToNearestUsableScreen() && ExpandCurrentScreen()) return true;
-        var feature = LastUsableFeature();
-        if (feature != null && feature.TryShowExpanded()) return true;
-        var alt = _features.NextUsableAfter(feature);
-        if (alt != null && alt.TryShowExpanded()) return true;
         HidePerMode();
         return false;
     }

@@ -35,7 +35,6 @@
             <converters:NullToVisibilityConverter x:Key="NullToVisibleConverter" />
             <converters:NullToVisibilityConverter x:Key="NullToCollapsedConverter" NullValue="Collapsed" NonNullValue="Visible" />
             <converters:PercentageToOpacityConverter x:Key="PercentageToOpacityConverter" />
-            <converters:IslandFeatureNameConverter x:Key="IslandFeatureNameConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

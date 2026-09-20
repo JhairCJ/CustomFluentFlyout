@@ -82,8 +82,8 @@ public partial class IslandWindow
         if (HasExclusive()) { ClearTemporaryNotice(); return; }
         // Con el compacto del temporizador ya a la vista manda su plazo vigente:
         // la acción de la cuenta no reinicia un aviso que ya estaba corriendo
-        // (001 RF-2).
-        if (!_expanded && IsBoxShown && _contentMode == IslandContentMode.Timer) return;
+        // (001 RF-2). Vale también con el temporizador dentro de una pantalla.
+        if (!_expanded && IsBoxShown && ViewShowsFeature(IslandFeatureIds.Timer)) return;
         _pendingTimerNotice = true;
         if (!_expanded) ShowTimerCompact();
     }
@@ -191,6 +191,17 @@ public partial class IslandWindow
         CompactLayer.Width = SingleCompactLayerWidth;
         if (_contentMode == IslandContentMode.Screen)
         {
+            // Una pantalla que dejó de ser combinada (a su miembro lo apagaron, se
+            // cerró su sesión…) vuelve a la vista de la funcionalidad que le queda: la
+            // composición de fichas y columnas existe para pantallas de VARIAS (RF-1).
+            // Sin ninguna usable no hay nada que componer.
+            if (!ScreenIsCombined())
+            {
+                if (CurrentScreenFeatures().Count > 0
+                    && (_expanded ? ExpandCurrentScreen() : ShowCurrentScreenCompact())) return;
+                ShowInactiveOrHidden();
+                return;
+            }
             ApplyScreenLayerVisibility();
             return;
         }
@@ -433,7 +444,7 @@ public partial class IslandWindow
         if (_timer.State == IslandTimerState.Paused
             && SettingsManager.Current.IslandVisibilityMode == 0
             && !IsMediaActiveForContract()
-            && (_expanded || (IsBoxShown && _contentMode == IslandContentMode.Timer)))
+            && (_expanded || (IsBoxShown && ViewShowsFeature(IslandFeatureIds.Timer))))
         {
             _expanded = false;
             ShowInactiveOrHidden();
@@ -556,10 +567,11 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Cambia de funcionalidad (rueda o flechas, 002 MOD RF-3/RF-9): recorre las
-    /// usables en orden de registro, con vuelta, en el sentido indicado. Cada
-    /// funcionalidad abre su vista por el contrato, así que sin disponibilidad no
-    /// se aterriza en una vista vacía (001 MOD RF-9).
+    /// Cambia de PANTALLA (rueda o flechas, 002 MOD RF-3/RF-9): recorre las pantallas
+    /// con algo usable en el orden de la lista de pantallas, con vuelta, en el sentido
+    /// indicado. Cada pantalla abre su vista por el contrato —la rica de su única
+    /// funcionalidad o su composición de fichas y columnas—, así que sin disponibilidad
+    /// no se aterriza en una vista vacía (001 MOD RF-9).
     ///
     /// <para>Nunca se toca el motor de cuenta ni el snapshot: cambiar de vista no
     /// cancela ni reinicia la cuenta del temporizador (002 MOD RF-9, RF-13).</para>

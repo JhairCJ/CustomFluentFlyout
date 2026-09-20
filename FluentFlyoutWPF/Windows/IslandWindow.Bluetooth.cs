@@ -160,7 +160,7 @@ public partial class IslandWindow
         else
         {
             _bluetooth?.Stop();
-            if (IsBoxShown && _contentMode == IslandContentMode.Bluetooth) FallbackFromBluetoothView();
+            if (IsBoxShown && ViewShowsFeature(IslandFeatureIds.Bluetooth)) FallbackFromBluetoothView();
         }
         UpdateArrows();
         PostActivity(IslandActivityReason.Bluetooth | IslandActivityReason.Settings);
@@ -208,7 +208,7 @@ public partial class IslandWindow
         // El dispositivo empezó a cargar con su aviso a la vista (o dejó de
         // cargar): el aviso cambia de variante en el sitio, sin reiniciar su plazo
         // (001 MOD RF-6).
-        if (_contentMode == IslandContentMode.Bluetooth && IsBoxShown
+        if (ViewShowsFeature(IslandFeatureIds.Bluetooth) && IsBoxShown
             && _bluetoothNotice != BluetoothNoticeKind.Disconnected)
             _bluetoothNotice = device.Charging == true
                 ? BluetoothNoticeKind.Charging : BluetoothNoticeKind.Connected;
@@ -316,7 +316,7 @@ public partial class IslandWindow
     private void ReconcileBluetoothState()
     {
         if (!BluetoothModeAvailable() || _bluetoothDevice == null) return;
-        if (!IsBoxShown || _contentMode != IslandContentMode.Bluetooth) return;
+        if (!IsBoxShown || !ViewShowsFeature(IslandFeatureIds.Bluetooth)) return;
         RefreshBluetoothUI();
     }
 
@@ -330,6 +330,8 @@ public partial class IslandWindow
         // El aviso forzado es el de esta vista: no puede quedar armado sobre la
         // vista siguiente.
         if (_noticeForced) ClearTemporaryNotice();
+        // Con una pantalla delante, se recompone con sus miembros usables.
+        if (RecoverScreensAfterMemberLost()) return;
         _expanded = false;
         _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();

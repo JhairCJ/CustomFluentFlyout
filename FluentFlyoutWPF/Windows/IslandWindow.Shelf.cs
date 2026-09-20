@@ -115,7 +115,7 @@ public partial class IslandWindow
         RefreshShelfList();
         if (ShelfModeAvailable())
         {
-            if (IsBoxShown && _contentMode == IslandContentMode.Shelf)
+            if (IsBoxShown && ViewShowsFeature(IslandFeatureIds.Shelf))
             {
                 ApplyContentVisibility();
                 SyncMeasuredHeight();
@@ -123,7 +123,7 @@ public partial class IslandWindow
             UpdateArrows();
             return;
         }
-        if (_contentMode == IslandContentMode.Shelf) FallbackFromShelfView();
+        if (ViewShowsFeature(IslandFeatureIds.Shelf)) FallbackFromShelfView();
         UpdateArrows();
     });
 
@@ -134,6 +134,8 @@ public partial class IslandWindow
     /// </summary>
     private void FallbackFromShelfView()
     {
+        // Con una pantalla delante, se recompone con sus miembros usables.
+        if (RecoverScreensAfterMemberLost()) return;
         _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();
         if (SettingsManager.Current.IslandVisibilityMode == 0
@@ -247,7 +249,7 @@ public partial class IslandWindow
             if (effect == DragDropEffects.None || item.Exists || !ShelfItems.Contains(item)) return;
             ShelfItems.Remove(item);
             RefreshShelfList();
-            if (_contentMode == IslandContentMode.Shelf)
+            if (ViewShowsFeature(IslandFeatureIds.Shelf))
             {
                 ApplyContentVisibility();
                 SyncMeasuredHeight();
@@ -273,7 +275,7 @@ public partial class IslandWindow
         if ((sender as FrameworkElement)?.DataContext is not IslandShelfItem item) return;
         if (!SettingsManager.Current.RemoveIslandShelfItem(item)) return;
         RefreshShelfList();
-        if (_contentMode != IslandContentMode.Shelf) return;
+        if (!ViewShowsFeature(IslandFeatureIds.Shelf)) return;
         ApplyContentVisibility();
         SyncMeasuredHeight();
     }

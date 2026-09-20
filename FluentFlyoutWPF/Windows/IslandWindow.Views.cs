@@ -83,6 +83,12 @@ public partial class IslandWindow
     /// change island-bluetooth-conectado RF-1): el aviso vence aunque el modo sea
     /// «Visible mientras activo», y re-presentarlo no reinicia su plazo —solo un
     /// evento nuevo lo hace—.</para>
+    ///
+    /// <para>La vista del Island es una PANTALLA (change island-pantallas): la
+    /// funcionalidad adopta la suya y, si es combinada, el compacto que se presenta es
+    /// su fila de fichas (no su vista rica suelta). Una funcionalidad que no está en
+    /// ninguna pantalla no tiene vista: el contenedor resuelve otra cosa —o el reposo—
+    /// en vez de presentarla.</para>
     /// </summary>
     private void ShowCompactView(IslandContentMode mode, IIslandFeature? feature, Action present,
         bool forceNotice = false, bool restartNotice = true)
@@ -96,6 +102,17 @@ public partial class IslandWindow
         // pintaría sobre el contenido ya desvanecido (001 MOD RF-16).
         SetInactiveRest(false);
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) { SnapHidden(); return; }
+        // PANTALLAS: la vista la manda la pantalla de la funcionalidad (fichas si es
+        // combinada). Sin pantalla no hay nada que presentar: se resuelve la vista por
+        // las vías normales (otra pantalla, el temporizador o el reposo). La excepción
+        // es una exclusiva (la alerta del temporizador), que conserva su vista propia.
+        if (feature != null && !AdoptScreenFor(feature, ref mode, ref present)
+            && !ScreenlessFeatureKeepsOwnView(feature))
+        {
+            _expanded = false;
+            ShowInactiveOrHidden();
+            return;
+        }
         // Repliegue en dos fases con la pieza de tránsito (001 MOD RF-16): la fase
         // 1 baja la geometría hasta la pieza con el contenido vigente intacto y la
         // fase 2 (TryReopenFromInactive) presenta el compacto nuevo ya sobre ella.
@@ -134,6 +151,10 @@ public partial class IslandWindow
     /// frame aunque la caja ya estuviera expandida: es lo que necesita el aviso
     /// final del temporizador, que debe imponerse sobre la vista vigente
     /// (002 RF-2, RF-6).</para>
+    ///
+    /// <para>Como en el compacto, la vista es la PANTALLA de la funcionalidad: con una
+    /// pantalla combinada el expandido es su fila de columnas (de izquierda a derecha)
+    /// y, sin pantalla, la funcionalidad no abre nada (change island-pantallas).</para>
     /// </summary>
     private void ShowExpandedView(IslandContentMode mode, IIslandFeature? feature, Action present,
         bool skipIfExpanded = true, Func<bool>? guard = null)
@@ -146,6 +167,16 @@ public partial class IslandWindow
         bool wasExpanded = _expanded;
         if (feature != null) SelectFeature(feature.Id);
         SetInactiveRest(false);
+        // PANTALLAS: la vista la manda la pantalla de la funcionalidad (columnas si es
+        // combinada) y sin pantalla no hay nada que abrir: la vista se resuelve por las
+        // vías normales en vez de abrir la funcionalidad suelta. La excepción es una
+        // exclusiva (la alerta del temporizador), que conserva su vista propia.
+        if (feature != null && !AdoptScreenFor(feature, ref mode, ref present)
+            && !ScreenlessFeatureKeepsOwnView(feature))
+        {
+            HidePerMode();
+            return;
+        }
         if (guard != null && !guard()) return;
         _contentMode = mode;
         present();
