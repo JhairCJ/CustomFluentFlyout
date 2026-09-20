@@ -21,6 +21,7 @@ internal enum IslandContentMode
     Bluetooth = 5,
     /// <summary>Pantalla COMBINADA (varias funcionalidades a la vez, change island-pantallas).</summary>
     Screen = 6,
+    Clipboard = 7,
 }
 
 /// <summary>

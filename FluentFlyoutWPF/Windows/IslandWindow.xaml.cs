@@ -260,17 +260,19 @@ public partial class IslandWindow : Window
         InitShelf();
         InitCalendar();
         InitBluetooth();
+        InitClipboard();
         // Contenedor escalable: media, temporizador, cajón de aplicaciones, estante de
-        // archivos, recordatorios de calendario y dispositivos Bluetooth se registran
-        // en su orden por defecto; el contrato decide qué se puede mostrar (RF-11,
-        // RF-13) y ApplyFeatureOrder impone después el orden que el usuario haya
-        // elegido en ajustes.
+        // archivos, recordatorios de calendario, dispositivos Bluetooth y portapapeles
+        // se registran en su orden por defecto; el contrato decide qué se puede mostrar
+        // (RF-11, RF-13) y ApplyFeatureOrder impone después el orden que el usuario
+        // haya elegido en ajustes.
         _features.Register(new IslandMediaFeature(this));
         _features.Register(new IslandTimerFeature(this));
         _features.Register(new IslandAppsFeature(this));
         _features.Register(new IslandShelfFeature(this));
         _features.Register(new IslandCalendarFeature(this));
         _features.Register(new IslandBluetoothFeature(this));
+        _features.Register(new IslandClipboardFeature(this));
         ApplyFeatureOrder();
         // Pantallas configuradas: el contenedor navega por ellas y una pantalla
         // puede llevar varias funcionalidades juntas (change island-pantallas).
@@ -342,6 +344,7 @@ public partial class IslandWindow : Window
         _disposed = true;
         ShutdownActivity();
         ShutdownBluetooth();
+        ShutdownClipboard();
         ClearTemporaryNotice();
         StopLoop();
         StopBackgroundRotation();

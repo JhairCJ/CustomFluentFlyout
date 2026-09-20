@@ -31,6 +31,8 @@ internal enum IslandActivityReason
     Recovery = 1 << 6,
     /// <summary>Dispositivos Bluetooth: conexión y refinamiento de su batería.</summary>
     Bluetooth = 1 << 7,
+    /// <summary>Portapapeles: llegó o se fue una pieza copiada.</summary>
+    Clipboard = 1 << 8,
 }
 
 /// <summary>

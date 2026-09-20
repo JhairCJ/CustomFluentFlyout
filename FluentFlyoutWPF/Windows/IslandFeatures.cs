@@ -271,6 +271,30 @@ public sealed class IslandBluetoothFeature(IslandWindow owner) : IIslandFeature
 }
 
 /// <summary>
+/// Funcionalidad «portapapeles» del island (change island-portapapeles): disponible
+/// cuando está habilitada y hay algo copiado (sin piezas no hay nada que pegar);
+/// como el cajón y el estante no genera actividad propia —no reproduce ni cuenta—,
+/// así que su vista la sostienen el puntero (Visible mientras activo) o su aviso
+/// temporal.
+/// </summary>
+public sealed class IslandClipboardFeature(IslandWindow owner) : IIslandFeature
+{
+    public string Id => IslandFeatureIds.Clipboard;
+
+    public IslandFeatureState State => owner.GetClipboardFeatureState();
+
+    public double CompactWidth => 240;
+    public double CompactHeight => 34;
+    public double ExpandedPreferredWidth => 0; // ancho común configurado
+    public double ExpandedPreferredHeight => 0; // medir contenido (lista de piezas)
+
+    public bool TryShowExpanded() => owner.ShowClipboardExpandedFromContract();
+    public bool TryShowCompact() => owner.ShowClipboardCompactFromContract();
+
+    public IslandFeatureSummary Summary => owner.ClipboardSummary();
+}
+
+/// <summary>
 /// Funcionalidad «temporizador» del island (002): disponible siempre que esté
 /// habilitada (su configuración es usable sin media); activa con cuenta en
 /// marcha; la alerta final declara acceso exclusivo persistente (002 MOD RF-2).

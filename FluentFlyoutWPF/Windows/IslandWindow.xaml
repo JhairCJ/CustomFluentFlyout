@@ -236,6 +236,36 @@
                         <TextBlock x:Name="CalendarCompactCountdown" Grid.Column="2" Foreground="White" FontSize="11"
                                    Opacity="0.75" VerticalAlignment="Center" Margin="8,0,0,0" IsHitTestVisible="False"/>
                     </Grid>
+                    <!-- Portapapeles en compacto: las últimas piezas copiadas. Cada celda es la
+                         miniatura de la imagen o las primeras letras del texto; las que no caben
+                         se cuentan con el «+N». El clic abre la lista expandida. -->
+                    <Grid x:Name="ClipboardCompactGrid" Margin="6,0,10,0" Visibility="Collapsed"
+                          Cursor="Hand" ToolTip="Portapapeles (haz clic para ver todo)"
+                          MouseLeftButtonUp="ClipboardCompact_Click">
+                        <ItemsControl x:Name="ClipboardCompactList" HorizontalAlignment="Left" VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Width="20" Height="20" CornerRadius="6" Margin="0,0,4,0"
+                                            Background="#22FFFFFF" ClipToBounds="True" ToolTip="{Binding Caption}">
+                                        <Grid>
+                                            <Image Source="{Binding Preview}" Stretch="UniformToFill"
+                                                   RenderOptions.BitmapScalingMode="HighQuality"/>
+                                            <TextBlock Text="{Binding Initials}" Foreground="White" FontSize="10"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="ClipboardCompactMore" Text="" Foreground="White" FontSize="11" Opacity="0.6"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   Visibility="Collapsed" IsHitTestVisible="False"/>
+                    </Grid>
                     <!-- Pantalla COMBINADA en compacto: una ficha por funcionalidad (icono + dato
                          corto) en una fila. El ancho del contenedor lo fija el número de fichas
                          (change island-pantallas RF-3): una pantalla con dos funcionalidades
@@ -590,6 +620,51 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                    </StackPanel>
+                    <!-- Portapapeles en expandido: todas las piezas. Al hacer clic en una se
+                         copia al portapapeles y el usuario la pega con Ctrl+V; el aviso de
+                         «copiado» se borra solo. La altura la mide el contenedor. -->
+                    <StackPanel x:Name="ClipboardExpanded" Visibility="Collapsed" Margin="0,2,0,2">
+                        <Grid Margin="0,0,0,6">
+                            <TextBlock Text="Portapapeles · clic en una pieza para copiarla" FontSize="11" Opacity="0.6"
+                                       Foreground="White" HorizontalAlignment="Left" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock x:Name="ClipboardStatus" Text="" FontSize="10" Opacity="0.85"
+                                       Foreground="#B6F0B5" HorizontalAlignment="Right"/>
+                        </Grid>
+                        <TextBlock x:Name="ClipboardExpandedEmpty" Text="Nada copiado todavía: copia texto o una imagen y aparecerá aquí."
+                                   FontSize="12" Opacity="0.55" Foreground="White" Margin="0,0,0,6"
+                                   TextWrapping="WrapWithOverflow" Visibility="Collapsed"/>
+                        <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl x:Name="ClipboardExpandedList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,6" Cursor="Hand" ToolTip="{Binding Caption}"
+                                              MouseLeftButtonUp="ClipboardItem_Click">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0" Width="28" Height="28" CornerRadius="6"
+                                                    Background="#22FFFFFF" ClipToBounds="True">
+                                                <Grid>
+                                                    <Image Source="{Binding Preview}" Stretch="UniformToFill"
+                                                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                                                    <TextBlock Text="{Binding Initials}" Foreground="White" FontSize="11"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </Border>
+                                            <TextBlock Grid.Column="1" Text="{Binding Caption}" Foreground="White" FontSize="12"
+                                                       VerticalAlignment="Center" Margin="8,0,8,0"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <ui:SymbolIcon Grid.Column="2" Symbol="Copy24" Filled="True" Foreground="White"
+                                                           FontSize="14" Opacity="0.6" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
                     </StackPanel>
                     <!-- Recordatorios de calendario en expandido: el evento que va a empezar (o los
                          próximos) con su franja y su cuenta atrás. La altura la mide el contenedor

@@ -194,6 +194,30 @@ public partial class IslandWindow
             ApplyScreenLayerVisibility();
             return;
         }
+        // Portapapeles: fila de piezas copiadas (o lista en el expandido), excluyente
+        // con el resto de capas, como el cajón y el estante.
+        bool clipboard = _contentMode == IslandContentMode.Clipboard && ClipboardModeAvailable();
+        ClipboardCompactGrid.Visibility = clipboard ? Visibility.Visible : Visibility.Collapsed;
+        ClipboardExpanded.Visibility = clipboard ? Visibility.Visible : Visibility.Collapsed;
+        if (clipboard)
+        {
+            MusicCompactGrid.Visibility = Visibility.Collapsed;
+            TimerCompactGrid.Visibility = Visibility.Collapsed;
+            AppsCompactGrid.Visibility = Visibility.Collapsed;
+            ShelfCompactGrid.Visibility = Visibility.Collapsed;
+            CalendarCompactGrid.Visibility = Visibility.Collapsed;
+            BluetoothCompactGrid.Visibility = Visibility.Collapsed;
+            MusicExpandedTop.Visibility = Visibility.Collapsed;
+            ControlsRow.Visibility = Visibility.Collapsed;
+            SeekRow.Visibility = Visibility.Collapsed;
+            TimerAlert.Visibility = Visibility.Collapsed;
+            AppsExpanded.Visibility = Visibility.Collapsed;
+            ShelfExpanded.Visibility = Visibility.Collapsed;
+            CalendarExpanded.Visibility = Visibility.Collapsed;
+            CrossfadeTimerPanels(showConfig: false, showRun: false);
+            UpdateArrows();
+            return;
+        }
         // Bluetooth: su vista es un aviso temporal (icono, nombre y batería) y es
         // excluyente con el resto de capas, como el estante y el calendario. Se
         // resuelve de una vez al principio, así ninguna otra rama puede dejar su
@@ -214,6 +238,7 @@ public partial class IslandWindow
             AppsExpanded.Visibility = Visibility.Collapsed;
             ShelfExpanded.Visibility = Visibility.Collapsed;
             CalendarExpanded.Visibility = Visibility.Collapsed;
+            ClipboardExpanded.Visibility = Visibility.Collapsed;
             CrossfadeTimerPanels(showConfig: false, showRun: false);
             UpdateArrows();
             return;

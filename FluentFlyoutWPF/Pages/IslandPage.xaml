@@ -70,6 +70,8 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="Generales del contenedor" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,6" />
             <ui:CardControl x:Name="IslandEnabledCard" Tag="Indexable" Grid.Row="1" Icon="{ui:SymbolIcon Album24}" Margin="0,0,0,3">
@@ -872,7 +874,32 @@
                                FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
             </ui:CardExpander>
-            <TextBlock Grid.Row="51" Text=" " FontSize="8" Margin="0,0,0,72" />
+            <TextBlock Grid.Row="51" Text="Portapapeles" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+            <!-- Portapapeles: solo se observa lo que el usuario copia (nada se envía ni
+                 se modifica; el original se conserva intacto) y su vista vive en el
+                 Island, donde un clic devuelve la pieza al portapapeles para pegarla. -->
+            <ui:CardExpander x:Name="IslandClipboardCard" Tag="Indexable" Grid.Row="52" Icon="{ui:SymbolIcon Clipboard24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+                <ui:CardExpander.Header>
+                    <Grid ColumnDefinitions="*, Auto">
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Historial del portapapeles" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <TextBlock Text="Todo lo que copies (texto o imagen) queda en el Island: haz clic en una pieza y se copia de nuevo para pegarla con Ctrl+V donde quieras." FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="440" HorizontalAlignment="Left" />
+                        </StackPanel>
+                        <ui:ToggleSwitch Grid.Column="1" IsChecked="{Binding IslandClipboardEnabled, Mode=TwoWay}" Margin="0,0,16,0" />
+                    </Grid>
+                </ui:CardExpander.Header>
+                <StackPanel Margin="0,8,0,8">
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <TextBlock Text="Guardar" Width="120" VerticalAlignment="Center" FontSize="14" />
+                        <Slider Minimum="1" Maximum="100" Value="{Binding IslandClipboardMaxItems, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" />
+                        <ui:TextBlock Text="{Binding IslandClipboardMaxItems}" Width="24" TextAlignment="Center" Margin="12,0,0,0" />
+                        <TextBlock Text="piezas" VerticalAlignment="Center" Opacity="0.6" />
+                    </StackPanel>
+                    <TextBlock Text="Lo guardado vive solo en memoria: se pierde al cerrar la app y nunca sale de tu equipo. Al bajar el tope se descartan las piezas más viejas."
+                               FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" Margin="0,10,0,0" MaxWidth="520" HorizontalAlignment="Left" />
+                </StackPanel>
+            </ui:CardExpander>
+            <TextBlock Grid.Row="53" Text=" " FontSize="8" Margin="0,0,0,72" />
         </Grid>
     </StackPanel>
 </Page>

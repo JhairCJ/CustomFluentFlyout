@@ -198,6 +198,9 @@ public partial class IslandWindow
             case IslandFeatureIds.Bluetooth:
                 RefreshBluetoothUI();
                 break;
+            case IslandFeatureIds.Clipboard:
+                RefreshClipboardViews();
+                break;
         }
     }
 
@@ -232,6 +235,7 @@ public partial class IslandWindow
         ShelfCompactGrid.Visibility = Visibility.Collapsed;
         CalendarCompactGrid.Visibility = Visibility.Collapsed;
         BluetoothCompactGrid.Visibility = Visibility.Collapsed;
+        ClipboardCompactGrid.Visibility = Visibility.Collapsed;
         HideAllExpandedPanels();
         foreach (var member in members) ShowMemberPanels(member.Id);
         UpdateArrows();
@@ -247,6 +251,7 @@ public partial class IslandWindow
         AppsExpanded.Visibility = Visibility.Collapsed;
         ShelfExpanded.Visibility = Visibility.Collapsed;
         CalendarExpanded.Visibility = Visibility.Collapsed;
+        ClipboardExpanded.Visibility = Visibility.Collapsed;
         CrossfadeTimerPanels(showConfig: false, showRun: false);
     }
 
@@ -280,6 +285,10 @@ public partial class IslandWindow
                 break;
             case "calendar":
                 CalendarExpanded.Visibility = Visibility.Visible;
+                break;
+            case IslandFeatureIds.Clipboard:
+                ClipboardExpanded.Visibility = Visibility.Visible;
+                RefreshClipboardViews();
                 break;
             // Bluetooth no tiene expandido: su aviso vive en el compacto.
         }

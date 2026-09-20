@@ -1349,6 +1349,23 @@ public partial class UserSettings : ObservableObject
     public partial bool IslandBluetoothEnabled { get; set; }
 
     /// <summary>
+    /// Portapapeles (texto e imágenes): funcionalidad habilitada. Con ella apagada el
+    /// Island no escucha el portapapeles (ni copia nada a su lista) y no la ofrece.
+    /// Copiar de nuevo desde la lista del Island SÍ es cosa del usuario y sigue
+    /// funcionando aunque la escucha esté apagada.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandClipboardEnabled { get; set; }
+
+    /// <summary>
+    /// Portapapeles: cuántos elementos guarda la lista (1-100). Al bajarlo se
+    /// descartan los más viejos; nada de lo guardado toca al usuario hasta que
+    /// pulsa un elemento.
+    /// </summary>
+    [ObservableProperty]
+    public partial int IslandClipboardMaxItems { get; set; }
+
+    /// <summary>
     /// Google Calendar: minutos de antelación del recordatorio (1-60). El aviso sigue
     /// vivo hasta dos minutos después del comienzo.
     /// </summary>
@@ -1432,6 +1449,21 @@ public partial class UserSettings : ObservableObject
     /// </summary>
     partial void OnIslandBluetoothEnabledChanged(bool oldValue, bool newValue) =>
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshBluetoothContent();
+
+    /// <summary>
+    /// Encender o apagar el portapapeles se aplica en el acto: arranca o se para la
+    /// escucha (apagada no se observa nada) y, si su vista estaba puesta, el
+    /// contenedor se repliega sin dejar una superficie vacía.
+    /// </summary>
+    partial void OnIslandClipboardEnabledChanged(bool oldValue, bool newValue) =>
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshClipboardContent();
+
+    /// <summary>
+    /// El tope de la lista se aplica en el acto: el servicio recorta lo que sobre y
+    /// la vista se repinta con lo que quede.
+    /// </summary>
+    partial void OnIslandClipboardMaxItemsChanged(int oldValue, int newValue) =>
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshClipboardContent();
 
     /// <summary>
     /// El ajuste de pantalla completa se aplica en el acto: la supresión es una
@@ -1772,6 +1804,11 @@ public partial class UserSettings : ObservableObject
         // temporal) es justo lo que se espera de la funcionalidad, y no toca nada
         // del sistema: solo observa conexiones.
         IslandBluetoothEnabled = true;
+        // Sí por defecto: guardar lo que se copia no cambia lo que el usuario copia
+        // (el original se conserva intacto) y es justo lo que se espera de la
+        // funcionalidad; apagarla desde ajustes para la escucha en el acto.
+        IslandClipboardEnabled = true;
+        IslandClipboardMaxItems = 25;
         GoogleCalendarReminderMinutes = 5;
         GoogleCalendarRefreshMinutes = 5;
         GoogleCalendarDaysAhead = 7;

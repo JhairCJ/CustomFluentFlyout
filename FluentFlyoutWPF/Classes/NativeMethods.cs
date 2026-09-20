@@ -301,6 +301,17 @@ public static partial class NativeMethods
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     internal static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
+    /// <summary>
+    /// Registra una ventana para recibir WM_CLIPBOARDUPDATE: es la notificación
+    /// nativa de que el portapapeles cambió (change island-portapapeles). Sin ella
+    /// habría que sondear el portapapeles, que es justo lo que no se hace.
+    /// </summary>
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool AddClipboardFormatListener(IntPtr hwnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool RemoveClipboardFormatListener(IntPtr hwnd);
+
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
 

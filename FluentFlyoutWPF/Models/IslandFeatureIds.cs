@@ -32,8 +32,11 @@ public static class IslandFeatureIds
     /// <summary>Dispositivos Bluetooth conectados.</summary>
     public const string Bluetooth = "bluetooth";
 
+    /// <summary>Portapapeles (texto e imágenes).</summary>
+    public const string Clipboard = "clipboard";
+
     /// <summary>Orden por defecto de las funcionalidades del contenedor.</summary>
-    public static readonly IReadOnlyList<string> All = [Media, Timer, Apps, Shelf, Calendar, Bluetooth];
+    public static readonly IReadOnlyList<string> All = [Media, Timer, Apps, Shelf, Calendar, Bluetooth, Clipboard];
 
     /// <summary>Separador de funcionalidades dentro de una pantalla combinada.</summary>
     public const char ScreenSeparator = '+';
@@ -78,6 +81,7 @@ public static class IslandFeatureIds
         Shelf => "Estante de archivos",
         Calendar => "Recordatorios de calendario",
         Bluetooth => "Dispositivos Bluetooth",
+        Clipboard => "Portapapeles",
         _ => id ?? "",
     };
 }
