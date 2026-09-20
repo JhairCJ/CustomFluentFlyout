@@ -906,6 +906,14 @@ public partial class IslandWindow
         BtnNext.Opacity = canNext ? 1 : 0.35;
     }
 
+    /// <summary>
+    /// Resumen de una línea de la música para las pantallas combinadas
+    /// (change island-pantallas RF-3): el título que está sonando.
+    /// </summary>
+    internal IslandFeatureSummary MediaSummary() => new(
+        Wpf.Ui.Controls.SymbolRegular.MusicNote2Play20,
+        string.IsNullOrWhiteSpace(CompactTitle.Text) ? "Sin reproducción" : CompactTitle.Text);
+
     private void PaintGlyph()
     {
         if (_lastStatus == null) return;

@@ -175,7 +175,7 @@ public partial class IslandWindow
         // expandido con música sonando deja la música, no la pieza inactiva
         // (001 MOD RF-4, RF-24).
         if (SettingsManager.Current.IslandVisibilityMode == 0
-            && ResolveActiveVigenteForVisible() is { } activa && activa.TryShowCompact())
+            && ResolveActiveVigenteForVisible() is { } activa && ShowScreenOfFeature(activa))
             return;
         if (TimerKeepsAlive())
         {
@@ -283,7 +283,7 @@ public partial class IslandWindow
         if (Suppressed() && !HasExclusive()) { SnapHidden(); return; }
         if (!ReturnToInactive()) { GoHidden(); return; }
         if (SettingsManager.Current.IslandVisibilityMode == 0
-            && ResolveActiveVigenteForVisible() is { } activa && activa.TryShowCompact())
+            && ResolveActiveVigenteForVisible() is { } activa && ShowScreenOfFeature(activa))
             return;
         ShowInactive();
     }
@@ -415,7 +415,21 @@ public partial class IslandWindow
     /// (002 MOD RF-8)—. El cajón de aplicaciones no tiene actividad propia: solo
     /// lo sostiene el plazo de su aviso. La funcionalidad futura lo declara ella.
     /// </summary>
-    private bool FeatureSustainsView(IIslandFeature feature) => feature.Id switch
+    private bool FeatureSustainsView(IIslandFeature feature)
+    {
+        // Pantalla combinada: la vista la sostiene CUALQUIERA de sus miembros
+        // (change island-pantallas RF-4). Con una sola funcionalidad manda su regla.
+        if (_contentMode == IslandContentMode.Screen && ScreenIsCombined()) return ScreenSustainsView();
+        return SingleFeatureSustainsView(feature);
+    }
+
+    /// <summary>
+    /// ¿Esta funcionalidad, ella sola, sostiene la vista? Media lo hace
+    /// reproduciendo (o pausada si «pausa cuenta como activo»: 001 MOD RF-6/RF-7) y
+    /// el temporizador contando —en «Aviso temporal» también con su alerta vigente
+    /// (002 MOD RF-8)—.
+    /// </summary>
+    private bool SingleFeatureSustainsView(IIslandFeature feature) => feature.Id switch
     {
         "media" => IsMediaActiveForContract(),
         // Bluetooth: su vista es un aviso y vive lo que vive su plazo; el
@@ -473,7 +487,9 @@ public partial class IslandWindow
         // (001 RF-2)—. La entrada a contenido arranca aquí, con el mismo reloj de
         // reposo: crossfade pieza -> contenido, sin saltos ni estados intermedios.
         DateTime notice = _noticeUntil;
-        if (!target.TryShowCompact()) return false;
+        // La reapertura muestra la PANTALLA de la funcionalidad que la sostiene
+        // (change island-pantallas RF-4): si estaba combinada, vuelve el grupo entero.
+        if (!ShowScreenOfFeature(target)) return false;
         _noticeUntil = notice;
         if (notice != DateTime.MinValue) ScheduleNoticeRetraction();
         return true;
@@ -670,7 +686,7 @@ public partial class IslandWindow
                 // presentarse el compacto, no cuando se pulsó Iniciar (002 RF-16).
                 if (TimerKeepsAlive() && TimerNoticeAlive()) { ShowTimerCompact(); return; }
                 if (noticeAlive && _timer.State != Classes.IslandTimerState.Alerting
-                    && ResolveActiveVigenteForVisible() is { } vigente1 && vigente1.TryShowCompact())
+                    && ResolveActiveVigenteForVisible() is { } vigente1 && ShowScreenOfFeature(vigente1))
                     return;
                 ShowInactiveOrHidden();
                 return;
@@ -720,37 +736,31 @@ public partial class IslandWindow
         {
             ShowInactiveOrHidden();
             return;
-        }
-        if (vigente.Id == "media")
-        {
-            // La actividad manda sobre el snapshot: si el snapshot apunta a una
-            // pausa mientras otra sesión reproduce, el compacto muestra lo activo.
-            var session = ActiveMediaSession();
-            if (session != null)
+        }            if (vigente.Id == "media")
             {
-                // NADA de adelantar el contenido aquí: si lo expandido era el
-                // temporizador, el repliegue debe empezar mostrando el
-                // temporizador (el intercambio lo hace la fase 2, sobre la pieza,
-                // donde no se ve). Presentarlo ahora pintaba media en la tarjeta
-                // expandida antes de encogerse: el parpadeo de «se esconde y
-                // aparece lo activo». RefreshUi deja el modo de contenido en media
-                // cuando le toca presentarlo.
-                if (vigente.TryShowCompact()) return;
-                CollapseToCompact(vigente);
+                // La actividad manda sobre el snapshot: si el snapshot apunta a una
+                // pausa mientras otra sesión reproduce, el compacto muestra lo activo.
+                var session = ActiveMediaSession();
+                if (session != null)
+                {
+                    // NADA de adelantar el contenido aquí: si lo expandido era el
+                    // temporizador, el repliegue debe empezar mostrando el
+                    // temporizador (el intercambio lo hace la fase 2, sobre la pieza,
+                    // donde no se ve). Presentarlo ahora pintaba media en la tarjeta
+                    // expandida antes de encogerse: el parpadeo de «se esconde y
+                    // aparece lo activo». RefreshUi deja el modo de contenido en media
+                    // cuando le toca presentarlo.
+                    if (ShowScreenOfFeature(vigente)) return;
+                    CollapseToCompact(vigente);
+                    return;
+                }
+                ShowInactiveOrHidden();
                 return;
             }
+            // Resto de funcionalidades: la pantalla que las contiene (simple o
+            // combinada) con su propia ruta de presentación (change island-pantallas RF-4).
+            if (ShowScreenOfFeature(vigente)) return;
             ShowInactiveOrHidden();
-            return;
-        }
-        if (vigente.Id == "timer")
-        {
-            if (vigente.TryShowCompact()) return;
-            ShowInactiveOrHidden();
-            return;
-        }
-        // Fallback genérico (futura funcionalidad): usar su compacto.
-        if (vigente.TryShowCompact()) return;
-        ShowInactiveOrHidden();
     }
 
     /// <summary>
@@ -761,6 +771,9 @@ public partial class IslandWindow
     private bool ExpandLastUsable()
     {
         if ((Suppressed() && !HasExclusive()) || !SettingsManager.Current.IslandEnabled) { SnapHidden(); return false; }
+        // Con una pantalla COMBINADA delante, el clic la expande entera (sus paneles
+        // apilados), no una de sus funcionalidades suelta (change island-pantallas RF-4).
+        if (_contentMode == IslandContentMode.Screen && ScreenIsCombined() && ExpandCurrentScreen()) return true;
         var feature = LastUsableFeature();
         if (feature != null && feature.TryShowExpanded()) return true;
         var alt = _features.NextUsableAfter(feature);

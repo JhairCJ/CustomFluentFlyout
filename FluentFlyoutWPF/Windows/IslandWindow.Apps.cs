@@ -76,6 +76,17 @@ public partial class IslandWindow
     /// </summary>
     private void InitApps() => RefreshAppList();
 
+    /// <summary>
+    /// Resumen de una línea del cajón para las pantallas combinadas
+    /// (change island-pantallas RF-3): cuántas aplicaciones lleva.
+    /// </summary>
+    internal IslandFeatureSummary AppsSummary()
+    {
+        int count = SettingsManager.Current.IslandApps.Count;
+        return new IslandFeatureSummary(Wpf.Ui.Controls.SymbolRegular.Apps24,
+            count == 1 ? "1 app" : $"{count} apps");
+    }
+
     private void RefreshAppList()
     {
         var apps = SettingsManager.Current.IslandApps;
@@ -127,7 +138,7 @@ public partial class IslandWindow
         _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();
         if (SettingsManager.Current.IslandVisibilityMode == 0
-            && ResolveActiveVigenteForVisible() is { } vigente && vigente.TryShowCompact())
+            && ResolveActiveVigenteForVisible() is { } vigente && ShowScreenOfFeature(vigente))
             return;
         _expanded = false;
         HidePerMode();
@@ -192,7 +203,7 @@ public partial class IslandWindow
         _hoverSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
         _expanded = false;
         if (SettingsManager.Current.IslandVisibilityMode == 0
-            && ResolveActiveVigenteForVisible() is { } vigente && vigente.TryShowCompact())
+            && ResolveActiveVigenteForVisible() is { } vigente && ShowScreenOfFeature(vigente))
             return;
         _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();

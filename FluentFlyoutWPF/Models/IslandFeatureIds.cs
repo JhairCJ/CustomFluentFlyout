@@ -35,6 +35,37 @@ public static class IslandFeatureIds
     /// <summary>Orden por defecto de las funcionalidades del contenedor.</summary>
     public static readonly IReadOnlyList<string> All = [Media, Timer, Apps, Shelf, Calendar, Bluetooth];
 
+    /// <summary>Separador de funcionalidades dentro de una pantalla combinada.</summary>
+    public const char ScreenSeparator = '+';
+
+    /// <summary>
+    /// Pantallas por defecto: una por funcionalidad, en el orden de <see cref="All"/>.
+    /// Es el comportamiento histórico (cada funcionalidad con su vista rica).
+    /// </summary>
+    public static IReadOnlyList<string> DefaultScreens => [.. All];
+
+    /// <summary>
+    /// Lee una pantalla configurada («media+timer») y devuelve sus funcionalidades
+    /// en orden. Descarta ids desconocidos, vacíos y repetidos: una pantalla nunca
+    /// se cae por un ajuste viejo ni muestra la misma funcionalidad dos veces.
+    /// </summary>
+    public static IReadOnlyList<string> ParseScreen(string? screen)
+    {
+        if (string.IsNullOrWhiteSpace(screen)) return [];
+        var ids = new List<string>();
+        foreach (var raw in screen.Split(ScreenSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string id = raw.Trim();
+            if (!IsKnown(id) || ids.Contains(id)) continue;
+            ids.Add(id);
+        }
+        return ids;
+    }
+
+    /// <summary>Escribe una pantalla a partir de sus funcionalidades (formato guardado).</summary>
+    public static string FormatScreen(IEnumerable<string> ids) =>
+        string.Join(ScreenSeparator, ids.Where(IsKnown).Distinct());
+
     /// <summary>¿Es un identificador conocido? (los desconocidos se descartan al cargar)</summary>
     public static bool IsKnown(string? id) => id != null && All.Contains(id);
 

@@ -88,6 +88,14 @@ public partial class IslandWindow
         if (!_expanded) ShowTimerCompact();
     }
 
+    /// <summary>
+    /// Resumen de una línea del temporizador para las pantallas combinadas
+    /// (change island-pantallas RF-3): lo que queda de cuenta.
+    /// </summary>
+    internal IslandFeatureSummary TimerSummary() => new(
+        Wpf.Ui.Controls.SymbolRegular.Timer20,
+        _timer.State == IslandTimerState.Idle ? "Sin cuenta" : IslandTimer.FormatHms(_timer.Remaining));
+
     private void InitTimer()
     {
         _timer.Finished += OnTimerFinished;
@@ -176,6 +184,16 @@ public partial class IslandWindow
     /// </summary>
     private void ApplyContentVisibilityCore()
     {
+        // Pantalla COMBINADA (change island-pantallas RF-3): manda su composición
+        // (fichas en compacto + paneles de todos sus miembros en expandido) y la
+        // capa compacta recupera su ancho de siempre fuera de ella.
+        ScreenCompactGrid.Visibility = Visibility.Collapsed;
+        CompactLayer.Width = SingleCompactLayerWidth;
+        if (_contentMode == IslandContentMode.Screen)
+        {
+            ApplyScreenLayerVisibility();
+            return;
+        }
         // Bluetooth: su vista es un aviso temporal (icono, nombre y batería) y es
         // excluyente con el resto de capas, como el estante y el calendario. Se
         // resuelve de una vez al principio, así ninguna otra rama puede dejar su
@@ -369,10 +387,11 @@ public partial class IslandWindow
 
     private void UpdateArrows()
     {
-        // Flechas opcionales: solo con más de un contenido usable, sean cuales
-        // sean (música, temporizador o cajón de aplicaciones) (002 MOD RF-9).
+        // Flechas opcionales: solo con más de una PANTALLA con algo usable, sean
+        // cuales sean sus funcionalidades (002 MOD RF-9; change island-pantallas
+        // RF-4: la navegación es por pantallas).
         bool show = _expanded && SettingsManager.Current.IslandTimerShowArrows && IsBoxShown
-            && UsableFeatureCount() > 1;
+            && UsableScreenCount() > 1;
         ModePrevBtn.Visibility = ModeNextBtn.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -462,15 +481,19 @@ public partial class IslandWindow
     {
         // Alerta modal: hasta X o reinicio no se sale al resto de modos.
         if (_timer.State == IslandTimerState.Alerting) return;
-        var usable = UsableFeatures();
-        if (usable.Count < 2) return;
-        int current = usable.FindIndex(f => f.Id == _selectedFeature?.Id);
-        int next = current < 0
-            ? (direction > 0 ? 0 : usable.Count - 1)
-            : WrapUnit(current + direction, usable.Count);
-        var feature = usable[next];
-        if (_expanded) feature.TryShowExpanded();
-        else feature.TryShowCompact();
+        // Navegación por PANTALLAS (change island-pantallas RF-4): cada paso busca
+        // la siguiente pantalla con algo usable, con vuelta, y la presenta entera
+        // —sus fichas y sus paneles— en el estado en el que esté el contenedor.
+        if (_screens.Count == 0) return;
+        for (int step = 1; step <= _screens.Count; step++)
+        {
+            int index = WrapUnit(_screenIndex + direction * step, _screens.Count);
+            if (ScreenUsableFeatures(_screens[index]).Count == 0) continue;
+            _screenIndex = index;
+            bool shown = _expanded ? ExpandCurrentScreen() : ShowCurrentScreenCompact();
+            if (!shown) HidePerMode();
+            return;
+        }
     }
 
     // --- controles del expandido ---

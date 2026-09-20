@@ -19,6 +19,8 @@ internal enum IslandContentMode
     Shelf = 3,
     Calendar = 4,
     Bluetooth = 5,
+    /// <summary>Pantalla COMBINADA (varias funcionalidades a la vez, change island-pantallas).</summary>
+    Screen = 6,
 }
 
 /// <summary>

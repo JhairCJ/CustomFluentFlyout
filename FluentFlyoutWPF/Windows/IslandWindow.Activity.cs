@@ -317,6 +317,9 @@ public partial class IslandWindow
                 IslandContentMode.Calendar => CalendarModeAvailable(),
                 // El seek del expandido solo se pinta con la vista de media delante.
                 IslandContentMode.Media => _expanded && MusicContentShown(),
+                // Una pantalla combinada con el expandido delante envejece sus
+                // cuentas (temporizador, calendario) y su seek.
+                IslandContentMode.Screen => _expanded,
                 _ => false,
             });
         if (want)
@@ -354,6 +357,10 @@ public partial class IslandWindow
         else if (_contentMode == IslandContentMode.Media && _expanded && Current() is { } session)
         {
             UpdateSeek(session);
+        }
+        else if (_contentMode == IslandContentMode.Screen)
+        {
+            RefreshCombinedScreenTick();
         }
     }
 

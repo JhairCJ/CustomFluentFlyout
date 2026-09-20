@@ -108,9 +108,12 @@ public partial class IslandWindow : Window
         ? Math.Clamp(f.ExpandedPreferredHeight, 80, 260)
         : ExpandedIslandHeight;
     /// <summary>Ancho de reposo (compacto) que declara el contenido seleccionado.</summary>
-    private double ContentCompactWidth => _selectedFeature is { } f
-        ? Math.Clamp(f.CompactWidth, 160, 360)
-        : CompactPillWidth;
+    private double ContentCompactWidth => _contentMode == IslandContentMode.Screen && ScreenIsCombined()
+        // Pantalla combinada: el ancho lo fija su fila de fichas (RF-3).
+        ? ScreenWidthForMembers(CurrentScreenFeatures().Count)
+        : _selectedFeature is { } f
+            ? Math.Clamp(f.CompactWidth, 160, 360)
+            : CompactPillWidth;
     /// <summary>Alto de reposo (compacto) que declara el contenido seleccionado.</summary>
     private double ContentCompactHeight => _selectedFeature is { } f
         ? Math.Clamp(f.CompactHeight, 28, 60)
@@ -269,6 +272,9 @@ public partial class IslandWindow : Window
         _features.Register(new IslandCalendarFeature(this));
         _features.Register(new IslandBluetoothFeature(this));
         ApplyFeatureOrder();
+        // Pantallas configuradas: el contenedor navega por ellas y una pantalla
+        // puede llevar varias funcionalidades juntas (change island-pantallas).
+        ApplyScreens();
         // Migración del «Siempre en su lugar» (retirado, 001 REMOVED): un modo
         // guardado con el valor 2 pasa a «Visible mientras activo».
         if (SettingsManager.Current.IslandVisibilityMode is < 0 or > 1)

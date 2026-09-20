@@ -1291,6 +1291,17 @@ public partial class UserSettings : ObservableObject
     public partial ObservableCollection<string> IslandFeatureOrder { get; set; }
 
     /// <summary>
+    /// Pantallas del Island (change island-pantallas): cada entrada es una pantalla
+    /// con las funcionalidades que se muestran JUNTAS, por su id
+    /// (<see cref="IslandFeatureIds"/>) unidas por '+'. El orden es el de la
+    /// navegación (rueda y flechas). Sin nada configurado rige una pantalla por
+    /// funcionalidad, que es el comportamiento histórico; se autorrepara al cargar:
+    /// los ids desconocidos o repetidos salen y las pantallas vacías se descartan.
+    /// </summary>
+    [ObservableProperty]
+    public partial ObservableCollection<string> IslandScreens { get; set; }
+
+    /// <summary>
     /// Estante de archivos del Island: funcionalidad habilitada. Por defecto sí: el
     /// estante vacío es su estado natural (invita a soltar algo encima).
     /// </summary>
@@ -1773,6 +1784,7 @@ public partial class UserSettings : ObservableObject
         GoogleCalendarStatus = "";
 
         IslandFeatureOrder = [.. IslandFeatureIds.All];
+        IslandScreens = [.. IslandFeatureIds.DefaultScreens];
         AppFilteringEnabled = false;
         AppFilteringMode = 0;
         TaskbarVisualizerPosition = 1;
@@ -1888,6 +1900,11 @@ public partial class UserSettings : ObservableObject
         // defecto y cualquier id que no exista se descarta.
         IslandFeatureOrder ??= [.. IslandFeatureIds.All];
         SanitizeIslandFeatureOrder();
+        // Migración de las pantallas: XML antiguos sin el ajuste arrancan con una
+        // pantalla por funcionalidad (el comportamiento de siempre) y cualquier
+        // pantalla vacía o con ids desconocidos se sanea.
+        IslandScreens ??= [.. IslandFeatureIds.DefaultScreens];
+        SanitizeIslandScreens();
         // Migración del calendario: XML antiguos sin estos ajustes arrancan con la
         // funcionalidad apagada (nadie concede acceso a su calendario por sorpresa) y
         // con las ventanas por defecto. Las cadenas nunca son null tras el XML.
@@ -2096,6 +2113,78 @@ public partial class UserSettings : ObservableObject
             if (!IslandFeatureIds.IsKnown(id) || !seen.Add(id)) IslandFeatureOrder.Remove(id);
         foreach (var id in IslandFeatureIds.All)
             if (seen.Add(id)) IslandFeatureOrder.Add(id);
+    }
+
+    /// <summary>
+    /// Sanea las pantallas del Island: cada una se reescribe con sus funcionalidades
+    /// conocidas y sin repetir, y las que se quedan sin ninguna se descartan. Sin
+    /// ninguna pantalla válida rige una por funcionalidad (nunca una navegación vacía).
+    /// </summary>
+    internal void SanitizeIslandScreens()
+    {
+        var cleaned = new List<string>();
+        foreach (var screen in IslandScreens.ToList())
+        {
+            string normalized = IslandFeatureIds.FormatScreen(IslandFeatureIds.ParseScreen(screen));
+            if (normalized.Length > 0) cleaned.Add(normalized);
+        }
+        IslandScreens.Clear();
+        // Las pantallas repetidas se conservan: dos pantallas iguales son una
+        // decisión del usuario (y se pueden quitar), no un dato roto.
+        foreach (var screen in cleaned) IslandScreens.Add(screen);
+        if (IslandScreens.Count == 0)
+        {
+            foreach (var screen in IslandFeatureIds.DefaultScreens) IslandScreens.Add(screen);
+        }
+    }
+
+    /// <summary>
+    /// Alta/baja de las pantallas: al reemplazarse la colección se reengancha el
+    /// guardado y el contenedor.
+    /// </summary>
+    partial void OnIslandScreensChanged(ObservableCollection<string> oldValue, ObservableCollection<string> newValue)
+    {
+        if (oldValue != null) oldValue.CollectionChanged -= IslandScreens_CollectionChanged;
+        if (newValue != null) newValue.CollectionChanged += IslandScreens_CollectionChanged;
+    }
+
+    private void IslandScreens_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (!_initializing) SettingsManager.SaveSettings();
+        // El contenedor navega por estas pantallas: se releen en el acto, sin
+        // reiniciar la aplicación (change island-pantallas RF-2).
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.ApplyScreens();
+    }
+
+    // --- pantallas del Island (change island-pantallas) ---
+
+    /// <summary>Mueve una pantalla en la lista (orden de navegación del contenedor).</summary>
+    internal void MoveIslandScreen(string screen, int delta)
+    {
+        int from = IslandScreens.IndexOf(screen);
+        int to = from + delta;
+        if (from < 0 || to < 0 || to >= IslandScreens.Count) return;
+        IslandScreens.Move(from, to);
+    }
+
+    /// <summary>
+    /// Añade una pantalla nueva. Nace con la primera funcionalidad que no esté en
+    /// ninguna pantalla y, si ya están todas repartidas, con la música: una pantalla
+    /// vacía no existe (no habría nada que enseñar).
+    /// </summary>
+    internal void AddIslandScreen()
+    {
+        string id = IslandFeatureIds.All.FirstOrDefault(candidate =>
+            !IslandScreens.Any(screen => IslandFeatureIds.ParseScreen(screen).Contains(candidate)))
+            ?? IslandFeatureIds.Media;
+        IslandScreens.Add(id);
+    }
+
+    /// <summary>Quita una pantalla; la última no se puede quitar (navegación vacía).</summary>
+    internal void RemoveIslandScreen(string screen)
+    {
+        if (IslandScreens.Count <= 1) return;
+        IslandScreens.Remove(screen);
     }
 
     /// <summary>

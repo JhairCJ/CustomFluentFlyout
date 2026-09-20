@@ -21,6 +21,122 @@ public partial class IslandPage : Page
     {
         InitializeComponent();
         DataContext = SettingsManager.Current;
+        RefreshScreensEditor();
+    }
+
+    // ------------------------------------------------------------------
+    // Pantallas del Island (change island-pantallas)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Editor de pantallas: una fila por pantalla con una casilla por funcionalidad,
+    /// más subir/bajar/quitar. Se construye en código (las casillas son dinámicas:
+    /// una por funcionalidad conocida) y se reconstruye entero tras cada cambio, así
+    /// el editor siempre enseña lo que hay guardado.
+    /// </summary>
+    private void RefreshScreensEditor()
+    {
+        var settings = SettingsManager.Current;
+        IslandScreensPanel.Children.Clear();
+        for (int i = 0; i < settings.IslandScreens.Count; i++)
+        {
+            string screen = settings.IslandScreens[i];
+            var ids = IslandFeatureIds.ParseScreen(screen);
+            var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+
+            var header = new Grid();
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var title = new TextBlock
+            {
+                Text = $"Pantalla {i + 1}: {string.Join(", ", ids.Select(IslandFeatureIds.DisplayName))}",
+                FontSize = 14,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            Grid.SetColumn(title, 0);
+            header.Children.Add(title);
+            var actions = new StackPanel { Orientation = Orientation.Horizontal };
+            actions.Children.Add(ScreenButton("Subir", $"Subir la pantalla {i + 1}", () => MoveScreen(screen, -1)));
+            actions.Children.Add(ScreenButton("Bajar", $"Bajar la pantalla {i + 1}", () => MoveScreen(screen, +1)));
+            actions.Children.Add(ScreenButton("Quitar", "Quitar esta pantalla (la última no se puede quitar)", () =>
+            {
+                settings.RemoveIslandScreen(screen);
+                RefreshScreensEditor();
+            }));
+            Grid.SetColumn(actions, 1);
+            header.Children.Add(actions);
+            row.Children.Add(header);
+
+            var chips = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+            foreach (var id in IslandFeatureIds.All)
+            {
+                string featureId = id;
+                chips.Children.Add(new CheckBox
+                {
+                    Content = IslandFeatureIds.DisplayName(id),
+                    IsChecked = ids.Contains(id),
+                    Margin = new Thickness(0, 0, 14, 4),
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                });
+                if (chips.Children[^1] is CheckBox box)
+                {
+                    box.Checked += (_, _) => ToggleScreenFeature(screen, featureId, true);
+                    box.Unchecked += (_, _) => ToggleScreenFeature(screen, featureId, false);
+                }
+            }
+            row.Children.Add(chips);
+            IslandScreensPanel.Children.Add(row);
+        }
+    }
+
+    private static Button ScreenButton(string text, string tooltip, Action action)
+    {
+        var button = new Button
+        {
+            Content = text,
+            Padding = new Thickness(8, 2, 8, 2),
+            Margin = new Thickness(4, 0, 0, 0),
+            ToolTip = tooltip,
+        };
+        button.Click += (_, _) => action();
+        return button;
+    }
+
+    private void MoveScreen(string screen, int delta)
+    {
+        SettingsManager.Current.MoveIslandScreen(screen, delta);
+        RefreshScreensEditor();
+    }
+
+    private void IslandScreenNew_Click(object sender, RoutedEventArgs e)
+    {
+        SettingsManager.Current.AddIslandScreen();
+        RefreshScreensEditor();
+    }
+
+    /// <summary>
+    /// Mete o saca una funcionalidad de una pantalla. Quitar la última dejaría una
+    /// pantalla vacía (no habría nada que enseñar): en ese caso no se aplica y el
+    /// editor vuelve a pintar la casilla marcada.
+    /// </summary>
+    private void ToggleScreenFeature(string screen, string featureId, bool included)
+    {
+        var settings = SettingsManager.Current;
+        int index = settings.IslandScreens.IndexOf(screen);
+        if (index < 0) return;
+        var ids = IslandFeatureIds.ParseScreen(screen).ToList();
+        if (included)
+        {
+            if (!ids.Contains(featureId)) ids.Add(featureId);
+        }
+        else
+        {
+            ids.Remove(featureId);
+        }
+        string updated = IslandFeatureIds.FormatScreen(ids);
+        if (updated.Length > 0) settings.IslandScreens[index] = updated;
+        RefreshScreensEditor();
     }
 
     /// <summary>
