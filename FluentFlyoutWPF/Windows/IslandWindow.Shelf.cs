@@ -85,7 +85,7 @@ public partial class IslandWindow
         // El notch es más estrecho por diseño: caben menos mosaicos en su renglón. La
         // celda es la misma que la del cajón (20 + 4 de paso), así que encajan los
         // mismos que allí: 6 en el notch y 7 en el pill.
-        int fit = IsNotch ? IslandShelfItem.MaxCompactItemsNotch : IslandShelfItem.MaxCompactItems;
+        int fit = CompactRowFit(IsNotch ? IslandShelfItem.MaxCompactItemsNotch : IslandShelfItem.MaxCompactItems);
         var compact = items.Take(fit).ToList();
         ShelfCompactList.ItemsSource = compact;
         ShelfExpandedList.ItemsSource = items;

@@ -87,7 +87,7 @@ public partial class IslandWindow
         //     contador, así que el notch encaja 6 (001 RF-15).
         //   · pill:  240 − 16 = 224 útiles; encajan 7 de sobra.
         // El notch es más estrecho por diseño: caben menos iconos en su renglón.
-        int fit = IsNotch ? IslandApp.MaxCompactAppsNotch : IslandApp.MaxCompactApps;
+        int fit = CompactRowFit(IsNotch ? IslandApp.MaxCompactAppsNotch : IslandApp.MaxCompactApps);
         var compact = apps.Take(fit).ToList();
         AppsCompactList.ItemsSource = compact;
         AppsExpandedList.ItemsSource = apps;

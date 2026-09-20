@@ -62,6 +62,16 @@ public partial class IslandWindow
         CancelHoverLeave();
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
         if (_expanded || _drag || _reelDragging) return;
+        // Ultra compacto con el Island oculto del todo: no hay pieza ni cápsula a la que
+        // apuntar, así que la franja de arriba —de la línea de actividad al borde— lo
+        // trae de vuelta EXPANDIDO. Es la única puerta que queda; sin ella el Island
+        // solo asomaría con el próximo evento. El veto de reapertura sigue valiendo
+        // (no se resucita solo justo después de cerrarlo el usuario).
+        if (UltraCompactPullsFromTop)
+        {
+            if (DateTime.UtcNow < _hoverSnoozeUntil) return;
+            if (ExpandLastUsable()) return;
+        }
         // T2: si ya estamos en reposo inactivo/nada por falta de activa vigente
         // en Visible mientras activo, el hover NO redespliega compacto.
         if (_inactiveShown) { /* solo micro-crecimiento, ya lo hace abajo */ }

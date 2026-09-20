@@ -131,7 +131,7 @@ public partial class IslandWindow
     private void RefreshClipboardViews()
     {
         var items = _clipboard.Items;
-        int fit = IsNotch ? IslandClipboardItem.MaxCompactItemsNotch : IslandClipboardItem.MaxCompactItems;
+        int fit = CompactRowFit(IsNotch ? IslandClipboardItem.MaxCompactItemsNotch : IslandClipboardItem.MaxCompactItems);
         var compact = items.Take(fit).ToList();
         ClipboardCompactList.ItemsSource = compact;
         int rest = items.Count - compact.Count;

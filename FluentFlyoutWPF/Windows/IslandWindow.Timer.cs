@@ -130,7 +130,9 @@ public partial class IslandWindow
         UpdateArrows();
         if (!TimerModeAvailable()) return;
         TimerRemaining.Text = IslandTimer.FormatHms(_timer.Remaining);
-        TimerProgressZone.Visibility = SettingsManager.Current.IslandTimerShowProgress
+        // El progreso se ve solo si su ajuste lo pide y el modo ultra compacto no lo
+        // aparta: en ultra el medio de la cápsula queda vacío a propósito.
+        TimerProgressZone.Visibility = SettingsManager.Current.IslandTimerShowProgress && !UltraCompactOn
             ? Visibility.Visible : Visibility.Collapsed;
         double track = TimerProgressTrack.ActualWidth;
         TimerProgressFill.Width = track > 0 ? track * _timer.ElapsedFraction : 0;
@@ -164,6 +166,9 @@ public partial class IslandWindow
     private void ApplyContentVisibility()
     {
         ApplyContentVisibilityCore();
+        // El modo ultra compacto se aplica después de decidir las capas: solo aparta el
+        // MEDIO de la vista que quedó delante (ver IslandWindow.UltraCompact.cs).
+        ApplyUltraCompactContent();
         SyncEq();
         UpdateVisibleRefresh();
     }
@@ -177,8 +182,9 @@ public partial class IslandWindow
     private void ApplyContentVisibilityCore()
     {
         // La capa compacta recupera su ancho de siempre: el compacto nunca agrupa
-        // (change island-pantallas), así que mide lo que una sola funcionalidad.
-        CompactLayer.Width = SingleCompactLayerWidth;
+        // (change island-pantallas), así que mide lo que una sola funcionalidad —o lo
+        // que miden sus dos extremos, con el modo ultra compacto puesto—.
+        CompactLayer.Width = RestCompactWidth(SingleCompactLayerWidth);
         if (_contentMode == IslandContentMode.Screen)
         {
             // El modo PANTALLA es la composición del EXPANDIDO (sus columnas, de

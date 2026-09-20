@@ -444,7 +444,7 @@ public partial class IslandWindow
             // (001 MOD RF-16).
             double compactW = _collapseFromExpanded
                 ? InactivePillWidth
-                : Lerp(NotchCompactWidth, InactivePillWidth, inact);
+                : Lerp(RestCompactWidth(NotchCompactWidth), InactivePillWidth, inact);
             double dotT = Math.Clamp(q / 0.32, 0, 1);
             double stretchT = RevealStretch(q);
             double baseW = q < 0.32 ? notchDot : Lerp(notchDot, compactW, stretchT);

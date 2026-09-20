@@ -113,15 +113,18 @@ public partial class IslandWindow : Window
     private double ContentExpandedHeight => _selectedFeature is { ExpandedPreferredHeight: > 0 } f
         ? Math.Clamp(f.ExpandedPreferredHeight, 80, 260)
         : ExpandedIslandHeight;
-    /// <summary>Ancho de reposo (compacto) que declara el contenido seleccionado.</summary>
-    private double ContentCompactWidth => _contentMode == IslandContentMode.Screen
+    /// <summary>
+    /// Ancho de reposo (compacto) que declara el contenido seleccionado, con el modo
+    /// ultra compacto por delante (entonces manda el ancho de sus dos extremos).
+    /// </summary>
+    private double ContentCompactWidth => RestCompactWidth(_contentMode == IslandContentMode.Screen
         // El compacto de una pantalla enseña UNA sola funcionalidad (change
         // island-pantallas): mide lo que ella declare. Solo se pasa por aquí en las
         // transiciones de repliegue, con la composición de columnas ya de salida.
         ? CompactWidthOfCurrentScreen()
         : _selectedFeature is { } f
             ? Math.Clamp(f.CompactWidth, 160, 360)
-            : CompactPillWidth;
+            : CompactPillWidth);
     /// <summary>Alto de reposo (compacto) que declara el contenido seleccionado.</summary>
     private double ContentCompactHeight => _selectedFeature is { } f
         ? Math.Clamp(f.CompactHeight, 28, 60)

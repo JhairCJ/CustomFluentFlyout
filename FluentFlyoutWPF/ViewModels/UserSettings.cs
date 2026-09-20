@@ -1090,6 +1090,18 @@ public partial class UserSettings : ObservableObject
     public partial bool IslandReturnToInactive { get; set; }
 
     /// <summary>
+    /// Fluent Island (change island-ultra-compacto): modo ULTRA COMPACTO. Con la
+    /// cápsula replegada solo se ven sus dos EXTREMOS —lo de la izquierda y lo de la
+    /// derecha—: en el control de medios quedan la carátula y el ecualizador, sin el
+    /// título ni el artista. La presencia de reposo es mínima a propósito, pensado para
+    /// usarse con «volver a inactivo» APAGADO: el Island solo aparece cuando algo hay
+    /// que enseñar y, como no hay pieza a la que apuntar, la franja de arriba (de la
+    /// línea de actividad al borde) es la que lo trae de vuelta expandido.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandUltraCompact { get; set; }
+
+    /// <summary>
     /// Fluent Island (001 MOD RF-6): ajuste «pausa de media cuenta como activo».
     /// Activado (por defecto): una sesión pausada sostiene la visibilidad en
     /// «Visible mientras activo» y muestra sus controles. Desactivado: la pausa
@@ -1813,6 +1825,7 @@ public partial class UserSettings : ObservableObject
         IslandTopOffset = 6;
         IslandVisibilityMode = 0;
         IslandReturnToInactive = true;
+        IslandUltraCompact = false;
         IslandPauseCountsActive = true;
         IslandExpandTrigger = 2;
         IslandVisibilityDuration = 4000;
@@ -2918,6 +2931,12 @@ public partial class UserSettings : ObservableObject
     {
         if (oldValue == newValue || _initializing) return;
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+    }
+
+    partial void OnIslandUltraCompactChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshUltraCompact();
     }
 
     partial void OnIslandPauseCountsActiveChanged(bool oldValue, bool newValue)

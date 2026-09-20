@@ -68,12 +68,12 @@ public partial class IslandWindow
             if (style == 1)
             {
                 IslandBox.BorderThickness = new Thickness(1, 0, 1, 1);
-                CompactLayer.Width = NotchCompactWidth;
+                CompactLayer.Width = RestCompactWidth(NotchCompactWidth);
             }
             else
             {
                 IslandBox.BorderThickness = new Thickness(1);
-                CompactLayer.Width = CompactPillWidth;
+                CompactLayer.Width = RestCompactWidth(CompactPillWidth);
             }
         }
 
