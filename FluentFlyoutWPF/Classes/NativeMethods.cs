@@ -312,6 +312,33 @@ public static partial class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool RemoveClipboardFormatListener(IntPtr hwnd);
 
+    /// <summary>
+    /// Estado de energía del equipo (change island-cargador): si está enchufado, si
+    /// hay batería, cuánta queda y si está cargando. Es la lectura de Win32 que usa
+    /// el propio Windows, sin depender de WinForms ni de sondeos.
+    /// </summary>
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetSystemPowerStatus(out SystemPowerStatus status);
+
+    /// <summary>
+    /// <c>SYSTEM_POWER_STATUS</c>: el estado de energía del sistema. Se mantiene como
+    /// struct propio porque los campos van empaquetados (el tamaño es 12 bytes).
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SystemPowerStatus
+    {
+        /// <summary>0 = desconectado de la corriente, 1 = enchufado, 255 = desconocido.</summary>
+        public byte AcLineStatus;
+        /// <summary>Banderas de batería: 1 = alta, 2 = baja, 4 = crítica, 8 = cargando, 128 = sin batería.</summary>
+        public byte BatteryFlag;
+        /// <summary>Porcentaje restante (0-100) o 255 si se desconoce.</summary>
+        public byte BatteryLifePercent;
+        public byte SystemStatusFlag;
+        public int BatteryLifeTime;
+        public int BatteryFullLifeTime;
+    }
+
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
 

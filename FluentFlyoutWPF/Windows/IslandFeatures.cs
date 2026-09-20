@@ -319,6 +319,30 @@ public sealed class IslandWeatherFeature(IslandWindow owner) : IIslandFeature
 }
 
 /// <summary>
+/// Funcionalidad «cargador» (change island-cargador): avisa cuando el equipo se
+/// enchufa y cuando se queda a batería, con el rayo y el nivel. Su vista es un aviso
+/// temporal —no tiene expandido— y no genera actividad propia: la sostiene su plazo.
+/// </summary>
+public sealed class IslandPowerFeature(IslandWindow owner) : IIslandFeature
+{
+    public string Id => IslandFeatureIds.Power;
+
+    public IslandFeatureState State => owner.GetPowerFeatureState();
+
+    public double CompactWidth => 240;
+    public double CompactHeight => 34;
+    public double ExpandedPreferredWidth => 0;
+    public double ExpandedPreferredHeight => 0;
+
+    /// <summary>Sin expandido: el aviso del cargador vive en el compacto.</summary>
+    public bool TryShowExpanded() => false;
+
+    public bool TryShowCompact() => owner.ShowPowerCompactFromContract();
+
+    public IslandFeatureSummary Summary => owner.PowerSummary();
+}
+
+/// <summary>
 /// Funcionalidad «temporizador» del island (002): disponible siempre que esté
 /// habilitada (su configuración es usable sin media); activa con cuenta en
 /// marcha; la alerta final declara acceso exclusivo persistente (002 MOD RF-2).

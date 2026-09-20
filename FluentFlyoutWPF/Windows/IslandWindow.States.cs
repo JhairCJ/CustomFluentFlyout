@@ -447,6 +447,9 @@ public partial class IslandWindow
         // El clima no tiene actividad propia: en «Aviso temporal» vive lo que vive su
         // plazo (en «Visible mientras activo» lo sostiene el puntero).
         IslandFeatureIds.Weather => WeatherKeepsView(),
+        // El cargador: su vista es un aviso y vive lo que vive su plazo (igual que el
+        // del Bluetooth).
+        IslandFeatureIds.Power => PowerActive(),
         _ => feature.State.Active,
     };
 

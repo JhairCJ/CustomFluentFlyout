@@ -295,6 +295,7 @@ public partial class IslandWindow
         ClipboardCompactGrid.Visibility = Visibility.Collapsed;
         WeatherCompactGrid.Visibility = Visibility.Collapsed;
         WeatherExpanded.Visibility = Visibility.Collapsed;
+        PowerCompactGrid.Visibility = Visibility.Collapsed;
         HideAllExpandedPanels();
         // El expandido va de IZQUIERDA A DERECHA: los paneles de cada miembro se
         // trasladan a su columna, en el orden de la pantalla (RF-2/RF-3).

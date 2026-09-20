@@ -1392,6 +1392,13 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial string IslandWeatherError { get; set; } = "";
 
+    /// <summary>
+    /// Cargador: avisa en el Island cuando el equipo se enchufa a la corriente y
+    /// cuando se queda a batería. Con ella apagada no se observa el estado de energía.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandPowerEnabled { get; set; }
+
 
     /// <summary>
     /// Google Calendar: minutos de antelación del recordatorio (1-60). El aviso sigue
@@ -1507,6 +1514,14 @@ public partial class UserSettings : ObservableObject
     /// </summary>
     partial void OnIslandWeatherPlaceChanged(string oldValue, string newValue) =>
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshWeatherContent();
+
+    /// <summary>
+    /// Encender o apagar los avisos del cargador se aplica en el acto: el vigía arranca
+    /// o se para (apagado no se observa el estado de energía) y, si su vista estaba
+    /// puesta, el contenedor se repliega sin dejar una superficie vacía.
+    /// </summary>
+    partial void OnIslandPowerEnabledChanged(bool oldValue, bool newValue) =>
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshPowerContent();
 
     /// <summary>
     /// El ajuste de pantalla completa se aplica en el acto: la supresión es una
@@ -1860,6 +1875,10 @@ public partial class UserSettings : ObservableObject
         IslandWeatherLongitude = 0;
         IslandWeatherStatus = "";
         IslandWeatherError = "";
+        // Sí por defecto: enterarse de que el cargador se soltó (o de que empezó a
+        // cargar) es justo lo que se espera, y solo observa el estado que ya conoce
+        // Windows.
+        IslandPowerEnabled = true;
         GoogleCalendarReminderMinutes = 5;
         GoogleCalendarRefreshMinutes = 5;
         GoogleCalendarDaysAhead = 7;

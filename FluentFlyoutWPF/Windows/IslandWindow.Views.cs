@@ -24,6 +24,8 @@ internal enum IslandContentMode
     Clipboard = 7,
     /// <summary>Clima del lugar configurado (change island-clima).</summary>
     Weather = 8,
+    /// <summary>Cargador del equipo (change island-cargador).</summary>
+    Power = 9,
 }
 
 /// <summary>

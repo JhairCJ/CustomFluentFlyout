@@ -700,6 +700,26 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </StackPanel>
+                    <!-- Cargador en compacto: rayo a la izquierda (verde al enchufar, rojo al
+                         desenchufar) con el título y el porcentaje de batería a la derecha.
+                         Es SIEMPRE un aviso temporal: se retira al vencer su plazo. -->
+                    <Grid x:Name="PowerCompactGrid" Margin="6,0,10,0" Visibility="Collapsed"
+                          Cursor="Hand" ToolTip="Energía">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="24"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ui:SymbolIcon x:Name="PowerGlyph" Grid.Column="0" Symbol="BatteryCharge24" Filled="True"
+                                       Foreground="#6CCB5F" FontSize="15" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" IsHitTestVisible="False"/>
+                        <TextBlock x:Name="PowerTitle" Grid.Column="1" Text="Cargando" Foreground="White" FontSize="12"
+                                   Margin="8,0,4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                   IsHitTestVisible="False"/>
+                        <TextBlock x:Name="PowerPercent" Grid.Column="2" Text="" Foreground="#6CCB5F"
+                                   FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"
+                                   IsHitTestVisible="False"/>
+                    </Grid>
                     <!-- Clima en compacto: glifo del cielo a la izquierda y temperatura a la
                          derecha. Es contenido pasivo (no «está pasando»): se ve al navegar
                          hasta su pantalla y vive lo que viva su vista. -->

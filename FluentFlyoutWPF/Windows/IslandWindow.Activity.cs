@@ -35,6 +35,8 @@ internal enum IslandActivityReason
     Clipboard = 1 << 8,
     /// <summary>Clima: llegó un dato nuevo (o cambió el lugar configurado).</summary>
     Weather = 1 << 9,
+    /// <summary>Cargador: se enchufó o se desenchufó el equipo.</summary>
+    Power = 1 << 10,
 }
 
 /// <summary>
@@ -297,6 +299,12 @@ public partial class IslandWindow
         // ya está delante; nunca despliega nada (change island-clima RF-3).
         if ((reasons & IslandActivityReason.Weather) != 0)
             ReconcileWeatherState();
+
+        // Cargador: el cambio de estado presenta su aviso por sí mismo
+        // (OnChargerConnected/OnChargerDisconnected); aquí solo se repinta si su
+        // aviso sigue delante (change island-cargador).
+        if ((reasons & IslandActivityReason.Power) != 0)
+            ReconcilePowerState();
 
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         if (_expanded && !_drag && !_reelDragging && !IsMouseOverBoxOrStrip()) LeaveHover();

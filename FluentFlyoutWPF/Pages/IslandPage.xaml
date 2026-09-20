@@ -75,6 +75,9 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="Generales del contenedor" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,6" />
             <ui:CardControl x:Name="IslandEnabledCard" Tag="Indexable" Grid.Row="1" Icon="{ui:SymbolIcon Album24}" Margin="0,0,0,3">
@@ -940,7 +943,26 @@
                                FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" Margin="0,10,0,0" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
             </ui:CardExpander>
-            <TextBlock Grid.Row="56" Text=" " FontSize="8" Margin="0,0,0,72" />
+            <TextBlock Grid.Row="56" Text="Energía" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+            <!-- Cargador: solo se observa el estado de energía que ya conoce Windows (nada
+                 se envía ni se modifica) y el aviso es SIEMPRE temporal, con la duración
+                 del aviso configurada. -->
+            <ui:CardExpander x:Name="IslandPowerCard" Tag="Indexable" Grid.Row="57" Icon="{ui:SymbolIcon BatteryCharge24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+                <ui:CardExpander.Header>
+                    <Grid ColumnDefinitions="*, Auto">
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Cargador conectado y desconectado" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <TextBlock Text="Avisa en el Island cuando el equipo se enchufa a la corriente (rayo verde y porcentaje de batería) y cuando se queda a batería (rayo rojo y el último porcentaje). El aviso siempre es temporal." FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="440" HorizontalAlignment="Left" />
+                        </StackPanel>
+                        <ui:ToggleSwitch Grid.Column="1" IsChecked="{Binding IslandPowerEnabled, Mode=TwoWay}" Margin="0,0,16,0" />
+                    </Grid>
+                </ui:CardExpander.Header>
+                <StackPanel Margin="0,8,0,8">
+                    <TextBlock Text="Un equipo sin batería (un sobremesa) no avisa: ahí enchufar o desenchufar no significa nada. Sin nivel conocido se enseña el texto sin el porcentaje, en vez de un 0 % inventado."
+                               FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
+                </StackPanel>
+            </ui:CardExpander>
+            <TextBlock Grid.Row="58" Text=" " FontSize="8" Margin="0,0,0,72" />
         </Grid>
     </StackPanel>
 </Page>

@@ -199,9 +199,38 @@ public partial class IslandWindow
         RestoreExpandedHomes();
         WeatherCompactGrid.Visibility = Visibility.Collapsed;
         WeatherExpanded.Visibility = Visibility.Collapsed;
+        PowerCompactGrid.Visibility = Visibility.Collapsed;
+        // Cargador: rayo y porcentaje, un aviso temporal excluyente con el resto de
+        // capas (como el de Bluetooth, que no tiene expandido).
+        bool power = _contentMode == IslandContentMode.Power && PowerModeAvailable();
+        PowerCompactGrid.Visibility = power ? Visibility.Visible : Visibility.Collapsed;
+        if (power)
+        {
+            MusicCompactGrid.Visibility = Visibility.Collapsed;
+            TimerCompactGrid.Visibility = Visibility.Collapsed;
+            AppsCompactGrid.Visibility = Visibility.Collapsed;
+            ShelfCompactGrid.Visibility = Visibility.Collapsed;
+            CalendarCompactGrid.Visibility = Visibility.Collapsed;
+            BluetoothCompactGrid.Visibility = Visibility.Collapsed;
+            ClipboardCompactGrid.Visibility = Visibility.Collapsed;
+            WeatherCompactGrid.Visibility = Visibility.Collapsed;
+            MusicExpandedTop.Visibility = Visibility.Collapsed;
+            ControlsRow.Visibility = Visibility.Collapsed;
+            SeekRow.Visibility = Visibility.Collapsed;
+            TimerAlert.Visibility = Visibility.Collapsed;
+            AppsExpanded.Visibility = Visibility.Collapsed;
+            ShelfExpanded.Visibility = Visibility.Collapsed;
+            CalendarExpanded.Visibility = Visibility.Collapsed;
+            ClipboardExpanded.Visibility = Visibility.Collapsed;
+            WeatherExpanded.Visibility = Visibility.Collapsed;
+            CrossfadeTimerPanels(showConfig: false, showRun: false);
+            UpdateArrows();
+            return;
+        }
         // Clima: su vista (glifo y temperatura en compacto, lugar y extremos en el
         // expandido) es excluyente con el resto de capas, como el portapapeles.
         bool weather = _contentMode == IslandContentMode.Weather && WeatherModeAvailable();
+        PowerCompactGrid.Visibility = Visibility.Collapsed;
         WeatherCompactGrid.Visibility = weather ? Visibility.Visible : Visibility.Collapsed;
         WeatherExpanded.Visibility = weather ? Visibility.Visible : Visibility.Collapsed;
         if (weather)
