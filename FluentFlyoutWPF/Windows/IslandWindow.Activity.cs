@@ -277,6 +277,8 @@ public partial class IslandWindow
 
             if ((reasons & IslandActivityReason.Media) != 0)
                 ReconcileMediaState();
+            else if ((reasons & IslandActivityReason.Recovery) != 0)
+                ReconcileMediaState(recoveryOnly: true);
         }
 
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
@@ -413,11 +415,22 @@ public partial class IslandWindow
         if (_disposed) return;
         // Contexto impuro (foreground/fullscreen/DPI) solo aquí y por evento.
         _ctxValid = false;
-        PostActivity(IslandActivityReason.Context | IslandActivityReason.Recovery
-            | IslandActivityReason.Media | IslandActivityReason.Timer | IslandActivityReason.Calendar);
+        PostRecovery();
         // Aviso temporal: si su disparo único se perdió, se cumple aquí en ≤5 s.
         if (!_noticeCheckActive && _noticeUntil != DateTime.MinValue && _noticeUntil <= DateTime.UtcNow)
             RetractTemporaryNotice(_noticeVersion);
+    }
+
+    /// <summary>
+    /// Publica una pasada de recuperación: relee contexto, media, timer y
+    /// calendario SIN el motivo de media. Así la recuperación solo actúa sobre lo
+    /// que apareció sin evento y jamás re-despliega una vista que el usuario ya
+    /// tenía decidida (001 MOD RF-2/RF-28).
+    /// </summary>
+    private void PostRecovery()
+    {
+        PostActivity(IslandActivityReason.Context | IslandActivityReason.Recovery
+            | IslandActivityReason.Timer | IslandActivityReason.Calendar);
     }
 
     // ------------------------------------------------------------------
@@ -529,8 +542,7 @@ public partial class IslandWindow
             _ctxValid = false;
             RefreshContextSnapshot();
             PollTimerSafely();
-            PostActivity(IslandActivityReason.Context | IslandActivityReason.Recovery
-                | IslandActivityReason.Media | IslandActivityReason.Timer | IslandActivityReason.Calendar);
+            PostRecovery();
         }));
 
     // ------------------------------------------------------------------

@@ -48,6 +48,15 @@ public partial class IslandWindow
     // consume en la reconciliación para decidir el activador de cambio de pista
     // sin inspeccionar eventos ya coalescidos (001 MOD RF-1).
     private bool _mediaMetadataChanged;
+    // Identidad de la pista presentada (título + autor). Un cambio aquí ES un
+    // cambio de canción, con independencia del estado de reproducción que
+    // reporte el reproductor: algunos no emiten metadata y solo anuncian la pista
+    // nueva por el estado, y otros transicionan por None/Opened y un cambio que
+    // llegaba en ese estado no mostraba nada.
+    private string _lastSongTitle = "";
+    private string _lastSongArtist = "";
+    // ¿El último evento de media trajo una canción DISTINTA (nombre o autor)?
+    private bool _pendingTrackChange;
     private GlobalSystemMediaTransportControlsSessionPlaybackStatus? _lastStatus;
 
     private bool MusicAvailable() => _music != null;
@@ -206,7 +215,20 @@ public partial class IslandWindow
             {
                 var heldStatus = SafeStatus(held);
                 if (heldStatus != null && heldStatus != _music.Status)
-                    ApplyMediaSnapshot(new IslandMediaSnapshot(_music.Id, heldStatus.Value));
+                    ApplyMediaSnapshot(new IslandMediaSnapshot(held.Id, heldStatus.Value));
+                // Si la sesión presentada no reproduce pero otra sí, la actividad
+                // vigente es la que reproduce: adoptarla (salvo selección fijada).
+                // Así un medio NUEVO que empieza a sonar sin evento acaba
+                // mostrándose y el Island no se queda con el anterior
+                // (001 MOD RF-4/RF-11/RF-28).
+                if (_mediaPinnedSessionId == null
+                    && (heldStatus ?? _music.Status) != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
+                    && NewestPlaying() is { } newer)
+                {
+                    NotePlay(newer.Id);
+                    ApplyMediaSnapshot(new IslandMediaSnapshot(newer.Id,
+                        GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
+                }
                 return;
             }
             // Ya no existe (o no está permitida): liberar y limpiar residuos.
@@ -225,15 +247,77 @@ public partial class IslandWindow
     }
 
     /// <summary>
+    /// Registra la identidad de la canción (título + autor) y marca un cambio de
+    /// pista cuando difiere de la anterior. Es el detector que pide el
+    /// comportamiento de «Aviso temporal»: el cambio de canción se reconoce por
+    /// su nombre o su autor, no por el estado de reproducción. Un evento sin
+    /// título ni autor no marca nada (un reproductor que publique vacío no debe
+    /// contar como cambio).
+    /// </summary>
+    private void NoteTrackIdentity(string? title, string? artist)
+    {
+        string t = (title ?? "").Trim();
+        string a = (artist ?? "").Trim();
+        // Sin título no hay canción identificable: los reproductores que lo vacían
+        // un instante entre pistas no deben marcar un falso cambio. El autor
+        // conocido se conserva si el evento llega sin él.
+        if (t.Length == 0)
+        {
+            if (a.Length > 0) _lastSongArtist = a;
+            return;
+        }
+        // El título manda (nombre distinto = canción distinta); el autor cuenta
+        // solo cuando ambos lados lo aportan, para no confundir a un reproductor
+        // que rellena el autor con retraso con un cambio de canción.
+        bool changed = _lastSongTitle.Length > 0
+            && (!string.Equals(_lastSongTitle, t, StringComparison.Ordinal)
+                || (_lastSongArtist.Length > 0 && a.Length > 0
+                    && !string.Equals(_lastSongArtist, a, StringComparison.Ordinal)));
+        _lastSongTitle = t;
+        if (a.Length > 0) _lastSongArtist = a;
+        if (changed) _pendingTrackChange = true;
+    }
+
+    /// <summary>
+    /// Lee la metadata actual de la sesión para registrar su identidad. Cubre a
+    /// los reproductores que no emiten el evento de metadata: anuncian la pista
+    /// nueva solo con el estado de reproducción.
+    /// </summary>
+    private void TryNoteTrackIdentity(MediaSession session)
+    {
+        try
+        {
+            var props = session.ControlSession.TryGetMediaPropertiesAsync().GetAwaiter().GetResult();
+            if (props != null) NoteTrackIdentity(props.Title, props.Artist);
+        }
+        catch { }
+    }
+
+    /// <summary>
     /// Presentación musical reconciliada (001 MOD RF-1): se llama UNA vez por
     /// ráfaga de eventos de media, con el snapshot ya conciliado. Decide la vista
     /// con las mismas reglas que los eventos individuales, pero sin repetir el
     /// trabajo por evento ni perder el estado final.
+    ///
+    /// <para>El cambio de CANCIÓN (título o autor distintos) es un evento con
+    /// entidad propia: en «Aviso temporal» muestra el aviso aunque el reproductor
+    /// no reporte reproducción o el activador de play/pausa esté apagado. Antes,
+    /// un cambio de pista cuyo estado no fuera Playing/Paused (algunos
+    /// reproductores pasan por None/Opened al saltar de canción) caía al final y
+    /// no enseñaba nada.</para>
     /// </summary>
-    private void ReconcileMediaState()
+    /// <param name="recoveryOnly">
+    /// La pasada viene de la red de recuperación (sin evento de media): solo
+    /// reacciona si apareció una sesión reproduciendo que no se estaba mostrando,
+    /// y NUNCA re-despliega lo que el usuario ya ocultó. Sin esto, el aviso
+    /// temporal reaparecía cada 5 s reiniciando su plazo (001 MOD RF-2/RF-28).
+    /// </param>
+    private void ReconcileMediaState(bool recoveryOnly = false)
     {
         bool metadata = _mediaMetadataChanged;
+        bool trackChanged = _pendingTrackChange;
         _mediaMetadataChanged = false;
+        _pendingTrackChange = false;
         if (_disposed) return;
         // La alerta del temporizador es exclusiva: los eventos de música esperan.
         if (_timer.State == IslandTimerState.Alerting) return;
@@ -246,7 +330,10 @@ public partial class IslandWindow
             if (_music != null) OnMusicUnavailable();
             return;
         }
+        var beforeId = _music?.Id;
         SyncMediaSnapshotFromSessions();
+        bool sessionChanged = _music != null
+            && !string.Equals(_music.Id, beforeId, StringComparison.Ordinal);
 
         var snap = _music;
         if (snap == null)
@@ -263,15 +350,39 @@ public partial class IslandWindow
             return;
         }
 
+        // Pasada de recuperación sin cambio de sesión: no hay nada nuevo que
+        // mostrar. Re-desplegar aquí reiniciaría el plazo del aviso cada 5 s
+        // (001 MOD RF-2/RF-28); solo se refresca lo que ya está a la vista.
+        if (recoveryOnly && !sessionChanged)
+        {
+            RefreshVisibleMediaIfShown(metadata);
+            return;
+        }
+
         var status = snap.Status;
         bool mode0 = SettingsManager.Current.IslandVisibilityMode == 0;
         bool pauseCounts = SettingsManager.Current.IslandPauseCountsActive;
+        bool knownStatus = status is GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
+            or GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
+
+        // Cambio de canción (nombre o autor): el aviso temporal se muestra por sí
+        // mismo, sin depender del estado que reporte el reproductor (algunos no
+        // emiten metadata y solo anuncian la pista por el estado).
+        if (trackChanged && !mode0 && SettingsManager.Current.IslandShowOnTrackChange)
+        {
+            PresentMediaSnapshot(knownStatus ? status : null, trackChanged: true);
+            return;
+        }
 
         if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
         {
-            bool show = mode0 || SettingsManager.Current.IslandShowOnPlayPause
-                || (metadata && SettingsManager.Current.IslandShowOnTrackChange);
-            if (!show) return; // activador apagado: no se interrumpe la vista vigente
+            if (!mode0 && !SettingsManager.Current.IslandShowOnPlayPause)
+            {
+                // Activador apagado: no se interrumpe la vista vigente, pero si la
+                // vista musical ya estaba delante se re-pinta su metadata nueva.
+                RefreshVisibleMediaIfShown(metadata);
+                return;
+            }
             PresentMediaSnapshot(status);
             return;
         }
@@ -286,7 +397,7 @@ public partial class IslandWindow
                 return;
             }
             bool show = SettingsManager.Current.IslandShowOnPause || (pauseCounts && mode0)
-                || (metadata && SettingsManager.Current.IslandShowOnTrackChange);
+                || (trackChanged && SettingsManager.Current.IslandShowOnTrackChange);
             if (show) { PresentMediaSnapshot(status); return; }
             // Pausa que no cuenta como activa: no sostiene una vista compacta, en
             // los DOS modos (001 MOD RF-4/RF-7).
@@ -299,24 +410,55 @@ public partial class IslandWindow
             return;
         }
 
-        // Detenida o desconocida: no hay actividad musical nueva que sostenga la
-        // vista. Solo se repliega la propia vista musical; una vista de otra
-        // funcionalidad (temporizador, cajón, estante, calendario) no se toca.
+        // Detenida o desconocida sin cambio de pista: no hay actividad musical
+        // nueva que sostenga la vista (en «Visible mientras activo» el estado real
+        // manda y la siguiente reproducción la presenta; en «Aviso temporal» el
+        // cambio de canción ya se atendió arriba para cualquier estado). Solo se
+        // repliega la propia vista musical; una vista de otra funcionalidad
+        // (temporizador, cajón, estante, calendario) no se toca.
         if (_contentMode == IslandContentMode.Media && !_expanded && !TimerKeepsAlive())
             ShowInactiveOrHidden();
     }
 
     /// <summary>
+    /// Con la vista musical ya delante, un cambio de metadata re-pinta su
+    /// título/portada sin re-desplegar nada ni tocar el plazo del aviso
+    /// (001 MOD RF-1/RF-2).
+    /// </summary>
+    private void RefreshVisibleMediaIfShown(bool metadataChanged)
+    {
+        if (!metadataChanged || !IsBoxShown) return;
+        if (_contentMode != IslandContentMode.Media) return;
+        if (Current() is { } shown) RefreshUi(shown);
+    }
+
+    /// <summary>
     /// Presenta la vista musical vigente (compacto o expandido) de la sesión
     /// actual, adoptándola si el snapshot no la tenía (001 MOD RF-4/RF-11/RF-13).
+    /// Con <paramref name="status"/> en null se deja que la tarjeta lea el estado
+    /// real de la sesión: es el caso del cambio de canción que llega con un estado
+    /// intermedio que no debe pintarse.
     /// </summary>
-    private void PresentMediaSnapshot(GlobalSystemMediaTransportControlsSessionPlaybackStatus status)
+    private void PresentMediaSnapshot(GlobalSystemMediaTransportControlsSessionPlaybackStatus? status, bool trackChanged = false)
     {
         var session = Current() ?? ActiveMediaSession();
         if (session == null) return;
         _currentId = session.Id;
-        if (_expanded) RefreshUi(session, status);
-        else ShowMusicCompact(session, status);
+        if (_expanded)
+        {
+            RefreshUi(session, status);
+            return;
+        }
+        // Ya a la vista con su aviso vigente: un evento repetido del reproductor no
+        // debe reiniciar el plazo ni hacer REAPARECER el aviso cada pocos segundos
+        // (001 MOD RF-2). Un cambio de canción sí estrena aviso.
+        if (IsBoxShown && _contentMode == IslandContentMode.Media
+            && _noticeUntil > DateTime.UtcNow && !trackChanged)
+        {
+            RefreshUi(session, status);
+            return;
+        }
+        ShowMusicCompact(session, status);
     }
 
     /// <summary>
@@ -340,27 +482,56 @@ public partial class IslandWindow
                 if (_mediaPinnedSessionId != null && _mediaPinnedSessionId != session.Id)
                     _mediaPinnedSessionId = null;
                 NotePlay(session.Id);
+                // Una reproducción nueva PASA a ser la sesión mostrada: sin adoptar
+                // el snapshot, el Island seguiría enseñando el medio anterior
+                // (001 MOD RF-4/RF-11).
+                ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id,
+                    GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
+                // Algunos reproductores no emiten cambio de metadata y solo
+                // anuncian la pista nueva por el estado: comparar aquí la
+                // identidad cubre ese caso (001 MOD RF-1).
+                TryNoteTrackIdentity(session);
             }
             PostActivity(IslandActivityReason.Media);
         }));
     }
 
     /// <summary>
-    /// Cambio de metadata (título, artista, portada): solo marca que hubo cambio
-    /// y publica actividad; el snapshot y la presentación los resuelve la
-    /// reconciliación con la metadata MÁS RECIENTE (001 MOD RF-1). Así una ráfaga
-    /// del reproductor (título primero, miniatura después) pinta una vez y con el
-    /// estado final, sin carreras.
+    /// Cambio de metadata (título, artista, portada): registra la identidad de la
+    /// pista —de la que sale el detector de cambio de canción— y publica
+    /// actividad; el snapshot y la presentación los resuelve la reconciliación con
+    /// la metadata MÁS RECIENTE (001 MOD RF-1). Así una ráfaga del reproductor
+    /// (título primero, miniatura después) pinta una vez y con el estado final.
     /// </summary>
-    private void OnMediaProp(MediaSession session, GlobalSystemMediaTransportControlsSessionMediaProperties _)
+    private void OnMediaProp(MediaSession session, GlobalSystemMediaTransportControlsSessionMediaProperties props)
     {
         Dispatcher.BeginInvoke(new Action(() =>
         {
             if (_disposed) return;
             if (!_main.IsSessionAllowed(session)) return;
             // Eventos de sesiones ajenas no pueden secuestrar una selección fijada.
-            if (_mediaPinnedSessionId != null && !IsDisplayedSession(session)) return;
+            var sessionStatus = SafeStatus(session);
+            bool playingNow = sessionStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+            // Una reproducción nueva suelta la selección fijada; el simple cambio de
+            // metadata de una sesión ajena no puede secuestrarla.
+            if (_mediaPinnedSessionId != null && !IsDisplayedSession(session))
+            {
+                if (!playingNow) return;
+                _mediaPinnedSessionId = null;
+            }
+            NoteTrackIdentity(props?.Title, props?.Artist);
             _mediaMetadataChanged = true;
+            // La sesión que anuncia la pista es la actividad vigente: adoptarla como
+            // snapshot para que el aviso muestre el medio NUEVO y no el anterior,
+            // aunque este reproductor no emita el estado de reproducción
+            // (001 MOD RF-4/RF-11/RF-13). Con OTRA sesión reproduciendo manda esa.
+            if (playingNow || (_music?.Status != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
+                && NewestPlaying() == null))
+            {
+                NotePlay(session.Id);
+                ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id,
+                    sessionStatus ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
+            }
             PostActivity(IslandActivityReason.Media);
         }));
     }
