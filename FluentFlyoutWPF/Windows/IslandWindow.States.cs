@@ -311,6 +311,9 @@ public partial class IslandWindow
         _expanded = false;
         _contentMode = IslandContentMode.Media;
         _inactiveHot = false;
+        // El reposo olvida el alto compartido: el próximo despliegue se mide de
+        // nuevo (001 MOD RF-15).
+        ResetSharedHeight();
         SetInactiveRest(true);
         // Animado cuando la pieza todavía no domina la vista (contenido que fundir)
         // o cuando la geometría aún no es la de reposo (expandido que morfar): en
@@ -528,6 +531,9 @@ public partial class IslandWindow
     {
         if (!AnimationsEnabled || !IsBoxShown) { SnapHidden(); return; }
         if (_hidingViaCompact) return;
+        // Oculto no hay alto que conservar: el próximo despliegue mide de nuevo
+        // (001 MOD RF-15).
+        ResetSharedHeight();
         if (Math.Abs(_p) > 0.05)
         {
             _expanded = false; _hidingViaCompact = true; _pT = 0; _qT = 0; EnsureLoop(); return;
@@ -562,6 +568,7 @@ public partial class IslandWindow
         _inactiveShown = false;
         _pendingCompactFeature = null;
         _collapseFromExpanded = false;
+        ResetSharedHeight();
         ClearTemporaryNotice();
         _inactiveTt = 0; _inactiveT = 0;
         _p = _pT = 0; _pv = 0;

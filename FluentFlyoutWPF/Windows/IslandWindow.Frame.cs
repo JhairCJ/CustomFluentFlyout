@@ -221,9 +221,30 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Mide el alto real del expandido con el ancho efectivo y fija el objetivo;
-    /// el loop lo glidea (o lo pega, sin animaciones). El contenido del
-    /// temporizador manda por medida; música conserva su alto configurado.
+    /// Alto compartido del expandido en la sesión visible (001 MOD RF-15): el
+    /// MÁS ALTO que haya pedido un contenido desde que el Island se desplegó. Se
+    /// olvida al ocultarse (ResetSharedHeight).
+    /// </summary>
+    private double _hexpShared;
+
+    /// <summary>
+    /// Olvida el alto compartido: la próxima vez que el Island se despliegue se
+    /// vuelve a medir desde cero (001 MOD RF-15).
+    /// </summary>
+    private void ResetSharedHeight() => _hexpShared = 0;
+
+    /// <summary>
+    /// Mide el alto real del expandido con el ancho efectivo y fija el objetivo de
+    /// UN solo alto para todo el contenedor (001 MOD RF-15); el loop lo glidea (o
+    /// lo pega, sin animaciones).
+    ///
+    /// <para>El alto es COMPARTIDO: manda el contenido más alto que se haya
+    /// mostrado en la sesión visible y, en estilo cápsula, el alto configurado es
+    /// el suelo (música siempre lo usa). Antes cada funcionalidad ponía su propia
+    /// medida y cambiar de una a otra cambiaba el alto del Island; al encoger, el
+    /// puntero que estaba sobre la caja terminaba FUERA de ella y el Island se
+    /// ocultaba solo. Con un solo alto eso no puede pasar y ningún contenido se
+    /// recorta.</para>
     /// </summary>
     private void SyncMeasuredHeight()
     {
@@ -234,13 +255,13 @@ public partial class IslandWindow
             // así que es medible.
             ExpandedLayer.Measure(new Size(ContentExpandedWidth, double.PositiveInfinity));
             double measuredHeight = ExpandedLayer.DesiredSize.Height; // DesiredSize ya incluye el Margin vertical
-            // ponytail: el contenido medido manda por medida (sin huecos) —el
-            // temporizador y el cajón de aplicaciones ponen su propio alto—;
-            // música mantiene su ajuste fijo.
-            bool measuredContent = _contentMode != IslandContentMode.Media;
-            double h = IsNotch || measuredContent ? measuredHeight : ContentExpandedHeight;
+            // En notch el alto lo pone el contenido (el ajuste configurado es del
+            // estilo cápsula); en cápsula, el configurado es el suelo de música.
+            double floor = IsNotch ? 0 : ContentExpandedHeight;
+            if (measuredHeight > _hexpShared) _hexpShared = Math.Max(floor, measuredHeight);
+            double h = Math.Max(_hexpShared, measuredHeight);
             double old = _hexp;
-            if (h > (measuredContent ? 34 : 60) && h < 260) _hexp = h;
+            if (h > 34 && h < 260) _hexp = h;
             // El objetivo manda: si cambió, correr frames (o snapping). Si no
             // cambió, ni se toca el loop: música en reposo ni se entera.
             if (_hexp != old)
