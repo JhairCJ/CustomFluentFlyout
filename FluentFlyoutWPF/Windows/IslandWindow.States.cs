@@ -7,6 +7,7 @@ using FluentFlyout.Classes.Utils;
 using FluentFlyout.Controls.TaskbarWidget;
 using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Classes.Utils;
+using FluentFlyoutWPF.Models;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -443,6 +444,9 @@ public partial class IslandWindow
         // (001 RF-2).
         "apps" => AppsKeepsView(),
         "shelf" => ShelfKeepsView(),
+        // El clima no tiene actividad propia: en «Aviso temporal» vive lo que vive su
+        // plazo (en «Visible mientras activo» lo sostiene el puntero).
+        IslandFeatureIds.Weather => WeatherKeepsView(),
         _ => feature.State.Active,
     };
 

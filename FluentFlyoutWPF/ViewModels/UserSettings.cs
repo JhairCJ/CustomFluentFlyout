@@ -1366,6 +1366,34 @@ public partial class UserSettings : ObservableObject
     public partial int IslandClipboardMaxItems { get; set; }
 
     /// <summary>
+    /// Clima: funcionalidad habilitada. Con ella apagada no se consulta nada a la red
+    /// (ni el buscador de lugares) y el Island no la ofrece.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandWeatherEnabled { get; set; }
+
+    /// <summary>Clima: lugar elegido, tal y como se enseña («Vigo, Galicia, España»).</summary>
+    [ObservableProperty]
+    public partial string IslandWeatherPlace { get; set; } = "";
+
+    /// <summary>Clima: latitud del lugar elegido (0 = sin lugar).</summary>
+    [ObservableProperty]
+    public partial double IslandWeatherLatitude { get; set; }
+
+    /// <summary>Clima: longitud del lugar elegido.</summary>
+    [ObservableProperty]
+    public partial double IslandWeatherLongitude { get; set; }
+
+    /// <summary>Clima: estado del buscador/refresco, para la página de ajustes.</summary>
+    [ObservableProperty]
+    public partial string IslandWeatherStatus { get; set; } = "";
+
+    /// <summary>Clima: motivo del último fallo (vacío si todo fue bien).</summary>
+    [ObservableProperty]
+    public partial string IslandWeatherError { get; set; } = "";
+
+
+    /// <summary>
     /// Google Calendar: minutos de antelación del recordatorio (1-60). El aviso sigue
     /// vivo hasta dos minutos después del comienzo.
     /// </summary>
@@ -1464,6 +1492,21 @@ public partial class UserSettings : ObservableObject
     /// </summary>
     partial void OnIslandClipboardMaxItemsChanged(int oldValue, int newValue) =>
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshClipboardContent();
+
+    /// <summary>
+    /// Encender o apagar el clima se aplica en el acto: arranca o se para su ciclo de
+    /// refresco (apagado no se llama a la red) y, si su vista estaba puesta, el
+    /// contenedor se repliega sin dejar una superficie vacía.
+    /// </summary>
+    partial void OnIslandWeatherEnabledChanged(bool oldValue, bool newValue) =>
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshWeatherContent();
+
+    /// <summary>
+    /// Cambiar de lugar se aplica en el acto: el ciclo consulta el lugar nuevo en
+    /// cuanto se guarda (el dato anterior se conserva hasta que llegue el suyo).
+    /// </summary>
+    partial void OnIslandWeatherPlaceChanged(string oldValue, string newValue) =>
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshWeatherContent();
 
     /// <summary>
     /// El ajuste de pantalla completa se aplica en el acto: la supresión es una
@@ -1809,6 +1852,14 @@ public partial class UserSettings : ObservableObject
         // funcionalidad; apagarla desde ajustes para la escucha en el acto.
         IslandClipboardEnabled = true;
         IslandClipboardMaxItems = 25;
+        // El clima necesita que el usuario elija SU lugar: nace apagado y sin lugar
+        // (apagado no se consulta nada a la red).
+        IslandWeatherEnabled = false;
+        IslandWeatherPlace = "";
+        IslandWeatherLatitude = 0;
+        IslandWeatherLongitude = 0;
+        IslandWeatherStatus = "";
+        IslandWeatherError = "";
         GoogleCalendarReminderMinutes = 5;
         GoogleCalendarRefreshMinutes = 5;
         GoogleCalendarDaysAhead = 7;

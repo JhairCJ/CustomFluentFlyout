@@ -72,6 +72,9 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="Generales del contenedor" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,6" />
             <ui:CardControl x:Name="IslandEnabledCard" Tag="Indexable" Grid.Row="1" Icon="{ui:SymbolIcon Album24}" Margin="0,0,0,3">
@@ -901,7 +904,43 @@
                                FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" Margin="0,10,0,0" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
             </ui:CardExpander>
-            <TextBlock Grid.Row="53" Text=" " FontSize="8" Margin="0,0,0,72" />
+            <TextBlock Grid.Row="54" Text="Clima" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+            <!-- Clima: el lugar se busca y se elige entre las sugerencias (así no hay
+                 que teclear coordenadas ni elegir entre dos pueblos con el mismo
+                 nombre); el dato lo lee el Island y no se envía nada más que el lugar. -->
+            <ui:CardExpander x:Name="IslandWeatherCard" Tag="Indexable" Grid.Row="55" Icon="{ui:SymbolIcon WeatherSunny24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+                <ui:CardExpander.Header>
+                    <Grid ColumnDefinitions="*, Auto">
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="Clima del lugar que elijas" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                            <TextBlock Text="Muestra el clima actual en el Island: el glifo del cielo y la temperatura en compacto, y el lugar, el estado y los extremos del día en expandido. Se actualiza solo cada cuarto de hora." FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="440" HorizontalAlignment="Left" />
+                        </StackPanel>
+                        <ui:ToggleSwitch Grid.Column="1" IsChecked="{Binding IslandWeatherEnabled, Mode=TwoWay}" Margin="0,0,16,0" />
+                    </Grid>
+                </ui:CardExpander.Header>
+                <StackPanel Margin="0,8,0,8">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:TextBox x:Name="IslandWeatherSearch" Width="260" PlaceholderText="Ciudad o lugar (p. ej. Vigo)"
+                                    KeyDown="IslandWeatherSearch_KeyDown" />
+                        <Button x:Name="IslandWeatherSearchBtn" Content="Buscar" Click="IslandWeatherSearch_Click"
+                                Padding="12,4" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <TextBlock x:Name="IslandWeatherSearchHint" Text="Escribe al menos dos letras y busca: elige el lugar correcto entre las sugerencias."
+                               FontSize="12" Opacity="0.5" Margin="0,6,0,0" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
+                    <!-- Sugerencias del buscador: se rellenan al buscar (código) para poder
+                         enseñar nombre, región y país de cada una. -->
+                    <StackPanel x:Name="IslandWeatherPlaces" Margin="0,6,0,0" />
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock x:Name="IslandWeatherPlaceText" Text="Sin lugar elegido" FontSize="13" VerticalAlignment="Center" />
+                        <Button Content="Actualizar ahora" Click="IslandWeatherRefresh_Click" Padding="12,4" Margin="12,0,0,0" />
+                    </StackPanel>
+                    <TextBlock x:Name="IslandWeatherStatusText" Text="{Binding IslandWeatherStatus}" FontSize="12" Opacity="0.5" Margin="0,8,0,0" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
+                    <TextBlock Text="{Binding IslandWeatherError}" FontSize="12" Foreground="#FF6B6B" Margin="0,4,0,0" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
+                    <TextBlock Text="El lugar viaja a Open-Meteo (servicio meteorológico abierto, sin cuenta ni clave): es lo único que sale de tu equipo. Apagado no se consulta nada."
+                               FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" Margin="0,10,0,0" MaxWidth="520" HorizontalAlignment="Left" />
+                </StackPanel>
+            </ui:CardExpander>
+            <TextBlock Grid.Row="56" Text=" " FontSize="8" Margin="0,0,0,72" />
         </Grid>
     </StackPanel>
 </Page>

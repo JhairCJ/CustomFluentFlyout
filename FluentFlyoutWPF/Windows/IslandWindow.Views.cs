@@ -22,6 +22,8 @@ internal enum IslandContentMode
     /// <summary>Pantalla COMBINADA (varias funcionalidades a la vez, change island-pantallas).</summary>
     Screen = 6,
     Clipboard = 7,
+    /// <summary>Clima del lugar configurado (change island-clima).</summary>
+    Weather = 8,
 }
 
 /// <summary>

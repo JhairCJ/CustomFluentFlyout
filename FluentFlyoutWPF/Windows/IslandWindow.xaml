@@ -700,6 +700,50 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </StackPanel>
+                    <!-- Clima en compacto: glifo del cielo a la izquierda y temperatura a la
+                         derecha. Es contenido pasivo (no «está pasando»): se ve al navegar
+                         hasta su pantalla y vive lo que viva su vista. -->
+                    <Grid x:Name="WeatherCompactGrid" Margin="6,0,10,0" Visibility="Collapsed"
+                          Cursor="Hand" ToolTip="Clima">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ui:SymbolIcon x:Name="WeatherCompactGlyph" Grid.Column="0" Symbol="WeatherCloudy24"
+                                       Filled="True" Foreground="White" FontSize="15"
+                                       VerticalAlignment="Center" IsHitTestVisible="False"/>
+                        <TextBlock x:Name="WeatherCompactTemp" Grid.Column="2" Text="—°" Foreground="White"
+                                   FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"
+                                   Margin="8,0,0,0" IsHitTestVisible="False"/>
+                    </Grid>
+                    <!-- Clima en expandido: lugar, cielo, temperatura y extremos del día. -->
+                    <StackPanel x:Name="WeatherExpanded" Visibility="Collapsed" Margin="0,2,0,2">
+                        <Grid Margin="0,0,0,4">
+                            <TextBlock x:Name="WeatherPlace" Foreground="White" FontSize="12" Opacity="0.75"
+                                       HorizontalAlignment="Left" TextTrimming="CharacterEllipsis"
+                                       IsHitTestVisible="False"/>
+                            <TextBlock x:Name="WeatherUpdated" Foreground="White" FontSize="10" Opacity="0.4"
+                                       HorizontalAlignment="Right" IsHitTestVisible="False"/>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <ui:SymbolIcon x:Name="WeatherExpandedGlyph" Grid.Column="0" Symbol="WeatherCloudy24"
+                                           Filled="True" Foreground="White" FontSize="34"
+                                           VerticalAlignment="Center" IsHitTestVisible="False"/>
+                            <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                                <TextBlock x:Name="WeatherExpandedTemp" Text="—°" Foreground="White"
+                                           FontSize="26" FontWeight="SemiBold" IsHitTestVisible="False"/>
+                                <TextBlock x:Name="WeatherCondition" Text="" Foreground="White" FontSize="12"
+                                           Opacity="0.7" IsHitTestVisible="False"/>
+                                <TextBlock x:Name="WeatherRange" Text="" Foreground="White" FontSize="11"
+                                           Opacity="0.5" Margin="0,2,0,0" IsHitTestVisible="False"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
                     <!-- PANTALLA COMBINADA en expandido: las funcionalidades que la componen van
                          de izquierda a derecha, una columna por funcionalidad (change
                          island-pantallas RF-2/RF-3). Los paneles de cada una se MUEVEN aquí
@@ -714,6 +758,7 @@
                         <StackPanel x:Name="ScreenColumnShelf" Margin="0,0,14,0" Visibility="Collapsed"/>
                         <StackPanel x:Name="ScreenColumnCalendar" Margin="0,0,14,0" Visibility="Collapsed"/>
                         <StackPanel x:Name="ScreenColumnClipboard" Margin="0,0,14,0" Visibility="Collapsed"/>
+                        <StackPanel x:Name="ScreenColumnWeather" Margin="0,0,14,0" Visibility="Collapsed"/>
                     </StackPanel>
                 </StackPanel>
             </Grid>

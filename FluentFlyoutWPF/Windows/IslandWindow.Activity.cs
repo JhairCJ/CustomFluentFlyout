@@ -33,6 +33,8 @@ internal enum IslandActivityReason
     Bluetooth = 1 << 7,
     /// <summary>Portapapeles: llegó o se fue una pieza copiada.</summary>
     Clipboard = 1 << 8,
+    /// <summary>Clima: llegó un dato nuevo (o cambió el lugar configurado).</summary>
+    Weather = 1 << 9,
 }
 
 /// <summary>
@@ -290,6 +292,11 @@ public partial class IslandWindow
         // nunca se re-despliega (change island-bluetooth-conectado RF-3/RF-5).
         if ((reasons & IslandActivityReason.Bluetooth) != 0)
             ReconcileBluetoothState();
+
+        // Clima: un dato nuevo (o un lugar nuevo) solo repinta la vista del clima si
+        // ya está delante; nunca despliega nada (change island-clima RF-3).
+        if ((reasons & IslandActivityReason.Weather) != 0)
+            ReconcileWeatherState();
 
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         if (_expanded && !_drag && !_reelDragging && !IsMouseOverBoxOrStrip()) LeaveHover();

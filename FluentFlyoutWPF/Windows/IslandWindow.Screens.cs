@@ -253,6 +253,9 @@ public partial class IslandWindow
             case IslandFeatureIds.Clipboard:
                 RefreshClipboardViews();
                 break;
+            case IslandFeatureIds.Weather:
+                RefreshWeatherUI();
+                break;
         }
     }
 
@@ -290,6 +293,8 @@ public partial class IslandWindow
         CalendarCompactGrid.Visibility = Visibility.Collapsed;
         BluetoothCompactGrid.Visibility = Visibility.Collapsed;
         ClipboardCompactGrid.Visibility = Visibility.Collapsed;
+        WeatherCompactGrid.Visibility = Visibility.Collapsed;
+        WeatherExpanded.Visibility = Visibility.Collapsed;
         HideAllExpandedPanels();
         // El expandido va de IZQUIERDA A DERECHA: los paneles de cada miembro se
         // trasladan a su columna, en el orden de la pantalla (RF-2/RF-3).
@@ -347,6 +352,10 @@ public partial class IslandWindow
                 ClipboardExpanded.Visibility = Visibility.Visible;
                 RefreshClipboardViews();
                 break;
+            case IslandFeatureIds.Weather:
+                WeatherExpanded.Visibility = Visibility.Visible;
+                RefreshWeatherUI();
+                break;
             // Bluetooth no tiene expandido: su aviso vive en el compacto.
         }
     }
@@ -375,6 +384,7 @@ public partial class IslandWindow
         "shelf" => [ShelfExpanded],
         "calendar" => [CalendarExpanded],
         IslandFeatureIds.Clipboard => [ClipboardExpanded],
+        IslandFeatureIds.Weather => [WeatherExpanded],
         // Bluetooth no tiene expandido: su aviso vive en el compacto.
         _ => [],
     };
@@ -388,6 +398,7 @@ public partial class IslandWindow
         "shelf" => ScreenColumnShelf,
         "calendar" => ScreenColumnCalendar,
         IslandFeatureIds.Clipboard => ScreenColumnClipboard,
+        IslandFeatureIds.Weather => ScreenColumnWeather,
         _ => null,
     };
 
@@ -427,7 +438,7 @@ public partial class IslandWindow
     }
 
     private IEnumerable<StackPanel> AllScreenColumns() =>
-        [ScreenColumnMedia, ScreenColumnTimer, ScreenColumnApps, ScreenColumnShelf, ScreenColumnCalendar, ScreenColumnClipboard];
+        [ScreenColumnMedia, ScreenColumnTimer, ScreenColumnApps, ScreenColumnShelf, ScreenColumnCalendar, ScreenColumnClipboard, ScreenColumnWeather];
 
     /// <summary>Mueve un panel a su columna recordando su sitio original (una sola vez).</summary>
     private void MoveToColumn(UIElement panel, Panel host)

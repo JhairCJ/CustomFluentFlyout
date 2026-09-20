@@ -197,6 +197,35 @@ public partial class IslandWindow
         // Fuera de una pantalla combinada los paneles del expandido viven en su sitio
         // de siempre (no-op si no se había movido ninguno a una columna).
         RestoreExpandedHomes();
+        WeatherCompactGrid.Visibility = Visibility.Collapsed;
+        WeatherExpanded.Visibility = Visibility.Collapsed;
+        // Clima: su vista (glifo y temperatura en compacto, lugar y extremos en el
+        // expandido) es excluyente con el resto de capas, como el portapapeles.
+        bool weather = _contentMode == IslandContentMode.Weather && WeatherModeAvailable();
+        WeatherCompactGrid.Visibility = weather ? Visibility.Visible : Visibility.Collapsed;
+        WeatherExpanded.Visibility = weather ? Visibility.Visible : Visibility.Collapsed;
+        if (weather)
+        {
+            MusicCompactGrid.Visibility = Visibility.Collapsed;
+            TimerCompactGrid.Visibility = Visibility.Collapsed;
+            AppsCompactGrid.Visibility = Visibility.Collapsed;
+            ShelfCompactGrid.Visibility = Visibility.Collapsed;
+            CalendarCompactGrid.Visibility = Visibility.Collapsed;
+            BluetoothCompactGrid.Visibility = Visibility.Collapsed;
+            ClipboardCompactGrid.Visibility = Visibility.Collapsed;
+            MusicExpandedTop.Visibility = Visibility.Collapsed;
+            ControlsRow.Visibility = Visibility.Collapsed;
+            SeekRow.Visibility = Visibility.Collapsed;
+            TimerAlert.Visibility = Visibility.Collapsed;
+            AppsExpanded.Visibility = Visibility.Collapsed;
+            ShelfExpanded.Visibility = Visibility.Collapsed;
+            CalendarExpanded.Visibility = Visibility.Collapsed;
+            ClipboardExpanded.Visibility = Visibility.Collapsed;
+            WeatherExpanded.Visibility = Visibility.Visible;
+            CrossfadeTimerPanels(showConfig: false, showRun: false);
+            UpdateArrows();
+            return;
+        }
         // Portapapeles: fila de piezas copiadas (o lista en el expandido), excluyente
         // con el resto de capas, como el cajón y el estante.
         bool clipboard = _contentMode == IslandContentMode.Clipboard && ClipboardModeAvailable();
@@ -242,6 +271,7 @@ public partial class IslandWindow
             ShelfExpanded.Visibility = Visibility.Collapsed;
             CalendarExpanded.Visibility = Visibility.Collapsed;
             ClipboardExpanded.Visibility = Visibility.Collapsed;
+            WeatherExpanded.Visibility = Visibility.Collapsed;
             CrossfadeTimerPanels(showConfig: false, showRun: false);
             UpdateArrows();
             return;

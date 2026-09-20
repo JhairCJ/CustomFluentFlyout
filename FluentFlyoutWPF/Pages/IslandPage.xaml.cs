@@ -23,6 +23,9 @@ public partial class IslandPage : Page
         InitializeComponent();
         DataContext = SettingsManager.Current;
         RefreshScreensEditor();
+        IslandWeatherPlaceText.Text = SettingsManager.Current.IslandWeatherPlace.Trim().Length > 0
+            ? SettingsManager.Current.IslandWeatherPlace
+            : "Sin lugar elegido";
     }
 
     // ------------------------------------------------------------------
@@ -243,6 +246,102 @@ public partial class IslandPage : Page
         if ((sender as Button)?.DataContext is IslandApp app)
             SettingsManager.Current.RemoveIslandApp(app);
     }
+
+    // --- clima (change island-clima) ---
+
+    private CancellationTokenSource? _weatherSearch;
+
+    /// <summary>Enter en la caja de búsqueda busca igual que el botón.</summary>
+    private void IslandWeatherSearch_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Enter) IslandWeatherSearch_Click(sender, e);
+    }
+
+    /// <summary>
+    /// Busca lugares y los enseña como sugerencias: se elige el lugar CORRECTO entre
+    /// varios del mismo nombre (nombre, región y país de cada uno), que es justo lo
+    /// que un campo de coordenadas no resuelve.
+    /// </summary>
+    private async void IslandWeatherSearch_Click(object sender, RoutedEventArgs e)
+    {
+        var settings = SettingsManager.Current;
+        string query = (IslandWeatherSearch.Text ?? "").Trim();
+        IslandWeatherPlaces.Children.Clear();
+        if (query.Length < 2)
+        {
+            settings.IslandWeatherError = "Escribe al menos dos letras del lugar.";
+            return;
+        }
+        settings.IslandWeatherError = "";
+        settings.IslandWeatherStatus = "Buscando lugares…";
+        IslandWeatherSearchBtn.IsEnabled = false;
+        _weatherSearch?.Cancel();
+        var cts = new CancellationTokenSource();
+        _weatherSearch = cts;
+        try
+        {
+            var places = await IslandWeatherService.SearchPlacesAsync(query, cts.Token);
+            if (cts.IsCancellationRequested) return;
+            if (places.Count == 0)
+            {
+                settings.IslandWeatherStatus = "";
+                settings.IslandWeatherError = $"No se encontró ningún lugar llamado «{query}».";
+                return;
+            }
+            settings.IslandWeatherStatus = places.Count == 1
+                ? "Un lugar encontrado: pulsa para elegirlo."
+                : $"{places.Count} lugares encontrados: elige el tuyo.";
+            foreach (var place in places)
+            {
+                var button = new Button
+                {
+                    Content = place.Label,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Padding = new Thickness(10, 3, 10, 3),
+                    Margin = new Thickness(0, 0, 0, 4),
+                    ToolTip = $"{place.Latitude:0.####}, {place.Longitude:0.####}",
+                };
+                button.Click += (_, _) => ApplyWeatherPlace(place);
+                IslandWeatherPlaces.Children.Add(button);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "Clima: búsqueda de lugares fallida");
+            settings.IslandWeatherStatus = "";
+            settings.IslandWeatherError = "No se pudo buscar: revisa la conexión a internet.";
+        }
+        finally
+        {
+            IslandWeatherSearchBtn.IsEnabled = true;
+            if (ReferenceEquals(_weatherSearch, cts)) _weatherSearch = null;
+            cts.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Adopta el lugar elegido: se guarda con sus coordenadas y la funcionalidad se
+    /// enciende sola (elegir un lugar es querer verlo). El Island consulta el lugar
+    /// nuevo en el acto.
+    /// </summary>
+    private void ApplyWeatherPlace(IslandWeatherPlace place)
+    {
+        var settings = SettingsManager.Current;
+        settings.IslandWeatherPlace = place.Label;
+        settings.IslandWeatherLatitude = place.Latitude;
+        settings.IslandWeatherLongitude = place.Longitude;
+        settings.IslandWeatherError = "";
+        settings.IslandWeatherEnabled = true;
+        IslandWeatherPlaceText.Text = place.Label;
+        IslandWeatherPlaces.Children.Clear();
+        settings.IslandWeatherStatus = $"Lugar elegido: {place.Label}.";
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshWeatherNow();
+    }
+
+    /// <summary>Refresco a mano del dato (el ciclo periódico sigue igual).</summary>
+    private void IslandWeatherRefresh_Click(object sender, RoutedEventArgs e) =>
+        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshWeatherNow();
 
     // --- orden de las funcionalidades del Island ---
 

@@ -35,8 +35,11 @@ public static class IslandFeatureIds
     /// <summary>Portapapeles (texto e imágenes).</summary>
     public const string Clipboard = "clipboard";
 
+    /// <summary>Clima del lugar configurado.</summary>
+    public const string Weather = "weather";
+
     /// <summary>Orden por defecto de las funcionalidades del contenedor.</summary>
-    public static readonly IReadOnlyList<string> All = [Media, Timer, Apps, Shelf, Calendar, Bluetooth, Clipboard];
+    public static readonly IReadOnlyList<string> All = [Media, Timer, Apps, Shelf, Calendar, Bluetooth, Clipboard, Weather];
 
     /// <summary>Separador de funcionalidades dentro de una pantalla combinada.</summary>
     public const char ScreenSeparator = '+';
@@ -82,6 +85,7 @@ public static class IslandFeatureIds
         Calendar => "Recordatorios de calendario",
         Bluetooth => "Dispositivos Bluetooth",
         Clipboard => "Portapapeles",
+        Weather => "Clima",
         _ => id ?? "",
     };
 }

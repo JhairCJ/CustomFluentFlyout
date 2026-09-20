@@ -295,6 +295,30 @@ public sealed class IslandClipboardFeature(IslandWindow owner) : IIslandFeature
 }
 
 /// <summary>
+/// Funcionalidad «clima» (change island-clima): disponible cuando está habilitada,
+/// hay un lugar elegido y ya llegó un dato (sin dato no hay nada que enseñar); como
+/// el cajón y el estante no genera actividad propia —el clima no «está pasando»—,
+/// así que su vista la sostienen el puntero (Visible mientras activo) o su plazo
+/// (Aviso temporal).
+/// </summary>
+public sealed class IslandWeatherFeature(IslandWindow owner) : IIslandFeature
+{
+    public string Id => IslandFeatureIds.Weather;
+
+    public IslandFeatureState State => owner.GetWeatherFeatureState();
+
+    public double CompactWidth => 200;
+    public double CompactHeight => 34;
+    public double ExpandedPreferredWidth => 0; // ancho común configurado
+    public double ExpandedPreferredHeight => 0; // medir contenido
+
+    public bool TryShowExpanded() => owner.ShowWeatherExpandedFromContract();
+    public bool TryShowCompact() => owner.ShowWeatherCompactFromContract();
+
+    public IslandFeatureSummary Summary => owner.WeatherSummary();
+}
+
+/// <summary>
 /// Funcionalidad «temporizador» del island (002): disponible siempre que esté
 /// habilitada (su configuración es usable sin media); activa con cuenta en
 /// marcha; la alerta final declara acceso exclusivo persistente (002 MOD RF-2).
