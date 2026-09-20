@@ -18,14 +18,61 @@ public partial class IslandPage : Page
 {
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-    public IslandPage()
+    public enum IslandCategory
     {
+        All,
+        General,
+        Screens,
+        Music,
+        Interaction,
+        Appearance,
+        Content,
+        Timer,
+        Apps,
+        Organization,
+        Tools,
+    }
+
+    private readonly IslandCategory _category;
+
+    public IslandPage() : this(IslandCategory.All)
+    {
+    }
+
+    protected IslandPage(IslandCategory category)
+    {
+        _category = category;
         InitializeComponent();
         DataContext = SettingsManager.Current;
         RefreshScreensEditor();
         IslandWeatherPlaceText.Text = SettingsManager.Current.IslandWeatherPlace.Trim().Length > 0
             ? SettingsManager.Current.IslandWeatherPlace
             : "Sin lugar elegido";
+        ApplyCategoryVisibility();
+    }
+
+    private void ApplyCategoryVisibility()
+    {
+        if (_category == IslandCategory.All)
+            return;
+
+        HashSet<int> visibleRows = _category switch
+        {
+            IslandCategory.General => [0, 1, 2, 3, 4, 5, 6],
+            IslandCategory.Screens => [7, 8],
+            IslandCategory.Music => [9, 10, 11, 12, 13, 14],
+            IslandCategory.Interaction => [15, 16, 17, 18, 19, 20, 21, 22, 23],
+            IslandCategory.Appearance => [24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34],
+            IslandCategory.Content => [36, 37],
+            IslandCategory.Timer => [38, 39, 40, 41, 42],
+            IslandCategory.Apps => [43, 44],
+            IslandCategory.Organization => [45, 46, 47, 48],
+            IslandCategory.Tools => [49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59],
+            _ => [],
+        };
+
+        foreach (FrameworkElement child in IslandSettingsGrid.Children)
+            child.Visibility = visibleRows.Contains(Grid.GetRow(child)) ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ------------------------------------------------------------------
