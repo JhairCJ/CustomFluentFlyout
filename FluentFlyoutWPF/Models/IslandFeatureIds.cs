@@ -13,8 +13,8 @@ namespace FluentFlyoutWPF.Models;
 /// derecha. No hay ninguna otra lista de orden.</para>
 ///
 /// <para>Cada pantalla lleva como máximo <see cref="MaxFeaturesPerScreen"/>
-/// funcionalidades: son las que caben en su composición (fichas del compacto y
-/// columnas del expandido).</para>
+/// funcionalidades: son las que caben en su composición (las columnas del expandido).
+/// En el compacto la pantalla enseña UNA sola: la funcionalidad que sostiene la vista.</para>
 /// </summary>
 public static class IslandFeatureIds
 {

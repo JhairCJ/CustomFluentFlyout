@@ -54,17 +54,6 @@ public partial class IslandWindow
 
     private bool PowerActive() => PowerModeAvailable() && _powerStatus != null && PowerNoticeAlive();
 
-    /// <summary>Resumen de una línea del cargador para las pantallas combinadas.</summary>
-    internal IslandFeatureSummary PowerSummary()
-    {
-        var status = _powerStatus;
-        bool charging = status?.AcOnline ?? false;
-        string text = status?.PercentText ?? (charging ? "Enchufado" : "A batería");
-        return new IslandFeatureSummary(
-            charging ? Wpf.Ui.Controls.SymbolRegular.BatteryCharge24 : Wpf.Ui.Controls.SymbolRegular.BatteryWarning24,
-            text);
-    }
-
     internal IslandFeatureState GetPowerFeatureState()
     {
         bool enabled = PowerModeAvailable();

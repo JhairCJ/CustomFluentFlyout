@@ -424,10 +424,11 @@ public partial class IslandWindow
         _contentMode == IslandContentMode.Media || ScreenOwnsMediaView();
 
     /// <summary>
-    /// La música dejó de sostener la vista: se repliega a lo que corresponda. Con una
-    /// PANTALLA delante, la vista la sostiene la pantalla entera, así que se queda si
-    /// alguna otra de sus funcionalidades sigue sosteniéndola (el temporizador contando,
-    /// un aviso vivo) y, si no, se repliega igual que su vista rica.
+    /// La música dejó de sostener la vista: se repliega a lo que corresponda. Con el
+    /// EXPANDIDO de una pantalla delante, la vista la sostiene la pantalla entera, así
+    /// que se queda si alguna otra de sus funcionalidades sigue sosteniéndola (el
+    /// temporizador contando, un aviso vivo) y, si no, se repliega igual que su vista
+    /// rica.
     /// </summary>
     private void DropMediaView()
     {
@@ -755,13 +756,24 @@ public partial class IslandWindow
     {
         // Alerta modal del timer: los eventos de música esperan a X o reinicio.
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
-        // Con una PANTALLA combinada delante que contiene la música, la composición la
-        // manda ella: la música solo repinta su contenido (fichas y paneles de cada
-        // columna). Si no, el evento multimedia adopta su vista de siempre: el contenido
-        // más reciente manda (spec 001 RF-24).
+        // Con el EXPANDIDO de una pantalla que contiene la música delante, la
+        // composición la manda la pantalla: la música solo repinta su columna. Si no, el
+        // evento multimedia adopta el contenido más reciente (spec 001 RF-24) dentro de
+        // SU pantalla: expandido y con pantalla combinada, la composición de sus
+        // columnas; en cualquier otro caso, su vista rica de siempre (una sola, que es
+        // lo que cabe en el compacto).
         if (!ScreenOwnsMediaView())
         {
-            _contentMode = IslandContentMode.Media;
+            if (_expanded && MediaFeature is { } mediaFeature && ScreenOfFeatureIsCombined(mediaFeature))
+            {
+                _screenIndex = ResolveScreenIndexFor(mediaFeature.Id);
+                _contentMode = IslandContentMode.Screen;
+                RefreshScreenMembers();
+            }
+            else
+            {
+                _contentMode = IslandContentMode.Media;
+            }
             ApplyContentVisibility();
         }
         var status = knownStatus ?? SafeStatus(session) ?? _lastStatus;
@@ -938,14 +950,6 @@ public partial class IslandWindow
         BtnNext.IsEnabled = canNext;
         BtnNext.Opacity = canNext ? 1 : 0.35;
     }
-
-    /// <summary>
-    /// Resumen de una línea de la música para las pantallas combinadas
-    /// (change island-pantallas RF-3): el título que está sonando.
-    /// </summary>
-    internal IslandFeatureSummary MediaSummary() => new(
-        Wpf.Ui.Controls.SymbolRegular.MusicNote2Play20,
-        string.IsNullOrWhiteSpace(CompactTitle.Text) ? "Sin reproducción" : CompactTitle.Text);
 
     private void PaintGlyph()
     {

@@ -49,18 +49,7 @@ public interface IIslandFeature
     /// no es usable ahora mismo.
     /// </summary>
     bool TryShowCompact();
-
-    /// <summary>Resumen de una línea para las pantallas combinadas.</summary>
-    IslandFeatureSummary Summary { get; }
 }
-
-/// <summary>
-/// Resumen de una línea de una funcionalidad, para las PANTALLAS COMBINADAS
-/// (change island-pantallas RF-4): un icono y un texto corto («78 %», «12:30»,
-/// «en 5 min») con el que varias funcionalidades conviven en el compacto. La
-/// pantalla de una sola funcionalidad no lo usa: ahí manda su vista rica.
-/// </summary>
-public readonly record struct IslandFeatureSummary(Wpf.Ui.Controls.SymbolRegular Glyph, string Text);
 
 /// <summary>Snapshot del contrato de una funcionalidad en un instante dado.</summary>
 public readonly record struct IslandFeatureState(
@@ -112,7 +101,6 @@ public sealed class IslandMediaFeature(IslandWindow owner) : IIslandFeature
     public bool TryShowExpanded() => owner.ShowMediaExpandedFromContract();
     public bool TryShowCompact() => owner.ShowMediaCompactFromContract();
 
-    public IslandFeatureSummary Summary => owner.MediaSummary();
 }
 
 /// <summary>
@@ -136,7 +124,6 @@ public sealed class IslandAppsFeature(IslandWindow owner) : IIslandFeature
     public bool TryShowExpanded() => owner.ShowAppsExpandedFromContract();
     public bool TryShowCompact() => owner.ShowAppsCompactFromContract();
 
-    public IslandFeatureSummary Summary => owner.AppsSummary();
 }
 
 /// <summary>
@@ -160,7 +147,6 @@ public sealed class IslandShelfFeature(IslandWindow owner) : IIslandFeature
     public bool TryShowExpanded() => owner.ShowShelfExpandedFromContract();
     public bool TryShowCompact() => owner.ShowShelfCompactFromContract();
 
-    public IslandFeatureSummary Summary => owner.ShelfSummary();
 }
 
 /// <summary>
@@ -185,7 +171,6 @@ public sealed class IslandCalendarFeature(IslandWindow owner) : IIslandFeature
     public bool TryShowExpanded() => owner.ShowCalendarExpandedFromContract();
     public bool TryShowCompact() => owner.ShowCalendarCompactFromContract();
 
-    public IslandFeatureSummary Summary => owner.CalendarSummary();
 }
 
 /// <summary>
@@ -217,7 +202,6 @@ public sealed class IslandBluetoothFeature(IslandWindow owner) : IIslandFeature
 
     public bool TryShowCompact() => owner.ShowBluetoothCompactFromContract();
 
-    public IslandFeatureSummary Summary => owner.BluetoothSummary();
 }
 
 /// <summary>
@@ -241,7 +225,6 @@ public sealed class IslandClipboardFeature(IslandWindow owner) : IIslandFeature
     public bool TryShowExpanded() => owner.ShowClipboardExpandedFromContract();
     public bool TryShowCompact() => owner.ShowClipboardCompactFromContract();
 
-    public IslandFeatureSummary Summary => owner.ClipboardSummary();
 }
 
 /// <summary>
@@ -265,7 +248,6 @@ public sealed class IslandWeatherFeature(IslandWindow owner) : IIslandFeature
     public bool TryShowExpanded() => owner.ShowWeatherExpandedFromContract();
     public bool TryShowCompact() => owner.ShowWeatherCompactFromContract();
 
-    public IslandFeatureSummary Summary => owner.WeatherSummary();
 }
 
 /// <summary>
@@ -289,7 +271,6 @@ public sealed class IslandPowerFeature(IslandWindow owner) : IIslandFeature
 
     public bool TryShowCompact() => owner.ShowPowerCompactFromContract();
 
-    public IslandFeatureSummary Summary => owner.PowerSummary();
 }
 
 /// <summary>
@@ -311,5 +292,4 @@ public sealed class IslandTimerFeature(IslandWindow owner) : IIslandFeature
     public bool TryShowExpanded() => owner.ShowTimerExpandedFromContract();
     public bool TryShowCompact() => owner.ShowTimerCompactFromContract();
 
-    public IslandFeatureSummary Summary => owner.TimerSummary();
 }

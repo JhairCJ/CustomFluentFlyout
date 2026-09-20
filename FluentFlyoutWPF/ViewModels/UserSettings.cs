@@ -2261,8 +2261,8 @@ public partial class UserSettings : ObservableObject
     /// <summary>
     /// Añade una funcionalidad al FINAL de una pantalla. El orden de dentro de la
     /// pantalla es el orden en el que sus funcionalidades se presentan (de izquierda a
-    /// derecha: fichas del compacto y columnas del expandido), así que la nueva entra
-    /// al final y el usuario la coloca con <see cref="MoveIslandScreenFeature"/>. Una
+    /// derecha: las columnas del expandido, y el turno del compacto), así que la nueva
+    /// entra al final y el usuario la coloca con <see cref="MoveIslandScreenFeature"/>. Una
     /// pantalla llena (<see cref="IslandFeatureIds.MaxFeaturesPerScreen"/>) no acepta
     /// más: es el máximo que cabe en una sola pantalla del Island.
     /// </summary>

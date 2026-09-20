@@ -76,17 +76,6 @@ public partial class IslandWindow
     /// </summary>
     private void InitApps() => RefreshAppList();
 
-    /// <summary>
-    /// Resumen de una línea del cajón para las pantallas combinadas
-    /// (change island-pantallas RF-3): cuántas aplicaciones lleva.
-    /// </summary>
-    internal IslandFeatureSummary AppsSummary()
-    {
-        int count = SettingsManager.Current.IslandApps.Count;
-        return new IslandFeatureSummary(Wpf.Ui.Controls.SymbolRegular.Apps24,
-            count == 1 ? "1 app" : $"{count} apps");
-    }
-
     private void RefreshAppList()
     {
         var apps = SettingsManager.Current.IslandApps;

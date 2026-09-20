@@ -79,17 +79,6 @@ public partial class IslandWindow
     /// </summary>
     private void InitShelf() => RefreshShelfList();
 
-    /// <summary>
-    /// Resumen de una línea del estante para las pantallas combinadas
-    /// (change island-pantallas RF-3): cuántos elementos hay aparcados.
-    /// </summary>
-    internal IslandFeatureSummary ShelfSummary()
-    {
-        int count = ShelfItems.Count;
-        return new IslandFeatureSummary(Wpf.Ui.Controls.SymbolRegular.Folder24,
-            count == 0 ? "Vacío" : count == 1 ? "1 elemento" : $"{count} elementos");
-    }
-
     private void RefreshShelfList()
     {
         var items = ShelfItems;

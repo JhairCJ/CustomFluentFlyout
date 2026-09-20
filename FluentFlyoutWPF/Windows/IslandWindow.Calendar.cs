@@ -70,17 +70,6 @@ public partial class IslandWindow
         // propia actividad, igual que la música o el temporizador.
         && (SettingsManager.Current.IslandVisibilityMode == 0 || _noticeUntil > DateTime.UtcNow);
 
-    /// <summary>
-    /// Resumen de una línea del calendario para las pantallas combinadas
-    /// (change island-pantallas RF-3): la cuenta atrás del evento que viene.
-    /// </summary>
-    internal IslandFeatureSummary CalendarSummary()
-    {
-        var next = _calendarReminder ?? GoogleCalendarService.Instance.Upcoming.FirstOrDefault();
-        return new IslandFeatureSummary(Wpf.Ui.Controls.SymbolRegular.Calendar24,
-            next?.CountdownText ?? "Sin eventos");
-    }
-
     internal IslandFeatureState GetCalendarFeatureState()
     {
         bool enabled = SettingsManager.Current.IslandEnabled && SettingsManager.Current.IslandCalendarEnabled;

@@ -85,8 +85,9 @@ public partial class IslandWindow
     /// evento nuevo lo hace—.</para>
     ///
     /// <para>La vista del Island es una PANTALLA (change island-pantallas): la
-    /// funcionalidad adopta la suya y, si es combinada, el compacto que se presenta es
-    /// su fila de fichas (no su vista rica suelta). Una funcionalidad que no está en
+    /// funcionalidad adopta la suya, pero el COMPACTO no agrupa —enseña la vista rica de
+    /// esa funcionalidad, una sola, aunque su pantalla lleve varias— y es el clic
+    /// posterior el que abre la pantalla entera. Una funcionalidad que no está en
     /// ninguna pantalla no tiene vista: el contenedor resuelve otra cosa —o el reposo—
     /// en vez de presentarla.</para>
     /// </summary>
@@ -102,11 +103,13 @@ public partial class IslandWindow
         // pintaría sobre el contenido ya desvanecido (001 MOD RF-16).
         SetInactiveRest(false);
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) { SnapHidden(); return; }
-        // PANTALLAS: la vista la manda la pantalla de la funcionalidad (fichas si es
-        // combinada). Sin pantalla no hay nada que presentar: se resuelve la vista por
-        // las vías normales (otra pantalla, el temporizador o el reposo). La excepción
-        // es una exclusiva (la alerta del temporizador), que conserva su vista propia.
-        if (feature != null && !AdoptScreenFor(feature, ref mode, ref present)
+        // PANTALLAS: la vista la manda la pantalla de la funcionalidad, y el compacto
+        // enseña UNA sola de sus funcionalidades (su vista rica): agrupar es cosa del
+        // expandido, que es lo que abre el clic. Sin pantalla no hay nada que presentar:
+        // se resuelve la vista por las vías normales (otra pantalla, el temporizador o el
+        // reposo). La excepción es una exclusiva (la alerta del temporizador), que
+        // conserva su vista propia.
+        if (feature != null && !AdoptScreenFor(feature, expanded: false, ref mode, ref present)
             && !ScreenlessFeatureKeepsOwnView(feature))
         {
             _expanded = false;
@@ -171,7 +174,7 @@ public partial class IslandWindow
         // combinada) y sin pantalla no hay nada que abrir: la vista se resuelve por las
         // vías normales en vez de abrir la funcionalidad suelta. La excepción es una
         // exclusiva (la alerta del temporizador), que conserva su vista propia.
-        if (feature != null && !AdoptScreenFor(feature, ref mode, ref present)
+        if (feature != null && !AdoptScreenFor(feature, expanded: true, ref mode, ref present)
             && !ScreenlessFeatureKeepsOwnView(feature))
         {
             HidePerMode();

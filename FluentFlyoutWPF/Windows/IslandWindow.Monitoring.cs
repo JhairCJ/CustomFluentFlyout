@@ -98,8 +98,8 @@ public partial class IslandWindow
         if (!IsBoxShown) return false;
         // Solo con la capa musical delante: con timer, cajón, estante o calendario
         // a la vista el visualizador no está en pantalla. En una pantalla combinada la
-        // capa musical vive en su columna del expandido (su compacto son fichas, sin
-        // visualizador), así que solo corre con el expandido delante.
+        // capa musical vive en su columna del expandido, así que la pantalla solo cuenta
+        // cuando está expandida y contiene la música.
         bool mediaOnScreen = _contentMode == IslandContentMode.Media
             || (_contentMode == IslandContentMode.Screen && _expanded
                 && CurrentScreenContains(IslandFeatureIds.Media));

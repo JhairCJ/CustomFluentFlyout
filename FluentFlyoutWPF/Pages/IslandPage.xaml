@@ -151,14 +151,14 @@
                 <ui:CardExpander.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="Pantallas del Island" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                        <TextBlock Text="Agrupa funcionalidades en pantallas: la rueda y las flechas las recorren en orden. Una pantalla con varias va de izquierda a derecha —sus fichas en el compacto y sus columnas en el expandido— con ancho y alto dinámicos, y el orden de las tarjetas es ese orden. Con una sola funcionalidad la pantalla se ve como siempre." FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="440" HorizontalAlignment="Left" />
+                        <TextBlock Text="Agrupa funcionalidades en pantallas: la rueda y las flechas las recorren en orden. En el compacto la pantalla enseña UNA sola funcionalidad —la que está activa— y al hacer clic en ella se abre la pantalla entera: todas sus funcionalidades en columnas de izquierda a derecha, con ancho y alto dinámicos, en el orden de las tarjetas. Con una sola funcionalidad la pantalla se ve como siempre." FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="440" HorizontalAlignment="Left" />
                     </StackPanel>
                 </ui:CardExpander.Header>
                 <StackPanel Margin="0,8,0,8">
                     <StackPanel x:Name="IslandScreensPanel" />
                     <Button Content="Nueva pantalla" Click="IslandScreenNew_Click" Padding="12,4" Margin="0,8,0,0" HorizontalAlignment="Left"
                             ToolTip="Nace con la primera funcionalidad que no esté en ninguna pantalla" />
-                    <TextBlock Text="Cada pantalla lleva hasta 4 funcionalidades: es lo que cabe en una sola pantalla del Island (las fichas del compacto y las columnas del expandido, de izquierda a derecha). Una pantalla vacía no se guarda: cada pantalla necesita al menos una funcionalidad. Lo que cambies aquí se ve en el Island al momento si está a la vista." FontSize="12" Opacity="0.5" Margin="0,6,0,0" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
+                    <TextBlock Text="Cada pantalla lleva hasta 4 funcionalidades: son las columnas que caben en el expandido del Island, de izquierda a derecha. Una pantalla vacía no se guarda: cada pantalla necesita al menos una funcionalidad, y el orden de las tarjetas es el de esas columnas. Lo que cambies aquí se ve en el Island al momento si está a la vista." FontSize="12" Opacity="0.5" Margin="0,6,0,0" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
             </ui:CardExpander>
             <TextBlock Grid.Row="9" Text="Música" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />

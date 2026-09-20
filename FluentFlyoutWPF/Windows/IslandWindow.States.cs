@@ -496,8 +496,9 @@ public partial class IslandWindow
         // (001 RF-2)—. La entrada a contenido arranca aquí, con el mismo reloj de
         // reposo: crossfade pieza -> contenido, sin saltos ni estados intermedios.
         DateTime notice = _noticeUntil;
-        // La reapertura muestra la PANTALLA de la funcionalidad que la sostiene
-        // (change island-pantallas RF-4): si estaba combinada, vuelve el grupo entero.
+        // La reapertura muestra el COMPACTO de la funcionalidad que la sostiene dentro
+        // de su PANTALLA (change island-pantallas): una sola vista rica, y su pantalla
+        // queda adoptada como la que abrirá un clic.
         if (!ShowScreenOfFeature(target)) return false;
         _noticeUntil = notice;
         if (notice != DateTime.MinValue) ScheduleNoticeRetraction();
@@ -738,9 +739,9 @@ public partial class IslandWindow
             if (_contentMode == IslandContentMode.Screen)
             {
                 // La pantalla vigente es un aviso más (change island-pantallas): vuelve
-                // a su compacto —su fila de fichas— mientras su plazo siga vivo y algo
-                // de ella sostenga la vista; si no, la activa vigente o el reposo, sin
-                // destellos (001 RF-2, RF-16).
+                // a su compacto —la vista rica de la funcionalidad que la sostiene, una
+                // sola— mientras su plazo siga vivo y algo de ella sostenga la vista; si
+                // no, la activa vigente o el reposo, sin destellos (001 RF-2, RF-16).
                 if (noticeAlive && ScreenSustainsView() && ShowCurrentScreenCompact()) return;
                 if (ResolveActiveVigenteForVisible() is { } vigenteScreen
                     && ShowScreenOfFeature(vigenteScreen)) return;
@@ -793,12 +794,13 @@ public partial class IslandWindow
     {
         if ((Suppressed() && !HasExclusive()) || !SettingsManager.Current.IslandEnabled) { SnapHidden(); return false; }
         // La unidad de la vista es la PANTALLA (change island-pantallas RF-4): el clic
-        // abre la pantalla del contenido que sostiene la vista (la activa vigente) o,
-        // sin ella, la pantalla vigente entera —simple o combinada—, nunca una
-        // funcionalidad suelta: el orden de las pantallas es el único orden.
-        if (ResolveActiveVigenteForVisible() is { } vigente)
+        // abre la pantalla de la funcionalidad que el usuario tiene DELANTE —el compacto
+        // enseña una sola— y, sin compacto a la vista (la pieza de reposo), la de la
+        // activa vigente. Nunca una funcionalidad suelta: el orden de las pantallas es
+        // el único orden.
+        if ((ShownCompactFeature() ?? ResolveActiveVigenteForVisible()) is { } target)
         {
-            int index = ResolveScreenIndexFor(vigente.Id);
+            int index = ResolveScreenIndexFor(target.Id);
             if (index >= 0) _screenIndex = index;
         }
         // Se abre la pantalla usable más cercana, orillando las que no pueden abrir

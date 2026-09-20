@@ -334,11 +334,10 @@ public partial class IslandWindow
                 IslandContentMode.Calendar => CalendarModeAvailable(),
                 // El seek del expandido solo se pinta con la vista de media delante.
                 IslandContentMode.Media => _expanded && MusicContentShown(),
-                // Una pantalla combinada con el expandido delante envejece sus
-                // cuentas (temporizador, calendario) y su seek; en el compacto
-                // también, mientras alguna de sus fichas envejezca (una cuenta atrás
-                // del temporizador o del calendario).
-                IslandContentMode.Screen => _expanded || ScreenHasLiveChips(),
+                // El expandido de una pantalla combinada envejece sus cuentas
+                // (temporizador, calendario) y su seek. Replegada no pasa por aquí:
+                // enseña UNA funcionalidad y la cadencia la pone su ruta.
+                IslandContentMode.Screen => _expanded,
                 _ => false,
             });
         if (want)

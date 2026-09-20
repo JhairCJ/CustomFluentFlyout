@@ -75,14 +75,6 @@ public partial class IslandWindow
         return true;
     }
 
-    /// <summary>Resumen de una línea para las pantallas combinadas (RF-4).</summary>
-    internal IslandFeatureSummary ClipboardSummary()
-    {
-        int count = _clipboard.Items.Count;
-        return new IslandFeatureSummary(Wpf.Ui.Controls.SymbolRegular.Clipboard24,
-            count == 0 ? "Vacío" : count == 1 ? "1 pieza" : $"{count} piezas");
-    }
-
     /// <summary>
     /// Vincula la escucha del portapapeles: los avisos llegan en el hilo de UI (la
     /// ventana de mensajes vive en él), así que se puede pintar directamente.

@@ -442,11 +442,9 @@ public partial class IslandWindow
             // reloj del reposo (compacto -> pieza) dejaba el ancho esperando a que el
             // alto hubiera terminado —primero se aplastaba, después se estrechaba—
             // (001 MOD RF-16).
-            // El notch es más estrecho por diseño, pero una pantalla COMBINADA no cabe
-            // en él: su fila de fichas manda el ancho (RF-3), igual que en la cápsula.
             double compactW = _collapseFromExpanded
                 ? InactivePillWidth
-                : Lerp(CompactScreenAwareWidth(NotchCompactWidth), InactivePillWidth, inact);
+                : Lerp(NotchCompactWidth, InactivePillWidth, inact);
             double dotT = Math.Clamp(q / 0.32, 0, 1);
             double stretchT = RevealStretch(q);
             double baseW = q < 0.32 ? notchDot : Lerp(notchDot, compactW, stretchT);

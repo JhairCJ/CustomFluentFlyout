@@ -266,35 +266,6 @@
                                    HorizontalAlignment="Right" VerticalAlignment="Center"
                                    Visibility="Collapsed" IsHitTestVisible="False"/>
                     </Grid>
-                    <!-- Pantalla COMBINADA en compacto: una ficha por funcionalidad (icono + dato
-                         corto) en una fila. El ancho del contenedor lo fija el número de fichas
-                         (change island-pantallas RF-3): una pantalla con dos funcionalidades
-                         ocupa más que una con una, y ese ancho lo aplica el código. -->
-                    <Grid x:Name="ScreenCompactGrid" Margin="6,0,10,0" Visibility="Collapsed">
-                        <ItemsControl x:Name="ScreenCompactList" HorizontalAlignment="Left" VerticalAlignment="Center">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal"/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid Width="96" Height="22" Margin="0,0,2,0" IsHitTestVisible="False">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <ui:SymbolIcon Grid.Column="0" Symbol="{Binding Glyph}" Filled="True"
-                                                       Foreground="White" FontSize="13" VerticalAlignment="Center"
-                                                       Margin="0,0,5,0"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Text}" Foreground="White"
-                                                   FontSize="12" VerticalAlignment="Center"
-                                                   TextTrimming="CharacterEllipsis"/>
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </Grid>
                     <!-- Bluetooth en compacto: icono del tipo de dispositivo a la izquierda,
                          nombre al medio y batería a la derecha SOLO si el dispositivo la
                          informa: un aro de dos colores, verde lo que queda y gris claro el

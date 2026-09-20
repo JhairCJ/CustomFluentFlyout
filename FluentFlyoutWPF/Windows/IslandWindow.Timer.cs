@@ -88,14 +88,6 @@ public partial class IslandWindow
         if (!_expanded) ShowTimerCompact();
     }
 
-    /// <summary>
-    /// Resumen de una línea del temporizador para las pantallas combinadas
-    /// (change island-pantallas RF-3): lo que queda de cuenta.
-    /// </summary>
-    internal IslandFeatureSummary TimerSummary() => new(
-        Wpf.Ui.Controls.SymbolRegular.Timer20,
-        _timer.State == IslandTimerState.Idle ? "Sin cuenta" : IslandTimer.FormatHms(_timer.Remaining));
-
     private void InitTimer()
     {
         _timer.Finished += OnTimerFinished;
@@ -184,18 +176,17 @@ public partial class IslandWindow
     /// </summary>
     private void ApplyContentVisibilityCore()
     {
-        // Pantalla COMBINADA (change island-pantallas RF-3): manda su composición
-        // (fichas en compacto + paneles de todos sus miembros en expandido) y la
-        // capa compacta recupera su ancho de siempre fuera de ella.
-        ScreenCompactGrid.Visibility = Visibility.Collapsed;
+        // La capa compacta recupera su ancho de siempre: el compacto nunca agrupa
+        // (change island-pantallas), así que mide lo que una sola funcionalidad.
         CompactLayer.Width = SingleCompactLayerWidth;
         if (_contentMode == IslandContentMode.Screen)
         {
-            // Una pantalla que dejó de ser combinada (a su miembro lo apagaron, se
-            // cerró su sesión…) vuelve a la vista de la funcionalidad que le queda: la
-            // composición de fichas y columnas existe para pantallas de VARIAS (RF-1).
-            // Sin ninguna usable no hay nada que componer.
-            if (!ScreenIsCombined())
+            // El modo PANTALLA es la composición del EXPANDIDO (sus columnas, de
+            // izquierda a derecha): es lo que abre el clic. Replegada —o con una sola
+            // funcionalidad usable, o sin columnas que enseñar— la pantalla no compone
+            // nada y vuelve a la vista rica de la funcionalidad que manda (RF-1), que en
+            // el compacto es UNA sola. Sin ninguna usable no hay nada que componer.
+            if (!_expanded || !ScreenIsCombined())
             {
                 if (CurrentScreenFeatures().Count > 0
                     && (_expanded ? ExpandCurrentScreen() : ShowCurrentScreenCompact())) return;
@@ -569,9 +560,10 @@ public partial class IslandWindow
     /// <summary>
     /// Cambia de PANTALLA (rueda o flechas, 002 MOD RF-3/RF-9): recorre las pantallas
     /// con algo usable en el orden de la lista de pantallas, con vuelta, en el sentido
-    /// indicado. Cada pantalla abre su vista por el contrato —la rica de su única
-    /// funcionalidad o su composición de fichas y columnas—, así que sin disponibilidad
-    /// no se aterriza en una vista vacía (001 MOD RF-9).
+    /// indicado. Con el expandido delante cada pantalla abre su composición de columnas
+    /// —o la vista rica de su única funcionalidad— y, con el compacto, la vista rica de
+    /// la funcionalidad que la sostiene (el compacto nunca agrupa), así que sin
+    /// disponibilidad no se aterriza en una vista vacía (001 MOD RF-9).
     ///
     /// <para>Nunca se toca el motor de cuenta ni el snapshot: cambiar de vista no
     /// cancela ni reinicia la cuenta del temporizador (002 MOD RF-9, RF-13).</para>
@@ -581,8 +573,9 @@ public partial class IslandWindow
         // Alerta modal: hasta X o reinicio no se sale al resto de modos.
         if (_timer.State == IslandTimerState.Alerting) return;
         // Navegación por PANTALLAS (change island-pantallas RF-4): cada paso busca
-        // la siguiente pantalla con algo usable, con vuelta, y la presenta entera
-        // —sus fichas y sus paneles— en el estado en el que esté el contenedor.
+        // la siguiente pantalla con algo usable, con vuelta, y la presenta en el
+        // estado en el que esté el contenedor (sus columnas si está expandido, la
+        // vista rica de una de sus funcionalidades si está en compacto).
         if (_screens.Count == 0) return;
         for (int step = 1; step <= _screens.Count; step++)
         {

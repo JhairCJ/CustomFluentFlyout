@@ -82,10 +82,10 @@ public partial class IslandPage : Page
     /// <summary>
     /// Editor de pantallas: una fila por pantalla con las funcionalidades que la
     /// componen como TARJETAS EN ORDEN, de izquierda a derecha —el mismo orden en el
-    /// que la pantalla las presenta en el Island, en sus fichas del compacto y en sus
-    /// columnas del expandido—, cada una movible con ◀ ▶ y quitables con ✕, más una
-    /// lista para añadir las que falten. Se reconstruye entero tras cada cambio, así
-    /// el editor siempre enseña lo que hay guardado.
+    /// que la pantalla las presenta en el Island: sus columnas en el expandido y el
+    /// turno del compacto cuando una de ellas está activa—, cada una movible con ◀ ▶ y
+    /// quitables con ✕, más una lista para añadir las que falten. Se reconstruye entero
+    /// tras cada cambio, así el editor siempre enseña lo que hay guardado.
     /// </summary>
     private void RefreshScreensEditor()
     {

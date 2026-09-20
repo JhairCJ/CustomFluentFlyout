@@ -75,15 +75,6 @@ public partial class IslandWindow
         return true;
     }
 
-    /// <summary>Resumen de una línea del clima para las pantallas combinadas.</summary>
-    internal IslandFeatureSummary WeatherSummary()
-    {
-        var snapshot = _weatherSnapshot;
-        return snapshot == null
-            ? new IslandFeatureSummary(Wpf.Ui.Controls.SymbolRegular.WeatherCloudy24, "Sin dato")
-            : new IslandFeatureSummary(snapshot.Glyph, snapshot.TemperatureText);
-    }
-
     /// <summary>
     /// Vincula el servicio del clima y lo arranca si la funcionalidad está encendida
     /// con lugar elegido. Los datos llegan desde su hilo de fondo: se cruzan al de UI

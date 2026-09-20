@@ -92,19 +92,6 @@ public partial class IslandWindow
     private bool BluetoothActive() =>
         BluetoothModeAvailable() && _bluetoothDevice != null && BluetoothNoticeAlive();
 
-    /// <summary>
-    /// Resumen de una línea del Bluetooth para las pantallas combinadas
-    /// (change island-pantallas RF-3): el último dispositivo y su batería.
-    /// </summary>
-    internal IslandFeatureSummary BluetoothSummary()
-    {
-        var device = _bluetoothDevice;
-        string text = device == null
-            ? "Sin dispositivo"
-            : device.BatteryPercent is int percent ? $"{device.Name} {percent} %" : device.Name;
-        return new IslandFeatureSummary(Wpf.Ui.Controls.SymbolRegular.Bluetooth24, text);
-    }
-
     internal IslandFeatureState GetBluetoothFeatureState()
     {
         bool enabled = BluetoothModeAvailable();
