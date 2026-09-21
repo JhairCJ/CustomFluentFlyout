@@ -209,8 +209,8 @@ public partial class IslandWindow
             }
             else if (_expanded && owner is { })
             {
-                // Bluetooth y batería solo tienen superficie compacta. No se deja el
-                // contenedor expandido con una pantalla sin columnas que enseñar.
+                // Miembro sin columna propia (una funcionalidad de solo compacto): no
+                // se deja el contenedor expandido con una pantalla sin nada que enseñar.
                 _expanded = false;
                 _contentMode = ModeForFeature(owner.Id);
                 SelectFeature(owner.Id);
@@ -224,193 +224,87 @@ public partial class IslandWindow
         // Fuera de una pantalla combinada los paneles del expandido viven en su sitio
         // de siempre (no-op si no se había movido ninguno a una columna).
         RestoreExpandedHomes();
-        WeatherCompactGrid.Visibility = Visibility.Collapsed;
-        WeatherExpanded.Visibility = Visibility.Collapsed;
-        PowerCompactGrid.Visibility = Visibility.Collapsed;
-        // Cargador: rayo y porcentaje, un aviso temporal excluyente con el resto de
-        // capas (como el de Bluetooth, que no tiene expandido).
+        // Punto de partida ÚNICO: ninguna capa a la vista. Cada rama enciende SOLO la
+        // suya, así ninguna vista deja puesta la capa de la anterior —era el fallo: el
+        // estante no apagaba el calendario, el calendario no apagaba el portapapeles…,
+        // y las dos quedaban superpuestas—.
+        HideAllContentLayers();
+
+        // Modos mutuamente excluyentes (uno por contenido): la misma decisión que la
+        // antigua cadena de ramas con return, con una sola salida.
         bool power = _contentMode == IslandContentMode.Power && PowerModeAvailable();
-        PowerCompactGrid.Visibility = power ? Visibility.Visible : Visibility.Collapsed;
-        if (power)
-        {
-            MusicCompactGrid.Visibility = Visibility.Collapsed;
-            TimerCompactGrid.Visibility = Visibility.Collapsed;
-            AppsCompactGrid.Visibility = Visibility.Collapsed;
-            ShelfCompactGrid.Visibility = Visibility.Collapsed;
-            CalendarCompactGrid.Visibility = Visibility.Collapsed;
-            BluetoothCompactGrid.Visibility = Visibility.Collapsed;
-            ClipboardCompactGrid.Visibility = Visibility.Collapsed;
-            WeatherCompactGrid.Visibility = Visibility.Collapsed;
-            MusicExpandedTop.Visibility = Visibility.Collapsed;
-            ControlsRow.Visibility = Visibility.Collapsed;
-            SeekRow.Visibility = Visibility.Collapsed;
-            TimerAlert.Visibility = Visibility.Collapsed;
-            AppsExpanded.Visibility = Visibility.Collapsed;
-            ShelfExpanded.Visibility = Visibility.Collapsed;
-            CalendarExpanded.Visibility = Visibility.Collapsed;
-            ClipboardExpanded.Visibility = Visibility.Collapsed;
-            WeatherExpanded.Visibility = Visibility.Collapsed;
-            CrossfadeTimerPanels(showConfig: false, showRun: false);
-            UpdateArrows();
-            return;
-        }
-        // Clima: su vista (glifo y temperatura en compacto, lugar y extremos en el
-        // expandido) es excluyente con el resto de capas, como el portapapeles.
         bool weather = _contentMode == IslandContentMode.Weather && WeatherModeAvailable();
-        PowerCompactGrid.Visibility = Visibility.Collapsed;
-        WeatherCompactGrid.Visibility = weather ? Visibility.Visible : Visibility.Collapsed;
-        WeatherExpanded.Visibility = weather ? Visibility.Visible : Visibility.Collapsed;
-        if (weather)
-        {
-            MusicCompactGrid.Visibility = Visibility.Collapsed;
-            TimerCompactGrid.Visibility = Visibility.Collapsed;
-            AppsCompactGrid.Visibility = Visibility.Collapsed;
-            ShelfCompactGrid.Visibility = Visibility.Collapsed;
-            CalendarCompactGrid.Visibility = Visibility.Collapsed;
-            BluetoothCompactGrid.Visibility = Visibility.Collapsed;
-            ClipboardCompactGrid.Visibility = Visibility.Collapsed;
-            MusicExpandedTop.Visibility = Visibility.Collapsed;
-            ControlsRow.Visibility = Visibility.Collapsed;
-            SeekRow.Visibility = Visibility.Collapsed;
-            TimerAlert.Visibility = Visibility.Collapsed;
-            AppsExpanded.Visibility = Visibility.Collapsed;
-            ShelfExpanded.Visibility = Visibility.Collapsed;
-            CalendarExpanded.Visibility = Visibility.Collapsed;
-            ClipboardExpanded.Visibility = Visibility.Collapsed;
-            WeatherExpanded.Visibility = Visibility.Visible;
-            CrossfadeTimerPanels(showConfig: false, showRun: false);
-            UpdateArrows();
-            return;
-        }
-        // Portapapeles: fila de piezas copiadas (o lista en el expandido), excluyente
-        // con el resto de capas, como el cajón y el estante.
         bool clipboard = _contentMode == IslandContentMode.Clipboard && ClipboardModeAvailable();
-        ClipboardCompactGrid.Visibility = clipboard ? Visibility.Visible : Visibility.Collapsed;
-        ClipboardExpanded.Visibility = clipboard ? Visibility.Visible : Visibility.Collapsed;
-        if (clipboard)
-        {
-            MusicCompactGrid.Visibility = Visibility.Collapsed;
-            TimerCompactGrid.Visibility = Visibility.Collapsed;
-            AppsCompactGrid.Visibility = Visibility.Collapsed;
-            ShelfCompactGrid.Visibility = Visibility.Collapsed;
-            CalendarCompactGrid.Visibility = Visibility.Collapsed;
-            BluetoothCompactGrid.Visibility = Visibility.Collapsed;
-            MusicExpandedTop.Visibility = Visibility.Collapsed;
-            ControlsRow.Visibility = Visibility.Collapsed;
-            SeekRow.Visibility = Visibility.Collapsed;
-            TimerAlert.Visibility = Visibility.Collapsed;
-            AppsExpanded.Visibility = Visibility.Collapsed;
-            ShelfExpanded.Visibility = Visibility.Collapsed;
-            CalendarExpanded.Visibility = Visibility.Collapsed;
-            CrossfadeTimerPanels(showConfig: false, showRun: false);
-            UpdateArrows();
-            return;
-        }
-        // Bluetooth: su vista es un aviso temporal (icono, nombre y batería) y es
-        // excluyente con el resto de capas, como el estante y el calendario. Se
-        // resuelve de una vez al principio, así ninguna otra rama puede dejar su
-        // capa visible por venir de la vista anterior.
         bool bluetooth = _contentMode == IslandContentMode.Bluetooth && BluetoothModeAvailable();
-        BluetoothCompactGrid.Visibility = bluetooth ? Visibility.Visible : Visibility.Collapsed;
-        if (bluetooth)
-        {
-            MusicCompactGrid.Visibility = Visibility.Collapsed;
-            TimerCompactGrid.Visibility = Visibility.Collapsed;
-            AppsCompactGrid.Visibility = Visibility.Collapsed;
-            ShelfCompactGrid.Visibility = Visibility.Collapsed;
-            CalendarCompactGrid.Visibility = Visibility.Collapsed;
-            MusicExpandedTop.Visibility = Visibility.Collapsed;
-            ControlsRow.Visibility = Visibility.Collapsed;
-            SeekRow.Visibility = Visibility.Collapsed;
-            TimerAlert.Visibility = Visibility.Collapsed;
-            AppsExpanded.Visibility = Visibility.Collapsed;
-            ShelfExpanded.Visibility = Visibility.Collapsed;
-            CalendarExpanded.Visibility = Visibility.Collapsed;
-            ClipboardExpanded.Visibility = Visibility.Collapsed;
-            WeatherExpanded.Visibility = Visibility.Collapsed;
-            CrossfadeTimerPanels(showConfig: false, showRun: false);
-            UpdateArrows();
-            return;
-        }
-        // Estante primero: es la única capa que puede estar visible sin elementos
-        // (vacía invita a soltar), así que se resuelve sola y no comparte la lógica de
-        // música/temporizador.
         bool shelf = _contentMode == IslandContentMode.Shelf && ShelfModeAvailable();
-        ShelfCompactGrid.Visibility = shelf ? Visibility.Visible : Visibility.Collapsed;
-        ShelfExpanded.Visibility = shelf ? Visibility.Visible : Visibility.Collapsed;
-        if (shelf)
-        {
-            MusicCompactGrid.Visibility = Visibility.Collapsed;
-            TimerCompactGrid.Visibility = Visibility.Collapsed;
-            AppsCompactGrid.Visibility = Visibility.Collapsed;
-            MusicExpandedTop.Visibility = Visibility.Collapsed;
-            ControlsRow.Visibility = Visibility.Collapsed;
-            SeekRow.Visibility = Visibility.Collapsed;
-            TimerAlert.Visibility = Visibility.Collapsed;
-            AppsExpanded.Visibility = Visibility.Collapsed;
-            CrossfadeTimerPanels(showConfig: false, showRun: false);
-            UpdateArrows();
-            return;
-        }
-        // Calendario: vista propia con actividad (recordatorio vivo), igual de
-        // excluyente con el resto de capas que el estante.
         bool calendar = _contentMode == IslandContentMode.Calendar && CalendarModeAvailable();
-        CalendarCompactGrid.Visibility = calendar ? Visibility.Visible : Visibility.Collapsed;
-        CalendarExpanded.Visibility = calendar ? Visibility.Visible : Visibility.Collapsed;
-        if (calendar)
-        {
-            MusicCompactGrid.Visibility = Visibility.Collapsed;
-            TimerCompactGrid.Visibility = Visibility.Collapsed;
-            AppsCompactGrid.Visibility = Visibility.Collapsed;
-            ShelfCompactGrid.Visibility = Visibility.Collapsed;
-            MusicExpandedTop.Visibility = Visibility.Collapsed;
-            ControlsRow.Visibility = Visibility.Collapsed;
-            SeekRow.Visibility = Visibility.Collapsed;
-            TimerAlert.Visibility = Visibility.Collapsed;
-            AppsExpanded.Visibility = Visibility.Collapsed;
-            ShelfExpanded.Visibility = Visibility.Collapsed;
-            CrossfadeTimerPanels(showConfig: false, showRun: false);
-            UpdateArrows();
-            return;
-        }
         bool apps = _contentMode == IslandContentMode.Apps && AppsModeAvailable();
         bool timer = _contentMode == IslandContentMode.Timer && TimerModeAvailable();
-        AppsCompactGrid.Visibility = apps ? Visibility.Visible : Visibility.Collapsed;
-        AppsExpanded.Visibility = apps ? Visibility.Visible : Visibility.Collapsed;
-        if (apps) MusicCompactGrid.Visibility = TimerCompactGrid.Visibility = Visibility.Collapsed;
-        if (apps)
+
+        // Cargador: rayo y porcentaje; aviso temporal excluyente con el resto.
+        if (power) PowerCompactGrid.Visibility = Visibility.Visible;
+        // Clima: glifo y temperatura en el compacto, lugar y extremos en el expandido.
+        else if (weather)
         {
-            MusicExpandedTop.Visibility = Visibility.Collapsed;
-            ControlsRow.Visibility = Visibility.Collapsed;
-            SeekRow.Visibility = Visibility.Collapsed;
-            TimerAlert.Visibility = Visibility.Collapsed;
-            CrossfadeTimerPanels(showConfig: false, showRun: false);
-            UpdateArrows();
-            return;
+            WeatherCompactGrid.Visibility = Visibility.Visible;
+            WeatherExpanded.Visibility = Visibility.Visible;
         }
-        MusicCompactGrid.Visibility = timer ? Visibility.Collapsed : Visibility.Visible;
-        TimerCompactGrid.Visibility = timer ? Visibility.Visible : Visibility.Collapsed;
-        bool alert = timer && _timer.State == IslandTimerState.Alerting;
-        bool idle = timer && _timer.State == IslandTimerState.Idle;
-        MusicExpandedTop.Visibility = timer ? Visibility.Collapsed : Visibility.Visible;
-        ControlsRow.Visibility = timer ? Visibility.Collapsed : Visibility.Visible;
-        if (timer)
+        // Portapapeles: fila de piezas copiadas (o lista en el expandido).
+        else if (clipboard)
         {
-            SeekRow.Visibility = Visibility.Collapsed;
+            ClipboardCompactGrid.Visibility = Visibility.Visible;
+            ClipboardExpanded.Visibility = Visibility.Visible;
         }
-        else if (MusicContentShown() && Current() is { } session)
+        // Bluetooth: su vista es un aviso temporal (icono, nombre y batería).
+        else if (bluetooth) BluetoothCompactGrid.Visibility = Visibility.Visible;
+        // Estante: es la única capa que puede estar visible sin elementos (vacía
+        // invita a soltar), así que no comparte la lógica de música/temporizador.
+        else if (shelf)
         {
-            ApplyCapabilities(session); // restaura SeekRow según la fuente
+            ShelfCompactGrid.Visibility = Visibility.Visible;
+            ShelfExpanded.Visibility = Visibility.Visible;
+        }
+        // Calendario: vista propia con actividad (recordatorio vivo).
+        else if (calendar)
+        {
+            CalendarCompactGrid.Visibility = Visibility.Visible;
+            CalendarExpanded.Visibility = Visibility.Visible;
+        }
+        // Cajón de aplicaciones: cuadrícula de iconos.
+        else if (apps)
+        {
+            AppsCompactGrid.Visibility = Visibility.Visible;
+            AppsExpanded.Visibility = Visibility.Visible;
         }
         else
         {
-            // Sin sesión que presentar: la fila de seek no se deja visible
-            // (no hay vista musical vacía, 001 MOD RF-9).
-            SeekRow.Visibility = Visibility.Collapsed;
+            // Música y temporizador: los dos contenidos que comparten la capa de
+            // siempre (y el caso por defecto: sin vista disponible, la caja se queda
+            // con la música, que es lo que enseña el contenedor vacío).
+            MusicCompactGrid.Visibility = timer ? Visibility.Collapsed : Visibility.Visible;
+            TimerCompactGrid.Visibility = timer ? Visibility.Visible : Visibility.Collapsed;
+            bool alert = timer && _timer.State == IslandTimerState.Alerting;
+            bool idle = timer && _timer.State == IslandTimerState.Idle;
+            MusicExpandedTop.Visibility = timer ? Visibility.Collapsed : Visibility.Visible;
+            ControlsRow.Visibility = timer ? Visibility.Collapsed : Visibility.Visible;
+            if (timer)
+            {
+                SeekRow.Visibility = Visibility.Collapsed;
+            }
+            else if (MusicContentShown() && Current() is { } session)
+            {
+                ApplyCapabilities(session); // restaura SeekRow según la fuente
+            }
+            else
+            {
+                // Sin sesión que presentar: la fila de seek no se deja visible
+                // (no hay vista musical vacía, 001 MOD RF-9).
+                SeekRow.Visibility = Visibility.Collapsed;
+            }
+            // Los paneles config/progreso los conmuta el fundido; la alerta es instantánea.
+            TimerAlert.Visibility = alert ? Visibility.Visible : Visibility.Collapsed;
+            CrossfadeTimerPanels(showConfig: timer && idle && !alert, showRun: timer && !idle && !alert);
         }
-        // Los paneles config/progreso los conmuta el fundido; la alerta es instantánea.
-        TimerAlert.Visibility = alert ? Visibility.Visible : Visibility.Collapsed;
-        CrossfadeTimerPanels(showConfig: timer && idle && !alert, showRun: timer && !idle && !alert);
         UpdateArrows();
     }
 

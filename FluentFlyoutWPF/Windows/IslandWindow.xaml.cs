@@ -251,6 +251,11 @@ public partial class IslandWindow : Window
     // Bluetooth, change island-bluetooth-conectado RF-1). Cualquier armado sin
     // force lo descarta, así la vista siguiente no hereda un vencimiento ajeno.
     private bool _noticeForced;
+    // A qué VISTA pertenece el plazo vigente. El vencimiento es uno solo para todo el
+    // contenedor, así que sin esta etiqueta un plazo armado por el temporizador (o por
+    // la música) hacía que Bluetooth o el cargador se declararan «activos» y saltara su
+    // aviso sin que hubiera pasado nada (change island-avisos).
+    private IslandContentMode _noticeMode;
     // Aviso PENDIENTE del temporizador (002 RF-16): una acción que pone la cuenta
     // en marcha (empezar, reanudar, reiniciar) dentro del expandido deja su aviso
     // armado pero sin gastar. El plazo debe correr cuando el compacto del

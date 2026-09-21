@@ -89,8 +89,14 @@ public partial class IslandWindow
                 .ToList();
             if (ids.Count > 0) _screens.Add([.. ids]);
         }
+        // Sin ninguna pantalla configurada rigen las de fábrica, PARSEADAS: envolver
+        // cada cadena («media+timer+apps+shelf») en un array de un elemento dejaba
+        // pantallas que no contenían ninguna funcionalidad conocida —ninguna usable—
+        // y el contenedor se quedaba sin nada que presentar (ni la música).
         if (_screens.Count == 0)
-            _screens.AddRange(IslandFeatureIds.DefaultScreens.Select(id => new[] { id }));
+            _screens.AddRange(IslandFeatureIds.DefaultScreens
+                .Select(screen => IslandFeatureIds.ParseScreen(screen).ToArray())
+                .Where(ids => ids.Length > 0));
         _screenIndex = Math.Clamp(_screenIndex, 0, _screens.Count - 1);
     }
 
@@ -155,12 +161,20 @@ public partial class IslandWindow
     private bool FeatureInAnyScreen(IIslandFeature feature) => ResolveScreenIndexFor(feature.Id) >= 0;
 
     /// <summary>
-    /// Una funcionalidad sin pantalla NO tiene vista (change island-pantallas)… salvo una
-    /// EXCLUSIVA: la alerta final del temporizador necesita superficie para poder
-    /// cerrarse (002 RF-2), y sin vista se quedaría bloqueando el contenedor sin forma
-    /// de quitarla. Es la única excepción y vale solo mientras declara acceso exclusivo.
+    /// Una funcionalidad sin pantalla NO tiene vista (change island-pantallas)… salvo:
+    /// <list type="bullet">
+    /// <item>una EXCLUSIVA: la alerta final del temporizador necesita superficie para
+    /// poder cerrarse (002 RF-2), y sin vista se quedaría bloqueando el contenedor sin
+    /// forma de quitarla;</item>
+    /// <item>un AVISO (<see cref="IslandFeatureIds.IsNotice"/>): su vista es una tarjeta
+    /// temporal —dispositivo Bluetooth, cargador— que no tiene expandido ni entra en la
+    /// navegación, así que no puede depender de que el usuario la haya colocado en una
+    /// pantalla. Ése era el fallo: con un ajuste sin esa pantalla, el aviso se perdía.
+    /// </item>
+    /// </list>
     /// </summary>
-    private static bool ScreenlessFeatureKeepsOwnView(IIslandFeature feature) => feature.State.Exclusive;
+    private static bool ScreenlessFeatureKeepsOwnView(IIslandFeature feature) =>
+        feature.State.Exclusive || IslandFeatureIds.IsNotice(feature.Id);
 
     /// <summary>
     /// ¿La pantalla de la funcionalidad es COMBINADA ahora mismo? (varias
@@ -487,6 +501,29 @@ public partial class IslandWindow
         var members = CurrentScreenFeatures();
         // Pantalla simple (o sin miembros usables): los paneles vuelven a su sitio.
         if (members.Count <= 1) RestoreExpandedHomes();
+        HideAllContentLayers();
+        // El expandido va de IZQUIERDA A DERECHA: los paneles de cada miembro se
+        // trasladan a su columna, en el orden de la pantalla (RF-2/RF-3).
+        ComposeScreenExpandedRow(members);
+        foreach (var member in members) ShowMemberPanels(member.Id);
+        UpdateArrows();
+    }
+
+    /// <summary>
+    /// Punto de partida de cualquier vista: NINGUNA capa a la vista (compactas y
+    /// expandidas). Sustituye a las listas de apagado copiadas en cada rama de
+    /// presentación, que bastaba olvidar en una para que dos vistas se pintaran
+    /// encima; ahora cada vista enciende SOLO la suya.
+    /// </summary>
+    private void HideAllContentLayers()
+    {
+        HideAllCompactLayers();
+        HideAllExpandedPanels();
+    }
+
+    /// <summary>Apaga todas las tarjetas compactas.</summary>
+    private void HideAllCompactLayers()
+    {
         MusicCompactGrid.Visibility = Visibility.Collapsed;
         TimerCompactGrid.Visibility = Visibility.Collapsed;
         AppsCompactGrid.Visibility = Visibility.Collapsed;
@@ -495,14 +532,7 @@ public partial class IslandWindow
         BluetoothCompactGrid.Visibility = Visibility.Collapsed;
         ClipboardCompactGrid.Visibility = Visibility.Collapsed;
         WeatherCompactGrid.Visibility = Visibility.Collapsed;
-        WeatherExpanded.Visibility = Visibility.Collapsed;
         PowerCompactGrid.Visibility = Visibility.Collapsed;
-        HideAllExpandedPanels();
-        // El expandido va de IZQUIERDA A DERECHA: los paneles de cada miembro se
-        // trasladan a su columna, en el orden de la pantalla (RF-2/RF-3).
-        ComposeScreenExpandedRow(members);
-        foreach (var member in members) ShowMemberPanels(member.Id);
-        UpdateArrows();
     }
 
     /// <summary>Apaga todos los paneles del expandido (punto de partida de una composición).</summary>
@@ -516,6 +546,7 @@ public partial class IslandWindow
         ShelfExpanded.Visibility = Visibility.Collapsed;
         CalendarExpanded.Visibility = Visibility.Collapsed;
         ClipboardExpanded.Visibility = Visibility.Collapsed;
+        WeatherExpanded.Visibility = Visibility.Collapsed;
         CrossfadeTimerPanels(showConfig: false, showRun: false);
     }
 

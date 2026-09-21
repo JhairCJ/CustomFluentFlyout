@@ -18,7 +18,8 @@ namespace FluentFlyoutWPF.Models;
 ///
 /// <para>Las pantallas son una AGRUPACIÓN: no hace falta una por funcionalidad. El
 /// defecto son dos pantallas de contenido (música/temporizador/cajón/estante e
-/// información del día) más los avisos, que van juntos.</para>
+/// información del día). Los AVISOS (Bluetooth, cargador) no son pantalla: viven
+/// fuera de esta lista y se presentan solos cuando ocurre su evento.</para>
 /// </summary>
 public static class IslandFeatureIds
 {
@@ -52,6 +53,25 @@ public static class IslandFeatureIds
     /// <summary>Orden por defecto de las funcionalidades del contenedor.</summary>
     public static readonly IReadOnlyList<string> All = [Media, Timer, Apps, Shelf, Calendar, Bluetooth, Clipboard, Weather, Power];
 
+    /// <summary>
+    /// Funcionalidades que NO son una pantalla: su vista es un AVISO de un evento
+    /// (un dispositivo que se conecta, el equipo que se enchufa). No tienen expandido,
+    /// no se navega hasta ellas y no se configuran en el editor de pantallas: el
+    /// contenedor las presenta cuando su evento ocurre, sin depender de dónde estén
+    /// colocadas, porque no están en ninguna parte. Exigirles una pantalla era el
+    /// fallo: sin ella el aviso se perdía en silencio (change island-avisos).
+    /// </summary>
+    public static readonly IReadOnlyList<string> Notices = [Bluetooth, Power];
+
+    /// <summary>¿Es un aviso? (no tiene vista propia: solo su tarjeta temporal)</summary>
+    public static bool IsNotice(string? id) => id != null && Notices.Contains(id);
+
+    /// <summary>Funcionalidades que pueden formar parte de una pantalla (todas menos los avisos).</summary>
+    public static readonly IReadOnlyList<string> Screenable = [.. All.Where(id => !IsNotice(id))];
+
+    /// <summary>¿Puede esta funcionalidad estar en una pantalla? Los avisos, no.</summary>
+    public static bool IsScreenable(string? id) => IsKnown(id) && !IsNotice(id);
+
     /// <summary>Separador de funcionalidades dentro de una pantalla combinada.</summary>
     public const char ScreenSeparator = '+';
 
@@ -73,7 +93,6 @@ public static class IslandFeatureIds
     [
         Screen(Media, Timer, Apps, Shelf),
         Screen(Calendar, Clipboard, Weather),
-        Screen(Bluetooth, Power),
     ];
 
     /// <summary>Compone una pantalla con las funcionalidades dadas (formato guardado).</summary>
@@ -93,7 +112,7 @@ public static class IslandFeatureIds
         foreach (var raw in screen.Split(ScreenSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
             string id = raw.Trim();
-            if (!IsKnown(id) || ids.Contains(id)) continue;
+            if (!IsScreenable(id) || ids.Contains(id)) continue;
             ids.Add(id);
             if (ids.Count == MaxFeaturesPerScreen) break;
         }
@@ -102,7 +121,7 @@ public static class IslandFeatureIds
 
     /// <summary>Escribe una pantalla a partir de sus funcionalidades (formato guardado).</summary>
     public static string FormatScreen(IEnumerable<string> ids) =>
-        string.Join(ScreenSeparator, ids.Where(IsKnown).Distinct());
+        string.Join(ScreenSeparator, ids.Where(IsScreenable).Distinct());
 
     /// <summary>¿Es un identificador conocido? (los desconocidos se descartan al cargar)</summary>
     public static bool IsKnown(string? id) => id != null && All.Contains(id);

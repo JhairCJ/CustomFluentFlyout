@@ -142,9 +142,12 @@ public partial class IslandPage : Page
             // pantalla y solo mientras quede hueco. Una pantalla admite hasta
             // MaxFeaturesPerScreen: es lo que cabe en una sola pantalla del Island.
             bool full = ids.Count >= IslandFeatureIds.MaxFeaturesPerScreen;
+            // Solo las funcionalidades que SON pantalla: los avisos (Bluetooth,
+            // cargador) no se colocan en ninguna —se presentan solos cuando ocurre su
+            // evento— y ofrecerlos aquí era invitar a crear una pantalla vacía.
             var missing = full
                 ? new List<string>()
-                : IslandFeatureIds.All.Where(id => !assigned.Contains(id)).ToList();
+                : IslandFeatureIds.Screenable.Where(id => !assigned.Contains(id)).ToList();
             var addRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
             addRow.Children.Add(new TextBlock
             {

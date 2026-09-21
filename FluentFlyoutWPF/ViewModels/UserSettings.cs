@@ -2224,6 +2224,11 @@ public partial class UserSettings : ObservableObject
     /// pantallas de <see cref="IslandFeatureIds.MaxFeaturesPerScreen"/> (nada se pierde
     /// al cargar un ajuste viejo o editado a mano). Sin ninguna pantalla válida rigen
     /// las de fábrica (nunca una navegación vacía).
+    ///
+    /// <para>Los AVISOS (<see cref="IslandFeatureIds.Notices"/>) salen aquí: no son
+    /// pantalla. Un ajuste viejo que los tenía en una (era la pantalla «Bluetooth y
+    /// cargador» que nadie pidió) se queda sin ella, y sus avisos siguen funcionando
+    /// igual, porque ya no dependen de ninguna pantalla.</para>
     /// </summary>
     internal void SanitizeIslandScreens()
     {
@@ -2330,7 +2335,7 @@ public partial class UserSettings : ObservableObject
     /// </summary>
     internal bool AddIslandScreenFeature(string screen, string featureId)
     {
-        if (!IslandFeatureIds.IsKnown(featureId)) return false;
+        if (!IslandFeatureIds.IsScreenable(featureId)) return false;
         int index = IslandScreens.IndexOf(screen);
         if (index < 0) return false;
         var ids = IslandFeatureIds.ParseScreen(screen).ToList();
@@ -2382,15 +2387,19 @@ public partial class UserSettings : ObservableObject
     /// </summary>
     internal bool AddIslandScreen()
     {
-        string? id = IslandFeatureIds.All.FirstOrDefault(candidate =>
+        string? id = IslandFeatureIds.Screenable.FirstOrDefault(candidate =>
             !IslandScreens.Any(screen => IslandFeatureIds.ParseScreen(screen).Contains(candidate)));
         if (id == null) return false;
         IslandScreens.Add(id);
         return true;
     }
 
-    /// <summary>Indica si todavía puede crearse una pantalla sin duplicar una funcionalidad.</summary>
-    internal bool HasUnassignedIslandFeature() => IslandFeatureIds.All.Any(candidate =>
+    /// <summary>
+    /// Indica si todavía puede crearse una pantalla sin duplicar una funcionalidad.
+    /// Los avisos no cuentan: no son pantalla (si contaran, el botón «Nueva pantalla»
+    /// ofrecería crear una para Bluetooth o el cargador, que no tienen nada que abrir).
+    /// </summary>
+    internal bool HasUnassignedIslandFeature() => IslandFeatureIds.Screenable.Any(candidate =>
         !IslandScreens.Any(screen => IslandFeatureIds.ParseScreen(screen).Contains(candidate)));
 
     /// <summary>Quita una pantalla; la última no se puede quitar (navegación vacía).</summary>

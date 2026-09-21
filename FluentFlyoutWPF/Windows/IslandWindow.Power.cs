@@ -39,8 +39,6 @@ public partial class IslandWindow
     private IslandPowerMonitor? _power;
     private IslandPowerStatus? _powerStatus;
     private PowerNoticeKind _powerNotice = PowerNoticeKind.Charging;
-    private string? _powerShownId;
-    private DateTime _powerShownAt = DateTime.MinValue;
 
     /// <summary>Funcionalidad «cargador» registrada (nunca null tras el arranque).</summary>
     private IIslandFeature? PowerFeature => FeatureById(IslandFeatureIds.Power);
@@ -49,8 +47,8 @@ public partial class IslandWindow
     private bool PowerModeAvailable() =>
         SettingsManager.Current.IslandEnabled && SettingsManager.Current.IslandPowerEnabled;
 
-    /// <summary>¿Sigue vivo el aviso? Su vista vive solo mientras su plazo corre.</summary>
-    private bool PowerNoticeAlive() => _noticeUntil > DateTime.UtcNow;
+    /// <summary>¿Sigue vivo el aviso? Su vista vive solo mientras SU plazo corre.</summary>
+    private bool PowerNoticeAlive() => NoticeAliveFor(IslandContentMode.Power);
 
     private bool PowerActive() => PowerModeAvailable() && _powerStatus != null && PowerNoticeAlive();
 
@@ -119,9 +117,9 @@ public partial class IslandWindow
         _powerNotice = PowerNoticeKind.Charging;
         NoteFeatureEvent(IslandFeatureIds.Power);
         if (!SettingsManager.Current.IslandEnabled) return;
+        // Nunca interrumpe: con una vista expandida delante (o suprimido) el aviso no
+        // se presenta; el estado queda adoptado y el próximo cambio sí avisa.
         if (Suppressed() || HasExclusive() || _expanded) return;
-        _powerShownId = "ac";
-        _powerShownAt = DateTime.UtcNow;
         ShowPowerCompact(restartNotice: true);
     }));
 
@@ -134,8 +132,6 @@ public partial class IslandWindow
         NoteFeatureEvent(IslandFeatureIds.Power);
         if (!SettingsManager.Current.IslandEnabled) return;
         if (Suppressed() || HasExclusive() || _expanded) return;
-        _powerShownId = "ac";
-        _powerShownAt = DateTime.UtcNow;
         ShowPowerCompact(restartNotice: true);
     }));
 

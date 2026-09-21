@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
+using FluentFlyoutWPF.Models;
 using System.Windows;
 
 namespace FluentFlyoutWPF.Windows;
@@ -94,6 +95,11 @@ public partial class IslandWindow
     private void ShowCompactView(IslandContentMode mode, IIslandFeature? feature, Action present,
         bool forceNotice = false, bool restartNotice = true)
     {
+        // Una vista que se presenta es una vista que se ve: si la ventana quedó
+        // Collapsed (supresión, apagado, repliegue a nada), se vuelve a asomar aquí
+        // mismo. Sin esto, un aviso que llega con la ventana retirada pintaba su
+        // tarjeta dentro de una ventana que no se veía.
+        if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
         // El repliegue se mide ANTES de tocar nada: define si el compacto es una
         // transición en dos fases (venía del expandido) o una entrada directa.
         bool collapsing = IsCollapsingFromExpanded();
@@ -107,8 +113,8 @@ public partial class IslandWindow
         // enseña UNA sola de sus funcionalidades (su vista rica): agrupar es cosa del
         // expandido, que es lo que abre el clic. Sin pantalla no hay nada que presentar:
         // se resuelve la vista por las vías normales (otra pantalla, el temporizador o el
-        // reposo). La excepción es una exclusiva (la alerta del temporizador), que
-        // conserva su vista propia.
+        // reposo). Las excepciones conservan su vista propia: una exclusiva (la alerta del
+        // temporizador) y un AVISO (Bluetooth, cargador), que no es pantalla ni se navega.
         if (feature != null && !AdoptScreenFor(feature, expanded: false, ref mode, ref present)
             && !ScreenlessFeatureKeepsOwnView(feature))
         {
@@ -121,7 +127,12 @@ public partial class IslandWindow
         // fase 2 (TryReopenFromInactive) presenta el compacto nuevo ya sobre ella.
         // Sin side effects si no procede (ya en la pieza, sin animaciones o sin
         // caja), así que puede decidirse antes de presentar nada.
-        bool throughPiece = AnimationsEnabled && collapsing && feature != null
+        //
+        // Un AVISO no atraviesa la pieza: es una tarjeta que aparece con su evento, no
+        // un contenido que se repliegue del expandido —y su fase 2 no sabría reabrirla,
+        // porque no está en ninguna pantalla: se perdería el aviso y quedaría la pieza—.
+        bool notice = feature != null && IslandFeatureIds.IsNotice(feature.Id);
+        bool throughPiece = AnimationsEnabled && collapsing && feature != null && !notice
             && BeginCollapseThroughInactive(feature);
         if (!throughPiece)
         {
@@ -130,6 +141,9 @@ public partial class IslandWindow
             // estado expandido y mezclara paneles de las dos presentaciones.
             _expanded = false;
             _contentMode = mode;
+            // El aviso vigente es de ESTA vista: así `NoticeAlive` no declara activa
+            // a una funcionalidad cuyo plazo corre para otra (002 RF-16, change island-avisos).
+            _noticeMode = mode;
             present();
             ApplyContentVisibility();
         }
@@ -144,8 +158,9 @@ public partial class IslandWindow
         else if (!throughPiece) SetCompactFrame();
         // «Aviso temporal» (001 RF-2, 002 RF-16): la vista compacta vence al plazo
         // configurado. restart:false conserva el plazo que ya corría, así
-        // interactuar (expandir y volver) nunca prolonga el aviso.
-        ArmTemporaryHide(restart: restartNotice && !collapsing, force: forceNotice);
+        // interactuar (expandir y volver) nunca prolonga el aviso. Un aviso que no
+        // atraviesa la pieza arranca SIEMPRE su plazo: es un evento nuevo.
+        ArmTemporaryHide(restart: notice || (restartNotice && !collapsing), force: forceNotice);
     }
 
     /// <summary>

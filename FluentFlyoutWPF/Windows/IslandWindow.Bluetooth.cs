@@ -86,8 +86,8 @@ public partial class IslandWindow
     private bool BluetoothModeAvailable() =>
         SettingsManager.Current.IslandEnabled && SettingsManager.Current.IslandBluetoothEnabled;
 
-    /// <summary>¿Sigue vivo el aviso del dispositivo mostrado? Su vista vive solo mientras su plazo corre.</summary>
-    private bool BluetoothNoticeAlive() => _noticeUntil > DateTime.UtcNow;
+    /// <summary>¿Sigue vivo el aviso del dispositivo mostrado? Su vista vive solo mientras SU plazo corre.</summary>
+    private bool BluetoothNoticeAlive() => NoticeAliveFor(IslandContentMode.Bluetooth);
 
     private bool BluetoothActive() =>
         BluetoothModeAvailable() && _bluetoothDevice != null && BluetoothNoticeAlive();

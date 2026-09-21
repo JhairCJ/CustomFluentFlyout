@@ -82,6 +82,10 @@ public partial class IslandWindow
         {
             int ms = Math.Clamp(SettingsManager.Current.IslandVisibilityDuration, 1000, 10000);
             _noticeUntil = DateTime.UtcNow.AddMilliseconds(ms);
+            // El plazo es de la vista que lo arma: sin esta etiqueta, un aviso vivo
+            // declaraba «activa» a cualquier funcionalidad que solo espera su plazo
+            // (Bluetooth y cargador) y saltaba una tarjeta que nadie pidió.
+            _noticeMode = _contentMode;
         }
         ScheduleNoticeRetraction();
     }
@@ -100,8 +104,17 @@ public partial class IslandWindow
         _noticeCheckActive = false;
         _noticeUntil = DateTime.MinValue;
         _noticeForced = false;
+        _noticeMode = IslandContentMode.Media;
         _pendingTimerNotice = false;
     }
+
+    /// <summary>
+    /// ¿Sigue vivo el aviso de ESTA vista? El plazo es compartido, así que también hay
+    /// que comprobar de quién es: un aviso del temporizador no puede hacer que el
+    /// cargador o Bluetooth se declaren activos (change island-avisos).
+    /// </summary>
+    private bool NoticeAliveFor(IslandContentMode mode) =>
+        _noticeUntil > DateTime.UtcNow && _noticeMode == mode;
 
     /// <summary>
     /// Programa el vencimiento del aviso con un temporizador de UN SOLO disparo
@@ -531,12 +544,17 @@ public partial class IslandWindow
     private void ClearInactiveResidue()
     {
         // Grillas de contenido compacto: fuera del árbol visual mientras dura el reposo.
+        // La lista es TODAS, sin olvidar ninguna: una vista que no se apaga aquí se
+        // queda pintada detrás de la pieza (change island-avisos).
         MusicCompactGrid.Visibility = Visibility.Collapsed;
         TimerCompactGrid.Visibility = Visibility.Collapsed;
         AppsCompactGrid.Visibility = Visibility.Collapsed;
         ShelfCompactGrid.Visibility = Visibility.Collapsed;
         CalendarCompactGrid.Visibility = Visibility.Collapsed;
         BluetoothCompactGrid.Visibility = Visibility.Collapsed;
+        ClipboardCompactGrid.Visibility = Visibility.Collapsed;
+        WeatherCompactGrid.Visibility = Visibility.Collapsed;
+        PowerCompactGrid.Visibility = Visibility.Collapsed;
         // Datos musicales: sin carátula, fondo difuminado, títulos ni seek.
         ClearMusicResidue();
         // Datos del temporizador: sin restante ni progreso heredados.
@@ -544,10 +562,8 @@ public partial class IslandWindow
         TimerProgressFill.Width = 0;
         TimerRunRemaining.Text = "00:00:00";
         // Por si algún panel expandido quedó visible de la vista anterior.
-        TimerAlert.Visibility = Visibility.Collapsed;
-        AppsExpanded.Visibility = Visibility.Collapsed;
-        ShelfExpanded.Visibility = Visibility.Collapsed;
-        CalendarExpanded.Visibility = Visibility.Collapsed;
+        HideAllExpandedPanels();
+        RestoreExpandedHomes();
         ApplyFrame();
     }
 
@@ -758,31 +774,32 @@ public partial class IslandWindow
         {
             ShowInactiveOrHidden();
             return;
-        }            if (vigente.Id == "media")
+        }
+        if (vigente.Id == "media")
+        {
+            // La actividad manda sobre el snapshot: si el snapshot apunta a una
+            // pausa mientras otra sesión reproduce, el compacto muestra lo activo.
+            var session = ActiveMediaSession();
+            if (session != null)
             {
-                // La actividad manda sobre el snapshot: si el snapshot apunta a una
-                // pausa mientras otra sesión reproduce, el compacto muestra lo activo.
-                var session = ActiveMediaSession();
-                if (session != null)
-                {
-                    // NADA de adelantar el contenido aquí: si lo expandido era el
-                    // temporizador, el repliegue debe empezar mostrando el
-                    // temporizador (el intercambio lo hace la fase 2, sobre la pieza,
-                    // donde no se ve). Presentarlo ahora pintaba media en la tarjeta
-                    // expandida antes de encogerse: el parpadeo de «se esconde y
-                    // aparece lo activo». RefreshUi deja el modo de contenido en media
-                    // cuando le toca presentarlo.
-                    if (ShowScreenOfFeature(vigente)) return;
-                    CollapseToCompact(vigente);
-                    return;
-                }
-                ShowInactiveOrHidden();
+                // NADA de adelantar el contenido aquí: si lo expandido era el
+                // temporizador, el repliegue debe empezar mostrando el
+                // temporizador (el intercambio lo hace la fase 2, sobre la pieza,
+                // donde no se ve). Presentarlo ahora pintaba media en la tarjeta
+                // expandida antes de encogerse: el parpadeo de «se esconde y
+                // aparece lo activo». RefreshUi deja el modo de contenido en media
+                // cuando le toca presentarlo.
+                if (ShowScreenOfFeature(vigente)) return;
+                CollapseToCompact(vigente);
                 return;
             }
-            // Resto de funcionalidades: la pantalla que las contiene (simple o
-            // combinada) con su propia ruta de presentación (change island-pantallas RF-4).
-            if (ShowScreenOfFeature(vigente)) return;
             ShowInactiveOrHidden();
+            return;
+        }
+        // Resto de funcionalidades: la pantalla que las contiene (simple o
+        // combinada) con su propia ruta de presentación (change island-pantallas RF-4).
+        if (ShowScreenOfFeature(vigente)) return;
+        ShowInactiveOrHidden();
     }
 
     /// <summary>
