@@ -139,19 +139,9 @@ public partial class IslandWindow
         return ScreenIndexOfFeature(id);
     }
 
-    private static IslandContentMode ModeForFeature(string id) => id switch
-    {
-        IslandFeatureIds.Media => IslandContentMode.Media,
-        IslandFeatureIds.Timer => IslandContentMode.Timer,
-        IslandFeatureIds.Apps => IslandContentMode.Apps,
-        IslandFeatureIds.Shelf => IslandContentMode.Shelf,
-        IslandFeatureIds.Calendar => IslandContentMode.Calendar,
-        IslandFeatureIds.Bluetooth => IslandContentMode.Bluetooth,
-        IslandFeatureIds.Clipboard => IslandContentMode.Clipboard,
-        IslandFeatureIds.Weather => IslandContentMode.Weather,
-        IslandFeatureIds.Power => IslandContentMode.Power,
-        _ => IslandContentMode.Media,
-    };
+    /// <summary>Modo de contenido de una funcionalidad: lo declara su ficha (IslandWindow.FeatureCards.cs).</summary>
+    private IslandContentMode ModeForFeature(string id) =>
+        FeatureCard(id)?.Mode ?? IslandContentMode.Media;
 
     /// <summary>
     /// ¿La funcionalidad está en alguna pantalla? Sin pantalla no hay vista: una
@@ -232,19 +222,8 @@ public partial class IslandWindow
     /// Funcionalidad que sostiene la vista vigente (null con una pantalla delante, en el
     /// reposo o cuando la vista es de una funcionalidad desconocida).
     /// </summary>
-    private IIslandFeature? ViewOwnerFeature() => _contentMode switch
-    {
-        IslandContentMode.Media => FeatureById(IslandFeatureIds.Media),
-        IslandContentMode.Timer => FeatureById(IslandFeatureIds.Timer),
-        IslandContentMode.Apps => FeatureById(IslandFeatureIds.Apps),
-        IslandContentMode.Shelf => FeatureById(IslandFeatureIds.Shelf),
-        IslandContentMode.Calendar => FeatureById(IslandFeatureIds.Calendar),
-        IslandContentMode.Bluetooth => FeatureById(IslandFeatureIds.Bluetooth),
-        IslandContentMode.Clipboard => FeatureById(IslandFeatureIds.Clipboard),
-        IslandContentMode.Weather => FeatureById(IslandFeatureIds.Weather),
-        IslandContentMode.Power => FeatureById(IslandFeatureIds.Power),
-        _ => null,
-    };
+    private IIslandFeature? ViewOwnerFeature() =>
+        FeatureCardOfMode(_contentMode) is { } card ? FeatureById(card.Id) : null;
 
     /// <summary>
     /// Funcionalidad que el usuario tiene DELANTE en el COMPACTO (null con el expandido
@@ -429,54 +408,12 @@ public partial class IslandWindow
     {
         if (_disposed || !IsBoxShown || _contentMode != IslandContentMode.Screen) return;
         if (!_expanded) return;
-        foreach (var member in CurrentScreenFeatures())
-        {
-            switch (member.Id)
-            {
-                case "timer":
-                    RefreshTimerUI();
-                    break;
-                case "calendar":
-                    RefreshCalendarList();
-                    break;
-                case "media":
-                    if (Current() is { } session) UpdateSeek(session);
-                    break;
-            }
-        }
+        // Cada columna envejece con su cadencia: la declara su ficha.
+        foreach (var member in CurrentScreenFeatures()) FeatureCard(member.Id)?.Tick?.Invoke();
     }
 
     /// <summary>Refresca los datos de una funcionalidad dentro de una pantalla combinada.</summary>
-    private void RefreshMemberContent(string id)
-    {
-        switch (id)
-        {
-            case "media":
-                if (Current() is { } session) RefreshUi(session);
-                break;
-            case "timer":
-                RefreshTimerUI();
-                break;
-            case "apps":
-                RefreshAppList();
-                break;
-            case "shelf":
-                RefreshShelfList();
-                break;
-            case "calendar":
-                RefreshCalendarList();
-                break;
-            case IslandFeatureIds.Bluetooth:
-                RefreshBluetoothUI();
-                break;
-            case IslandFeatureIds.Clipboard:
-                RefreshClipboardViews();
-                break;
-            case IslandFeatureIds.Weather:
-                RefreshWeatherUI();
-                break;
-        }
-    }
+    private void RefreshMemberContent(string id) => FeatureCard(id)?.Refresh();
 
     /// <summary>
     /// Columnas que ocupará el expandido de la pantalla vigente: una por funcionalidad
@@ -510,88 +447,12 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Punto de partida de cualquier vista: NINGUNA capa a la vista (compactas y
-    /// expandidas). Sustituye a las listas de apagado copiadas en cada rama de
-    /// presentación, que bastaba olvidar en una para que dos vistas se pintaran
-    /// encima; ahora cada vista enciende SOLO la suya.
-    /// </summary>
-    private void HideAllContentLayers()
-    {
-        HideAllCompactLayers();
-        HideAllExpandedPanels();
-    }
-
-    /// <summary>Apaga todas las tarjetas compactas.</summary>
-    private void HideAllCompactLayers()
-    {
-        MusicCompactGrid.Visibility = Visibility.Collapsed;
-        TimerCompactGrid.Visibility = Visibility.Collapsed;
-        AppsCompactGrid.Visibility = Visibility.Collapsed;
-        ShelfCompactGrid.Visibility = Visibility.Collapsed;
-        CalendarCompactGrid.Visibility = Visibility.Collapsed;
-        BluetoothCompactGrid.Visibility = Visibility.Collapsed;
-        ClipboardCompactGrid.Visibility = Visibility.Collapsed;
-        WeatherCompactGrid.Visibility = Visibility.Collapsed;
-        PowerCompactGrid.Visibility = Visibility.Collapsed;
-    }
-
-    /// <summary>Apaga todos los paneles del expandido (punto de partida de una composición).</summary>
-    private void HideAllExpandedPanels()
-    {
-        MusicExpandedTop.Visibility = Visibility.Collapsed;
-        ControlsRow.Visibility = Visibility.Collapsed;
-        SeekRow.Visibility = Visibility.Collapsed;
-        TimerAlert.Visibility = Visibility.Collapsed;
-        AppsExpanded.Visibility = Visibility.Collapsed;
-        ShelfExpanded.Visibility = Visibility.Collapsed;
-        CalendarExpanded.Visibility = Visibility.Collapsed;
-        ClipboardExpanded.Visibility = Visibility.Collapsed;
-        WeatherExpanded.Visibility = Visibility.Collapsed;
-        CrossfadeTimerPanels(showConfig: false, showRun: false);
-    }
-
-    /// <summary>
     /// Enseña los paneles del expandido que pertenecen a una funcionalidad, con las
-    /// mismas reglas que su pantalla simple (la alerta del temporizador manda sobre
-    /// sus reels y el seek de música se ajusta a las capacidades de la sesión).
+    /// mismas reglas que su pantalla simple: la alerta del temporizador manda sobre sus
+    /// reels y el seek de música se ajusta a las capacidades de la sesión. Lo declara su
+    /// ficha (IslandWindow.FeatureCards.cs).
     /// </summary>
-    private void ShowMemberPanels(string id)
-    {
-        switch (id)
-        {
-            case "media":
-                MusicExpandedTop.Visibility = Visibility.Visible;
-                ControlsRow.Visibility = Visibility.Visible;
-                SeekRow.Visibility = Visibility.Visible;
-                if (Current() is { } session) ApplyCapabilities(session);
-                else SeekRow.Visibility = Visibility.Collapsed;
-                break;
-            case "timer":
-                bool alert = _timer.State == IslandTimerState.Alerting;
-                bool idle = _timer.State == IslandTimerState.Idle;
-                TimerAlert.Visibility = alert ? Visibility.Visible : Visibility.Collapsed;
-                CrossfadeTimerPanels(showConfig: idle && !alert, showRun: !idle && !alert);
-                break;
-            case "apps":
-                AppsExpanded.Visibility = Visibility.Visible;
-                break;
-            case "shelf":
-                ShelfExpanded.Visibility = Visibility.Visible;
-                break;
-            case "calendar":
-                CalendarExpanded.Visibility = Visibility.Visible;
-                break;
-            case IslandFeatureIds.Clipboard:
-                ClipboardExpanded.Visibility = Visibility.Visible;
-                RefreshClipboardViews();
-                break;
-            case IslandFeatureIds.Weather:
-                WeatherExpanded.Visibility = Visibility.Visible;
-                RefreshWeatherUI();
-                break;
-            // Bluetooth no tiene expandido: su aviso vive en el compacto.
-        }
-    }
+    private void ShowMemberPanels(string id) => FeatureCard(id)?.ShowExpanded();
 
     /// <summary>
     /// ¿La vista de una pantalla la sostiene alguno de sus miembros? (RF-4). Es la
@@ -607,33 +468,12 @@ public partial class IslandWindow
     /// <summary>
     /// Paneles del expandido que pertenecen a cada funcionalidad: son los que se
     /// MUEVEN a su columna cuando la pantalla es combinada (cada uno vive en un solo
-    /// contenedor a la vez, así que se traslada, no se copia).
+    /// contenedor a la vez, así que se traslada, no se copia). Los declara su ficha.
     /// </summary>
-    private IEnumerable<UIElement> MemberPanels(string id) => id switch
-    {
-        "media" => [MusicExpandedTop, SeekRow, ControlsRow],
-        "timer" => [TimerAlert, TimerExpanded, TimerRunPanel],
-        "apps" => [AppsExpanded],
-        "shelf" => [ShelfExpanded],
-        "calendar" => [CalendarExpanded],
-        IslandFeatureIds.Clipboard => [ClipboardExpanded],
-        IslandFeatureIds.Weather => [WeatherExpanded],
-        // Bluetooth no tiene expandido: su aviso vive en el compacto.
-        _ => [],
-    };
+    private IEnumerable<UIElement> MemberPanels(string id) => FeatureCard(id)?.Expanded ?? [];
 
     /// <summary>Columna del expandido que aloja los paneles de una funcionalidad (null si no tiene).</summary>
-    private StackPanel? ColumnFor(string id) => id switch
-    {
-        "media" => ScreenColumnMedia,
-        "timer" => ScreenColumnTimer,
-        "apps" => ScreenColumnApps,
-        "shelf" => ScreenColumnShelf,
-        "calendar" => ScreenColumnCalendar,
-        IslandFeatureIds.Clipboard => ScreenColumnClipboard,
-        IslandFeatureIds.Weather => ScreenColumnWeather,
-        _ => null,
-    };
+    private StackPanel? ColumnFor(string id) => FeatureCard(id)?.Column();
 
     /// <summary>
     /// Dónde vivía cada panel antes de entrar en una columna: devolverlo a su sitio

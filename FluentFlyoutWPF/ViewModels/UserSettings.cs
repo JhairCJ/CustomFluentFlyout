@@ -1476,68 +1476,6 @@ public partial class UserSettings : ObservableObject
     [XmlIgnore]
     public bool GoogleCalendarSignedIn => GoogleCalendarRefreshToken.Length > 0;
 
-    /// <summary>
-    /// Encender o apagar los recordatorios se aplica en el acto: el contenedor reengancha
-    /// sus vistas y el servicio arranca o para su bucle (con la funcionalidad apagada no
-    /// se gasta red ni token leyendo el calendario).
-    /// </summary>
-    partial void OnIslandCalendarEnabledChanged(bool oldValue, bool newValue) =>
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshCalendarContent();
-
-    /// <summary>
-    /// Encender o apagar los avisos de Bluetooth se aplica en el acto: el vigía
-    /// arranca o se para (con la funcionalidad apagada no se observa nada) y, si su
-    /// vista estaba puesta, el contenedor se repliega sin dejar una superficie vacía.
-    /// </summary>
-    partial void OnIslandBluetoothEnabledChanged(bool oldValue, bool newValue) =>
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshBluetoothContent();
-
-    /// <summary>
-    /// Encender o apagar el portapapeles se aplica en el acto: arranca o se para la
-    /// escucha (apagada no se observa nada) y, si su vista estaba puesta, el
-    /// contenedor se repliega sin dejar una superficie vacía.
-    /// </summary>
-    partial void OnIslandClipboardEnabledChanged(bool oldValue, bool newValue) =>
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshClipboardContent();
-
-    /// <summary>
-    /// El tope de la lista se aplica en el acto: el servicio recorta lo que sobre y
-    /// la vista se repinta con lo que quede.
-    /// </summary>
-    partial void OnIslandClipboardMaxItemsChanged(int oldValue, int newValue) =>
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshClipboardContent();
-
-    /// <summary>
-    /// Encender o apagar el clima se aplica en el acto: arranca o se para su ciclo de
-    /// refresco (apagado no se llama a la red) y, si su vista estaba puesta, el
-    /// contenedor se repliega sin dejar una superficie vacía.
-    /// </summary>
-    partial void OnIslandWeatherEnabledChanged(bool oldValue, bool newValue) =>
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshWeatherContent();
-
-    /// <summary>
-    /// Cambiar de lugar se aplica en el acto: el ciclo consulta el lugar nuevo en
-    /// cuanto se guarda (el dato anterior se conserva hasta que llegue el suyo).
-    /// </summary>
-    partial void OnIslandWeatherPlaceChanged(string oldValue, string newValue) =>
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshWeatherContent();
-
-    /// <summary>
-    /// Encender o apagar los avisos del cargador se aplica en el acto: el vigía arranca
-    /// o se para (apagado no se observa el estado de energía) y, si su vista estaba
-    /// puesta, el contenedor se repliega sin dejar una superficie vacía.
-    /// </summary>
-    partial void OnIslandPowerEnabledChanged(bool oldValue, bool newValue) =>
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshPowerContent();
-
-    /// <summary>
-    /// El ajuste de pantalla completa se aplica en el acto: la supresión es una
-    /// instantánea cacheada, así que se invalida y se recalcula con el valor nuevo
-    /// (si el Island tenía que apartarse, se aparta ya).
-    /// </summary>
-    partial void OnIslandHideOnFullscreenChanged(bool oldValue, bool newValue) =>
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshSuppressionState();
-
     partial void OnGoogleCalendarRefreshTokenChanged(string oldValue, string newValue)
     {
         // El resto de la app se pregunta por GoogleCalendarSignedIn: al cambiar la
@@ -1931,6 +1869,111 @@ public partial class UserSettings : ObservableObject
         BlockedApps = [];
 
         PropertyChanged += OnPropertyChangedSaveSettings;
+        PropertyChanged += OnIslandSettingChanged;
+    }
+
+    // ------------------------------------------------------------------
+    // Ajustes que cambian el Island (change island-fichas)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// El contenedor del Island, si su ventana ya existe (al cargar los ajustes todavía
+    /// no está). Una sola vez para toda la tabla: antes cada método de ajuste repetía la
+    /// búsqueda de la ventana por su cuenta.
+    /// </summary>
+    private static IslandWindow? Island
+    {
+        get
+        {
+            MainWindow? shell = Application.Current?.MainWindow as MainWindow;
+            return shell?.islandWindow;
+        }
+    }
+
+    /// <summary>
+    /// Tabla de ajustes que cambian la vista del contenedor: ajuste → qué hay que rehacer.
+    /// Antes eran cuarenta y ocho métodos parciales, uno por ajuste, cada uno con su
+    /// llamada a la ventana; añadir un ajuste eran dos ediciones repartidas por todo el
+    /// archivo y olvidar una dejaba el ajuste sin efecto en caliente. Ahora es una línea
+    /// aquí, y el nombre del ajuste lo escribe el compilador (<c>nameof</c>), así que un
+    /// nombre mal escrito no compila.
+    /// </summary>
+    private static readonly Dictionary<string, Action<IslandWindow>> IslandSettingHandlers = new(StringComparer.Ordinal)
+    {
+        // Encender el contenedor: se repliega o vuelve según el ajuste.
+        [nameof(IslandEnabled)] = island => island.RefreshEnabledState(),
+
+        // Apariencia: forma, radios, tipografía y relleno del compacto y del expandido.
+        [nameof(IslandBorderEnabled)] = island => island.RefreshAppearance(),
+        [nameof(IslandBorderRadius)] = island => island.RefreshAppearance(),
+        [nameof(IslandCompactBorderRadius)] = island => island.RefreshAppearance(),
+        [nameof(IslandExpandedBorderRadius)] = island => island.RefreshAppearance(),
+        [nameof(IslandNotchFilletCompact)] = island => island.RefreshAppearance(),
+        [nameof(IslandNotchFilletExpanded)] = island => island.RefreshAppearance(),
+        [nameof(IslandAlbumArtRadius)] = island => island.RefreshAppearance(),
+        [nameof(IslandExpandedWidth)] = island => island.RefreshAppearance(),
+        [nameof(IslandExpandedHeight)] = island => island.RefreshAppearance(),
+        [nameof(IslandActivityLine)] = island => island.RefreshAppearance(),
+        [nameof(IslandReturnToInactive)] = island => island.RefreshAppearance(),
+        [nameof(IslandStyle)] = island => island.RefreshAppearance(),
+        [nameof(IslandLineTopOffset)] = island => island.RefreshAppearance(),
+        [nameof(IslandTopOffset)] = island => island.RefreshAppearance(),
+        [nameof(IslandFontFamily)] = island => island.RefreshAppearance(),
+        [nameof(IslandTextStyle)] = island => island.RefreshAppearance(),
+        [nameof(IslandCompactTitleFontSize)] = island => island.RefreshAppearance(),
+        [nameof(IslandExpandedTitleFontSize)] = island => island.RefreshAppearance(),
+        [nameof(IslandExpandedArtistFontSize)] = island => island.RefreshAppearance(),
+        [nameof(IslandTimerShowProgress)] = island => island.RefreshAppearance(),
+        [nameof(IslandTimerShowArrows)] = island => island.RefreshAppearance(),
+
+        // Cuándo y cómo se asoma: el contrato de visibilidad se recalcula en el acto.
+        [nameof(IslandShowOnPlayPause)] = island => island.RefreshVisibilityState(),
+        [nameof(IslandShowOnPause)] = island => island.RefreshVisibilityState(),
+        [nameof(IslandVisibilityMode)] = island => island.RefreshVisibilityState(),
+        [nameof(IslandPauseCountsActive)] = island => island.RefreshVisibilityState(),
+
+        // Fondo: modo (desenfoque, giro o color), giro y ritmo del giro.
+        [nameof(IslandBackgroundBlur)] = island => island.UpdateBackgroundMode(),
+        [nameof(IslandBackgroundBlurIntensity)] = island => island.UpdateBackgroundMode(),
+        [nameof(IslandBackgroundBlurRadius)] = island => island.UpdateBackgroundMode(),
+        [nameof(IslandBackgroundRotate)] = island => island.UpdateBackgroundMode(),
+        [nameof(IslandBackgroundRotateSide)] = island => island.UpdateBackgroundMode(),
+        [nameof(IslandBackgroundRotateDirection)] = island => island.UpdateBackgroundMode(),
+        [nameof(IslandBackgroundRotateDuration)] = island => island.UpdateBackgroundMode(),
+        [nameof(IslandBackgroundRotateSize)] = island => island.UpdateBackgroundMode(),
+        [nameof(IslandBackgroundRotateHighRefreshRate)] = island => island.RefreshBackgroundRotationFrameRate(),
+
+        // Modo ultra: aparta el medio del compacto y re-mide la cápsula.
+        [nameof(IslandUltraCompact)] = island => island.RefreshUltraCompact(),
+
+        // A pantalla completa, apartarse.
+        [nameof(IslandHideOnFullscreen)] = island => island.RefreshSuppressionState(),
+
+        // Encender o apagar una funcionalidad: el contenedor reengancha sus vistas y el
+        // servicio arranca o para (apagado no se observa ni se sale a la red).
+        [nameof(IslandMediaEnabled)] = island => island.RefreshMediaContent(),
+        [nameof(IslandTimerEnabled)] = island => island.RefreshTimerEnabled(),
+        [nameof(IslandAppsEnabled)] = island => island.RefreshAppsContent(),
+        [nameof(IslandShelfEnabled)] = island => island.RefreshShelfContent(),
+        [nameof(IslandCalendarEnabled)] = island => island.RefreshCalendarContent(),
+        [nameof(IslandBluetoothEnabled)] = island => island.RefreshBluetoothContent(),
+        [nameof(IslandClipboardEnabled)] = island => island.RefreshClipboardContent(),
+        [nameof(IslandClipboardMaxItems)] = island => island.RefreshClipboardContent(),
+        [nameof(IslandWeatherEnabled)] = island => island.RefreshWeatherContent(),
+        [nameof(IslandWeatherPlace)] = island => island.RefreshWeatherContent(),
+        [nameof(IslandPowerEnabled)] = island => island.RefreshPowerContent(),
+    };
+
+    /// <summary>
+    /// Aplica en caliente el ajuste que acaba de cambiar, si su vista depende de él. Un
+    /// ajuste que además se SANEA (acotar o redondear el valor) tiene su propio método
+    /// parcial, que llama a la ventana después de sanear.
+    /// </summary>
+    private void OnIslandSettingChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_initializing || e.PropertyName is not { } name) return;
+        if (!IslandSettingHandlers.TryGetValue(name, out var apply)) return;
+        if (Island is { } island) apply(island);
     }
 
     [XmlIgnore]
@@ -2168,7 +2211,7 @@ public partial class UserSettings : ObservableObject
         if (!_initializing) SettingsManager.SaveSettings();
         // El contenedor necesita saber que el cajón cambió de disponibilidad
         // (sin aplicaciones no se puede mostrar).
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppsContent();
+        Island?.RefreshAppsContent();
     }
 
     private void IslandApp_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -2311,7 +2354,7 @@ public partial class UserSettings : ObservableObject
         // El contenedor navega por estas pantallas: se releen en el acto y, si el
         // Island está a la vista, se vuelve a presentar la pantalla vigente con la
         // composición nueva, sin reiniciar la aplicación (change island-pantallas RF-2).
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshScreensContent();
+        Island?.RefreshScreensContent();
     }
 
     // --- pantallas del Island (change island-pantallas) ---
@@ -2447,11 +2490,8 @@ public partial class UserSettings : ObservableObject
     {
         if (!_initializing) SettingsManager.SaveSettings();
         // El contenedor rellena sus listas (y, con el estante a la vista, lo deja al día).
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshShelfContent();
+        Island?.RefreshShelfContent();
     }
-
-    partial void OnIslandShelfEnabledChanged(bool oldValue, bool newValue) =>
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshShelfContent();
 
     // --- Google Calendar ---
 
@@ -2859,56 +2899,32 @@ public partial class UserSettings : ObservableObject
         TaskbarVisualizerControl.OnTaskbarVisualizerHighRefreshRateChanged();
     }
 
-    partial void OnIslandEnabledChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshEnabledState();
-    }
-
-    partial void OnIslandBorderEnabledChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
-    }
-
-    partial void OnIslandBorderRadiusChanged(int oldValue, int newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
-    }
-
     partial void OnIslandCompactBorderRadiusChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         IslandCompactBorderRadius = Math.Clamp(newValue, 0, 40);
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+        Island?.RefreshAppearance();
     }
 
     partial void OnIslandExpandedBorderRadiusChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         IslandExpandedBorderRadius = Math.Clamp(newValue, 0, 40);
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+        Island?.RefreshAppearance();
     }
 
     partial void OnIslandNotchFilletCompactChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         IslandNotchFilletCompact = Math.Clamp(newValue, 0, 20);
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+        Island?.RefreshAppearance();
     }
 
     partial void OnIslandNotchFilletExpandedChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         IslandNotchFilletExpanded = Math.Clamp(newValue, 0, 20);
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
-    }
-
-    partial void OnIslandAlbumArtRadiusChanged(int oldValue, int newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+        Island?.RefreshAppearance();
     }
 
     partial void OnIslandExpandedWidthChanged(int oldValue, int newValue)
@@ -2916,7 +2932,7 @@ public partial class UserSettings : ObservableObject
         if (oldValue == newValue || _initializing) return;
         int fixedValue = newValue == 0 ? 320 : Math.Clamp(newValue, 280, 600);
         if (fixedValue != newValue) IslandExpandedWidth = fixedValue;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+        Island?.RefreshAppearance();
     }
 
     partial void OnIslandExpandedHeightChanged(int oldValue, int newValue)
@@ -2924,187 +2940,49 @@ public partial class UserSettings : ObservableObject
         if (oldValue == newValue || _initializing) return;
         int fixedValue = newValue == 0 ? 126 : Math.Clamp(newValue, 100, 220);
         if (fixedValue != newValue) IslandExpandedHeight = fixedValue;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
-    }
-
-    partial void OnIslandActivityLineChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
-    }
-
-    partial void OnIslandShowOnPlayPauseChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshVisibilityState();
-    }
-
-    partial void OnIslandShowOnPauseChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshVisibilityState();
+        Island?.RefreshAppearance();
     }
 
     partial void OnIslandVisibilityModeChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         IslandVisibilityMode = Math.Clamp(newValue, 0, 1);
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshVisibilityState();
-    }
-
-    partial void OnIslandReturnToInactiveChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
-    }
-
-    partial void OnIslandUltraCompactChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshUltraCompact();
-    }
-
-    partial void OnIslandPauseCountsActiveChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshVisibilityState();
-    }
-
-    partial void OnIslandStyleChanged(int oldValue, int newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+        Island?.RefreshVisibilityState();
     }
 
     partial void OnIslandLineTopOffsetChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         IslandLineTopOffset = Math.Clamp(newValue, 0, 60);
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+        Island?.RefreshAppearance();
     }
 
     partial void OnIslandTopOffsetChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         IslandTopOffset = Math.Clamp(newValue, 0, 80);
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
-    }
-
-    partial void OnIslandBackgroundBlurChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
-    }
-
-    partial void OnIslandBackgroundBlurIntensityChanged(int oldValue, int newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
-    }
-
-    partial void OnIslandBackgroundBlurRadiusChanged(int oldValue, int newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
-    }
-
-    partial void OnIslandBackgroundRotateChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
-    }
-
-    partial void OnIslandBackgroundRotateSideChanged(int oldValue, int newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
-    }
-
-    partial void OnIslandBackgroundRotateDirectionChanged(int oldValue, int newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
-    }
-
-    partial void OnIslandBackgroundRotateHighRefreshRateChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshBackgroundRotationFrameRate();
-    }
-
-    partial void OnIslandBackgroundRotateDurationChanged(int oldValue, int newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
-    }
-
-    partial void OnIslandBackgroundRotateSizeChanged(int oldValue, int newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.UpdateBackgroundMode();
-    }
-
-    partial void OnIslandFontFamilyChanged(string oldValue, string newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
-    }
-
-    partial void OnIslandTextStyleChanged(int oldValue, int newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+        Island?.RefreshAppearance();
     }
 
     partial void OnIslandCompactTitleFontSizeChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         IslandCompactTitleFontSize = Math.Clamp(newValue, 10, 24);
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+        Island?.RefreshAppearance();
     }
 
     partial void OnIslandExpandedTitleFontSizeChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         IslandExpandedTitleFontSize = Math.Clamp(newValue, 10, 24);
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+        Island?.RefreshAppearance();
     }
 
     partial void OnIslandExpandedArtistFontSizeChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
         IslandExpandedArtistFontSize = Math.Clamp(newValue, 10, 24);
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
-    }
-
-    partial void OnIslandMediaEnabledChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshMediaContent();
-    }
-
-    partial void OnIslandTimerEnabledChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshTimerEnabled();
-    }
-
-    partial void OnIslandAppsEnabledChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppsContent();
-    }
-
-    partial void OnIslandTimerShowProgressChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
-    }
-
-    partial void OnIslandTimerShowArrowsChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshAppearance();
+        Island?.RefreshAppearance();
     }
 
     partial void OnTaskbarVisualizerBaselineChanged(bool oldValue, bool newValue)

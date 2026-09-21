@@ -56,26 +56,12 @@ public partial class IslandPage : Page
         if (_category == IslandCategory.All)
             return;
 
-        HashSet<int> visibleRows = _category switch
-        {
-            // Las filas del XAML van en orden: cada sección es un tramo continuo de
-            // IslandSettingsGrid. Añadir una fila a una sección desplaza las siguientes.
-            IslandCategory.General => [0, 1, 2, 3, 4, 5, 6, 7],
-            IslandCategory.Screens => [8, 9],
-            IslandCategory.Music => [10, 11, 12, 13, 14, 15],
-            IslandCategory.Interaction => [16, 17, 18, 19, 20, 21, 22, 23, 24],
-            // La apariencia incluye su cabecera, los radios y el fondo del Island.
-            IslandCategory.Appearance => [25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36],
-            IslandCategory.Content => [37, 38],
-            IslandCategory.Timer => [39, 40, 41, 42, 43],
-            IslandCategory.Apps => [44, 45],
-            IslandCategory.Organization => [48, 49],
-            IslandCategory.Tools => [50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60],
-            _ => [],
-        };
-
+        // La categoría de cada fila es su Tag: el mismo nombre que esta enumeración.
+        // Mover, añadir o borrar filas del XAML no rompe nada, y una fila sin Tag
+        // (o con una categoría que no existe) no se cuela en ninguna página.
+        string category = _category.ToString();
         foreach (FrameworkElement child in IslandSettingsGrid.Children)
-            child.Visibility = visibleRows.Contains(Grid.GetRow(child)) ? Visibility.Visible : Visibility.Collapsed;
+            child.Visibility = child.Tag as string == category ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ------------------------------------------------------------------

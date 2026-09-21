@@ -5,8 +5,15 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>selfcheck</AssemblyName>
+    <RootNamespace>SelfCheck</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Lógica PURA del Island (sin WPF): se compila aquí tal cual para poder
+         comprobarla. Si algo de esta lista deja de ser puro, este proyecto no
+         compila y eso es justo lo que queremos saber. -->
     <Compile Include="../FluentFlyoutWPF/Models/IslandFeatureIds.cs" />
+    <Compile Include="../FluentFlyoutWPF/Classes/IslandPhysics.cs" />
+    <Compile Include="../FluentFlyoutWPF/Classes/MediaTrackIdentity.cs" />
+    <Compile Include="../FluentFlyoutWPF/Classes/IslandPolicy.cs" />
   </ItemGroup>
 </Project>

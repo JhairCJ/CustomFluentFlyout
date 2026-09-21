@@ -45,35 +45,21 @@ public partial class IslandWindow
     private static int CompactRowFit(int fullFit) => UltraCompactOn ? 1 : fullFit;
 
     /// <summary>
-    /// Medio del compacto de cada funcionalidad y cómo se restaura su visibilidad cuando
-    /// el modo ultra se apaga: cada elemento tiene su propia regla (el progreso del
-    /// temporizador depende de su ajuste; el resto se ven siempre), así que el modo ultra
-    /// solo aparta, nunca decide por ellos.
-    /// </summary>
-    private IEnumerable<(IslandContentMode Mode, UIElement Middle, Func<Visibility> Restore)> CompactMiddles =>
-    [
-        (IslandContentMode.Media, CompactTitle, () => Visibility.Visible),
-        (IslandContentMode.Timer, TimerProgressZone, () =>
-            SettingsManager.Current.IslandTimerShowProgress && !UltraCompactOn
-                ? Visibility.Visible : Visibility.Collapsed),
-        (IslandContentMode.Calendar, CalendarCompactTitle, () => Visibility.Visible),
-        (IslandContentMode.Bluetooth, BluetoothName, () => Visibility.Visible),
-        (IslandContentMode.Power, PowerTitle, () => Visibility.Visible),
-    ];
-
-    /// <summary>
     /// Aplica el modo ultra al compacto vigente: aparta el medio de la vista de delante o
-    /// lo devuelve a su regla. <paramref name="refitRows"/> re-cuenta además los renglones
-    /// de una celda; solo hace falta al CAMBIAR el ajuste, porque cada refresco de
-    /// contenido ya cuenta con el modo (<see cref="CompactRowFit"/>).
+    /// lo devuelve a su regla —que declara la propia funcionalidad en su ficha, porque el
+    /// progreso del temporizador depende de su ajuste y el resto se ven siempre—.
+    /// <paramref name="refitRows"/> re-cuenta además los renglones de una celda; solo hace
+    /// falta al CAMBIAR el ajuste, porque cada refresco de contenido ya cuenta con el modo
+    /// (<see cref="CompactRowFit"/>).
     /// </summary>
     private void ApplyUltraCompactContent(bool refitRows = false)
     {
-        foreach (var (mode, middle, restore) in CompactMiddles)
+        foreach (var card in _featureCards.Values)
         {
-            middle.Visibility = UltraCompactOn && mode == _contentMode
+            if (card.Middle is not { } middle) continue;
+            middle.Visibility = UltraCompactOn && card.Mode == _contentMode
                 ? Visibility.Collapsed
-                : restore();
+                : card.RestoreMiddle?.Invoke() ?? Visibility.Visible;
         }
         if (!refitRows) return;
         RefreshAppList();

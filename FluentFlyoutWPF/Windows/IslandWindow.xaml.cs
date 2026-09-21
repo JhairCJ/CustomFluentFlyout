@@ -271,6 +271,10 @@ public partial class IslandWindow : Window
         _main = main;
         WindowHelper.SetNoActivate(this);
         InitializeComponent();
+        // Inventario de funcionalidades (change island-fichas): la ÚNICA fuente de lo
+        // que el contenedor sabe de cada una. Va lo primero, con los elementos del
+        // XAML ya creados, porque todo lo que sigue la consulta.
+        BuildFeatureCards();
         InitTimer();
         InitApps();
         InitShelf();

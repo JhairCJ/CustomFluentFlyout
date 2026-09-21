@@ -224,87 +224,18 @@ public partial class IslandWindow
         // Fuera de una pantalla combinada los paneles del expandido viven en su sitio
         // de siempre (no-op si no se había movido ninguno a una columna).
         RestoreExpandedHomes();
-        // Punto de partida ÚNICO: ninguna capa a la vista. Cada rama enciende SOLO la
-        // suya, así ninguna vista deja puesta la capa de la anterior —era el fallo: el
-        // estante no apagaba el calendario, el calendario no apagaba el portapapeles…,
-        // y las dos quedaban superpuestas—.
-        HideAllContentLayers();
-
-        // Modos mutuamente excluyentes (uno por contenido): la misma decisión que la
-        // antigua cadena de ramas con return, con una sola salida.
-        bool power = _contentMode == IslandContentMode.Power && PowerModeAvailable();
-        bool weather = _contentMode == IslandContentMode.Weather && WeatherModeAvailable();
-        bool clipboard = _contentMode == IslandContentMode.Clipboard && ClipboardModeAvailable();
-        bool bluetooth = _contentMode == IslandContentMode.Bluetooth && BluetoothModeAvailable();
-        bool shelf = _contentMode == IslandContentMode.Shelf && ShelfModeAvailable();
-        bool calendar = _contentMode == IslandContentMode.Calendar && CalendarModeAvailable();
-        bool apps = _contentMode == IslandContentMode.Apps && AppsModeAvailable();
-        bool timer = _contentMode == IslandContentMode.Timer && TimerModeAvailable();
-
-        // Cargador: rayo y porcentaje; aviso temporal excluyente con el resto.
-        if (power) PowerCompactGrid.Visibility = Visibility.Visible;
-        // Clima: glifo y temperatura en el compacto, lugar y extremos en el expandido.
-        else if (weather)
-        {
-            WeatherCompactGrid.Visibility = Visibility.Visible;
-            WeatherExpanded.Visibility = Visibility.Visible;
-        }
-        // Portapapeles: fila de piezas copiadas (o lista en el expandido).
-        else if (clipboard)
-        {
-            ClipboardCompactGrid.Visibility = Visibility.Visible;
-            ClipboardExpanded.Visibility = Visibility.Visible;
-        }
-        // Bluetooth: su vista es un aviso temporal (icono, nombre y batería).
-        else if (bluetooth) BluetoothCompactGrid.Visibility = Visibility.Visible;
-        // Estante: es la única capa que puede estar visible sin elementos (vacía
-        // invita a soltar), así que no comparte la lógica de música/temporizador.
-        else if (shelf)
-        {
-            ShelfCompactGrid.Visibility = Visibility.Visible;
-            ShelfExpanded.Visibility = Visibility.Visible;
-        }
-        // Calendario: vista propia con actividad (recordatorio vivo).
-        else if (calendar)
-        {
-            CalendarCompactGrid.Visibility = Visibility.Visible;
-            CalendarExpanded.Visibility = Visibility.Visible;
-        }
-        // Cajón de aplicaciones: cuadrícula de iconos.
-        else if (apps)
-        {
-            AppsCompactGrid.Visibility = Visibility.Visible;
-            AppsExpanded.Visibility = Visibility.Visible;
-        }
-        else
-        {
-            // Música y temporizador: los dos contenidos que comparten la capa de
-            // siempre (y el caso por defecto: sin vista disponible, la caja se queda
-            // con la música, que es lo que enseña el contenedor vacío).
-            MusicCompactGrid.Visibility = timer ? Visibility.Collapsed : Visibility.Visible;
-            TimerCompactGrid.Visibility = timer ? Visibility.Visible : Visibility.Collapsed;
-            bool alert = timer && _timer.State == IslandTimerState.Alerting;
-            bool idle = timer && _timer.State == IslandTimerState.Idle;
-            MusicExpandedTop.Visibility = timer ? Visibility.Collapsed : Visibility.Visible;
-            ControlsRow.Visibility = timer ? Visibility.Collapsed : Visibility.Visible;
-            if (timer)
-            {
-                SeekRow.Visibility = Visibility.Collapsed;
-            }
-            else if (MusicContentShown() && Current() is { } session)
-            {
-                ApplyCapabilities(session); // restaura SeekRow según la fuente
-            }
-            else
-            {
-                // Sin sesión que presentar: la fila de seek no se deja visible
-                // (no hay vista musical vacía, 001 MOD RF-9).
-                SeekRow.Visibility = Visibility.Collapsed;
-            }
-            // Los paneles config/progreso los conmuta el fundido; la alerta es instantánea.
-            TimerAlert.Visibility = alert ? Visibility.Visible : Visibility.Collapsed;
-            CrossfadeTimerPanels(showConfig: timer && idle && !alert, showRun: timer && !idle && !alert);
-        }
+        // La CARA que se ve es la de la funcionalidad del modo vigente —su ficha sabe
+        // qué tarjeta compacta enciende y qué paneles—: una sola decisión, sin cadena
+        // de ramas que puedan dejar puesta la capa de la vista anterior.
+        //
+        // Si su modo no es presentable ahora mismo (funcionalidad apagada, temporizador
+        // sin cuenta, una pantalla sin composición…), la caja se queda con la cara de
+        // música, que es el contenido por defecto del contenedor. Eso es lo que hace
+        // que una caja vacía no enseñe nunca nada más raro que el reproductor en
+        // blanco (001 MOD RF-9).
+        var card = FeatureCardOfMode(_contentMode);
+        if (card == null || !card.ModeAvailable()) card = FeatureCard(IslandFeatureIds.Media);
+        if (card != null) ShowContentFace(card);
         UpdateArrows();
     }
 

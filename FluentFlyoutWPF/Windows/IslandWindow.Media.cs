@@ -48,18 +48,47 @@ public partial class IslandWindow
     // consume en la reconciliación para decidir el activador de cambio de pista
     // sin inspeccionar eventos ya coalescidos (001 MOD RF-1).
     private bool _mediaMetadataChanged;
-    // Identidad de la pista presentada (título + autor). Un cambio aquí ES un
-    // cambio de canción, con independencia del estado de reproducción que
-    // reporte el reproductor: algunos no emiten metadata y solo anuncian la pista
-    // nueva por el estado, y otros transicionan por None/Opened y un cambio que
-    // llegaba en ese estado no mostraba nada.
-    private string _lastSongTitle = "";
-    private string _lastSongArtist = "";
+    // Identidad de la pista presentada (título + autor): un cambio aquí ES un cambio de
+    // canción, con independencia del estado de reproducción que reporte el reproductor
+    // —algunos no emiten metadata y solo anuncian la pista nueva por el estado, y otros
+    // transicionan por None/Opened y un cambio que llegaba en ese estado no mostraba
+    // nada—. Las reglas del detector viven en MediaTrackIdentity (puro y comprobado).
+    private readonly MediaTrackIdentity _trackIdentity = new();
     // ¿El último evento de media trajo una canción DISTINTA (nombre o autor)?
     private bool _pendingTrackChange;
     private GlobalSystemMediaTransportControlsSessionPlaybackStatus? _lastStatus;
 
+    // --- memos de lectura de SMTC ---
+    // Todo lo que el Island pregunta al sistema multimedia son cruces de proceso:
+    // estado de reproducción de cada sesión, propiedades (título/autor/carátula) y
+    // capacidades. Antes cada repintado volvía a pedirlas —con una llamada BLOQUEANTE
+    // en el hilo de UI— y una sola reconciliación las pedía varias veces (activa
+    // vigente, ecualizador, botón del ecualizador, capacidades). Así se leen una vez y
+    // se reutilizan hasta que algo pueda haber cambiado:
+    // - el estado vive lo que dura la PASADA (una reconciliación o un evento);
+    // - las propiedades las entrega el propio evento de metadata, que ya las trae.
+    // Ninguno de los dos alarga la vida de un dato más allá del evento siguiente, así
+    // que una reproducción que no emita evento sigue detectándose igual que antes.
+    private readonly Dictionary<string, GlobalSystemMediaTransportControlsSessionPlaybackStatus?> _statusMemo = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IslandMediaProps> _propsMemo = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Propiedades de una sesión ya listas para pintar: título, autor, carátula y el
+    /// hash que detecta el cambio de carátula.
+    /// </summary>
+    private sealed record IslandMediaProps(string Title, string Artist, BitmapImage? Artwork, int ArtworkHash);
+
     private bool MusicAvailable() => _music != null;
+
+    /// <summary>
+    /// Invalida los memos de lectura: se llama al empezar una pasada de reconciliación y
+    /// al recibir un evento del sistema, que es cuando el estado puede haber cambiado.
+    /// </summary>
+    private void InvalidateMediaReads(bool props = false)
+    {
+        _statusMemo.Clear();
+        if (props) _propsMemo.Clear();
+    }
 
     /// <summary>
     /// Engancha/desengancha los eventos del control multimedia del Island.
@@ -124,7 +153,7 @@ public partial class IslandWindow
         foreach (var s in _main.mediaManager.CurrentMediaSessions.Values)
         {
             if (!_main.IsSessionAllowed(s)) continue;
-            if (s.ControlSession?.GetPlaybackInfo()?.PlaybackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) continue;
+            if (SafeStatus(s) != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) continue;
             if (best == null || (_lastPlay.TryGetValue(s.Id, out var t) && (!_lastPlay.TryGetValue(best.Id, out var bt) || t > bt)))
                 best = s;
         }
@@ -256,26 +285,7 @@ public partial class IslandWindow
     /// </summary>
     private void NoteTrackIdentity(string? title, string? artist)
     {
-        string t = (title ?? "").Trim();
-        string a = (artist ?? "").Trim();
-        // Sin título no hay canción identificable: los reproductores que lo vacían
-        // un instante entre pistas no deben marcar un falso cambio. El autor
-        // conocido se conserva si el evento llega sin él.
-        if (t.Length == 0)
-        {
-            if (a.Length > 0) _lastSongArtist = a;
-            return;
-        }
-        // El título manda (nombre distinto = canción distinta); el autor cuenta
-        // solo cuando ambos lados lo aportan, para no confundir a un reproductor
-        // que rellena el autor con retraso con un cambio de canción.
-        bool changed = _lastSongTitle.Length > 0
-            && (!string.Equals(_lastSongTitle, t, StringComparison.Ordinal)
-                || (_lastSongArtist.Length > 0 && a.Length > 0
-                    && !string.Equals(_lastSongArtist, a, StringComparison.Ordinal)));
-        _lastSongTitle = t;
-        if (a.Length > 0) _lastSongArtist = a;
-        if (changed) _pendingTrackChange = true;
+        if (_trackIdentity.Observe(title, artist)) _pendingTrackChange = true;
     }
 
     /// <summary>
@@ -285,12 +295,53 @@ public partial class IslandWindow
     /// </summary>
     private void TryNoteTrackIdentity(MediaSession session)
     {
+        if (MediaPropsOf(session) is { } props) NoteTrackIdentity(props.Title, props.Artist);
+    }
+
+    /// <summary>
+    /// Propiedades de la sesión, del memo si ya se conocen. El fallo de memo sí lee del
+    /// sistema (una vez) y lo recuerda: quien pide es un pintado o un detector de cambio
+    /// de canción, y no puede esperar a un evento que quizá no llegue.
+    /// </summary>
+    private IslandMediaProps? MediaPropsOf(MediaSession session)
+    {
+        if (_propsMemo.TryGetValue(session.Id, out var known)) return known;
+        var fetched = FetchMediaProps(session);
+        if (fetched != null) _propsMemo[session.Id] = fetched;
+        return fetched;
+    }
+
+    /// <summary>Lectura del sistema de las propiedades de una sesión (única ruta bloqueante).</summary>
+    private static IslandMediaProps? FetchMediaProps(MediaSession session)
+    {
         try
         {
             var props = session.ControlSession.TryGetMediaPropertiesAsync().GetAwaiter().GetResult();
-            if (props != null) NoteTrackIdentity(props.Title, props.Artist);
+            return props == null ? null : FromProperties(props);
         }
-        catch { }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Convierte las propiedades que entrega el sistema (o el evento, que trae las
+    /// mismas) al valor que consume la vista, resolviendo la carátula una sola vez.
+    /// </summary>
+    private static IslandMediaProps FromProperties(GlobalSystemMediaTransportControlsSessionMediaProperties props)
+    {
+        string title = props.Title ?? "";
+        string artist = props.Artist ?? "";
+        BitmapImage? art = null;
+        int hash = 0;
+        if (props.Thumbnail != null)
+        {
+            try { hash = BitmapHelper.GetStableThumbnailHash(props.Thumbnail); } catch { hash = 0; }
+            art = hash != 0
+                ? BitmapHelper.GetThumbnailWithHash(props.Thumbnail, hash)
+                : BitmapHelper.GetThumbnail(props.Thumbnail);
+            // Fallback if hash path missed the cache and re-read failed
+            if (art == null && hash != 0) art = BitmapHelper.GetThumbnail(props.Thumbnail);
+        }
+        return new IslandMediaProps(title, artist, art, hash);
     }
 
     /// <summary>
@@ -509,7 +560,11 @@ public partial class IslandWindow
         {
             if (_disposed) return;
             if (!_main.IsSessionAllowed(session)) return;
-            var status = info?.PlaybackStatus ?? session.ControlSession?.GetPlaybackInfo()?.PlaybackStatus;
+            // Un evento es el único aviso fiable de que algo cambió: los memos se tiran
+            // enteros (también las propiedades, porque el reproductor puede haber
+            // anunciado la pista nueva solo por el estado: 001 MOD RF-1).
+            InvalidateMediaReads(props: true);
+            var status = info?.PlaybackStatus ?? SafeStatus(session);
             if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
             {
                 // Una reproducción nueva sí suelta la sesión fijada, pero el foco
@@ -545,6 +600,10 @@ public partial class IslandWindow
         {
             if (_disposed) return;
             if (!_main.IsSessionAllowed(session)) return;
+            // El evento YA trae las propiedades nuevas: se guardan sin preguntar nada
+            // al sistema, y el repintado que viene detrás las encuentra listas.
+            if (props != null) _propsMemo[session.Id] = FromProperties(props);
+            _statusMemo.Remove(session.Id);
             // Eventos de sesiones ajenas no pueden secuestrar una selección fijada.
             var sessionStatus = SafeStatus(session);
             bool playingNow = sessionStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
@@ -583,6 +642,8 @@ public partial class IslandWindow
         {
             if (_disposed) return;
             _lastPlay.Remove(session.Id);
+            _statusMemo.Remove(session.Id);
+            _propsMemo.Remove(session.Id);
             if (IsDisplayedSession(session) && _mediaPinnedSessionId == session.Id)
                 _mediaPinnedSessionId = null;
             PostActivity(IslandActivityReason.Media);
@@ -596,6 +657,9 @@ public partial class IslandWindow
     {
         _mediaPinnedSessionId = null;
         _currentId = null;
+        // Lo que se sabía de las sesiones ya no vale (pueden haber cambiado sin
+        // evento): los memos se tiran con el snapshot.
+        InvalidateMediaReads(props: true);
         ApplyMediaSnapshot(null);
         // El poll de la franja dispara ExpandFromHover cada 150 ms; sin esta
         // pausa re-abriría la caja que acabamos de cerrar bajo el cursor.
@@ -779,29 +843,13 @@ public partial class IslandWindow
         var status = knownStatus ?? SafeStatus(session) ?? _lastStatus;
         if (status != null) _lastStatus = status;
         PaintGlyph();
-        BitmapImage? art = null;
-        int thumbHash = 0;
-        string title = "Título desconocido", artist = "Artista desconocido";
-        try
-        {
-            var props = session.ControlSession.TryGetMediaPropertiesAsync().GetAwaiter().GetResult();
-            if (props != null)
-            {
-                if (!string.IsNullOrWhiteSpace(props.Title)) title = props.Title;
-                if (!string.IsNullOrWhiteSpace(props.Artist)) artist = props.Artist;
-                if (props.Thumbnail != null)
-                {
-                    try { thumbHash = BitmapHelper.GetStableThumbnailHash(props.Thumbnail); } catch { thumbHash = 0; }
-                    art = thumbHash != 0
-                        ? BitmapHelper.GetThumbnailWithHash(props.Thumbnail, thumbHash)
-                        : BitmapHelper.GetThumbnail(props.Thumbnail);
-                    // Fallback if hash path missed the cache and re-read failed
-                    if (art == null && thumbHash != 0)
-                        art = BitmapHelper.GetThumbnail(props.Thumbnail);
-                }
-            }
-        }
-        catch { }
+        // Las propiedades salen del memo (o de una lectura única si aún no se conocen):
+        // el repintado deja de cruzar al sistema multimedia en cada evento (001 MOD RF-1).
+        var mediaProps = MediaPropsOf(session);
+        BitmapImage? art = mediaProps?.Artwork;
+        int thumbHash = mediaProps?.ArtworkHash ?? 0;
+        string title = string.IsNullOrWhiteSpace(mediaProps?.Title) ? "Título desconocido" : mediaProps!.Title;
+        string artist = string.IsNullOrWhiteSpace(mediaProps?.Artist) ? "Artista desconocido" : mediaProps!.Artist;
         SongTitle.Text = title;
         SongArtist.Text = artist;
         CompactTitle.Text = title;
@@ -958,10 +1006,20 @@ public partial class IslandWindow
             ? Wpf.Ui.Controls.SymbolRegular.Pause16 : Wpf.Ui.Controls.SymbolRegular.Play16;
     }
 
-    private static GlobalSystemMediaTransportControlsSessionPlaybackStatus? SafeStatus(MediaSession session)
+    /// <summary>
+    /// Estado de reproducción de una sesión, del memo de la pasada si ya se leyó: una
+    /// misma reconciliación pregunta muchas veces por él (activa vigente, ecualizador,
+    /// ecualizador de la tarjeta, capacidades) y cada pregunta era un cruce de proceso.
+    /// </summary>
+    private GlobalSystemMediaTransportControlsSessionPlaybackStatus? SafeStatus(MediaSession session)
     {
-        try { return session.ControlSession?.GetPlaybackInfo()?.PlaybackStatus; }
-        catch { return null; }
+        if (session.ControlSession is null) return null;
+        if (_statusMemo.TryGetValue(session.Id, out var known)) return known;
+        GlobalSystemMediaTransportControlsSessionPlaybackStatus? status;
+        try { status = session.ControlSession.GetPlaybackInfo()?.PlaybackStatus; }
+        catch { status = null; }
+        _statusMemo[session.Id] = status;
+        return status;
     }
 
     private static string Fmt(TimeSpan t) => t.ToString(t.Hours > 0 ? @"h\:mm\:ss" : @"m\:ss");

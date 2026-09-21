@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
+using FluentFlyoutWPF.Classes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -48,43 +49,6 @@ public partial class IslandWindow
     private static double InactiveReopenSeconds =>
         Math.Clamp(MainWindow.getDuration() * 0.7, 160, 480) / 1000.0;
 
-    // Coeficientes vigentes del muelle: se recalculan solo cuando cambia algo de
-    // lo que dependen (velocidad global de animaciones o estilo notch), no en cada
-    // frame de una transición que puede durar más de un segundo.
-    private double _springDuration = double.NaN;
-    private bool _springNotch;
-    private double _springKP, _springCP, _springKQ, _springCQ;
-
-    /// <summary>
-    /// Muelles subamortiguados del contenedor (Apple-ish), escalados con la
-    /// duración global de animaciones. Memorizados por (duración, estilo): el
-    /// frame solo lee campos.
-    /// </summary>
-    private void GetSpring(out double kP, out double cP, out double kQ, out double cQ)
-    {
-        double configuredDuration = MainWindow.getDuration();
-        bool notch = IsNotch;
-        if (configuredDuration != _springDuration || notch != _springNotch)
-        {
-            _springDuration = configuredDuration;
-            _springNotch = notch;
-            double durationScale = configuredDuration > 0 ? configuredDuration / 300.0 : 1.0;
-            double frequencyScale = 1.0 / (durationScale * durationScale);
-            double dampingScale = 1.0 / durationScale;
-            // Amortiguamiento elegido para que el muelle REBOTE como los de Apple
-            // (ζ ≈ 0.58 en el morfe, ζ ≈ 0.72 en el revelado): al llegar al tamaño
-            // final se pasa un poco y vuelve. Con amortiguamiento alto (ζ ≈ 0.75 y
-            // ≈ 0.99, los valores anteriores) la isla frenaba en seco y se sentía
-            // estática por mucho que el muelle tuviera overshoot: ApplyFrame lo
-            // recortaba. La duración global escala k y c a la vez, así que la ζ (y
-            // por tanto el rebote) es la misma a cualquier velocidad.
-            _springKP = 520 * frequencyScale; _springCP = 26 * dampingScale;
-            _springKQ = 200 * frequencyScale; _springCQ = 20 * dampingScale; // ambos estilos emergen desde el centro como Island
-            if (notch) _springKP *= 1.05;
-        }
-        kP = _springKP; cP = _springCP; kQ = _springKQ; cQ = _springCQ;
-    }
-
     private void EnsureLoop()
     {
         if (_loopOn) return;
@@ -110,17 +74,18 @@ public partial class IslandWindow
         if (now == TimeSpan.Zero) now = TimeSpan.FromTicks(Environment.TickCount64 * 10000);
         double dt;
         if (_lastTick == TimeSpan.Zero || now <= _lastTick) dt = 1.0 / 60.0;
-        else dt = Math.Clamp((now - _lastTick).TotalSeconds, 1.0 / 240.0, 1.0 / 25.0);
+        else dt = IslandPhysics.ClampStep((now - _lastTick).TotalSeconds);
         _lastTick = now;
 
-        GetSpring(out double kP, out double cP, out double kQ, out double cQ);
+        // Física pura (IslandPhysics): coeficientes memorizados por (duración, estilo).
+        var spring = IslandPhysics.Coefficients(MainWindow.getDuration(), IsNotch);
         // El mismo muelle gobierna el crecimiento y el cierre. Como ancho y alto
         // interpolan con este único progreso, ambos llegan juntos a la pieza en
         // lugar de aplastarse primero y estrecharse después (001 MOD RF-16).
         // Al cambiar de expansión a cierre se descarta el impulso anterior para
         // que la isla no se estire un frame antes de empezar a encogerse.
-        Step(ref _p, ref _pv, _pT, kP, cP, dt);
-        Step(ref _q, ref _qv, _qT, kQ, cQ, dt);
+        IslandPhysics.Step(ref _p, ref _pv, _pT, spring.KP, spring.CP, dt);
+        IslandPhysics.Step(ref _q, ref _qv, _qT, spring.KQ, spring.CQ, dt);
         // Progreso hacia/desde la pieza inactiva: avance lineal a velocidad
         // constante (ease-in-out lo aporta Smooth01 al pintar). Reapuntar a mitad
         // de vuelo mantiene la misma velocidad y jamás da un salto. Cada sentido
@@ -147,8 +112,8 @@ public partial class IslandWindow
         if (_popPlaying) StepPop(dt);
         ApplyFrame();
 
-        bool pSettled = Math.Abs(_p - _pT) < 0.002 && Math.Abs(_pv) < 0.02;
-        bool qSettled = Math.Abs(_q - _qT) < 0.002 && Math.Abs(_qv) < 0.02;
+        bool pSettled = IslandPhysics.Settled(_p, _pv, _pT);
+        bool qSettled = IslandPhysics.Settled(_q, _qv, _qT);
         if (pSettled) { _p = _pT; _pv = 0; }
         if (qSettled) { _q = _qT; _qv = 0; }
 
@@ -187,14 +152,6 @@ public partial class IslandWindow
             IslandBox.Visibility = Visibility.Collapsed;
             UpdateLine();
         }
-    }
-
-    private static void Step(ref double x, ref double v, double target, double k, double c, double dt)
-    {
-        double a = (target - x) * k - v * c;
-        v += a * dt;
-        x += v * dt;
-        x = Math.Clamp(x, -0.15, 1.15); // deja un poco de overshoot visible
     }
 
     private double _popV;
@@ -273,58 +230,6 @@ public partial class IslandWindow
         catch { }
     }
 
-    private static double Smooth01(double t) => t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
-    private static double Lerp(double a, double b, double t) => a + (b - a) * t;
-
-    /// <summary>
-    /// Techo del rebote: cuánto puede pasarse la geometría de su tamaño final (o
-    /// quedarse corta al replegarse). Con los muelles de <see cref="GetSpring"/> el
-    /// pico real ronda el 10% en el morfe y el 4% en el revelado; el tope solo
-    /// existe para que ningún ajuste de velocidad pueda desbocar el contenedor.
-    /// </summary>
-    private const double BounceLimit = 0.12;
-
-    /// <summary>
-    /// Cuánto puede COMPRIMIRSE la geometría por DEBAJO de su tamaño de destino.
-    /// Un pelo, no el mismo margen que el rebote: el ancho y el alto se pintan
-    /// interpolando desde el tamaño de compacto al expandido, así que la
-    /// compresión se escala con ese salto. Al aterrizar en la pieza —alto de
-    /// compacto 34 y expandido de 126 a 172— un margen del 12% dejaba el alto en
-    /// ~20 px y el reposo se veía delgado y feo, con el contenido recortado por el
-    /// clip del contenedor. Con el 1.5% la pieza conserva su grosor (≈33 px) y
-    /// sigue leyéndose como un rebote. Lo que se pasa HACIA ARRIBA no se toca: el
-    /// overshoot del expandido es el rebote de Apple que se quiere conservar.
-    /// </summary>
-    private const double BounceCompress = 0.015;
-
-    /// <summary>
-    /// Progreso con el REBOTE del muelle intacto. El muelle ya es la curva (arranca
-    /// y frena solo, y se pasa de su objetivo); al pintar se usa tal cual para la
-    /// geometría, así el contenedor se pasa un poco de su tamaño y vuelve —el
-    /// rebote de Apple— en lugar de frenar en seco. El margen de arriba es amplio y
-    /// el de abajo mínimo (<see cref="BounceCompress"/>): comprimirse por debajo del
-    /// destino se escalaba con el salto al expandido y adelgazaba el reposo. Las
-    /// opacidades y los morphs de contenido siguen con la curva acotada: el rebote
-    /// se siente en el cuerpo de la isla, nunca desborda ni parpadea.
-    /// </summary>
-    private static double BounceCurve(double t) => Math.Clamp(t, -BounceCompress, 1 + BounceLimit);
-
-    /// <summary>
-    /// Curva del estirón del revelado (oculto -> punto -> ancho de reposo).
-    /// Mantiene la forma suave original (el punto nace sin dar un salto al cruzar su
-    /// umbral de ancho) y deja pasar el rebote SOLO en la cola, cuando el muelle ya
-    /// se ha pasado de su objetivo: entonces el ancho se pasa un poco con él y
-    /// vuelve. Un rebote inyectado en toda la curva multiplicaría el valor del
-    /// umbral y el punto pegaría un tirón al empezar a estirarse.
-    /// </summary>
-    private static double RevealStretch(double q)
-    {
-        double t = (q - 0.18) / 0.82;
-        if (t <= 0) return 0;
-        if (t < 1) return Smooth01(t);
-        return 1 + Math.Min(t - 1, BounceLimit);
-    }
-
     private void SnapFrame()
     {
         // Estado base coherente antes del primer frame
@@ -391,39 +296,39 @@ public partial class IslandWindow
         // pasa un poco de su tamaño final y vuelve. En ambos sentidos este progreso
         // es el único reloj de la geometría, así que ancho y alto viajan juntos. El
         // revelado (q) lleva el suyo por la curva del estirón, más abajo.
-        double bounceP = BounceCurve(_p);
+        double bounceP = IslandPhysics.BounceCurve(_p);
         // Progreso hacia la pieza inactiva, con ease-in-out: gobierna el ancho de
         // reposo y las transiciones que parten del compacto. Cuando el cierre parte
         // del expandido, el muelle de p gobierna la opacidad para que contenido y
         // geometría aterricen juntos (001 MOD RF-16).
-        double inact = Smooth01(_inactiveT);
+        double inact = IslandPhysics.Smooth(_inactiveT);
         // Opacidad del contenido con el mismo reloj que la geometría: el contenido
         // se apaga mientras el cuerpo aterriza en la pieza, así expandido -> inactivo
         // es UNA sola transición y no dos etapas encadenadas (001 MOD RF-16).
-        double contentOp = _collapseFromExpanded ? Smooth01(p) : 1 - inact;
+        double contentOp = _collapseFromExpanded ? IslandPhysics.Smooth(p) : 1 - inact;
         // Apertura del contenido desde la pieza: 0 en el reposo, 1 en contenido.
         // Es el MISMO reloj del reposo el que hace florecer al compacto (escala,
         // arte, título y ecualizador convergen desde el centro) además de fundir su
         // opacidad: sin esto el regreso desde la pieza era un simple fundido que se
         // leía como un salto (001 MOD RF-16). En contenido vale 1 y no toca nada.
-        double restReveal = Smooth01(Math.Clamp((1 - inact - 0.10) / 0.90, 0, 1));
+        double restReveal = IslandPhysics.Smooth(Math.Clamp((1 - inact - 0.10) / 0.90, 0, 1));
         // Línea gris con el mismo reloj que la isla (p y q): la isla crece
         // centrada = de adentro hacia afuera, la línea encoge centrada = de
         // afuera hacia adentro. Sigue al más rápido (Max): p termina antes
         // que q al emerger expandido, así la línea es 0 cuando el expandido
         // ya salió. En compacto p=0 y queda igual que antes. Sin tween separado.
         bool allowed = SettingsManager.Current.IslandActivityLine && IsAliveForLine();
-        _lineW = allowed ? LineFullWidth * (1 - Math.Max(Smooth01(p), Smooth01(q))) * contentOp : 0;
+        _lineW = allowed ? LineFullWidth * (1 - Math.Max(IslandPhysics.Smooth(p), IslandPhysics.Smooth(q))) * contentOp : 0;
         ActivityLine.Width = _lineW;
         ActivityLine.Visibility = _lineW > 0.5 ? Visibility.Visible : Visibility.Collapsed;
         MediaStatusDot.Opacity = contentOp;
         // Pop de pista atenúa con q (invisible -> no pulsa)
         double pop = _popPlaying ? _pop * q : 0;
         double exitTailOpacity = _qT == 0
-            ? Math.Pow(Smooth01(Math.Clamp((q - 0.12) / 0.20, 0, 1)), 3)
+            ? Math.Pow(IslandPhysics.Smooth(Math.Clamp((q - 0.12) / 0.20, 0, 1)), 3)
             : 1;
         if (_hidingViaCompact)
-            exitTailOpacity *= Math.Pow(Smooth01(Math.Clamp((p - 0.12) / 0.38, 0, 1)), 3);
+            exitTailOpacity *= Math.Pow(IslandPhysics.Smooth(Math.Clamp((p - 0.12) / 0.38, 0, 1)), 3);
 
         bool notch = IsNotch;
         double w, h, notchFillet = 0;
@@ -444,24 +349,24 @@ public partial class IslandWindow
             // (001 MOD RF-16).
             double compactW = _collapseFromExpanded
                 ? InactivePillWidth
-                : Lerp(RestCompactWidth(NotchCompactWidth), InactivePillWidth, inact);
+                : IslandPhysics.Lerp(RestCompactWidth(NotchCompactWidth), InactivePillWidth, inact);
             double dotT = Math.Clamp(q / 0.32, 0, 1);
-            double stretchT = RevealStretch(q);
-            double baseW = q < 0.32 ? notchDot : Lerp(notchDot, compactW, stretchT);
-            w = Lerp(baseW, ContentExpandedWidth, bounceP);
-            h = Lerp(ContentCompactHeight, _hexpShown, bounceP);
+            double stretchT = IslandPhysics.RevealStretch(q);
+            double baseW = q < 0.32 ? notchDot : IslandPhysics.Lerp(notchDot, compactW, stretchT);
+            w = IslandPhysics.Lerp(baseW, ContentExpandedWidth, bounceP);
+            h = IslandPhysics.Lerp(ContentCompactHeight, _hexpShown, bounceP);
             // Hover vivo: crece desde el punto y en reposo (también en compacto).
-            w += hotW * (1 - Smooth01(p));
-            double revealOpacity = Smooth01(Math.Clamp(q / 0.38, 0, 1));
+            w += hotW * (1 - IslandPhysics.Smooth(p));
+            double revealOpacity = IslandPhysics.Smooth(Math.Clamp(q / 0.38, 0, 1));
             IslandBox.Opacity = revealOpacity * revealOpacity * exitTailOpacity;
             // El radio hace morph con p: compacto -> expandido sin saltos.
             // ponytail: el ANCHO de orejas lo fija el fillet expandido (constante por estado);
             // la CAÍDA de la cueva hace morph compacto->expandido: elipse tendida -> circular.
-            double radius = Math.Min(Lerp(IslandCompactRadius, IslandExpandedRadius, Smooth01(p)), Math.Min(w, h) / 2);
+            double radius = Math.Min(IslandPhysics.Lerp(IslandCompactRadius, IslandExpandedRadius, IslandPhysics.Smooth(p)), Math.Min(w, h) / 2);
             // ponytail: reach y drop usan la curva del estado actual; el extra (+18 = 25-30%)
             // solo aplica en expandido (escala con p), en compacto no se inyecta ancho.
-            double filletNow = Lerp(Math.Clamp(SettingsManager.Current.IslandNotchFilletCompact, 0, 20), Math.Clamp(SettingsManager.Current.IslandNotchFilletExpanded, 0, 20), Smooth01(p));
-            double earReach = (Math.Clamp(filletNow, 0, 20) + 18 * Smooth01(p)) * stretchT;
+            double filletNow = IslandPhysics.Lerp(Math.Clamp(SettingsManager.Current.IslandNotchFilletCompact, 0, 20), Math.Clamp(SettingsManager.Current.IslandNotchFilletExpanded, 0, 20), IslandPhysics.Smooth(p));
+            double earReach = (Math.Clamp(filletNow, 0, 20) + 18 * IslandPhysics.Smooth(p)) * stretchT;
             earReach = Math.Min(earReach, Math.Max(0, (Width - w) / 2 - 2));
             notchFillet = Math.Clamp(filletNow, 0, 20) * stretchT;
             IslandBox.CornerRadius = new CornerRadius(0);
@@ -472,7 +377,7 @@ public partial class IslandWindow
             ExpandedLayer.Margin = new Thickness(0, _expandedMarginOrig.Top, 0, _expandedMarginOrig.Bottom);
             ExpandedLayer.HorizontalAlignment = HorizontalAlignment.Center;
             IslandBox.RenderTransformOrigin = new Point(0.5, 0);
-            BoxScale.ScaleX = BoxScale.ScaleY = Lerp(0.68, 1, Smooth01(dotT));
+            BoxScale.ScaleX = BoxScale.ScaleY = IslandPhysics.Lerp(0.68, 1, IslandPhysics.Smooth(dotT));
             ApplyIslandClip(IslandBox.Width, h, radius, earReach, notchFillet, notch: true);
             LayoutBackground(IslandBox.Width, h);
         }
@@ -482,7 +387,7 @@ public partial class IslandWindow
             // más estrecha, 001 MOD RF-11) -> ancho expandido configurado.
             const double pillDot = 26;
             double dotT = Math.Clamp(q / 0.32, 0, 1);
-            double stretchT = RevealStretch(q);
+            double stretchT = IslandPhysics.RevealStretch(q);
             // Rumbo a la pieza desde el expandido el ancho de reposo YA es el de la
             // pieza: así el ANCHO interpola del expandido a la pieza con el MISMO
             // progreso que el ALTO y los dos se encogen a la vez. Encadenar aquí el
@@ -492,26 +397,26 @@ public partial class IslandWindow
             // apagada, no porque el ancho lo evite.
             double restW = _collapseFromExpanded
                 ? InactivePillWidth
-                : Lerp(ContentCompactWidth, InactivePillWidth, inact);
-            double baseW = q < 0.32 ? pillDot : Lerp(pillDot, restW, stretchT);
-            w = Lerp(baseW, ContentExpandedWidth, bounceP);
-            h = Lerp(ContentCompactHeight, _hexpShown, bounceP);
+                : IslandPhysics.Lerp(ContentCompactWidth, InactivePillWidth, inact);
+            double baseW = q < 0.32 ? pillDot : IslandPhysics.Lerp(pillDot, restW, stretchT);
+            w = IslandPhysics.Lerp(baseW, ContentExpandedWidth, bounceP);
+            h = IslandPhysics.Lerp(ContentCompactHeight, _hexpShown, bounceP);
             // Hover vivo: crece desde el punto y en reposo (también en compacto).
-            w += hotW * (1 - Smooth01(p));
+            w += hotW * (1 - IslandPhysics.Smooth(p));
             IslandBox.Width = w;
             IslandBox.Height = h;
             ExpandedLayer.Width = double.NaN;
             ExpandedLayer.Margin = _expandedMarginOrig;
             ExpandedLayer.HorizontalAlignment = HorizontalAlignment.Stretch;
-            IslandBox.Opacity = Smooth01(Math.Clamp(q / 0.38, 0, 1)) * exitTailOpacity;
+            IslandBox.Opacity = IslandPhysics.Smooth(Math.Clamp(q / 0.38, 0, 1)) * exitTailOpacity;
             // Radio: círculo perfecto mientras es punto, luego morph compacto->expandido.
             // En expandido (p>0.02) siempre pill con el radio de expandido.
-            double morphR = Lerp(IslandCompactRadius, IslandExpandedRadius, Smooth01(p));
+            double morphR = IslandPhysics.Lerp(IslandCompactRadius, IslandExpandedRadius, IslandPhysics.Smooth(p));
             double cr = baseW <= pillDot + 0.5 && p < 0.02
                 ? pillDot / 2
                 : Math.Min(morphR, Math.Min(w, h) / 2);
             IslandBox.CornerRadius = new CornerRadius(cr);
-            BoxScale.ScaleX = BoxScale.ScaleY = Lerp(0.68, 1, Smooth01(dotT));
+            BoxScale.ScaleX = BoxScale.ScaleY = IslandPhysics.Lerp(0.68, 1, IslandPhysics.Smooth(dotT));
             IslandBox.RenderTransformOrigin = new Point(0.5, 0.5);
         }
 
@@ -525,12 +430,12 @@ public partial class IslandWindow
         // respiran). Una sola ruta para pill y notch: el reveal del contenido
         // depende solo de q, así que bifurcarlo duplicaba 40 líneas idénticas y
         // abría la puerta a que los dos estilos se desincronizaran.
-        double stretchT2 = Smooth01(Math.Clamp((q - 0.18) / 0.82, 0, 1));
+        double stretchT2 = IslandPhysics.Smooth(Math.Clamp((q - 0.18) / 0.82, 0, 1));
         double contentT = Math.Clamp((stretchT2 - 0.42) / 0.58, 0, 1);
         double dotT2 = Math.Clamp(q / 0.32, 0, 1);
-        double compactOp = (1 - Smooth01(Math.Clamp(p * 2.2, 0, 1))) * Smooth01(contentT);
+        double compactOp = (1 - IslandPhysics.Smooth(Math.Clamp(p * 2.2, 0, 1))) * IslandPhysics.Smooth(contentT);
         if (q < 0.32) compactOp = 0;
-        else compactOp *= Lerp(0.85, 1, dotT2);
+        else compactOp *= IslandPhysics.Lerp(0.85, 1, dotT2);
         // Rumbo a la pieza inactiva desde una vista expandida el compacto NO
         // florece —ni al principio ni al final del vuelo—: solo se desvanece el
         // contenido que ya estaba, así expandido → inactivo es UNA sola
@@ -540,15 +445,15 @@ public partial class IslandWindow
         // enciende, de modo que su contenido sigue desvaneciéndose con el reloj
         // del reposo.
         if (_collapseFromExpanded) compactOp = 0;
-        double expandedOp = Smooth01(Math.Clamp((p - 0.12) / 0.88, 0, 1));
+        double expandedOp = IslandPhysics.Smooth(Math.Clamp((p - 0.12) / 0.88, 0, 1));
         CompactLayer.Opacity = compactOp * contentOp;
-        CompactScale.ScaleX = CompactScale.ScaleY = Lerp(0.88, 1, Smooth01(contentT) * restReveal);
+        CompactScale.ScaleX = CompactScale.ScaleY = IslandPhysics.Lerp(0.88, 1, IslandPhysics.Smooth(contentT) * restReveal);
         if (q < 0.32)
-            CompactScale.ScaleX = CompactScale.ScaleY = Lerp(0.75, 0.88, dotT2);
+            CompactScale.ScaleX = CompactScale.ScaleY = IslandPhysics.Lerp(0.75, 0.88, dotT2);
         else if (notch)
         {
             // En notch el compacto se apiña al entrar en expandido.
-            double pScale = Lerp(1, 0.92, Smooth01(p));
+            double pScale = IslandPhysics.Lerp(1, 0.92, IslandPhysics.Smooth(p));
             CompactScale.ScaleX *= pScale;
             CompactScale.ScaleY *= pScale;
         }
@@ -557,15 +462,15 @@ public partial class IslandWindow
         // el regreso desde la pieza, con el reloj del reposo—:
         // diverge(0) = apiñado al centro, diverge(1) = en su sitio.
         double diverge = Math.Pow(stretchT2, 1.25) * restReveal;
-        CompactArtTranslate.X = Lerp(42, 0, diverge);
-        CompactTitleTranslate.X = Lerp(6, 0, diverge);
-        CompactEqTranslate.X = Lerp(-36, 0, diverge);
-        CompactTitleScale2.ScaleX = CompactTitleScale2.ScaleY = Lerp(0.92, 1, diverge);
-        double titleOp = Smooth01(Math.Clamp((stretchT2 - 0.50) / 0.50, 0, 1));
-        double eqOp = Smooth01(Math.Clamp((stretchT2 - 0.55) / 0.45, 0, 1));
+        CompactArtTranslate.X = IslandPhysics.Lerp(42, 0, diverge);
+        CompactTitleTranslate.X = IslandPhysics.Lerp(6, 0, diverge);
+        CompactEqTranslate.X = IslandPhysics.Lerp(-36, 0, diverge);
+        CompactTitleScale2.ScaleX = CompactTitleScale2.ScaleY = IslandPhysics.Lerp(0.92, 1, diverge);
+        double titleOp = IslandPhysics.Smooth(Math.Clamp((stretchT2 - 0.50) / 0.50, 0, 1));
+        double eqOp = IslandPhysics.Smooth(Math.Clamp((stretchT2 - 0.55) / 0.45, 0, 1));
         CompactTitle.Opacity = q < 0.32 ? 0 : titleOp;
         CompactEq.Opacity = q < 0.32 ? 0 : eqOp;
-        CompactArtWrap.Opacity = q < 0.15 ? 0 : (q < 0.32 ? Smooth01(dotT2) : 1);
+        CompactArtWrap.Opacity = q < 0.15 ? 0 : (q < 0.32 ? IslandPhysics.Smooth(dotT2) : 1);
 
         // En inactivo no hay contenido, pero TAMPOCO se recorta de golpe: la
         // vista anterior se desvanece con el mismo reloj que el ancho de la
@@ -582,24 +487,24 @@ public partial class IslandWindow
         ExpandedLayer.Opacity = expandedOp * contentOp * (notch ? q : 1);
         ExpandedLayer.IsHitTestVisible = contentLive && p > 0.4 && q > 0.4;
 
-        double artS = Lerp(0.88, 1, Smooth01(Math.Clamp((p - 0.05) / 0.95, 0, 1)));
+        double artS = IslandPhysics.Lerp(0.88, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.05) / 0.95, 0, 1)));
         // Pop suma un leve bump al arte/título en cambio de pista
         artS += pop * 0.06;
         ExpandedArtScale.ScaleX = ExpandedArtScale.ScaleY = artS;
 
-        double titleS = Lerp(0.90, 1, Smooth01(Math.Clamp((p - 0.08) / 0.9, 0, 1))) + pop * 0.05;
+        double titleS = IslandPhysics.Lerp(0.90, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.08) / 0.9, 0, 1))) + pop * 0.05;
         SongTitleScale.ScaleX = SongTitleScale.ScaleY = titleS;
-        SongTitle.Opacity = Lerp(0, 1, Smooth01(Math.Clamp((p - 0.12) / 0.7, 0, 1)));
-        SongTitleTranslate.Y = Lerp(6, 0, Smooth01(Math.Clamp((p - 0.12) / 0.7, 0, 1)));
+        SongTitle.Opacity = IslandPhysics.Lerp(0, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.12) / 0.7, 0, 1)));
+        SongTitleTranslate.Y = IslandPhysics.Lerp(6, 0, IslandPhysics.Smooth(Math.Clamp((p - 0.12) / 0.7, 0, 1)));
 
-        SongArtist.Opacity = Lerp(0, _islandArtistOpacity, Smooth01(Math.Clamp((p - 0.22) / 0.6, 0, 1)));
-        SongArtistTranslate.Y = Lerp(6, 0, Smooth01(Math.Clamp((p - 0.22) / 0.6, 0, 1)));
+        SongArtist.Opacity = IslandPhysics.Lerp(0, _islandArtistOpacity, IslandPhysics.Smooth(Math.Clamp((p - 0.22) / 0.6, 0, 1)));
+        SongArtistTranslate.Y = IslandPhysics.Lerp(6, 0, IslandPhysics.Smooth(Math.Clamp((p - 0.22) / 0.6, 0, 1)));
 
-        ExpandedEq.Opacity = Lerp(0, 1, Smooth01(Math.Clamp((p - 0.18) / 0.6, 0, 1)));
-        SeekRow.Opacity = Lerp(0, 1, Smooth01(Math.Clamp((p - 0.30) / 0.5, 0, 1)));
-        SeekTranslate.Y = Lerp(8, 0, Smooth01(Math.Clamp((p - 0.30) / 0.5, 0, 1)));
-        ControlsRow.Opacity = Lerp(0, 1, Smooth01(Math.Clamp((p - 0.38) / 0.5, 0, 1)));
-        ControlsTranslate.Y = Lerp(8, 0, Smooth01(Math.Clamp((p - 0.38) / 0.5, 0, 1)));
+        ExpandedEq.Opacity = IslandPhysics.Lerp(0, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.18) / 0.6, 0, 1)));
+        SeekRow.Opacity = IslandPhysics.Lerp(0, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.30) / 0.5, 0, 1)));
+        SeekTranslate.Y = IslandPhysics.Lerp(8, 0, IslandPhysics.Smooth(Math.Clamp((p - 0.30) / 0.5, 0, 1)));
+        ControlsRow.Opacity = IslandPhysics.Lerp(0, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.38) / 0.5, 0, 1)));
+        ControlsTranslate.Y = IslandPhysics.Lerp(8, 0, IslandPhysics.Smooth(Math.Clamp((p - 0.38) / 0.5, 0, 1)));
     }
 
     /// <summary>

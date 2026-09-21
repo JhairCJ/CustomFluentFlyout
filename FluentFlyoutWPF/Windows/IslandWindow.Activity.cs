@@ -219,6 +219,10 @@ public partial class IslandWindow
     /// </summary>
     private void ReconcileCore(IslandActivityReason reasons)
     {
+        // Cada pasada lee el sistema multimedia de cero (una sola vez por pasada): los
+        // memos de lectura mueren aquí, así que ninguna decisión se toma con un dato de
+        // la pasada anterior y la recuperación de 5 s sigue viendo un estado fresco.
+        InvalidateMediaReads();
         if ((reasons & IslandActivityReason.Context) != 0 || !_ctxValid)
             RefreshContextSnapshot();
 

@@ -73,7 +73,8 @@ public partial class IslandWindow
     private void ArmTemporaryHide(bool restart = true, bool force = false)
     {
         _noticeForced = force;
-        if (HasExclusive() || (!force && SettingsManager.Current.IslandVisibilityMode != 1))
+        // La regla de armado vive una sola vez, en la política (IslandPolicy.cs).
+        if (!IslandNoticePolicy.Arms(force, SettingsManager.Current.IslandVisibilityMode == 1, HasExclusive()))
         {
             ClearTemporaryNotice();
             return;
@@ -154,24 +155,24 @@ public partial class IslandWindow
     private void RetractTemporaryNotice(int version)
     {
         if (_disposed || version != _noticeVersion) return;
-        // El aviso forzado (Bluetooth) vence también en «Visible mientras activo»:
-        // su vista es una notificación y no se queda pegada al contenedor.
-        if (HasExclusive() || (SettingsManager.Current.IslandVisibilityMode != 1 && !_noticeForced))
-        {
-            ClearTemporaryNotice();
-            return;
-        }
-        if (!IsBoxShown)
-        {
-            ClearTemporaryNotice();
-            return;
-        }
-        if (_expanded || IsMouseOverBoxOrStrip())
+        // Qué toca al vencer lo decide la política (IslandPolicy.cs): olvidar el aviso si
+        // ya no es de esta vista —o vence también forzado en «Visible mientras activo»—,
+        // reintentar si la vista está expandida o el ratón estorba (nunca se queda
+        // pegado), y retirarse al reposo en cualquier otro caso (001 RF-2, 002 RF-16).
+        var step = IslandNoticePolicy.OnExpired(
+            forced: _noticeForced,
+            temporalMode: SettingsManager.Current.IslandVisibilityMode == 1,
+            hasExclusive: HasExclusive(),
+            boxShown: IsBoxShown,
+            expanded: _expanded,
+            pointerOver: IsMouseOverBoxOrStrip());
+        if (step == IslandNoticeStep.Retry)
         {
             ScheduleNoticeCheck(version, TimeSpan.FromMilliseconds(250));
             return;
         }
         ClearTemporaryNotice();
+        if (step == IslandNoticeStep.Forget) return;
         ShowInactiveOrHidden();
     }
 
@@ -248,29 +249,20 @@ public partial class IslandWindow
     /// </summary>
     private IIslandFeature? ResolveActiveVigenteForVisible()
     {
-        bool mediaActive = IsMediaActiveForContract();
-        bool timerActive = IsTimerActiveForCompact();
-        IIslandFeature? best = null;
-        DateTime bestWhen = DateTime.MinValue;
-        int bestOrder = int.MaxValue;
-        foreach (var (feature, order) in ScreenOrderedFeatures())
+        // Las candidatas van en ORDEN DE PANTALLAS, que es el desempate: la elección la
+        // hace la política, que es pura y está comprobada (IslandPolicy.cs).
+        var ordered = ScreenOrderedFeatures().ToList();
+        var candidates = new List<IslandActivityCandidate>(ordered.Count);
+        foreach (var (feature, _) in ordered)
         {
-            bool active = feature.Id switch
-            {
-                "media" => mediaActive,
-                "timer" => timerActive,
-                _ => feature.State.Active, // funcionalidad futura: la declara ella
-            };
-            if (!active || !feature.State.Usable) continue;
-            DateTime when = _lastFeatureEvent.TryGetValue(feature.Id, out var stamp) ? stamp : DateTime.MinValue;
-            if (best == null || when > bestWhen || (when == bestWhen && order < bestOrder))
-            {
-                best = feature;
-                bestWhen = when;
-                bestOrder = order;
-            }
+            // La actividad propia la declara la ficha (música reproduciendo, temporizador en
+            // marcha); una funcionalidad sin ficha, o sin actividad propia, la declara su contrato.
+            bool active = FeatureCard(feature.Id)?.OwnActivity?.Invoke() ?? feature.State.Active;
+            candidates.Add(new IslandActivityCandidate(active, feature.State.Usable,
+                _lastFeatureEvent.TryGetValue(feature.Id, out var stamp) ? stamp : DateTime.MinValue));
         }
-        return best;
+        int winner = IslandActivityPick.Winner(candidates);
+        return winner < 0 ? null : ordered[winner].Feature;
     }
 
     /// <summary>¿Hay alguna PANTALLA con algo usable? (001 MOD RF-9): sin pantalla usable no hay vista que anclar.</summary>
@@ -445,28 +437,8 @@ public partial class IslandWindow
     /// el temporizador contando —en «Aviso temporal» también con su alerta vigente
     /// (002 MOD RF-8)—.
     /// </summary>
-    private bool SingleFeatureSustainsView(IIslandFeature feature) => feature.Id switch
-    {
-        "media" => IsMediaActiveForContract(),
-        // Bluetooth: su vista es un aviso y vive lo que vive su plazo; el
-        // dispositivo desconectado ya la habrá retirado él mismo.
-        "bluetooth" => BluetoothActive(),
-        "timer" => SettingsManager.Current.IslandVisibilityMode == 0
-            ? IsTimerActiveForCompact()
-            : TimerKeepsAlive(),
-        // El cajón y el estante no tienen actividad propia: en «Visible mientras
-        // activo» la vista la sostiene el puntero; en «Aviso temporal», su plazo
-        // (001 RF-2).
-        "apps" => AppsKeepsView(),
-        "shelf" => ShelfKeepsView(),
-        // El clima no tiene actividad propia: en «Aviso temporal» vive lo que vive su
-        // plazo (en «Visible mientras activo» lo sostiene el puntero).
-        IslandFeatureIds.Weather => WeatherKeepsView(),
-        // El cargador: su vista es un aviso y vive lo que vive su plazo (igual que el
-        // del Bluetooth).
-        IslandFeatureIds.Power => PowerActive(),
-        _ => feature.State.Active,
-    };
+    // `SingleFeatureSustainsView` (quién sostiene la vista) lo declara la ficha de cada
+    // funcionalidad: IslandWindow.FeatureCards.cs.
 
     /// <summary>
     /// Salida del reposo inactivo: ÚNICO punto por el que la pieza se reabre.
@@ -543,26 +515,16 @@ public partial class IslandWindow
     /// </summary>
     private void ClearInactiveResidue()
     {
-        // Grillas de contenido compacto: fuera del árbol visual mientras dura el reposo.
-        // La lista es TODAS, sin olvidar ninguna: una vista que no se apaga aquí se
-        // queda pintada detrás de la pieza (change island-avisos).
-        MusicCompactGrid.Visibility = Visibility.Collapsed;
-        TimerCompactGrid.Visibility = Visibility.Collapsed;
-        AppsCompactGrid.Visibility = Visibility.Collapsed;
-        ShelfCompactGrid.Visibility = Visibility.Collapsed;
-        CalendarCompactGrid.Visibility = Visibility.Collapsed;
-        BluetoothCompactGrid.Visibility = Visibility.Collapsed;
-        ClipboardCompactGrid.Visibility = Visibility.Collapsed;
-        WeatherCompactGrid.Visibility = Visibility.Collapsed;
-        PowerCompactGrid.Visibility = Visibility.Collapsed;
-        // Datos musicales: sin carátula, fondo difuminado, títulos ni seek.
+        // Ninguna capa a la vista (todas las fichas, sin olvidar ninguna: una que se
+        // quedara encendida seguiría pintada detrás de la pieza).
+        HideAllContentLayers();
+        // Y el contenido a cero: sin carátula ni fondo difuminado, sin títulos y sin
+        // restante ni progreso heredados.
         ClearMusicResidue();
-        // Datos del temporizador: sin restante ni progreso heredados.
         TimerRemaining.Text = "00:00:00";
         TimerProgressFill.Width = 0;
         TimerRunRemaining.Text = "00:00:00";
-        // Por si algún panel expandido quedó visible de la vista anterior.
-        HideAllExpandedPanels();
+        // Los paneles vuelven a su sitio (una pantalla combinada los había movido).
         RestoreExpandedHomes();
         ApplyFrame();
     }
