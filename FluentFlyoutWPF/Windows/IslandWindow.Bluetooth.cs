@@ -248,7 +248,7 @@ public partial class IslandWindow
     {
         var device = _bluetoothDevice;
         if (device == null) return;
-        BluetoothName.Text = device.Name;
+        BluetoothName.Text = BluetoothDisplayName(device);
         bool ring = _bluetoothNotice == BluetoothNoticeKind.Connected;
         bool alert = _bluetoothNotice == BluetoothNoticeKind.Disconnected;
         BluetoothGlyph.Symbol = ring ? device.Glyph : Wpf.Ui.Controls.SymbolRegular.Flash24;
@@ -284,14 +284,27 @@ public partial class IslandWindow
         BluetoothCompactGrid.ToolTip = BluetoothTooltip(device);
     }
 
+    /// <summary>
+    /// Nombre visible del dispositivo: el suyo o el genérico localizado cuando
+    /// Windows no dio uno usable (el vigía publica vacío en ese caso).
+    /// </summary>
+    private static string BluetoothDisplayName(IslandBluetoothDevice device) =>
+        device.Name is { Length: > 0 } name
+            ? name
+            : IslandStrings.Get("IslandBluetoothUnknownDevice", "Bluetooth device");
+
     /// <summary>Tooltip del aviso: dice qué pasó y, si se conoce, la batería.</summary>
     private string BluetoothTooltip(IslandBluetoothDevice device)
     {
+        string name = BluetoothDisplayName(device);
         string head = _bluetoothNotice switch
         {
-            BluetoothNoticeKind.Charging => $"{device.Name} conectado y cargando",
-            BluetoothNoticeKind.Disconnected => $"{device.Name} desconectado",
-            _ => $"{device.Name} conectado",
+            BluetoothNoticeKind.Charging => IslandStrings.Format("IslandBluetoothTooltipCharging",
+                "{0} connected and charging", name),
+            BluetoothNoticeKind.Disconnected => IslandStrings.Format("IslandBluetoothTooltipDisconnected",
+                "{0} disconnected", name),
+            _ => IslandStrings.Format("IslandBluetoothTooltipConnected",
+                "{0} connected", name),
         };
         return device.BatteryText is { } battery ? $"{head} · {battery}" : head;
     }

@@ -39,7 +39,7 @@
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Top">
             <controls:Button x:Name="ModePrevBtn" Width="28" Height="28" Margin="0,0,4,0" Padding="0"
                              VerticalAlignment="Center" Visibility="Collapsed" Focusable="False" Click="ModeArrow_Click"
-                             Style="{StaticResource MicaWPF.Styles.TransparentButton}" ToolTip="Funcionalidad anterior">
+                             Style="{StaticResource MicaWPF.Styles.TransparentButton}" ToolTip="{DynamicResource IslandTooltipPrevFeature}">
                 <ui:SymbolIcon Symbol="ChevronLeft24" Filled="True" Foreground="White" FontSize="16"/>
             </controls:Button>
             <Border x:Name="IslandBox" Width="240" Height="34" CornerRadius="17"
@@ -83,7 +83,7 @@
                         </Grid.ColumnDefinitions>
                         <Border x:Name="CompactArtWrap" Grid.Column="0" Width="22" Height="22" CornerRadius="12" ClipToBounds="True"
                                 Background="#222" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click"
+                                Cursor="Hand" ToolTip="{DynamicResource IslandTooltipChangeMedia}" MouseLeftButtonUp="Album_Click"
                                 MouseEnter="AlbumArt_MouseEnter" MouseLeave="AlbumArt_MouseLeave"
                                 RenderTransformOrigin="0.5,0.5">
                             <Border.RenderTransform>
@@ -103,7 +103,7 @@
                         </Border>
                         <TextBlock x:Name="CompactTitle" Grid.Column="1" Foreground="White" FontSize="12"
                                    VerticalAlignment="Center" Margin="8,0,4,0" TextTrimming="CharacterEllipsis"
-                                   Cursor="Hand" ToolTip="Ver detalles"
+                                   Cursor="Hand" ToolTip="{DynamicResource IslandTooltipViewDetails}"
                                    MouseLeftButtonUp="CompactMiddle_Click"
                                    RenderTransformOrigin="0.5,0.5">
                             <TextBlock.RenderTransform>
@@ -114,7 +114,7 @@
                             </TextBlock.RenderTransform>
                         </TextBlock>
                         <Grid Grid.Column="2" Width="36" Height="16" Background="Transparent"
-                              Cursor="Hand" ToolTip="Reproducir/pausar"
+                              Cursor="Hand" ToolTip="{DynamicResource IslandTooltipPlayPause}"
                               MouseLeftButtonUp="EqZone_Click">
                             <Image x:Name="CompactEq" Width="36" Height="16" Stretch="Uniform"
                                    VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"
@@ -132,7 +132,7 @@
                     </Grid>
                     <!-- Temporizador en compacto: icono izquierda + progreso centro + restante derecha -->
                     <Grid x:Name="TimerCompactGrid" Margin="6,0,10,0" Visibility="Collapsed"
-                          Cursor="Hand" ToolTip="Ver temporizador" MouseLeftButtonUp="TimerCompact_Click">
+                          Cursor="Hand" ToolTip="{DynamicResource IslandTooltipViewTimer}" MouseLeftButtonUp="TimerCompact_Click">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="24"/>
                             <ColumnDefinition Width="*"/>
@@ -240,7 +240,7 @@
                          miniatura de la imagen o las primeras letras del texto; las que no caben
                          se cuentan con el «+N». El clic abre la lista expandida. -->
                     <Grid x:Name="ClipboardCompactGrid" Margin="6,0,10,0" Visibility="Collapsed"
-                          Cursor="Hand" ToolTip="Portapapeles (haz clic para ver todo)"
+                          Cursor="Hand" ToolTip="{DynamicResource IslandTooltipClipboardCompact}"
                           MouseLeftButtonUp="ClipboardCompact_Click">
                         <ItemsControl x:Name="ClipboardCompactList" HorizontalAlignment="Left" VerticalAlignment="Center">
                             <ItemsControl.ItemsPanel>
@@ -272,7 +272,7 @@
                          resto (la geometría del arco la pinta IslandWindow.Bluetooth.cs).
                          Es SIEMPRE un aviso temporal: se retira al vencer su plazo. -->
                     <Grid x:Name="BluetoothCompactGrid" Margin="6,0,10,0" Visibility="Collapsed"
-                          Cursor="Hand" ToolTip="Dispositivo Bluetooth conectado">
+                          Cursor="Hand" ToolTip="{DynamicResource IslandTooltipBluetoothConnected}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="24"/>
                             <ColumnDefinition Width="*"/>
@@ -306,7 +306,7 @@
                 <!-- Capa expandida: tarjeta compacta con carátula + título/artista + tiempos + controles.
                      Siempre Visible (medible) y gobernada por opacidad; el hit-test lo
                      decide el código según el progreso del morph. -->
-                <StackPanel x:Name="ExpandedLayer" Margin="16,12,16,6" Opacity="0">
+                <StackPanel x:Name="ExpandedLayer" Margin="14,10,14,5" Opacity="0">
                     <Grid x:Name="MusicExpandedTop">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="56"/>
@@ -315,7 +315,7 @@
                         </Grid.ColumnDefinitions>
                         <Border x:Name="ExpandedArtWrap" Grid.Column="0" Width="48" Height="48" CornerRadius="12" ClipToBounds="True" Background="#222"
                                  HorizontalAlignment="Center" VerticalAlignment="Center"
-                                 Cursor="Hand" ToolTip="Cambiar de medio" MouseLeftButtonUp="Album_Click"
+                                 Cursor="Hand" ToolTip="{DynamicResource IslandTooltipChangeMedia}" MouseLeftButtonUp="Album_Click"
                                  MouseEnter="AlbumArt_MouseEnter" MouseLeave="AlbumArt_MouseLeave"
                                  RenderTransformOrigin="0.5,0.5">
                             <Border.RenderTransform>
@@ -334,7 +334,7 @@
                             </Grid>
                         </Border>
                         <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
-                            <TextBlock x:Name="SongTitle" Text="Título desconocido" Foreground="White"
+                            <TextBlock x:Name="SongTitle" Text="{DynamicResource IslandUnknownTitle}" Foreground="White"
                                        FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                        RenderTransformOrigin="0,0.5">
                                 <TextBlock.RenderTransform>
@@ -344,7 +344,7 @@
                                     </TransformGroup>
                                 </TextBlock.RenderTransform>
                             </TextBlock>
-                            <TextBlock x:Name="SongArtist" Text="Artista desconocido" Foreground="White"
+                            <TextBlock x:Name="SongArtist" Text="{DynamicResource IslandUnknownArtist}" Foreground="White"
                                        FontSize="10" Opacity="0.5" TextTrimming="CharacterEllipsis"
                                        RenderTransformOrigin="0,0.5">
                                 <TextBlock.RenderTransform>
@@ -411,7 +411,7 @@
                                 <!-- Reels infinitos H:M:S: arrastrar o rueda (arriba reduce, abajo aumenta).
                                      Sin teclado: la ventana es NoActivate y jamás tiene foco. -->
                                 <Grid x:Name="TimerReels" HorizontalAlignment="Left" Cursor="SizeNS"
-                                      ToolTip="Arrastra o usa la rueda para ajustar" MouseWheel="Reel_Wheel">
+                                      ToolTip="{DynamicResource IslandTooltipTimerReels}" MouseWheel="Reel_Wheel">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
@@ -433,10 +433,10 @@
                                 </Grid>
                                 <TextBlock x:Name="TimerStatus" FontSize="11" Opacity="0.6" Foreground="White" Text="" Margin="0,2,0,0"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                    <controls:Button x:Name="TimerStartBtn" Content="Iniciar" Height="28" Margin="0,0,4,0" Padding="10,0"
+                                    <controls:Button x:Name="TimerStartBtn" Content="{DynamicResource IslandTimerStart}" Height="28" Margin="0,0,4,0" Padding="10,0"
                                                      Foreground="White" Focusable="False" Click="TimerStart_Click"
                                                      Style="{StaticResource MicaWPF.Styles.TransparentButton}"/>
-                                    <controls:Button x:Name="TimerRestartBtn" Content="Reiniciar" Height="28" Padding="10,0"
+                                    <controls:Button x:Name="TimerRestartBtn" Content="{DynamicResource IslandTimerRestart}" Height="28" Padding="10,0"
                                                      Foreground="White" Focusable="False" Click="TimerRestart_Click" Visibility="Collapsed"
                                                      Style="{StaticResource MicaWPF.Styles.TransparentButton}"/>
                                 </StackPanel>
@@ -465,18 +465,18 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Orientation="Horizontal">
                         <controls:Button x:Name="TimerRunPauseBtn" Height="36" Width="36" Padding="0"
-                                         Focusable="False" Click="TimerPause_Click" ToolTip="Pausar/Reanudar"
+                                         Focusable="False" Click="TimerPause_Click" ToolTip="{DynamicResource IslandTooltipPauseResume}"
                                          Style="{StaticResource MicaWPF.Styles.TransparentButton}">
                             <ui:SymbolIcon x:Name="TimerRunPauseGlyph" Symbol="Pause24" Filled="True" Foreground="White" FontSize="20"/>
                         </controls:Button>
                         <controls:Button x:Name="TimerRunCancelBtn" Height="36" Width="36" Padding="0"
-                                         Focusable="False" Click="TimerCancel_Click" ToolTip="Cancelar"
+                                         Focusable="False" Click="TimerCancel_Click" ToolTip="{DynamicResource IslandTooltipCancel}"
                                          Style="{StaticResource MicaWPF.Styles.TransparentButton}">
                             <ui:SymbolIcon Symbol="Dismiss24" Filled="True" Foreground="White" FontSize="20"/>
                         </controls:Button>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Right">
-                            <TextBlock x:Name="TimerRunOrigin" FontSize="11" Opacity="0.6" Foreground="White" Text="Timer" HorizontalAlignment="Right"/>
+                            <TextBlock x:Name="TimerRunOrigin" FontSize="11" Opacity="0.6" Foreground="White" Text="{DynamicResource IslandTimerOrigin}" HorizontalAlignment="Right"/>
                             <TextBlock x:Name="TimerRunRemaining" FontSize="22" FontWeight="SemiBold" Foreground="White" Text="00:00:00" HorizontalAlignment="Right"/>
                         </StackPanel>
                     </Grid>
@@ -488,24 +488,24 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Orientation="Horizontal">
                         <controls:Button x:Name="TimerAlertRestartBtn" Height="36" Width="36" Padding="0"
-                                         Focusable="False" Click="TimerAlertRestart_Click" ToolTip="Reiniciar"
+                                         Focusable="False" Click="TimerAlertRestart_Click" ToolTip="{DynamicResource IslandTimerRestart}"
                                          Style="{StaticResource MicaWPF.Styles.TransparentButton}">
                             <ui:SymbolIcon Symbol="ArrowClockwise24" Filled="True" Foreground="White" FontSize="20"/>
                         </controls:Button>
                         <controls:Button x:Name="TimerAlertDismissBtn" Height="36" Width="36" Padding="0"
-                                         Focusable="False" Click="TimerAlertDismiss_Click" ToolTip="Terminar"
+                                         Focusable="False" Click="TimerAlertDismiss_Click" ToolTip="{DynamicResource IslandTooltipFinish}"
                                          Style="{StaticResource MicaWPF.Styles.TransparentButton}">
                             <ui:SymbolIcon Symbol="Dismiss24" Filled="True" Foreground="White" FontSize="20"/>
                         </controls:Button>
                         </StackPanel>
-                        <TextBlock x:Name="TimerAlertName" Grid.Column="1" Text="Timer" Foreground="White" FontSize="14" FontWeight="SemiBold"
+                        <TextBlock x:Name="TimerAlertName" Grid.Column="1" Text="{DynamicResource IslandTimerOrigin}" Foreground="White" FontSize="14" FontWeight="SemiBold"
                                    VerticalAlignment="Center" HorizontalAlignment="Right" Margin="12,0,0,0" TextTrimming="CharacterEllipsis"/>
                     </Grid>
                     <!-- Cajón de aplicaciones en expandido: cuadrícula de iconos con nombre.
                          La altura la mide el contenedor (SyncMeasuredHeight) y el ancho es el configurado. -->
-                    <StackPanel x:Name="AppsExpanded" Visibility="Collapsed" Margin="0,2,0,2">
-                        <TextBlock x:Name="AppsExpandedHeader" Text="Aplicaciones" FontSize="11" Opacity="0.6"
-                                   Foreground="White" Margin="0,0,0,6"/>
+                    <StackPanel x:Name="AppsExpanded" Visibility="Collapsed" Margin="0,4,0,2">
+                        <!-- Sin título: el cajón se reconoce por sus iconos y el rótulo era
+                             altura de sobra (petición de compacto). -->
                         <ItemsControl x:Name="AppsExpandedList">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -545,10 +545,10 @@
                     <!-- Estante de archivos en expandido: mosaicos con su tipo y una cruz para
                          quitarlos (quitarlos devuelve el archivo a su carpeta original; nunca
                          se borra). La altura la mide el contenedor (SyncMeasuredHeight). -->
-                    <StackPanel x:Name="ShelfExpanded" Visibility="Collapsed" Margin="0,2,0,2">
-                        <TextBlock x:Name="ShelfExpandedHeader" Text="Estante" FontSize="11" Opacity="0.6"
-                                   Foreground="White" Margin="0,0,0,6"/>
-                        <TextBlock x:Name="ShelfExpandedEmpty" Text="Suelta archivos o carpetas sobre el Island para aparcarlos aquí."
+                    <StackPanel x:Name="ShelfExpanded" Visibility="Collapsed" Margin="0,4,0,2">
+                        <!-- Sin título: el estante se reconoce por sus mosaicos y el rótulo era
+                             altura de sobra (petición de compacto). -->
+                        <TextBlock x:Name="ShelfExpandedEmpty" Text="{DynamicResource IslandShelfEmpty}"
                                    FontSize="12" Opacity="0.55" Foreground="White" Margin="0,0,0,6"
                                    TextWrapping="WrapWithOverflow" Visibility="Collapsed"/>
                         <ItemsControl x:Name="ShelfExpandedList">
@@ -573,15 +573,18 @@
                                             </Style>
                                         </Border.Style>
                                         <Grid>
+                                            <!-- El mosaico enseña el NOMBRE del archivo o de la carpeta, no su
+                                                 tipo: el glifo ya dice si es carpeta o documento, y «CARPETA»
+                                                 no le dice al usuario cuál de sus carpetas es. -->
                                             <StackPanel VerticalAlignment="Center" Margin="2,0">
                                                 <ui:SymbolIcon Symbol="{Binding Glyph}" Filled="True" Foreground="White"
-                                                               FontSize="18" HorizontalAlignment="Center"/>
-                                                <TextBlock Text="{Binding Badge}" Foreground="White" FontSize="9" Opacity="0.85"
+                                                               FontSize="16" HorizontalAlignment="Center"/>
+                                                <TextBlock Text="{Binding Name}" Foreground="White" FontSize="9" Opacity="0.85"
                                                            TextAlignment="Center" Margin="0,1,0,0" TextTrimming="CharacterEllipsis"/>
                                             </StackPanel>
                                             <Border Width="14" Height="14" CornerRadius="7" Background="#55000000"
                                                     HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,2,0"
-                                                    Cursor="Hand" ToolTip="Quitar del estante (vuelve a su carpeta)"
+                                                    Cursor="Hand" ToolTip="{DynamicResource IslandShelfRemove}"
                                                     MouseLeftButtonUp="ShelfItemRemove_Click">
                                                 <ui:SymbolIcon Symbol="Dismiss24" Filled="True" Foreground="White" FontSize="10"
                                                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -597,12 +600,12 @@
                          «copiado» se borra solo. La altura la mide el contenedor. -->
                     <StackPanel x:Name="ClipboardExpanded" Visibility="Collapsed" Margin="0,2,0,2">
                         <Grid Margin="0,0,0,6">
-                            <TextBlock Text="Portapapeles · clic en una pieza para copiarla" FontSize="11" Opacity="0.6"
+                            <TextBlock Text="{DynamicResource IslandClipboardHeader}" FontSize="11" Opacity="0.6"
                                        Foreground="White" HorizontalAlignment="Left" TextTrimming="CharacterEllipsis"/>
                             <TextBlock x:Name="ClipboardStatus" Text="" FontSize="10" Opacity="0.85"
                                        Foreground="#B6F0B5" HorizontalAlignment="Right"/>
                         </Grid>
-                        <TextBlock x:Name="ClipboardExpandedEmpty" Text="Nada copiado todavía: copia texto o una imagen y aparecerá aquí."
+                        <TextBlock x:Name="ClipboardExpandedEmpty" Text="{DynamicResource IslandClipboardEmpty}"
                                    FontSize="12" Opacity="0.55" Foreground="White" Margin="0,0,0,6"
                                    TextWrapping="WrapWithOverflow" Visibility="Collapsed"/>
                         <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto"
@@ -642,12 +645,12 @@
                          (SyncMeasuredHeight). -->
                     <StackPanel x:Name="CalendarExpanded" Visibility="Collapsed" Margin="0,2,0,2">
                         <Grid Margin="0,0,0,6">
-                            <TextBlock x:Name="CalendarExpandedHeader" Text="Próximos eventos" FontSize="11" Opacity="0.6"
+                        <TextBlock x:Name="CalendarExpandedHeader" Text="{DynamicResource IslandCalendarHeaderUpcoming}" FontSize="11" Opacity="0.6"
                                        Foreground="White" HorizontalAlignment="Left"/>
                             <TextBlock x:Name="CalendarSyncedText" Text="" FontSize="10" Opacity="0.4"
                                        Foreground="White" HorizontalAlignment="Right"/>
                         </Grid>
-                        <TextBlock x:Name="CalendarExpandedEmpty" Text="Sin eventos próximos en el calendario."
+                        <TextBlock x:Name="CalendarExpandedEmpty" Text="{DynamicResource IslandCalendarEmpty}"
                                    FontSize="12" Opacity="0.55" Foreground="White" Margin="0,0,0,6"
                                    TextWrapping="WrapWithOverflow" Visibility="Collapsed"/>
                         <ItemsControl x:Name="CalendarExpandedList">
@@ -675,7 +678,7 @@
                          desenchufar) con el título y el porcentaje de batería a la derecha.
                          Es SIEMPRE un aviso temporal: se retira al vencer su plazo. -->
                     <Grid x:Name="PowerCompactGrid" Margin="6,0,10,0" Visibility="Collapsed"
-                          Cursor="Hand" ToolTip="Energía">
+                          Cursor="Hand" ToolTip="{DynamicResource IslandTooltipPower}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="24"/>
                             <ColumnDefinition Width="*"/>
@@ -684,7 +687,7 @@
                         <ui:SymbolIcon x:Name="PowerGlyph" Grid.Column="0" Symbol="BatteryCharge24" Filled="True"
                                        Foreground="#6CCB5F" FontSize="15" HorizontalAlignment="Center"
                                        VerticalAlignment="Center" IsHitTestVisible="False"/>
-                        <TextBlock x:Name="PowerTitle" Grid.Column="1" Text="Cargando" Foreground="White" FontSize="12"
+                        <TextBlock x:Name="PowerTitle" Grid.Column="1" Text="{DynamicResource IslandPowerCharging}" Foreground="White" FontSize="12"
                                    Margin="8,0,4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                    IsHitTestVisible="False"/>
                         <TextBlock x:Name="PowerPercent" Grid.Column="2" Text="" Foreground="#6CCB5F"
@@ -695,7 +698,7 @@
                          derecha. Es contenido pasivo (no «está pasando»): se ve al navegar
                          hasta su pantalla y vive lo que viva su vista. -->
                     <Grid x:Name="WeatherCompactGrid" Margin="6,0,10,0" Visibility="Collapsed"
-                          Cursor="Hand" ToolTip="Clima">
+                          Cursor="Hand" ToolTip="{DynamicResource IslandTooltipWeather}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
@@ -756,7 +759,7 @@
         </Border>
             <controls:Button x:Name="ModeNextBtn" Width="28" Height="28" Margin="4,0,0,0" Padding="0"
                              VerticalAlignment="Center" Visibility="Collapsed" Focusable="False" Click="ModeArrow_Click"
-                             Style="{StaticResource MicaWPF.Styles.TransparentButton}" ToolTip="Funcionalidad siguiente">
+                             Style="{StaticResource MicaWPF.Styles.TransparentButton}" ToolTip="{DynamicResource IslandTooltipNextFeature}">
                 <ui:SymbolIcon Symbol="ChevronRight24" Filled="True" Foreground="White" FontSize="16"/>
             </controls:Button>
         </StackPanel>

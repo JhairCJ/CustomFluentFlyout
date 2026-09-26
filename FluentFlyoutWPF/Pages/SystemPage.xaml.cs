@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
+using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Classes.Utils;
 using Microsoft.Win32;
 using NLog;
@@ -60,9 +61,10 @@ public partial class SystemPage : Page
         {
             MessageBox messageBox = new()
             {
-                Title = "Error",
-                Content = $"Failed to set startup: {ex.Message}",
-                CloseButtonText = "OK",
+                Title = IslandStrings.Get("ErrorMessageTitle", "Error"),
+                Content = IslandStrings.Format("StartupSetFailed",
+                    "Failed to set startup: {0}", ex.Message),
+                CloseButtonText = IslandStrings.Get("MessageBoxOk", "OK"),
             };
 
             _ = messageBox.ShowDialogAsync();
@@ -119,7 +121,7 @@ public partial class SystemPage : Page
                 {
                     Title = Application.Current.FindResource("ExportSuccessful").ToString(),
                     Content = Application.Current.FindResource("SettingsExportedSuccessfully").ToString(),
-                    CloseButtonText = "OK",
+                    CloseButtonText = IslandStrings.Get("MessageBoxOk", "OK"),
                 };
 
                 _ = messageBox.ShowDialogAsync();
@@ -132,7 +134,7 @@ public partial class SystemPage : Page
                 {
                     Title = Application.Current.FindResource("ExportFailed").ToString(),
                     Content = Application.Current.FindResource("FailedToExportSettings").ToString(),
-                    CloseButtonText = "OK",
+                    CloseButtonText = IslandStrings.Get("MessageBoxOk", "OK"),
                 };
 
                 _ = messageBox.ShowDialogAsync();
@@ -154,8 +156,8 @@ public partial class SystemPage : Page
             {
                 Title = Application.Current.FindResource("ImportSettings").ToString(),
                 Content = Application.Current.FindResource("ImportSettingsWarning").ToString(),
-                CloseButtonText = "No",
-                SecondaryButtonText = "Yes",
+                CloseButtonText = IslandStrings.Get("MessageBoxNo", "No"),
+                SecondaryButtonText = IslandStrings.Get("MessageBoxYes", "Yes"),
             };
 
             var result = await confirmBox.ShowDialogAsync();
@@ -171,7 +173,7 @@ public partial class SystemPage : Page
                     {
                         Title = Application.Current.FindResource("ImportSuccessful").ToString(),
                         Content = Application.Current.FindResource("SettingsImportedSuccessfully").ToString(),
-                        CloseButtonText = "OK",
+                        CloseButtonText = IslandStrings.Get("MessageBoxOk", "OK"),
                     };
 
                     _ = messageBox.ShowDialogAsync();
@@ -188,7 +190,7 @@ public partial class SystemPage : Page
                     {
                         Title = Application.Current.FindResource("ImportFailed").ToString(),
                         Content = Application.Current.FindResource("FailedToImportSettings").ToString(),
-                        CloseButtonText = "OK",
+                        CloseButtonText = IslandStrings.Get("MessageBoxOk", "OK"),
                     };
 
                     _ = messageBox.ShowDialogAsync();

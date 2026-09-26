@@ -544,10 +544,10 @@ public partial class IslandWindow
         else
         {
             duration = _staged;
-            origin = "Timer";
+            origin = IslandStrings.Get("IslandTimerOrigin", "Timer");
         }
         if (!_timer.Start(duration, origin))
-            TimerStatus.Text = "Duración no válida: usa 00:00:01 a 24:00:00.";
+            TimerStatus.Text = IslandStrings.Get("IslandInvalidDuration", "Invalid duration: use 00:00:01 to 24:00:00.");
         else
         {
             NoteFeatureEvent("timer");

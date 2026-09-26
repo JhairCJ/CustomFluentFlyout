@@ -164,13 +164,17 @@ public partial class IslandWindow
 
         bool reminding = CalendarReminderLive();
         var next = reminding && _calendarReminder != null ? _calendarReminder : upcoming.FirstOrDefault();
-        CalendarCompactTitle.Text = next?.Title ?? "Sin eventos próximos";
+        CalendarCompactTitle.Text = next?.Title
+            ?? IslandStrings.Get("IslandCalendarCompactNone", "No upcoming events");
         CalendarCompactCountdown.Text = next?.CountdownText ?? "";
         CalendarCompactGlyph.Symbol = reminding ? SymbolRegular.Alert24 : SymbolRegular.Calendar24;
-        CalendarExpandedHeader.Text = reminding ? "Empieza pronto" : "Próximos eventos";
+        CalendarExpandedHeader.Text = reminding
+            ? IslandStrings.Get("IslandCalendarHeaderSoon", "Starting soon")
+            : IslandStrings.Get("IslandCalendarHeaderUpcoming", "Upcoming events");
         CalendarSyncedText.Text = GoogleCalendarService.Instance.LastSyncUtc == DateTime.MinValue
-            ? "Sin sincronizar todavía."
-            : $"Última sincronización: {GoogleCalendarService.Instance.LastSyncUtc.ToLocalTime():HH:mm}.";
+            ? IslandStrings.Get("IslandCalendarNotSynced", "Not synchronized yet.")
+            : IslandStrings.Format("IslandCalendarLastSync", "Last synchronized: {0}.",
+                GoogleCalendarService.Instance.LastSyncUtc.ToLocalTime().ToString("HH:mm"));
     }
 
     private void ExpandCalendar() =>

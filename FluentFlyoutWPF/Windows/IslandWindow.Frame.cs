@@ -377,7 +377,7 @@ public partial class IslandWindow
             ExpandedLayer.Margin = new Thickness(0, _expandedMarginOrig.Top, 0, _expandedMarginOrig.Bottom);
             ExpandedLayer.HorizontalAlignment = HorizontalAlignment.Center;
             IslandBox.RenderTransformOrigin = new Point(0.5, 0);
-            BoxScale.ScaleX = BoxScale.ScaleY = IslandPhysics.Lerp(0.68, 1, IslandPhysics.Smooth(dotT));
+            BoxScale.ScaleX = BoxScale.ScaleY = IslandPhysics.Lerp(0.92, 1, IslandPhysics.Smooth(dotT));
             ApplyIslandClip(IslandBox.Width, h, radius, earReach, notchFillet, notch: true);
             LayoutBackground(IslandBox.Width, h);
         }
@@ -416,7 +416,7 @@ public partial class IslandWindow
                 ? pillDot / 2
                 : Math.Min(morphR, Math.Min(w, h) / 2);
             IslandBox.CornerRadius = new CornerRadius(cr);
-            BoxScale.ScaleX = BoxScale.ScaleY = IslandPhysics.Lerp(0.68, 1, IslandPhysics.Smooth(dotT));
+            BoxScale.ScaleX = BoxScale.ScaleY = IslandPhysics.Lerp(0.92, 1, IslandPhysics.Smooth(dotT));
             IslandBox.RenderTransformOrigin = new Point(0.5, 0.5);
         }
 
@@ -447,9 +447,9 @@ public partial class IslandWindow
         if (_collapseFromExpanded) compactOp = 0;
         double expandedOp = IslandPhysics.Smooth(Math.Clamp((p - 0.12) / 0.88, 0, 1));
         CompactLayer.Opacity = compactOp * contentOp;
-        CompactScale.ScaleX = CompactScale.ScaleY = IslandPhysics.Lerp(0.88, 1, IslandPhysics.Smooth(contentT) * restReveal);
+        CompactScale.ScaleX = CompactScale.ScaleY = IslandPhysics.Lerp(0.95, 1, IslandPhysics.Smooth(contentT) * restReveal);
         if (q < 0.32)
-            CompactScale.ScaleX = CompactScale.ScaleY = IslandPhysics.Lerp(0.75, 0.88, dotT2);
+            CompactScale.ScaleX = CompactScale.ScaleY = IslandPhysics.Lerp(0.90, 0.94, dotT2);
         else if (notch)
         {
             // En notch el compacto se apiña al entrar en expandido.
@@ -462,9 +462,12 @@ public partial class IslandWindow
         // el regreso desde la pieza, con el reloj del reposo—:
         // diverge(0) = apiñado al centro, diverge(1) = en su sitio.
         double diverge = Math.Pow(stretchT2, 1.25) * restReveal;
-        CompactArtTranslate.X = IslandPhysics.Lerp(42, 0, diverge);
-        CompactTitleTranslate.X = IslandPhysics.Lerp(6, 0, diverge);
-        CompactEqTranslate.X = IslandPhysics.Lerp(-36, 0, diverge);
+        // Deriva SIMÉTRICA: arte y ecualizador recorren la misma distancia hacia el
+        // centro (antes 42 vs 36, y el ecualizador arrastraba la vista hacia un lado).
+        // Distancias cortas a propósito: el contenido converge, no viaja.
+        CompactArtTranslate.X = IslandPhysics.Lerp(22, 0, diverge);
+        CompactTitleTranslate.X = IslandPhysics.Lerp(4, 0, diverge);
+        CompactEqTranslate.X = IslandPhysics.Lerp(-22, 0, diverge);
         CompactTitleScale2.ScaleX = CompactTitleScale2.ScaleY = IslandPhysics.Lerp(0.92, 1, diverge);
         double titleOp = IslandPhysics.Smooth(Math.Clamp((stretchT2 - 0.50) / 0.50, 0, 1));
         double eqOp = IslandPhysics.Smooth(Math.Clamp((stretchT2 - 0.55) / 0.45, 0, 1));
@@ -487,24 +490,24 @@ public partial class IslandWindow
         ExpandedLayer.Opacity = expandedOp * contentOp * (notch ? q : 1);
         ExpandedLayer.IsHitTestVisible = contentLive && p > 0.4 && q > 0.4;
 
-        double artS = IslandPhysics.Lerp(0.88, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.05) / 0.95, 0, 1)));
+        double artS = IslandPhysics.Lerp(0.94, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.05) / 0.95, 0, 1)));
         // Pop suma un leve bump al arte/título en cambio de pista
-        artS += pop * 0.06;
+        artS += pop * 0.04;
         ExpandedArtScale.ScaleX = ExpandedArtScale.ScaleY = artS;
 
-        double titleS = IslandPhysics.Lerp(0.90, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.08) / 0.9, 0, 1))) + pop * 0.05;
+        double titleS = IslandPhysics.Lerp(0.94, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.08) / 0.9, 0, 1))) + pop * 0.035;
         SongTitleScale.ScaleX = SongTitleScale.ScaleY = titleS;
         SongTitle.Opacity = IslandPhysics.Lerp(0, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.12) / 0.7, 0, 1)));
-        SongTitleTranslate.Y = IslandPhysics.Lerp(6, 0, IslandPhysics.Smooth(Math.Clamp((p - 0.12) / 0.7, 0, 1)));
+        SongTitleTranslate.Y = IslandPhysics.Lerp(4, 0, IslandPhysics.Smooth(Math.Clamp((p - 0.12) / 0.7, 0, 1)));
 
         SongArtist.Opacity = IslandPhysics.Lerp(0, _islandArtistOpacity, IslandPhysics.Smooth(Math.Clamp((p - 0.22) / 0.6, 0, 1)));
-        SongArtistTranslate.Y = IslandPhysics.Lerp(6, 0, IslandPhysics.Smooth(Math.Clamp((p - 0.22) / 0.6, 0, 1)));
+        SongArtistTranslate.Y = IslandPhysics.Lerp(4, 0, IslandPhysics.Smooth(Math.Clamp((p - 0.22) / 0.6, 0, 1)));
 
         ExpandedEq.Opacity = IslandPhysics.Lerp(0, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.18) / 0.6, 0, 1)));
         SeekRow.Opacity = IslandPhysics.Lerp(0, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.30) / 0.5, 0, 1)));
-        SeekTranslate.Y = IslandPhysics.Lerp(8, 0, IslandPhysics.Smooth(Math.Clamp((p - 0.30) / 0.5, 0, 1)));
+        SeekTranslate.Y = IslandPhysics.Lerp(5, 0, IslandPhysics.Smooth(Math.Clamp((p - 0.30) / 0.5, 0, 1)));
         ControlsRow.Opacity = IslandPhysics.Lerp(0, 1, IslandPhysics.Smooth(Math.Clamp((p - 0.38) / 0.5, 0, 1)));
-        ControlsTranslate.Y = IslandPhysics.Lerp(8, 0, IslandPhysics.Smooth(Math.Clamp((p - 0.38) / 0.5, 0, 1)));
+        ControlsTranslate.Y = IslandPhysics.Lerp(5, 0, IslandPhysics.Smooth(Math.Clamp((p - 0.38) / 0.5, 0, 1)));
     }
 
     /// <summary>

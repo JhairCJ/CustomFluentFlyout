@@ -21,7 +21,9 @@ public sealed record IslandBluetoothDevice(
     bool? Charging)
 {
     /// <summary>Texto de batería para el tooltip; null si el dispositivo no la informa.</summary>
-    public string? BatteryText => BatteryPercent is int p ? $"Batería {p} %" : null;
+    public string? BatteryText => BatteryPercent is int p
+        ? IslandStrings.Format("IslandBattery", "Battery {0} %", p)
+        : null;
 }
 
 /// <summary>
@@ -55,7 +57,10 @@ public sealed class IslandBluetoothMonitor : IDisposable
 {
     private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
 
-    private const string UnknownName = "Dispositivo Bluetooth";
+    // El vigía vive en un hilo de fondo y no puede resolver recursos de UI: cuando
+    // Windows no da un nombre usable se publica vacío y es la capa de UI quien pone
+    // el genérico LOCALIZADO (IslandWindow.Bluetooth.cs).
+    private const string UnknownName = "";
 
     // Propiedades que el vigía debe traer en cada evento: identidad, estado de
     // conexión, tipo de dispositivo (para el glifo) y batería si Windows la tiene.
@@ -430,7 +435,8 @@ public sealed class IslandBluetoothMonitor : IDisposable
 
     /// <summary>
     /// Nombre visible del dispositivo. Un nombre vacío o que es solo su dirección
-    /// no dice nada al usuario: se usa el genérico.
+    /// no dice nada al usuario: se deja vacío y la UI lo sustituye por el genérico
+    /// localizado.
     /// </summary>
     private static string CleanName(string? name)
     {

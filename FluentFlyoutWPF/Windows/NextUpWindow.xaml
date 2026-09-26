@@ -50,8 +50,8 @@
             </Border.Background>
         </Border>
         <StackPanel Grid.Column="2" Name="SongInfoStackPanel" Margin="6,0,0,0" Orientation="Vertical" VerticalAlignment="Center">
-            <TextBlock Name="SongTitle" Text="Song Title" FontSize="14" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
-            <TextBlock Name="SongArtist" Text="Artist Name" FontSize="14" FontWeight="Medium" Opacity="0.5" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Name="SongTitle" Text="{DynamicResource PlaceholderSongTitle}" FontSize="14" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Name="SongArtist" Text="{DynamicResource PlaceholderArtistName}" FontSize="14" FontWeight="Medium" Opacity="0.5" TextTrimming="CharacterEllipsis"/>
         </StackPanel>
     </Grid>
 </controls:MicaWindow>

@@ -111,8 +111,8 @@
                                         ToolTipService.InitialShowDelay="800"
                                         ToolTipService.Placement="Top"
                                         ToolTipService.VerticalOffset="-16">
-                                <TextBlock Name="SongTitle" Text="Song Title" FontSize="14" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Name="SongArtist" Text="Artist Name" FontSize="14" FontWeight="Medium" Opacity="0.5" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Name="SongTitle" Text="{DynamicResource PlaceholderSongTitle}" FontSize="14" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Name="SongArtist" Text="{DynamicResource PlaceholderArtistName}" FontSize="14" FontWeight="Medium" Opacity="0.5" TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                         </StackPanel>
                         <StackPanel Name="ControlsStackPanel" Orientation="Horizontal" HorizontalAlignment="Right" Height="35" Width="184" Margin="12,8,0,0">

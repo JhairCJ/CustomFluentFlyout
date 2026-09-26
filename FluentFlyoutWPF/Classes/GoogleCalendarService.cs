@@ -205,6 +205,6 @@ public sealed class GoogleCalendarService
         SettingsManager.Current.GoogleCalendarError = ex.Message switch
         {
             { Length: > 0 } text => text,
-            _ => "No se pudo leer el calendario.",
+            _ => IslandStrings.Get("IslandCalendarReadFailed", "Could not read the calendar"),
         };
 }

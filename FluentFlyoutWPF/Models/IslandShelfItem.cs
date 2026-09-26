@@ -56,7 +56,11 @@ public sealed class IslandShelfItem
         }
     }
 
-    /// <summary>Extensión sin punto y en mayúsculas ("" si no tiene). No persiste.</summary>
+    /// <summary>
+    /// Extensión sin punto y en mayúsculas ("" si no tiene). No persiste. El estante
+    /// enseña el NOMBRE del elemento, nunca su tipo: el glifo ya dice si es carpeta o
+    /// documento, y «CARPETA» no le dice al usuario cuál de sus carpetas es.
+    /// </summary>
     [XmlIgnore]
     public string Extension
     {
@@ -64,22 +68,6 @@ public sealed class IslandShelfItem
         {
             try { return System.IO.Path.GetExtension(Path).TrimStart('.').ToUpperInvariant(); }
             catch { return ""; }
-        }
-    }
-
-    /// <summary>
-    /// Etiqueta del mosaico: la extensión, o «CARPETA» para las carpetas. Una
-    /// extensión larga (o sin extensión) se corta a lo que cabe en el mosaico.
-    /// </summary>
-    [XmlIgnore]
-    public string Badge
-    {
-        get
-        {
-            if (IsFolder) return "CARPETA";
-            string ext = Extension;
-            if (ext.Length == 0) return "ARCHIVO";
-            return ext.Length > 4 ? ext[..4] : ext;
         }
     }
 

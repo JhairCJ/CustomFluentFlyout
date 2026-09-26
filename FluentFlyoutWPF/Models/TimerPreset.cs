@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FluentFlyoutWPF.Classes;
 using System.ComponentModel;
 using System.Xml.Serialization;
 
@@ -27,7 +28,7 @@ public sealed class TimerPreset : INotifyPropertyChanged
         {
             if (string.IsNullOrWhiteSpace(value))
             {
-                Error = "El nombre no puede estar vacío.";
+                Error = IslandStrings.Get("IslandNameEmpty", "The name cannot be empty.");
                 OnPropertyChanged(nameof(Error));
                 OnPropertyChanged(nameof(Name));
                 return;
@@ -83,7 +84,7 @@ public sealed class TimerPreset : INotifyPropertyChanged
             }
             else
             {
-                Error = "Duración no válida: usa 00:00:01 a 24:00:00.";
+                Error = IslandStrings.Get("IslandInvalidDuration", "Invalid duration: use 00:00:01 to 24:00:00.");
             }
             OnPropertyChanged(nameof(DurationText));
             OnPropertyChanged(nameof(Error));

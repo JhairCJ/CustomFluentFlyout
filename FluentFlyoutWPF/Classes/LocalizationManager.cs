@@ -18,6 +18,14 @@ public static class LocalizationManager
     // current language code (first two letters) for easy access
     public static string LanguageCode { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Se eleva al terminar de aplicar un idioma. Lo usan las ventanas de vida larga
+    /// (el Island) para re-aplicar los textos que escriben DESDE CÓDIGO: los del XAML
+    /// se refrescan solos con <c>{DynamicResource}</c>, pero los que asigna el
+    /// code-behind se quedarían en el idioma anterior.
+    /// </summary>
+    public static event Action? LanguageChanged;
+
     // dictionary of supported languages where key is the local language name and value is the language/culture code
     // check https://simplelocalize.io/data/locales/ for additional language info
     private static readonly Dictionary<string, string> _supportedLanguages = new()
@@ -107,7 +115,11 @@ public static class LocalizationManager
         ApplyFontFamily(culture);
 
         // if English, the default (en-US) is already loaded, so no need to add another dictionary
-        if (languageCode == "en") return;
+        if (languageCode == "en")
+        {
+            LanguageChanged?.Invoke();
+            return;
+        }
 
         // find the localization file path based on the first two letters of the language code
         string? localizationDictPath = $"Resources/Localization/Dictionary-{culture}.xaml";
@@ -137,6 +149,10 @@ public static class LocalizationManager
                 Logger.Warn("Localization file not found for language: " + culture);
             }
         }
+
+        // Los diccionarios ya están puestos: quien tenga textos escritos desde código
+        // puede re-aplicarlos ahora.
+        LanguageChanged?.Invoke();
 
         //Calculate the Lock Key Flyout text's Max Lenght
         List<double> Lengths = new List<double>();

@@ -848,8 +848,12 @@ public partial class IslandWindow
         var mediaProps = MediaPropsOf(session);
         BitmapImage? art = mediaProps?.Artwork;
         int thumbHash = mediaProps?.ArtworkHash ?? 0;
-        string title = string.IsNullOrWhiteSpace(mediaProps?.Title) ? "Título desconocido" : mediaProps!.Title;
-        string artist = string.IsNullOrWhiteSpace(mediaProps?.Artist) ? "Artista desconocido" : mediaProps!.Artist;
+        string title = string.IsNullOrWhiteSpace(mediaProps?.Title)
+            ? IslandStrings.Get("IslandUnknownTitle", "Unknown title")
+            : mediaProps!.Title;
+        string artist = string.IsNullOrWhiteSpace(mediaProps?.Artist)
+            ? IslandStrings.Get("IslandUnknownArtist", "Unknown artist")
+            : mediaProps!.Artist;
         SongTitle.Text = title;
         SongArtist.Text = artist;
         CompactTitle.Text = title;

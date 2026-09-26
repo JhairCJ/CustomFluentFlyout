@@ -193,8 +193,8 @@ public partial class IslandWindow
         if ((sender as FrameworkElement)?.DataContext is not IslandClipboardItem item) return;
         _clipboard.Copy(item);
         ClipboardStatus.Text = item.Kind == IslandClipboardKind.Image
-            ? "Imagen copiada · pégala con Ctrl+V"
-            : "Texto copiado · pégalo con Ctrl+V";
+            ? IslandStrings.Get("IslandClipboardImageCopied", "Image copied · paste it with Ctrl+V")
+            : IslandStrings.Get("IslandClipboardTextCopied", "Text copied · paste it with Ctrl+V");
         int version = ++_clipboardStatusVersion;
         _ = Task.Delay(2200).ContinueWith(_ => Dispatcher.Invoke(() =>
         {

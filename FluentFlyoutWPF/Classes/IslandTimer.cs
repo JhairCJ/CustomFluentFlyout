@@ -32,7 +32,10 @@ public sealed class IslandTimer
     /// <summary>
     /// Etiqueta del aviso: «Timer» si vino de tiempo libre, nombre del preset si no.
     /// </summary>
-    public string OriginLabel { get; private set; } = "Timer";
+    public string OriginLabel { get; private set; } = DefaultOriginLabel;
+
+    /// <summary>Etiqueta por defecto del aviso (tiempo libre), localizada.</summary>
+    private static string DefaultOriginLabel => IslandStrings.Get("IslandTimerOrigin", "Timer");
 
     private DateTime _endUtc;
     private TimeSpan _frozen = TimeSpan.Zero;
@@ -97,7 +100,7 @@ public sealed class IslandTimer
     {
         if (!IsValidDuration(duration)) return false;
         Configured = duration;
-        OriginLabel = string.IsNullOrWhiteSpace(originLabel) ? "Timer" : originLabel;
+        OriginLabel = string.IsNullOrWhiteSpace(originLabel) ? DefaultOriginLabel : originLabel;
         _endUtc = DateTime.UtcNow + duration;
         _frozen = TimeSpan.Zero;
         State = IslandTimerState.Running;
@@ -137,7 +140,7 @@ public sealed class IslandTimer
     public void Cancel()
     {
         Configured = TimeSpan.Zero;
-        OriginLabel = "Timer";
+        OriginLabel = DefaultOriginLabel;
         _frozen = TimeSpan.Zero;
         State = IslandTimerState.Idle;
         Changed?.Invoke();

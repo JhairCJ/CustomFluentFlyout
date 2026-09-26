@@ -79,12 +79,12 @@ public static class GoogleCalendarClient
 
             if (query.TryGetValue("error", out string? error))
                 throw new InvalidOperationException(error == "access_denied"
-                    ? "Permiso denegado en Google."
-                    : $"Google devolvió un error: {error}");
+                    ? IslandStrings.Get("IslandCalendarDenied", "Permission denied in Google.")
+                    : IslandStrings.Format("IslandCalendarGoogleError", "Google returned an error: {0}", error));
             if (!query.TryGetValue("state", out string? gotState) || gotState != state)
-                throw new InvalidOperationException("La respuesta no coincide con la petición (state).");
+                throw new InvalidOperationException(IslandStrings.Get("IslandCalendarStateMismatch", "The response does not match the request (state)."));
             if (!query.TryGetValue("code", out string? code) || code.Length == 0)
-                throw new InvalidOperationException("Google no devolvió el código de autorización.");
+                throw new InvalidOperationException(IslandStrings.Get("IslandCalendarNoCode", "Google did not return the authorization code."));
 
             return await ExchangeAsync(clientId, clientSecret, code, verifier, redirect, ct);
         }
@@ -106,7 +106,7 @@ public static class GoogleCalendarClient
             return settings.GoogleCalendarAccessToken;
 
         if (settings.GoogleCalendarRefreshToken.Length == 0)
-            throw new InvalidOperationException("No hay sesión de Google iniciada.");
+            throw new InvalidOperationException(IslandStrings.Get("IslandCalendarNoSession", "No Google session started."));
 
         var tokens = await RefreshAsync(settings.GoogleCalendarClientId, settings.GoogleCalendarClientSecret,
             settings.GoogleCalendarRefreshToken, ct);
@@ -141,7 +141,8 @@ public static class GoogleCalendarClient
         using var response = await Http.SendAsync(request, ct);
         string json = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException(DescribeError(json, (int)response.StatusCode, "No se pudo leer el calendario"));
+            throw new InvalidOperationException(DescribeError(json, (int)response.StatusCode,
+                IslandStrings.Get("IslandCalendarReadFailed", "Could not read the calendar")));
         return ParseEvents(json);
     }
 
@@ -199,14 +200,16 @@ public static class GoogleCalendarClient
         using var response = await Http.PostAsync(TokenEndpoint, content, ct);
         string json = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException(DescribeError(json, (int)response.StatusCode, "Google rechazó la petición de token"));
+            throw new InvalidOperationException(DescribeError(json, (int)response.StatusCode,
+                IslandStrings.Get("IslandCalendarTokenRejected", "Google rejected the token request")));
 
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
         string access = root.TryGetProperty("access_token", out var a) ? a.GetString() ?? "" : "";
         string refresh = root.TryGetProperty("refresh_token", out var r) ? r.GetString() ?? "" : "";
         int expires = root.TryGetProperty("expires_in", out var e) && e.TryGetInt32(out int seconds) ? seconds : 3600;
-        if (access.Length == 0) throw new InvalidOperationException("Google no devolvió token de acceso.");
+        if (access.Length == 0)
+            throw new InvalidOperationException(IslandStrings.Get("IslandCalendarNoAccessToken", "Google did not return an access token."));
         return new Tokens(access, refresh, expires);
     }
 
@@ -229,11 +232,14 @@ public static class GoogleCalendarClient
         // Consumir las cabeceras para no cerrarle el socket antes de responder.
         while (!string.IsNullOrEmpty(await reader.ReadLineAsync(ct))) { }
 
-        const string body = "<!doctype html><meta charset=\"utf-8\"><title>FluentFlyout</title>"
+        string body = "<!doctype html><meta charset=\"utf-8\"><title>FluentFlyout</title>"
             + "<body style=\"margin:0;height:100vh;display:grid;place-items:center;background:#101010;"
             + "color:#f3f3f3;font:16px 'Segoe UI',sans-serif\">"
-            + "<div style=\"text-align:center\"><h2 style=\"font-weight:600\">Listo</h2>"
-            + "<p style=\"opacity:.7\">Ya puedes cerrar esta pestaña y volver a FluentFlyout.</p></div>";
+            + "<div style=\"text-align:center\"><h2 style=\"font-weight:600\">"
+            + IslandStrings.Get("IslandCalendarPageTitle", "Done")
+            + "</h2><p style=\"opacity:.7\">"
+            + IslandStrings.Get("IslandCalendarPageBody", "You can close this tab and return to FluentFlyout.")
+            + "</p></div>";
         byte[] bytes = Encoding.UTF8.GetBytes(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\nContent-Length: "
             + Encoding.UTF8.GetByteCount(body) + "\r\n\r\n" + body);
@@ -264,7 +270,7 @@ public static class GoogleCalendarClient
             events.Add(new GoogleCalendarEvent
             {
                 Id = item.TryGetProperty("id", out var id) ? id.GetString() ?? "" : "",
-                Title = title.Length > 0 ? title : "(sin título)",
+                Title = title.Length > 0 ? title : IslandStrings.Get("IslandCalendarUntitled", "(no title)"),
                 Start = start,
                 End = end >= start ? end : start,
                 Location = item.TryGetProperty("location", out var l) ? l.GetString() ?? "" : "",

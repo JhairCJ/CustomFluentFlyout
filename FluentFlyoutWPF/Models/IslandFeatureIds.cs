@@ -126,18 +126,25 @@ public static class IslandFeatureIds
     /// <summary>¿Es un identificador conocido? (los desconocidos se descartan al cargar)</summary>
     public static bool IsKnown(string? id) => id != null && All.Contains(id);
 
-    /// <summary>Nombre visible de una funcionalidad para la página de ajustes.</summary>
-    public static string DisplayName(string? id) => id switch
+    /// <summary>
+    /// Clave de recurso del nombre visible de una funcionalidad (página de ajustes).
+    ///
+    /// <para>Este archivo se compila también en el proyecto de comprobación SIN WPF
+    /// (<c>.selfcheck</c>), así que aquí NO se resuelve el texto: devolver nombre y
+    /// clave por separado mantiene la lógica pura. Quien traduce es
+    /// <c>IslandStrings</c>, en la capa de UI.</para>
+    /// </summary>
+    public static string DisplayNameKey(string? id) => id switch
     {
-        Media => "Control multimedia",
-        Timer => "Temporizador",
-        Apps => "Cajón de aplicaciones",
-        Shelf => "Estante de archivos",
-        Calendar => "Recordatorios de calendario",
-        Bluetooth => "Dispositivos Bluetooth",
-        Clipboard => "Portapapeles",
-        Weather => "Clima",
-        Power => "Cargador",
-        _ => id ?? "",
+        Media => "IslandFeatureMedia",
+        Timer => "IslandFeatureTimer",
+        Apps => "IslandFeatureApps",
+        Shelf => "IslandFeatureShelf",
+        Calendar => "IslandFeatureCalendar",
+        Bluetooth => "IslandFeatureBluetooth",
+        Clipboard => "IslandFeatureClipboard",
+        Weather => "IslandFeatureWeather",
+        Power => "IslandFeaturePower",
+        _ => "",
     };
 }

@@ -167,13 +167,18 @@ public partial class IslandWindow
         PowerGlyph.Foreground = unplugged ? PowerUnpluggedBrush : PowerChargingBrush;
         // «Cargando» solo si de verdad está cargando: enchufado y al 100 % Windows
         // informa que no carga, y decir «Cargando» ahí sería mentira.
-        PowerTitle.Text = unplugged ? "Cargador desconectado" : status.Charging ? "Cargando" : "Enchufado";
+        string unpluggedText = IslandStrings.Get("IslandPowerUnplugged", "Charger unplugged");
+        string chargingText = IslandStrings.Get("IslandPowerCharging", "Charging");
+        PowerTitle.Text = unplugged ? unpluggedText
+            : status.Charging ? chargingText
+            : IslandStrings.Get("IslandPowerPlugged", "Plugged in");
         PowerPercent.Text = status.PercentText ?? "";
         PowerPercent.Foreground = unplugged ? PowerUnpluggedBrush : PowerChargingBrush;
         PowerPercent.Visibility = status.PercentText == null ? Visibility.Collapsed : Visibility.Visible;
         PowerCompactGrid.ToolTip = status.PercentText is { } percent
-            ? $"{(unplugged ? "Cargador desconectado" : "Cargando")} · batería {percent}"
-            : unplugged ? "Cargador desconectado" : "Cargando";
+            ? IslandStrings.Format(unplugged ? "IslandPowerTooltipUnplugged" : "IslandPowerTooltipCharging",
+                unplugged ? "Charger unplugged · battery {0}" : "Charging · battery {0}", percent)
+            : unplugged ? unpluggedText : chargingText;
     }
 
     /// <summary>Repinta SOLO si el aviso del cargador es la vista de delante.</summary>

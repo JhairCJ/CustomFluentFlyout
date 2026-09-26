@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FluentFlyoutWPF.Classes;
 using System.Globalization;
 
 namespace FluentFlyoutWPF.Models;
@@ -40,7 +41,9 @@ public sealed class GoogleCalendarEvent
     // --- texto para las vistas (se recalcula al pintar) ---
 
     /// <summary>Franja del evento: «09:30–10:15» o «Todo el día».</summary>
-    public string WhenText => AllDay ? "Todo el día" : $"{Start:HH:mm}–{End:HH:mm}";
+    public string WhenText => AllDay
+        ? IslandStrings.Get("IslandCalendarAllDay", "All day")
+        : $"{Start:HH:mm}–{End:HH:mm}";
 
     /// <summary>Lugar del evento o su franja si no hay lugar: la segunda línea de la fila.</summary>
     public string DetailText => Location.Length > 0 ? Location : WhenText;
@@ -50,14 +53,14 @@ public sealed class GoogleCalendarEvent
     {
         get
         {
-            if (AllDay) return "hoy";
+            if (AllDay) return IslandStrings.Get("IslandCountdownToday", "today");
             TimeSpan left = Start - DateTime.Now;
-            if (left <= TimeSpan.Zero) return "ahora";
-            if (left.TotalMinutes < 1) return "en menos de 1 min";
-            if (left.TotalMinutes < 60) return $"en {Math.Ceiling(left.TotalMinutes):0} min";
-            if (left.TotalHours < 24) return $"en {(int)left.TotalHours} h {left.Minutes:00} min";
-            if (left.TotalDays < 2) return "mañana";
-            return $"en {(int)left.TotalDays} días";
+            if (left <= TimeSpan.Zero) return IslandStrings.Get("IslandCountdownNow", "now");
+            if (left.TotalMinutes < 1) return IslandStrings.Get("IslandCountdownUnderMinute", "in less than 1 min");
+            if (left.TotalMinutes < 60) return IslandStrings.Format("IslandCountdownMinutes", "in {0} min", Math.Ceiling(left.TotalMinutes));
+            if (left.TotalHours < 24) return IslandStrings.Format("IslandCountdownHours", "in {0} h {1} min", (int)left.TotalHours, left.Minutes.ToString("00"));
+            if (left.TotalDays < 2) return IslandStrings.Get("IslandCountdownTomorrow", "tomorrow");
+            return IslandStrings.Format("IslandCountdownDays", "in {0} days", (int)left.TotalDays);
         }
     }
 

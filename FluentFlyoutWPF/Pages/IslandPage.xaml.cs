@@ -47,7 +47,7 @@ public partial class IslandPage : Page
         RefreshScreensEditor();
         IslandWeatherPlaceText.Text = SettingsManager.Current.IslandWeatherPlace.Trim().Length > 0
             ? SettingsManager.Current.IslandWeatherPlace
-            : "Sin lugar elegido";
+            : IslandStrings.Get("IslandPage_NoPlace", "No place chosen");
         ApplyCategoryVisibility();
     }
 
@@ -95,7 +95,8 @@ public partial class IslandPage : Page
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var title = new TextBlock
             {
-                Text = $"Pantalla {i + 1} · {ids.Count}/{IslandFeatureIds.MaxFeaturesPerScreen}",
+                Text = IslandStrings.Format("IslandPage_ScreenTitle", "Screen {0} · {1}/{2}",
+                    i + 1, ids.Count, IslandFeatureIds.MaxFeaturesPerScreen),
                 FontSize = 14,
                 FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -103,9 +104,14 @@ public partial class IslandPage : Page
             Grid.SetColumn(title, 0);
             header.Children.Add(title);
             var actions = new StackPanel { Orientation = Orientation.Horizontal };
-            actions.Children.Add(ScreenButton("Subir", $"Subir la pantalla {i + 1} en el recorrido de la rueda y las flechas", () => MoveScreen(screen, -1)));
-            actions.Children.Add(ScreenButton("Bajar", $"Bajar la pantalla {i + 1} en el recorrido de la rueda y las flechas", () => MoveScreen(screen, +1)));
-            actions.Children.Add(ScreenButton("Quitar", "Quitar esta pantalla (la última no se puede quitar)", () =>
+            actions.Children.Add(ScreenButton(IslandStrings.Get("IslandPage_MoveUp", "Up"),
+                IslandStrings.Format("IslandPage_MoveUpTip", "Move screen {0} up in the wheel and arrow cycle", i + 1),
+                () => MoveScreen(screen, -1)));
+            actions.Children.Add(ScreenButton(IslandStrings.Get("IslandPage_MoveDown", "Down"),
+                IslandStrings.Format("IslandPage_MoveDownTip", "Move screen {0} down in the wheel and arrow cycle", i + 1),
+                () => MoveScreen(screen, +1)));
+            actions.Children.Add(ScreenButton(IslandStrings.Get("IslandPage_Remove", "Remove"),
+                IslandStrings.Get("IslandPage_RemoveScreenTip", "Remove this screen (the last one cannot be removed)"), () =>
             {
                 settings.RemoveIslandScreen(screen);
                 RefreshScreensEditor();
@@ -137,7 +143,7 @@ public partial class IslandPage : Page
             var addRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
             addRow.Children.Add(new TextBlock
             {
-                Text = "Añadir:",
+                Text = IslandStrings.Get("IslandPage_AddLabel", "Add:"),
                 FontSize = 12,
                 Opacity = 0.6,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -147,28 +153,31 @@ public partial class IslandPage : Page
             {
                 Width = 240,
                 IsEnabled = missing.Count > 0,
-                ToolTip = $"Se añade al final de la pantalla; colócala con ◀ ▶ (máx. {IslandFeatureIds.MaxFeaturesPerScreen} por pantalla)",
+                ToolTip = IslandStrings.Format("IslandPage_AddTip",
+                    "It is added at the end of the screen; place it with ◀ ▶ (max. {0} per screen)",
+                    IslandFeatureIds.MaxFeaturesPerScreen),
             };
             if (full)
             {
-                add.Items.Add($"Pantalla completa ({IslandFeatureIds.MaxFeaturesPerScreen}/{IslandFeatureIds.MaxFeaturesPerScreen})");
+                add.Items.Add(IslandStrings.Format("IslandPage_ScreenFull", "Screen full ({0}/{1})",
+                    IslandFeatureIds.MaxFeaturesPerScreen, IslandFeatureIds.MaxFeaturesPerScreen));
                 add.SelectedIndex = 0;
                 add.IsEnabled = false;
             }
             else if (missing.Count == 0)
             {
-                add.Items.Add("La pantalla las lleva todas");
+                add.Items.Add(IslandStrings.Get("IslandPage_ScreenAll", "The screen already has them all"));
                 add.SelectedIndex = 0;
                 add.IsEnabled = false;
             }
             else
             {
-                foreach (var id in missing) add.Items.Add(IslandFeatureIds.DisplayName(id));
+                foreach (var id in missing) add.Items.Add(IslandStrings.FeatureName(id));
             }
             add.SelectionChanged += (_, e) =>
             {
                 if (e.AddedItems.Count == 0 || e.AddedItems[0] is not string name) return;
-                var featureId = missing.FirstOrDefault(id => IslandFeatureIds.DisplayName(id) == name);
+                var featureId = missing.FirstOrDefault(id => IslandStrings.FeatureName(id) == name);
                 if (featureId != null && settings.AddIslandScreenFeature(screen, featureId))
                     RefreshScreensEditor();
             };
@@ -195,7 +204,7 @@ public partial class IslandPage : Page
         var content = new StackPanel { Orientation = Orientation.Horizontal };
         content.Children.Add(new TextBlock
         {
-            Text = IslandFeatureIds.DisplayName(featureId),
+            Text = IslandStrings.FeatureName(featureId),
             FontSize = 13,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 6, 0),
@@ -203,23 +212,23 @@ public partial class IslandPage : Page
         // Posición dentro de la pantalla: se ve el orden de un vistazo.
         content.Children.Add(new TextBlock
         {
-            Text = $"{position + 1}º",
+            Text = IslandStrings.Format("IslandPage_Position", "#{0}", position + 1),
             FontSize = 11,
             Opacity = 0.5,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 6, 0),
         });
-        var moveLeft = ScreenButton("◀", "Mover antes en la pantalla", () =>
+        var moveLeft = ScreenButton("◀", IslandStrings.Get("IslandPage_MoveEarlier", "Move earlier in the screen"), () =>
         {
             if (SettingsManager.Current.MoveIslandScreenFeature(screen, featureId, -1)) RefreshScreensEditor();
         });
         moveLeft.IsEnabled = position > 0;
-        var moveRight = ScreenButton("▶", "Mover después en la pantalla", () =>
+        var moveRight = ScreenButton("▶", IslandStrings.Get("IslandPage_MoveLater", "Move later in the screen"), () =>
         {
             if (SettingsManager.Current.MoveIslandScreenFeature(screen, featureId, +1)) RefreshScreensEditor();
         });
         moveRight.IsEnabled = position < total - 1;
-        var remove = ScreenButton("✕", "Sacar esta funcionalidad de la pantalla (la última no se puede sacar)", () =>
+        var remove = ScreenButton("✕", IslandStrings.Get("IslandPage_RemoveFeatureTip", "Take this feature out of the screen (the last one cannot be taken out)"), () =>
         {
             if (SettingsManager.Current.RemoveIslandScreenFeature(screen, featureId)) RefreshScreensEditor();
         });
@@ -286,8 +295,9 @@ public partial class IslandPage : Page
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "Añadir aplicación al Island",
-            Filter = "Aplicaciones (*.exe)|*.exe|Accesos directos (*.lnk)|*.lnk|Todos los archivos (*.*)|*.*",
+            Title = IslandStrings.Get("IslandPage_AddAppDialog", "Add app to the Island"),
+            Filter = IslandStrings.Get("IslandPage_AppFilter",
+                "Applications (*.exe)|*.exe|Shortcuts (*.lnk)|*.lnk|All files (*.*)|*.*"),
             CheckFileExists = true,
         };
         if (dialog.ShowDialog() == true)
@@ -322,11 +332,11 @@ public partial class IslandPage : Page
         IslandWeatherPlaces.Children.Clear();
         if (query.Length < 2)
         {
-            settings.IslandWeatherError = "Escribe al menos dos letras del lugar.";
+            settings.IslandWeatherError = IslandStrings.Get("IslandPage_WeatherFewLetters", "Type at least two letters of the place.");
             return;
         }
         settings.IslandWeatherError = "";
-        settings.IslandWeatherStatus = "Buscando lugares…";
+        settings.IslandWeatherStatus = IslandStrings.Get("IslandPage_WeatherSearching", "Searching places…");
         IslandWeatherSearchBtn.IsEnabled = false;
         _weatherSearch?.Cancel();
         var cts = new CancellationTokenSource();
@@ -338,12 +348,13 @@ public partial class IslandPage : Page
             if (places.Count == 0)
             {
                 settings.IslandWeatherStatus = "";
-                settings.IslandWeatherError = $"No se encontró ningún lugar llamado «{query}».";
+                settings.IslandWeatherError = IslandStrings.Format("IslandPage_WeatherNoResults",
+                    "No place named «{0}» was found.", query);
                 return;
             }
             settings.IslandWeatherStatus = places.Count == 1
-                ? "Un lugar encontrado: pulsa para elegirlo."
-                : $"{places.Count} lugares encontrados: elige el tuyo.";
+                ? IslandStrings.Get("IslandPage_WeatherOne", "One place found: click to choose it.")
+                : IslandStrings.Format("IslandPage_WeatherMany", "{0} places found: pick yours.", places.Count);
             foreach (var place in places)
             {
                 var button = new Button
@@ -363,7 +374,7 @@ public partial class IslandPage : Page
         {
             Logger.Warn(ex, "Clima: búsqueda de lugares fallida");
             settings.IslandWeatherStatus = "";
-            settings.IslandWeatherError = "No se pudo buscar: revisa la conexión a internet.";
+            settings.IslandWeatherError = IslandStrings.Get("IslandPage_WeatherSearchFailed", "Could not search: check your internet connection.");
         }
         finally
         {
@@ -388,7 +399,7 @@ public partial class IslandPage : Page
         settings.IslandWeatherEnabled = true;
         IslandWeatherPlaceText.Text = place.Label;
         IslandWeatherPlaces.Children.Clear();
-        settings.IslandWeatherStatus = $"Lugar elegido: {place.Label}.";
+        settings.IslandWeatherStatus = IslandStrings.Format("IslandPage_WeatherChosen", "Place chosen: {0}.", place.Label);
         (Application.Current?.MainWindow as MainWindow)?.islandWindow?.RefreshWeatherNow();
     }
 
@@ -406,8 +417,8 @@ public partial class IslandPage : Page
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "Aparcar archivos en el estante del Island",
-            Filter = "Todos los archivos (*.*)|*.*",
+            Title = IslandStrings.Get("IslandPage_ParkDialog", "Park files in the Island shelf"),
+            Filter = IslandStrings.Get("IslandPage_AllFilesFilter", "All files (*.*)|*.*"),
             CheckFileExists = true,
             Multiselect = true,
         };
@@ -426,7 +437,7 @@ public partial class IslandPage : Page
         catch (Exception ex)
         {
             Logger.Warn(ex, "Estante: no se pudo abrir la carpeta {Folder}", UserSettings.IslandShelfFolder);
-            SettingsManager.Current.IslandShelfError = "No se pudo abrir la carpeta del estante.";
+            SettingsManager.Current.IslandShelfError = IslandStrings.Get("IslandPage_ShelfOpenFailed", "Could not open the shelf folder.");
         }
     }
 
@@ -465,15 +476,15 @@ public partial class IslandPage : Page
             string clientId = settings.GoogleCalendarClientId.Trim();
             if (clientId.Length == 0)
             {
-                settings.GoogleCalendarError = "Pega el id del cliente OAuth de tu proyecto de Google.";
+                settings.GoogleCalendarError = IslandStrings.Get("IslandPage_CalendarNeedClientId", "Paste the OAuth client id of your Google project.");
                 return;
             }
             settings.GoogleCalendarError = "";
-            settings.GoogleCalendarStatus = "Esperando a que autorices en el navegador…";
+            settings.GoogleCalendarStatus = IslandStrings.Get("IslandPage_CalendarWaiting", "Waiting for you to authorize in the browser…");
             var tokens = await GoogleCalendarClient.AuthorizeAsync(clientId, settings.GoogleCalendarClientSecret.Trim());
             GoogleCalendarClient.Save(settings, tokens);
             settings.GoogleCalendarAccount = await GoogleCalendarClient.FetchAccountAsync(tokens.AccessToken);
-            settings.GoogleCalendarStatus = "Sesión iniciada.";
+            settings.GoogleCalendarStatus = IslandStrings.Get("IslandPage_CalendarSignedIn", "Signed in.");
             // Si alguien se conecta es porque quiere los recordatorios: se enciende la
             // funcionalidad en el mismo gesto (el interruptor sigue estando ahí).
             settings.IslandCalendarEnabled = true;
@@ -485,7 +496,7 @@ public partial class IslandPage : Page
         {
             // El usuario cerró la pestaña o dejó pasar los cinco minutos.
             settings.GoogleCalendarStatus = "";
-            settings.GoogleCalendarError = "No se completó la autorización: vuelve a intentarlo.";
+            settings.GoogleCalendarError = IslandStrings.Get("IslandPage_CalendarAuthFailed", "The authorization was not completed: try again.");
         }
         catch (Exception ex)
         {
@@ -515,16 +526,18 @@ public partial class IslandPage : Page
         var settings = SettingsManager.Current;
         if (!settings.GoogleCalendarSignedIn)
         {
-            settings.GoogleCalendarError = "Inicia sesión con Google para leer el calendario.";
+            settings.GoogleCalendarError = IslandStrings.Get("IslandPage_CalendarSignInFirst", "Sign in with Google to read the calendar.");
             return;
         }
         var button = sender as Button;
         if (button != null) button.IsEnabled = false;
-        settings.GoogleCalendarStatus = "Sincronizando…";
+        settings.GoogleCalendarStatus = IslandStrings.Get("IslandPage_CalendarSyncing", "Syncing…");
         try
         {
             await GoogleCalendarService.Instance.RefreshNowAsync();
-            settings.GoogleCalendarStatus = settings.GoogleCalendarError.Length == 0 ? "Calendario al día." : "";
+            settings.GoogleCalendarStatus = settings.GoogleCalendarError.Length == 0
+                ? IslandStrings.Get("IslandPage_CalendarUpToDate", "Calendar up to date.")
+                : "";
         }
         finally
         {

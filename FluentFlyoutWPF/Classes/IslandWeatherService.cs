@@ -47,7 +47,7 @@ public sealed record IslandWeatherSnapshot(
 
     /// <summary>Extremos del día si el proveedor los dio («máx 22° · mín 11°»).</summary>
     public string? RangeText => HighC is double high && LowC is double low
-        ? $"máx {Math.Round(high)}° · mín {Math.Round(low)}°"
+        ? IslandStrings.Format("IslandWeatherRange", "high {0}° · low {1}°", Math.Round(high), Math.Round(low))
         : null;
 }
 
@@ -231,29 +231,32 @@ public sealed class IslandWeatherService : IDisposable
         }
         catch (Exception ex)
         {
-            Error = "No se pudo leer el clima. Se reintentará en el próximo ciclo.";
+            Error = IslandStrings.Get("IslandWeatherError", "Unable to read the weather. It will be retried on the next cycle.");
             Log.Warn(ex, "Clima: fallo al leer el dato de {Place}", place.Label);
             return null;
         }
     }
 
     /// <summary>
-    /// Traduce el código WMO del proveedor a un texto en español y el glifo del
-    /// Island. Los códigos van por grupos (despejado, nubes, lluvia, nieve, tormenta),
-    /// así que cada glifo cubre su familia sin tabla de treinta entradas.
+    /// Traduce el código WMO del proveedor al texto localizado y al glifo del Island.
+    /// Los códigos van por grupos (despejado, nubes, lluvia, nieve, tormenta), así que
+    /// cada glifo cubre su familia sin tabla de treinta entradas.
     /// </summary>
     private static (string Condition, SymbolRegular Glyph) Describe(int code) => code switch
     {
-        0 => ("Despejado", SymbolRegular.WeatherSunny24),
-        1 => ("Mayormente despejado", SymbolRegular.WeatherSunny24),
-        2 => ("Parcialmente nublado", SymbolRegular.WeatherPartlyCloudyDay24),
-        3 => ("Nublado", SymbolRegular.WeatherCloudy24),
-        45 or 48 => ("Niebla", SymbolRegular.WeatherFog24),
-        >= 51 and <= 57 => ("Llovizna", SymbolRegular.WeatherDrizzle24),
-        61 or 63 or 65 or 80 or 81 or 82 => ("Lluvia", SymbolRegular.WeatherRain24),
-        >= 66 and <= 67 => ("Lluvia helada", SymbolRegular.WeatherRainShowersDay24),
-        71 or 73 or 75 or 77 or 85 or 86 => ("Nieve", SymbolRegular.WeatherSnow24),
-        >= 95 => ("Tormenta", SymbolRegular.WeatherThunderstorm24),
-        _ => ("Tiempo variable", SymbolRegular.WeatherCloudy24),
+        0 => (Condition("IslandWeatherClear", "Clear"), SymbolRegular.WeatherSunny24),
+        1 => (Condition("IslandWeatherMostlyClear", "Mostly clear"), SymbolRegular.WeatherSunny24),
+        2 => (Condition("IslandWeatherPartlyCloudy", "Partly cloudy"), SymbolRegular.WeatherPartlyCloudyDay24),
+        3 => (Condition("IslandWeatherCloudy", "Cloudy"), SymbolRegular.WeatherCloudy24),
+        45 or 48 => (Condition("IslandWeatherFog", "Fog"), SymbolRegular.WeatherFog24),
+        >= 51 and <= 57 => (Condition("IslandWeatherDrizzle", "Drizzle"), SymbolRegular.WeatherDrizzle24),
+        61 or 63 or 65 or 80 or 81 or 82 => (Condition("IslandWeatherRain", "Rain"), SymbolRegular.WeatherRain24),
+        >= 66 and <= 67 => (Condition("IslandWeatherFreezingRain", "Freezing rain"), SymbolRegular.WeatherRainShowersDay24),
+        71 or 73 or 75 or 77 or 85 or 86 => (Condition("IslandWeatherSnow", "Snow"), SymbolRegular.WeatherSnow24),
+        >= 95 => (Condition("IslandWeatherThunderstorm", "Thunderstorm"), SymbolRegular.WeatherThunderstorm24),
+        _ => (Condition("IslandWeatherVariable", "Variable weather"), SymbolRegular.WeatherCloudy24),
     };
+
+    /// <summary>Texto localizado de una condición del cielo, con respaldo en inglés.</summary>
+    private static string Condition(string key, string fallback) => IslandStrings.Get(key, fallback);
 }

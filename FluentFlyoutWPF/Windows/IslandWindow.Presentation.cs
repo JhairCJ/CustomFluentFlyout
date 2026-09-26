@@ -56,6 +56,23 @@ public partial class IslandWindow
         ApplyFrame();
     }
 
+    /// <summary>
+    /// El idioma de la app cambió en caliente. Los textos del XAML se refrescan solos
+    /// (<c>{DynamicResource}</c>); aquí se re-aplican los que escribe el código
+    /// (estado del temporizador, del calendario y del cargador) para que el Island no
+    /// quede a medio traducir.
+    /// </summary>
+    private void OnLanguageChanged() => Dispatcher.Invoke(() =>
+    {
+        if (_disposed) return;
+        ApplyIslandTextStyle();
+        UpdateLine();
+        if (!IsBoxShown) return;
+        if (_contentMode == IslandContentMode.Timer) RefreshTimerUI();
+        else if (_contentMode == IslandContentMode.Calendar) RefreshCalendarList();
+        else if (_contentMode == IslandContentMode.Power) RefreshPowerUI();
+    });
+
     private int _appliedStyle = -1;
 
     /// <summary>Estilo del contenedor (pill o notch) y borde según ajuste.</summary>

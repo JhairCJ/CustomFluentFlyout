@@ -57,7 +57,7 @@
             </Canvas>
         </Viewbox>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="20,0,0,4">
-            <TextBlock Name="LockTextBlock" Text="Loading..." FontSize="14" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Name="LockTextBlock" Text="{DynamicResource LoadingText}" FontSize="14" FontWeight="Medium" TextTrimming="CharacterEllipsis"/>
         </StackPanel>
         <Rectangle Name="LockIndicatorRectangle" Fill="{DynamicResource MicaWPF.Brushes.AccentFillColorDefault}" Height="4" RadiusX="2" RadiusY="2" Width="60" VerticalAlignment="Bottom"/>
     </Grid>

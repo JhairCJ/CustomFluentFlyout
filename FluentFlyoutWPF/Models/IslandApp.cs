@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Utils;
+using FluentFlyoutWPF.Classes;
 using System.ComponentModel;
 using System.IO;
 using System.Windows.Media;
@@ -48,7 +49,7 @@ public sealed class IslandApp : INotifyPropertyChanged
         {
             if (string.IsNullOrWhiteSpace(value))
             {
-                Error = "El nombre no puede estar vacío.";
+                Error = IslandStrings.Get("IslandNameEmpty", "The name cannot be empty.");
                 OnPropertyChanged(nameof(Error));
                 OnPropertyChanged(nameof(Name));
                 return;

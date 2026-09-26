@@ -2145,13 +2145,14 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Crea un preset (máx. 10, con mensaje en español al superarlo). Usado por IslandPage.
+    /// Crea un preset (máx. <see cref="IslandTimer.MaxPresets"/>). Usado por IslandPage.
     /// </summary>
     public bool AddTimerPreset()
     {
         if (IslandTimerPresets.Count >= Classes.IslandTimer.MaxPresets)
         {
-            TimerPresetsError = "Máximo 10 presets. Borra uno para crear otro.";
+            TimerPresetsError = IslandStrings.Format("IslandPresetsMax",
+                "Max {0} presets. Delete one to create another.", Classes.IslandTimer.MaxPresets);
             return false;
         }
         IslandTimerPresets.Add(new TimerPreset { Name = $"Preset {IslandTimerPresets.Count + 1}", DurationSeconds = 300 });
@@ -2228,17 +2229,18 @@ public partial class UserSettings : ObservableObject
         path = (path ?? "").Trim();
         if (path.Length == 0)
         {
-            IslandAppsError = "Selecciona una aplicación para añadir.";
+            IslandAppsError = IslandStrings.Get("IslandAppsPick", "Pick an app to add.");
             return false;
         }
         if (IslandApps.Any(a => string.Equals(a.Path, path, StringComparison.OrdinalIgnoreCase)))
         {
-            IslandAppsError = "Esa aplicación ya está en el cajón.";
+            IslandAppsError = IslandStrings.Get("IslandAppsDuplicate", "That app is already in the drawer.");
             return false;
         }
         if (IslandApps.Count >= IslandApp.MaxApps)
         {
-            IslandAppsError = $"Máximo {IslandApp.MaxApps} aplicaciones. Quita una para añadir otra.";
+            IslandAppsError = IslandStrings.Format("IslandAppsMax",
+                "Max {0} apps. Remove one to add another.", IslandApp.MaxApps);
             return false;
         }
         string name = "";
@@ -2508,7 +2510,7 @@ public partial class UserSettings : ObservableObject
         GoogleCalendarTokenExpiresUtc = DateTime.MinValue;
         GoogleCalendarAccount = "";
         GoogleCalendarError = "";
-        GoogleCalendarStatus = "Sesión cerrada.";
+        GoogleCalendarStatus = IslandStrings.Get("IslandCalendarSignedOut", "Signed out.");
         GoogleCalendarService.Instance.Configure();
     }
 
@@ -2528,7 +2530,8 @@ public partial class UserSettings : ObservableObject
             if (IslandShelfItems.Any(i => string.Equals(i.Path, source, StringComparison.OrdinalIgnoreCase))) continue;
             if (IslandShelfItems.Count >= IslandShelfItem.MaxItems)
             {
-                IslandShelfError = $"Máximo {IslandShelfItem.MaxItems} elementos en el estante.";
+                IslandShelfError = IslandStrings.Format("IslandShelfMax",
+                    "Max {0} items on the shelf.", IslandShelfItem.MaxItems);
                 break;
             }
             bool isFolder = Directory.Exists(source);
@@ -2537,7 +2540,7 @@ public partial class UserSettings : ObservableObject
             string? parked = MoveTo(IslandShelfFolder, source, isFolder);
             if (parked == null)
             {
-                IslandShelfError = "No se pudo aparcar algún elemento (revisa el registro).";
+                IslandShelfError = IslandStrings.Get("IslandShelfParkFailed", "Could not park an item (check the log).");
                 continue;
             }
             IslandShelfItems.Add(new IslandShelfItem { Path = parked, Origin = source, IsFolder = isFolder });
@@ -2560,7 +2563,8 @@ public partial class UserSettings : ObservableObject
             string originDir = System.IO.Path.GetDirectoryName(item.Origin) ?? "";
             if (originDir.Length == 0 || !Directory.Exists(originDir))
             {
-                IslandShelfError = "La carpeta original ya no existe: el elemento sigue en el estante.";
+                IslandShelfError = IslandStrings.Get("IslandShelfOriginGone",
+                    "The original folder is gone: the item stays on the shelf.");
                 return false;
             }
             string target = FreeTarget(originDir, System.IO.Path.GetFileName(item.Origin), item.IsFolder);
@@ -2573,7 +2577,8 @@ public partial class UserSettings : ObservableObject
         catch (Exception ex)
         {
             Logger.Warn(ex, "Estante: no se pudo devolver {Path} a su carpeta original", item.Path);
-            IslandShelfError = "No se pudo devolver el elemento a su carpeta original.";
+            IslandShelfError = IslandStrings.Get("IslandShelfReturnFailed",
+                "Could not return the item to its original folder.");
             return false;
         }
     }
@@ -2588,7 +2593,8 @@ public partial class UserSettings : ObservableObject
         catch (Exception ex)
         {
             Logger.Warn(ex, "Estante: no se pudo preparar la carpeta {Folder}", IslandShelfFolder);
-            IslandShelfError = "No se pudo preparar la carpeta del estante.";
+            IslandShelfError = IslandStrings.Get("IslandShelfFolderFailed",
+                "Could not prepare the shelf folder.");
             return false;
         }
     }

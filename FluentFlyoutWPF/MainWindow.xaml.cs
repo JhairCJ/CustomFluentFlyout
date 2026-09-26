@@ -145,7 +145,8 @@ public partial class MainWindow : MicaWindow
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Failed to restore settings: {ex.Message}");
+            MessageBox.Show(IslandStrings.Format("SettingsRestoreFailed",
+                "Failed to restore settings: {0}", ex.Message));
             Logger.Error(ex, "Failed to restore settings");
         }
 
@@ -1151,7 +1152,7 @@ public partial class MainWindow : MicaWindow
 
             if (mediaSession == null)
             {
-                SongTitle.Text = "No media playing";
+                SongTitle.Text = IslandStrings.Get("NoMediaPlaying", "No media playing");
                 SongArtist.Text = string.Empty;
                 SongImage.ImageSource = null;
                 SymbolPlayPause.Symbol = Wpf.Ui.Controls.SymbolRegular.Stop16;

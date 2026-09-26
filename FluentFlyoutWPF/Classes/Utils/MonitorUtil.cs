@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes;
+using FluentFlyoutWPF.Classes;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -106,7 +107,7 @@ public static class MonitorUtil
         {
             return displayDevice.DeviceString.Trim(); // "Eg: Dell U2720Q"
         }
-        return "Unknown Monitor";
+        return IslandStrings.Get("UnknownMonitor", "Unknown Monitor");
     }
 
     /// <summary>

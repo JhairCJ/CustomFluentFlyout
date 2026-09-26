@@ -24,8 +24,9 @@ public readonly record struct IslandSpring(double KP, double CP, double KQ, doub
 /// <item>El paso del muelle está acotado por debajo (1/240 s) y por arriba (1/25 s), de
 /// modo que un frame perdido o una suspensión no lo desbocan.</item>
 /// <item>El rebote pintado tiene techo (<see cref="BounceLimit"/>) y suelo mínimo
-/// (<see cref="BounceCompress"/>): comprimirse por debajo del destino se escala con el
-/// salto al expandido y adelgazaba el reposo.</item>
+/// (<see cref="BounceCompress"/>): el sobrecrecimiento al ABRIR se acota a un 5% y
+/// la compresión al CERRAR a un 0,6%, de modo que la isla aterriza casi firme sin
+/// perder del todo el muelle.</item>
 /// </list>
 /// </summary>
 public static class IslandPhysics
@@ -37,10 +38,10 @@ public static class IslandPhysics
     public const double MaxStepSeconds = 1.0 / 25.0;
 
     /// <summary>Techo del rebote: cuánto puede pasarse la geometría de su tamaño final.</summary>
-    public const double BounceLimit = 0.12;
+    public const double BounceLimit = 0.05;
 
     /// <summary>Cuánto puede comprimirse la geometría por debajo de su destino.</summary>
-    public const double BounceCompress = 0.015;
+    public const double BounceCompress = 0.006;
 
     /// <summary>
     /// Coeficientes del muelle para una duración global y un estilo, memorizados por

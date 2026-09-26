@@ -3,6 +3,7 @@
 
 using FluentFlyout.Classes;
 using FluentFlyout.Classes.Settings;
+using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Classes.Utils;
 using FluentFlyoutWPF.ViewModels;
 using NLog;
@@ -32,7 +33,7 @@ public partial class HomePage : Page
         }
         catch
         {
-            VersionTextBlock.Text = "debug version";
+            VersionTextBlock.Text = IslandStrings.Get("DebugVersion", "debug version");
         }
     }
 

@@ -325,6 +325,9 @@ public partial class IslandWindow : Window
         // puntero, contexto por eventos de Windows y red de recuperación de 5 s
         // (001 MOD RF-1/RF-3/RF-12/RF-28). Sin latido de 200 ms ni poll de 40 ms.
         InitActivity();
+        // Idioma en caliente: los textos del XAML se refrescan solos; los que escribe
+        // el código los re-aplica este aviso (ver IslandWindow.Presentation.cs).
+        LocalizationManager.LanguageChanged += OnLanguageChanged;
         SyncExistingMediaState();
     }
 
@@ -365,6 +368,7 @@ public partial class IslandWindow : Window
     public void Dispose()
     {
         _disposed = true;
+        LocalizationManager.LanguageChanged -= OnLanguageChanged;
         ShutdownActivity();
         ShutdownBluetooth();
         ShutdownClipboard();

@@ -200,7 +200,7 @@ public partial class VolumeMixerViewModel : ObservableObject, IDisposable
             // Process may have exited
         }
 
-        return "Unknown";
+        return IslandStrings.Get("UnknownAppName", "Unknown");
     }
 
 

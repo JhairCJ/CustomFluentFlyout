@@ -129,11 +129,12 @@ public partial class IslandWindow
         ApplyWeatherSettings();
         if (weather == null || !WeatherModeAvailable())
         {
-            settings.IslandWeatherError = "Elige un lugar para poder mirar su clima.";
+            settings.IslandWeatherError = IslandStrings.Get("IslandWeatherNeedPlace",
+                "Pick a place to check its weather.");
             return;
         }
         settings.IslandWeatherError = "";
-        settings.IslandWeatherStatus = "Consultando…";
+        settings.IslandWeatherStatus = IslandStrings.Get("IslandWeatherChecking", "Checking…");
         bool ok = await weather.RefreshNowAsync();
         var snapshot = weather.Snapshot;
         if (snapshot != null)
@@ -146,10 +147,16 @@ public partial class IslandWindow
             PostActivity(IslandActivityReason.Weather);
         }
         settings.IslandWeatherStatus = ok && snapshot != null
-            ? $"Actualizado a las {snapshot.UpdatedUtc.ToLocalTime():HH:mm}."
+            ? WeatherUpdatedText(snapshot)
             : "";
-        settings.IslandWeatherError = weather.Error ?? (ok ? "" : "No se pudo leer el clima.");
+        settings.IslandWeatherError = weather.Error ?? (ok ? "" : IslandStrings.Get(
+            "IslandWeatherUnavailable", "Could not read the weather."));
     }
+
+    /// <summary>«Actualizado a las 14:35.» en el idioma activo (hora local del dato).</summary>
+    private static string WeatherUpdatedText(IslandWeatherSnapshot snapshot) =>
+        IslandStrings.Format("IslandWeatherUpdated", "Updated at {0}.",
+            snapshot.UpdatedUtc.ToLocalTime().ToString("HH:mm"));
 
     /// <summary>Lleva a la fuerza el lugar elegido al servicio y deja el ciclo en marcha o parado.</summary>
     private void ApplyWeatherSettings()
@@ -174,7 +181,7 @@ public partial class IslandWindow
         var previous = _weatherSnapshot;
         _weatherSnapshot = snapshot;
         SettingsManager.Current.IslandWeatherError = _weather?.Error ?? "";
-        SettingsManager.Current.IslandWeatherStatus = $"Actualizado a las {snapshot.UpdatedUtc.ToLocalTime():HH:mm}.";
+        SettingsManager.Current.IslandWeatherStatus = WeatherUpdatedText(snapshot);
         // El dato nuevo solo repinta si la vista del clima está delante (nunca la
         // despliega: el clima no es un evento que deba abrir la caja).
         if (previous == null || ViewShowsFeature(IslandFeatureIds.Weather))
