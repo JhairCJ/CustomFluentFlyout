@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -62,6 +63,15 @@ public static class DictationModelStore
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
     private static readonly HttpClient Http = CreateClient();
     private static readonly SemaphoreSlim VadDownloadLock = new(1, 1);
+
+    /// <summary>
+    /// Integridad ya comprobada en esta sesión: ruta → tamaño y fecha del archivo. Sin esto,
+    /// cargar un modelo volvía a leer y hashear el archivo entero —574 MB un «large», 1,5 GB
+    /// un «medium»— en el primer dictado de cada arranque. Si el archivo cambia de tamaño o de
+    /// fecha, se vuelve a comprobar.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, (long Length, DateTime LastWrite)> VerifiedModels =
+        new(StringComparer.OrdinalIgnoreCase);
 
     private const string VadFileName = "ggml-silero-v6.2.0.bin";
     private const string VadRevision = "6c641e5ffec145595714a49d532297bb8e368c28";
@@ -193,8 +203,24 @@ public static class DictationModelStore
         DictationModelInfo? model = Find(Path.GetFileName(path));
         if (model?.Sha256 is not { Length: > 0 } expectedHash) return;
 
+        (long Length, DateTime LastWrite) stamp;
+        try
+        {
+            var file = new FileInfo(path);
+            stamp = (file.Length, file.LastWriteTimeUtc);
+        }
+        catch (Exception ex)
+        {
+            // Sin tamaño ni fecha no se puede saltar la comprobación: se hace entera.
+            Logger.Warn(ex, $"No se pudo leer el estado del modelo {path}; se verificará completo");
+            stamp = default;
+        }
+
+        if (stamp != default && VerifiedModels.TryGetValue(path, out var verified) && verified == stamp) return;
+
         string actualHash = await ComputeSha256Async(path, cancellationToken);
         EnsureExpectedHash(path, expectedHash, actualHash);
+        if (stamp != default) VerifiedModels[path] = stamp;
     }
 
     /// <summary>

@@ -182,6 +182,11 @@ public partial class MainWindow : MicaWindow
 
         RefreshKeyboardHook();
 
+        // El modelo del dictado se carga, se verifica y se templa YA, en segundo plano: el
+        // primer dictado de la sesión no debe pagar la lectura del archivo, su SHA-256 ni el
+        // arranque de CUDA (spec 006). Preload no hace nada si el dictado está apagado.
+        if (SettingsManager.Current.DictationEnabled) Dictation.Preload();
+
         WindowStartupLocation = WindowStartupLocation.Manual;
         Left = -Width - 20; // workaround for window appearing on the screen before the animation starts
         CustomWindowChrome.CaptionHeight = 0; // hide the title bar
@@ -979,8 +984,12 @@ public partial class MainWindow : MicaWindow
             // Dictado (spec 006): el gancho solo AVISA del estado de la tecla —completar el
             // atajo abre el micrófono, soltarlo lo cierra y una tecla ajena cancela—. La
             // tecla sigue su camino a la aplicación de delante: el atajo nunca se consume.
+            // Los eventos inyectados (el texto que escribe el propio dictado, un teclado en
+            // pantalla, una macro) no son del usuario: el dictado no debe verlos. Un Enter
+            // inyectado cancelaba la sesión que lo estaba escribiendo.
             if (SettingsManager.Current.DictationEnabled)
-                Dictation.HandleKey(vkCode, down: keyDown);
+                Dictation.HandleKey(vkCode, down: keyDown,
+                    injected: (Marshal.ReadInt32(lParam, 8) & LLKHF_INJECTED) != 0);
 
             bool mediaKeysPressed = vkCode == 0xB3 || vkCode == 0xB0 || vkCode == 0xB1 || vkCode == 0xB2; // Play/Pause, next, previous, stop
             bool volumeKeysPressed = vkCode == 0xAD || vkCode == 0xAE || vkCode == 0xAF; // Mute, Volume Down, Volume Up

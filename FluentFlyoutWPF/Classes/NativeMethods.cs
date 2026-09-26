@@ -49,6 +49,9 @@ public static partial class NativeMethods
 
     // Keyboard Hook
     internal const int WH_KEYBOARD_LL = 13;
+    // Marca de un evento inyectado en KBDLLHOOKSTRUCT.flags (offset 8 del bloque del gancho):
+    // lo pone el sistema en lo que no viene de un teclado físico.
+    internal const int LLKHF_INJECTED = 0x10;
     internal const int WM_KEYDOWN = 0x0100;
     internal const int WM_KEYUP = 0x0101;
     internal const int WM_SYSKEYDOWN = 0x0104;

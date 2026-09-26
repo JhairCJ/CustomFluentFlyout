@@ -5,9 +5,9 @@ using FluentFlyout.Classes;
 using FluentFlyout.Classes.Settings;
 using FluentFlyoutWPF.Models;
 using NAudio.Wave;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Text;
 using Whisper.net;
 using Whisper.net.LibraryLoader;
 
@@ -107,11 +107,14 @@ public sealed class DictationService : IDisposable
     /// completarlo arranca, soltar cualquiera de sus teclas cierra y una tecla ajena
     /// cancela (RF-1/RF-3/RF-4).
     /// </summary>
-    public void HandleKey(int virtualKey, bool down)
+    public void HandleKey(int virtualKey, bool down, bool injected = false)
     {
-        // Las teclas inyectadas por nosotros (SendInput Unicode) no traen código virtual:
-        // no son del usuario y no deben contar para el atajo.
-        if (_disposed || virtualKey == 0) return;
+        // Un evento inyectado (el texto que escribimos nosotros mismos, un teclado en
+        // pantalla, una macro) no es una tecla del usuario: el dictado no debe verlo. Sin
+        // esto, un Enter inyectado —el salto de línea de una transcripción— cancelaba la
+        // sesión que lo estaba escribiendo. Además, las teclas Unicode no traen código
+        // virtual, así que tampoco cuentan para el atajo.
+        if (_disposed || injected || virtualKey == 0) return;
         // El gancho entrega el modificador físico (0xA2 para Ctrl izquierdo); el atajo
         // guardado dice «Ctrl»: se unifican antes de comparar nada.
         virtualKey = DictationHotkey.Normalize(virtualKey);
@@ -237,7 +240,11 @@ public sealed class DictationService : IDisposable
                 if (DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel) == null)
                     return;
                 await DictationModelStore.EnsureVadModelAsync(preloadCts.Token);
-                await EnsureFactoryAsync(preloadCts.Token);
+                WhisperFactory factory = await EnsureFactoryAsync(preloadCts.Token);
+                // Cargar no basta: la PRIMERA inferencia es la que crea el contexto de CUDA,
+                // carga los kernels y reserva las memorias de ggml. Templarla aquí hace que
+                // el primer dictado sea tan rápido como los demás.
+                await WarmUpAsync(factory, preloadCts.Token);
             }
             catch (OperationCanceledException) when (preloadCts.IsCancellationRequested)
             {
@@ -372,33 +379,112 @@ public sealed class DictationService : IDisposable
         }
     }
 
+    /// <summary>Frecuencia de muestreo del dictado (y del formato nativo de Whisper): 16 kHz.</summary>
+    private const int SampleRateHz = 16_000;
+
+    /// <summary>Hilos del motor: los núcleos disponibles menos uno, acotado para no ahogar la interfaz.</summary>
+    private static int TranscriptionThreads => Math.Clamp(Environment.ProcessorCount - 1, 2, 8);
+
+    /// <summary>Tramas del encoder por segundo de audio (16 kHz, paso de 320 muestras).</summary>
+    private const int EncoderFramesPerSecond = 50;
+
+    /// <summary>Contexto completo del encoder: los 30 s de la ventana nativa de Whisper.</summary>
+    private const int FullAudioContext = 30 * EncoderFramesPerSecond;
+
+    /// <summary>Suelo del contexto: por debajo no se gana nada y el modelo pierde margen.</summary>
+    private const int MinAudioContext = 384;
+
     /// <summary>
-    /// Transcribe las muestras (16 kHz mono) con el idioma configurado: «auto» deja que el
-    /// modelo lo detecte, así el mismo modelo multilingüe sirve para español e inglés (RF-7).
+    /// Contexto del encoder que necesita este audio, con un 50 % de margen. Whisper trabaja
+    /// SIEMPRE sobre una ventana de 30 s: acotar el contexto a lo grabado —el mismo truco que
+    /// usa whisper.cpp para audio corto— recorta el trabajo del encoder y de la atención
+    /// cruzada sin tocar el resultado, porque el audio entero sigue dentro. Con grabaciones
+    /// largas se deja el contexto completo, que es lo que necesitan los trozos de 30 s.
     /// </summary>
-    private async Task<string> TranscribeAsync(float[] samples, string language, CancellationToken cancellationToken)
+    private static int AudioContextFor(int sampleCount)
     {
-        if (!await ContainsSpeechAsync(samples, cancellationToken)) return string.Empty;
+        int needed = (int)Math.Ceiling(sampleCount / 320.0 * 1.5);
+        int rounded = (needed + 63) / 64 * 64;
+        return Math.Clamp(rounded, MinAudioContext, FullAudioContext);
+    }
 
-        WhisperFactory factory = await EnsureFactoryAsync(cancellationToken);
-        string? activePath = _factoryPath;
-        // Un modelo «.en» solo entiende inglés: pedirle español daría basura.
-        string effectiveLanguage = activePath != null && DictationModelStore.IsEnglishOnly(activePath)
-            ? "en"
-            : string.IsNullOrWhiteSpace(language) ? "auto" : language;
+    /// <summary>Duración de lo capturado, en texto, para los avisos del registro.</summary>
+    private static string AudioSeconds(float[] samples) => $"{samples.Length / (double)SampleRateHz:F1} s";
 
-        using var processor = factory.CreateBuilder()
-            .WithThreads(Math.Clamp(Environment.ProcessorCount - 1, 2, 8))
-            .WithLanguage(effectiveLanguage)
-            .WithNoContext() // cada dictado es independiente: sin contexto arrastrado
+    /// <summary>
+    /// Procesador de una transcripción: hilos, idioma, sin contexto arrastrado —cada dictado
+    /// es independiente— y encoder acotado a lo grabado, que es lo que hace que un dictado
+    /// corto sea casi instantáneo.
+    /// </summary>
+    private static WhisperProcessor BuildProcessor(WhisperFactory factory, int sampleCount, string language) =>
+        factory.CreateBuilder()
+            .WithThreads(TranscriptionThreads)
+            .WithLanguage(language)
+            .WithNoContext()
+            .WithAudioContextSize(AudioContextFor(sampleCount))
             .Build();
 
-        var text = new StringBuilder();
-        await foreach (var segment in processor.ProcessAsync(samples, cancellationToken))
+    /// <summary>
+    /// Primer pase de inferencia de regalo al cargar el modelo: CUDA crea su contexto, ggml
+    /// reserva sus memorias y los kernels se cargan en la PRIMERA pasada. Hacerla aquí —en
+    /// segundo plano, al arrancar o al cambiar de modelo— deja el primer dictado tan rápido
+    /// como los siguientes; el texto del silencio se descarta.
+    /// </summary>
+    private async Task WarmUpAsync(WhisperFactory factory, CancellationToken cancellationToken)
+    {
+        if (_disposed || Phase is DictationPhase.Listening or DictationPhase.Transcribing)
+            return; // un dictado en marcha manda: nada de competir por la GPU/CPU justo entonces
+
+        var clock = Stopwatch.StartNew();
+        try
         {
-            text.Append(segment.Text);
+            float[] silence = new float[SampleRateHz]; // 1 s de silencio: solo templa
+            using var processor = factory.CreateBuilder()
+                .WithThreads(TranscriptionThreads)
+                .WithLanguage("en")
+                .WithNoContext()
+                .WithSingleSegment()
+                .WithAudioContextSize(MinAudioContext)
+                .Build();
+            await foreach (var segment in processor.ProcessAsync(silence, cancellationToken))
+            {
+                _ = segment; // lo que diga el silencio no se usa
+            }
+            Logger.Info($"Dictado: motor templado en {clock.ElapsedMilliseconds} ms ({_runtimeInfo})");
         }
-        return text.ToString();
+        catch (OperationCanceledException)
+        {
+            // Cambiar de modelo o cerrar la aplicación cancela el templado.
+        }
+        catch (Exception ex)
+        {
+            // Un templado que falla no rompe nada: el fallo real se verá al dictar.
+            Logger.Warn(ex, "No se pudo templar el motor de dictado");
+        }
+    }
+
+    /// <summary>Idioma efectivo: un modelo «.en» solo entiende inglés (RF-7).</summary>
+    private string EffectiveLanguage(string language)
+    {
+        string? activePath = _factoryPath;
+        if (activePath != null && DictationModelStore.IsEnglishOnly(activePath)) return "en";
+        return string.IsNullOrWhiteSpace(language) ? "auto" : language;
+    }
+
+    /// <summary>
+    /// Escribe un trozo ya decodificado donde esté el cursor, si la sesión sigue vigente y no
+    /// se ha cancelado (RF-3/RF-4). Es el mismo candado que usa la cancelación: texto y
+    /// cancelación no se cruzan a mitad.
+    /// </summary>
+    private void WriteDictatedText(string text, CancellationToken token, CancellationTokenSource sessionCts)
+    {
+        if (token.IsCancellationRequested) return;
+        lock (_transcriptionGate)
+        {
+            if (_disposed || !SettingsManager.Current.DictationEnabled || !IsCurrentTranscription(sessionCts))
+                return;
+            SendText(text);
+        }
     }
 
     private async Task TranscribeAndSendAsync(
@@ -406,23 +492,64 @@ public sealed class DictationService : IDisposable
         string language,
         CancellationTokenSource sessionCts)
     {
+        var clock = Stopwatch.StartNew();
+        long vadMs = 0, engineMs = 0, firstTextMs = 0, decodeMs = 0, sendMs = 0;
+        int segments = 0, characters = 0;
         try
         {
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
                 sessionCts.Token,
                 _lifetimeCts.Token);
-            string text = await TranscribeAsync(samples, language, linkedCts.Token);
-            lock (_transcriptionGate)
+            CancellationToken token = linkedCts.Token;
+
+            long mark = clock.ElapsedMilliseconds;
+            if (!await ContainsSpeechAsync(samples, token))
             {
-                linkedCts.Token.ThrowIfCancellationRequested();
-                if (!_disposed
-                    && SettingsManager.Current.DictationEnabled
-                    && IsCurrentTranscription(sessionCts)
-                    && !string.IsNullOrWhiteSpace(text))
-                {
-                    SendText(text.Trim());
-                }
+                // RF-5: silencio = ni transcripción ni texto (y ninguna alucinación).
+                Logger.Info($"Dictado: {AudioSeconds(samples)} de audio sin voz (VAD {clock.ElapsedMilliseconds - mark} ms)");
+                return;
             }
+            vadMs = clock.ElapsedMilliseconds - mark;
+
+            mark = clock.ElapsedMilliseconds;
+            WhisperFactory factory = await EnsureFactoryAsync(token);
+            engineMs = clock.ElapsedMilliseconds - mark;
+
+            using var processor = BuildProcessor(factory, samples.Length, EffectiveLanguage(language));
+
+            // El texto se escribe SEGÚN se decodifica: el primer trozo aparece en cuanto el
+            // modelo lo produce, sin esperar a que termine la grabación entera. El hueco que
+            // separa un trozo del siguiente se guarda y se escribe con el siguiente (así el
+            // espacio entre palabras no se pierde), y el del último se descarta: el dictado
+            // no termina en un salto de línea ni en un espacio suelto.
+            string pending = string.Empty;
+            mark = clock.ElapsedMilliseconds;
+            await foreach (var segment in processor.ProcessAsync(samples, token))
+            {
+                string text = pending + segment.Text;
+                if (segments == 0) text = text.TrimStart(); // el dictado nunca empieza en blanco
+                if (text.Length == 0) continue;
+
+                int bodyEnd = text.Length;
+                while (bodyEnd > 0 && char.IsWhiteSpace(text[bodyEnd - 1])) bodyEnd--;
+                string body = text[..bodyEnd];
+                pending = text[bodyEnd..];
+                if (body.Length == 0) continue; // solo hueco: espera al trozo siguiente
+
+                if (segments == 0) firstTextMs = clock.ElapsedMilliseconds - mark;
+                segments++;
+                characters += body.Length;
+
+                long sendMark = clock.ElapsedMilliseconds;
+                WriteDictatedText(body, token, sessionCts);
+                sendMs += clock.ElapsedMilliseconds - sendMark;
+            }
+            decodeMs = clock.ElapsedMilliseconds - mark;
+
+            Logger.Info($"Dictado: {AudioSeconds(samples)} de audio | VAD {vadMs} ms | motor {engineMs} ms | "
+                + $"primer texto {firstTextMs} ms | decodificación {decodeMs} ms | {segments} segmento(s), "
+                + $"{characters} caracteres | escritura {sendMs} ms | encoder {AudioContextFor(samples.Length)} "
+                + $"| {(_factoryPath == null ? "?" : Path.GetFileName(_factoryPath))}");
         }
         catch (OperationCanceledException) when (
             sessionCts.IsCancellationRequested || _lifetimeCts.IsCancellationRequested)
