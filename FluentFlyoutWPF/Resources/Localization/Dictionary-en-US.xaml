@@ -698,6 +698,7 @@ You can help contribute translations on</System:String>
     <System:String x:Key="DictationGpuStatusCuda">Current runtime: CUDA</System:String>
     <System:String x:Key="DictationGpuStatusCpu">Current runtime: CPU (CUDA unavailable or disabled)</System:String>
     <System:String x:Key="DictationGpuRestartRequired">Restart the app to apply the CPU/CUDA change</System:String>
+    <System:String x:Key="DictationGpuDownloadDrivers">Download CUDA drivers</System:String>
     <System:String x:Key="DictationHotkeyTitle">Shortcut to hold</System:String>
     <System:String x:Key="DictationHotkeyDescription">One key or a combination. Ctrl on its own is the most comfortable: hold it, speak and let go.</System:String>
     <System:String x:Key="DictationHotkeyHint">Click and press the keys</System:String>

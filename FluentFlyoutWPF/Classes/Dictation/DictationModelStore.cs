@@ -10,8 +10,8 @@ namespace FluentFlyoutWPF.Classes.Dictation;
 
 /// <summary>
 /// Un modelo de dictado del catálogo: lo que la aplicación ofrece descargar. El
-/// archivo es siempre un ggml de whisper.cpp; los multilingües entienden español e
-/// inglés y los «.en» solo inglés (más precisos y algo más rápidos en inglés).
+/// archivo es siempre un ggml compatible con whisper.cpp; los multilingües entienden
+/// español e inglés y los «.en» solo inglés (más precisos y algo más rápidos en inglés).
 /// </summary>
 /// <param name="FileName">Nombre del archivo en la carpeta de modelos (la clave estable).</param>
 /// <param name="Name">Nombre visible.</param>
@@ -25,14 +25,21 @@ public sealed record DictationModelInfo(
     string Language,
     bool Recommended = false)
 {
+    /// <summary>Repositorio inmutable de modelos de Hugging Face.</summary>
+    public string Repository { get; init; } = "ggerganov/whisper.cpp";
+
     /// <summary>Revisión inmutable del repositorio de modelos de Hugging Face.</summary>
     public string Revision { get; init; } = "main";
+
+    /// <summary>Nombre del archivo remoto cuando difiere del nombre local.</summary>
+    public string RemoteFileName { get; init; } = "";
 
     /// <summary>SHA-256 esperado; null solo para modelos locales que no son del catálogo.</summary>
     public string? Sha256 { get; init; }
 
-    /// <summary>Dirección de descarga (repositorio ggml de whisper.cpp en Hugging Face).</summary>
-    public string Url => $"https://huggingface.co/ggerganov/whisper.cpp/resolve/{Revision}/{FileName}";
+    /// <summary>Dirección de descarga del archivo GGML en Hugging Face.</summary>
+    public string Url =>
+        $"https://huggingface.co/{Repository}/resolve/{Revision}/{(string.IsNullOrWhiteSpace(RemoteFileName) ? FileName : RemoteFileName)}";
 
     /// <summary>¿Solo entiende inglés? (nombre terminado en «.en»)</summary>
     public bool EnglishOnly => FileName.Contains(".en");
@@ -47,6 +54,7 @@ public sealed record DictationModelInfo(
         "ggml-small.bin" or "ggml-small.en.bin" => 488_000_000,
         "ggml-large-v3-q5_0.bin" => 1_081_000_000,
         "ggml-large-v3-turbo-q5_0.bin" => 574_000_000,
+        "ggml-distil-large-v3-multi4.bin" => 1_519_521_155,
         "ggml-medium-q5_0.bin" => 539_212_467,
         "ggml-medium.bin" => 1_530_000_000,
         _ => 150_000_000,
@@ -94,6 +102,16 @@ public static class DictationModelStore
     [
         // Deliberadamente descendente por peso del archivo: los modelos cuantizados
         // pueden tener más parámetros que otro archivo que aparece debajo.
+        // Esta variante destilada multilingüe publica el ggml directamente en el
+        // repositorio del autor; el nombre local evita depender de «ggml-model.bin».
+        new("ggml-distil-large-v3-multi4.bin", "Whisper Large v3 destilado (4 idiomas)", "1,5 GB",
+            "Inglés, español, francés y alemán")
+        {
+            Repository = "bofenghuang/whisper-large-v3-distil-multi4-v0.2",
+            RemoteFileName = "ggml-model.bin",
+            Revision = "c208e2df8510baad5d37e1e74c5c1824a929bc08",
+            Sha256 = "acb16925173055f2096ed9c71db1525c13b529d56828f0bb6b916504f2740296",
+        },
         new("ggml-medium.bin", "Whisper Medium", "1,5 GB", "Español, inglés y 97 idiomas más")
         {
             Revision = "80da2d8bfee42b0e836fc3a9890373e5defc00a6",

@@ -699,6 +699,7 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="DictationGpuStatusCuda">Motor actual: CUDA</system:String>
     <system:String x:Key="DictationGpuStatusCpu">Motor actual: CPU (CUDA no disponible o desactivado)</system:String>
     <system:String x:Key="DictationGpuRestartRequired">Reinicia la aplicación para aplicar el cambio entre CPU y CUDA</system:String>
+    <system:String x:Key="DictationGpuDownloadDrivers">Descargar controladores CUDA</system:String>
     <system:String x:Key="DictationHotkeyTitle">Atajo a mantener</system:String>
     <system:String x:Key="DictationHotkeyDescription">Una tecla o una combinación. Ctrl a secas es lo más cómodo: lo mantienes, hablas y lo sueltas.</system:String>
     <system:String x:Key="DictationHotkeyHint">Haz clic y pulsa las teclas</system:String>

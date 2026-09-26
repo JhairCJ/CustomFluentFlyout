@@ -38,6 +38,9 @@
             <StackPanel>
                 <ui:ToggleSwitch IsChecked="{Binding DictationUseGpu, Mode=TwoWay}" />
                 <TextBlock x:Name="GpuRuntimeStatus" FontSize="12" Opacity="0.7" Margin="0,6,0,0" TextWrapping="Wrap" />
+                <Button x:Name="CudaDriverButton" Content="{DynamicResource DictationGpuDownloadDrivers}"
+                        Padding="12,4" Margin="0,8,0,0" HorizontalAlignment="Left"
+                        Visibility="Collapsed" Click="DownloadCudaDrivers_Click" />
             </StackPanel>
         </ui:CardControl>
 

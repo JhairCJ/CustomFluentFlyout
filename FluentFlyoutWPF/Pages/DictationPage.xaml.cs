@@ -26,6 +26,8 @@ namespace FluentFlyoutWPF.Pages;
 /// </summary>
 public partial class DictationPage : Page
 {
+    private const string CudaDownloadsUrl = "https://developer.nvidia.com/cuda-downloads";
+
     private readonly ObservableCollection<DictationModelRow> _rows = [];
     private bool _loading;
 
@@ -104,6 +106,18 @@ public partial class DictationPage : Page
         }
 
         GpuRuntimeStatus.Text = IslandStrings.Get(key, fallback);
+        CudaDriverButton.Visibility = mainWindow.Dictation.RuntimeLoaded
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private void DownloadCudaDrivers_Click(object sender, RoutedEventArgs e)
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = CudaDownloadsUrl,
+            UseShellExecute = true,
+        });
     }
 
     // ------------------------------------------------------------------
