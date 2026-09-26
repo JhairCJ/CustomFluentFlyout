@@ -61,6 +61,10 @@ public partial class IslandWindow
         // mismo aunque el Island esté a punto de replegarse (001 MOD RF-4).
         CancelHoverLeave();
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
+        // El dictado manda (RF-10): con una sesión en marcha la franja tampoco agranda ni
+        // saca al Island de su tarjeta. La franja es geometría —el hook nativo y el sondeo
+        // la detectan sin hit-test—, así que el veto tiene que estar aquí.
+        if (DictationActive()) return;
         if (_expanded || _drag || _reelDragging) return;
         // Ultra compacto con el Island oculto del todo: no hay pieza ni cápsula a la que
         // apuntar, así que la franja de arriba —de la línea de actividad al borde— lo
@@ -298,6 +302,9 @@ public partial class IslandWindow
 
     private void IslandBox_Wheel(object sender, MouseWheelEventArgs e)
     {
+        // El hit-test ya está apagado durante el dictado (RF-10); esto cierra la puerta del
+        // todo por si el evento llegara por otra vía.
+        if (DictationActive()) return;
         // Rueda en expandido: pasa a la siguiente PANTALLA con algo usable (002 MOD
         // RF-3/RF-9; change island-pantallas RF-4: la unidad es la pantalla); hacia
         // arriba compacta sin cambiar de pantalla.

@@ -58,6 +58,9 @@ public partial class DictationPage : Page
 
     private void DictationPage_Unloaded(object sender, RoutedEventArgs e)
     {
+        // Se cierra la página (o la ventana de ajustes) con la caja quizá enfocada: el dictado
+        // tiene que volver a escuchar sí o sí.
+        EndHotkeyCapture();
         if (Application.Current.MainWindow is MainWindow mainWindow)
             mainWindow.Dictation.Changed -= Dictation_Changed;
     }
@@ -107,38 +110,77 @@ public partial class DictationPage : Page
     // Atajo
     // ------------------------------------------------------------------
 
+    /// <summary>Teclas del atajo que el usuario mantiene ahora mismo en la caja.</summary>
+    private readonly HashSet<int> _capturedKeys = [];
+    private bool _hotkeyCapturing;
+
+    /// <summary>Servicio del dictado (vive en la ventana principal), para avisarle de la captura.</summary>
+    private static DictationService? Dictation =>
+        Application.Current.MainWindow is MainWindow mainWindow ? mainWindow.Dictation : null;
+
     /// <summary>
-    /// Captura del atajo: al pulsar se escribe en la caja la combinación que el usuario
-    /// mantiene (Ctrl, Ctrl+Shift+M…) y se guarda al instante. La tecla se captura en
-    /// Preview para que no la consuma la navegación de la ventana.
+    /// Captura del atajo: mientras la caja tiene el foco, cada tecla que baja se ACUMULA con
+    /// las que ya estaban pulsadas y el ajuste guarda la combinación completa («Ctrl»,
+    /// «Ctrl+Shift+M»…). Antes la combinación dependía de lo que dijera el estado del teclado
+    /// de WPF en ese instante: si no reportaba los modificadores, cada tecla reemplazaba a la
+    /// anterior y el atajo se quedaba en una sola tecla.
     /// </summary>
     private void HotkeyBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        e.Handled = true;
-        int vk = KeyInterop.VirtualKeyFromKey(e.Key == Key.System ? e.SystemKey : e.Key);
-        ApplyCapturedHotkey(vk);
+        e.Handled = true; // la tecla es del atajo, no de la navegación de la ventana
+        BeginHotkeyCapture();
+        int vk = DictationHotkey.Normalize(VirtualKeyOf(e));
+        if (vk == 0) return;
+        _capturedKeys.Add(vk);
+        ApplyCapturedHotkey();
     }
 
     /// <summary>
-    /// Soltar una tecla vuelve a escribir lo que queda pulsado: así «Ctrl» se distingue de
-    /// «Ctrl+Shift» sin cerrar nada, y soltar todo deja el atajo que de verdad se mantuvo.
+    /// Soltar una tecla no cambia el ajuste: se queda la última combinación completa, que es
+    /// la que el usuario mantendrá para dictar. Solo deja de contar para lo que se pulse
+    /// después (Ctrl + M y luego N acaba en «Ctrl+N», no en «Ctrl+M+N»).
     /// </summary>
-    private void HotkeyBox_PreviewKeyUp(object sender, KeyEventArgs e) => e.Handled = true;
-
-    private void ApplyCapturedHotkey(int vk)
+    private void HotkeyBox_PreviewKeyUp(object sender, KeyEventArgs e)
     {
-        var keys = new List<int>();
-        ModifierKeys modifiers = Keyboard.Modifiers;
-        if (modifiers.HasFlag(ModifierKeys.Control)) keys.Add(DictationHotkey.VkCtrl);
-        if (modifiers.HasFlag(ModifierKeys.Shift)) keys.Add(DictationHotkey.VkShift);
-        if (modifiers.HasFlag(ModifierKeys.Alt)) keys.Add(DictationHotkey.VkAlt);
-        if (modifiers.HasFlag(ModifierKeys.Windows)) keys.Add(DictationHotkey.VkWin);
-        // La tecla que acaba de bajar cuenta también cuando es un modificador (WPF puede
-        // no reportarlo aún en Keyboard.Modifiers) y siempre que no sea ya la misma.
-        int normalized = DictationHotkey.Normalize(vk);
-        if (normalized != 0 && !keys.Contains(normalized)) keys.Add(normalized);
+        e.Handled = true;
+        _capturedKeys.Remove(DictationHotkey.Normalize(VirtualKeyOf(e)));
+    }
 
-        string text = DictationHotkey.Format(keys);
+    private static int VirtualKeyOf(KeyEventArgs e) =>
+        KeyInterop.VirtualKeyFromKey(e.Key == Key.System ? e.SystemKey : e.Key);
+
+    /// <summary>Con el foco en la caja ya se puede definir el atajo: se para el dictado entero.</summary>
+    private void HotkeyBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) => BeginHotkeyCapture();
+
+    private void HotkeyBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) => EndHotkeyCapture();
+
+    /// <summary>
+    /// Mientras se define el atajo el dictado no escucha: pulsar Ctrl en la caja no debe abrir
+    /// el micrófono, ni arrancar nada, ni cortar un dictado en marcha.
+    /// </summary>
+    private void BeginHotkeyCapture()
+    {
+        if (_hotkeyCapturing) return;
+        _hotkeyCapturing = true;
+        _capturedKeys.Clear();
+        if (Dictation is { } dictation) dictation.HotkeyCaptureActive = true;
+    }
+
+    private void EndHotkeyCapture()
+    {
+        if (!_hotkeyCapturing) return;
+        _hotkeyCapturing = false;
+        _capturedKeys.Clear();
+        if (Dictation is { } dictation) dictation.HotkeyCaptureActive = false;
+    }
+
+    /// <summary>
+    /// Guarda el atajo con lo que el usuario mantiene AHORA (la caja enseña el ajuste, así que
+    /// se ve al instante). Un ajuste ilegible no se guarda: se queda el que hubiera.
+    /// </summary>
+    private void ApplyCapturedHotkey()
+    {
+        string text = DictationHotkey.Format(_capturedKeys);
         if (DictationHotkey.IsValid(text)) SettingsManager.Current.DictationHotkey = text;
     }
 

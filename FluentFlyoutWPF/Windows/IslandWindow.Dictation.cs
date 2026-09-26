@@ -60,6 +60,37 @@ public partial class IslandWindow
     /// <summary>¿Hay una sesión de dictado en marcha? Es lo que sostiene la vista y da acceso exclusivo.</summary>
     private bool DictationActive() => _dictation?.Active == true;
 
+    /// <summary>
+    /// ¿Otra funcionalidad tiene ahora mismo acceso exclusivo (la alerta del temporizador)?
+    /// Se pregunta SIN contar al dictado: la tarjeta de dictado es exclusiva mientras dura la
+    /// sesión, así que un <c>HasExclusive()</c> a secas se vetaría a sí misma.
+    /// </summary>
+    private bool AnotherFeatureExclusive() =>
+        _features.Features.Any(f => f.State.Exclusive && f.Id != IslandFeatureIds.Dictation);
+
+    /// <summary>
+    /// Mientras se dicta, el Island queda fuera de servicio para el puntero (RF-10): se apaga
+    /// el hit-test de la caja —y con él TODOS sus clics, su rueda y el arrastrar-y-soltar— y el
+    /// de la franja de detección. Un roce, o un clic que iba a la ventana de detrás, no puede
+    /// abrir una pantalla encima de la tarjeta ni cambiarla a mitad de frase: el dictado se
+    /// cierra con su atajo, no con el ratón. El hover ya encendido se retira aquí mismo (su
+    /// salida no llega: sin hit-test no hay MouseLeave) para que el micro-crecimiento no se
+    /// quede congelado debajo de la tarjeta.
+    /// </summary>
+    private void ApplyDictationInteractionLock()
+    {
+        bool interactive = !DictationActive();
+        if (!interactive && _inactiveHot)
+        {
+            _inactiveHot = false;
+            if (AnimationsEnabled) EnsureLoop();
+            else { _inactiveHotT = 0; ApplyFrame(); }
+        }
+        if (IslandBox.IsHitTestVisible == interactive && HoverStrip.IsHitTestVisible == interactive) return;
+        IslandBox.IsHitTestVisible = interactive;
+        HoverStrip.IsHitTestVisible = interactive;
+    }
+
     internal IslandFeatureState GetDictationFeatureState()
     {
         bool enabled = DictationModeAvailable();
@@ -95,11 +126,14 @@ public partial class IslandWindow
         if (_dictation != null) _dictation.Changed -= OnDictationChanged;
         _dictation = null;
         StopDictationBars();
+        // Sin servicio no hay dictado: el Island vuelve a responder al puntero.
+        ApplyDictationInteractionLock();
     }
 
     /// <summary>Ajuste en caliente: el dictado se apagó con su tarjeta delante.</summary>
     public void RefreshDictationContent() => Dispatcher.Invoke(() =>
     {
+        ApplyDictationInteractionLock();
         if (!DictationModeAvailable() && _dictationViewShown)
         {
             _dictationViewShown = false;
@@ -130,6 +164,9 @@ public partial class IslandWindow
     {
         var dictation = _dictation;
         if (_disposed || dictation == null) return;
+        // El bloqueo del puntero acompaña a la fase: entra con la sesión y sale con ella
+        // (también con el aviso de error, que es una tarjeta que SÍ se puede clicar).
+        ApplyDictationInteractionLock();
 
         if (dictation.Active)
         {
@@ -161,6 +198,12 @@ public partial class IslandWindow
     private void ShowDictationCompact()
     {
         if (!DictationModeAvailable() || _dictation == null) return;
+        // Una exclusiva AJENA (la alerta del temporizador) manda y es modal hasta que se
+        // cierra: la tarjeta espera en vez de arrebatarle la superficie —la alerta se
+        // quedaría sin forma de retirarse—. El dictado no se corta: sigue capturando y
+        // escribiendo, que es lo que importa; solo no pinta su tarjeta. Mismo veto que
+        // Bluetooth y el cargador, que tampoco se presentan sobre una exclusiva.
+        if (AnotherFeatureExclusive()) return;
         _dictationViewShown = true;
         // Las ondas solo corren con micro abierto: un aviso de fallo no anima nada.
         if (DictationActive()) StartDictationBars(); else StopDictationBars();

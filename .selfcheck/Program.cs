@@ -173,16 +173,25 @@ int hookVk = DictationHotkey.Normalize(0xA2);
 Check(DictationHotkey.Triggers(singleKey, hookVk, [hookVk]), "mantener Ctrl dispara el dictado");
 Check(!DictationHotkey.Triggers(singleKey, hookVk, []), "Ctrl sin estar pulsado no dispara nada");
 Check(DictationHotkey.Ends(singleKey, hookVk), "soltar Ctrl cierra el dictado");
-Check(DictationHotkey.Cancels(singleKey, 0x43), "una tecla ajena (Ctrl+C) cancela el dictado");
+// RF-4 MODIFIED: una tecla ajena pulsada mientras se graba se IGNORA (Ctrl+C no descarta la
+// frase que se está dictando); solo Escape cancela, y las del propio atajo tampoco.
+Check(!DictationHotkey.Cancels(0x43), "una tecla ajena (C) no cancela el dictado");
+Check(DictationHotkey.Cancels(DictationHotkey.VkEscape), "Escape sí cancela el dictado");
+Check(!DictationHotkey.Cancels(hookVk), "la tecla del propio atajo no cancela");
 
 // Combinación: solo dispara cuando está COMPLETA, sea cual sea el orden.
 var combo = DictationHotkey.Parse("Ctrl+Shift+M");
 Check(DictationHotkey.Format(combo) == "Ctrl+Shift+M", "la combinación se escribe igual que se lee");
 Check(DictationHotkey.Parse("shift+ctrl+m").SequenceEqual(combo), "el orden al pulsar no cambia el atajo");
+// La caja de captura guarda lo que el usuario mantiene (un HashSet, sin orden): lo
+// formatea y lo relee el servicio. Las dos direcciones tienen que cuadrar.
+string captured = DictationHotkey.Format([0x10, 0x11, 0x4D]);
+Check(captured == "Ctrl+Shift+M", "la captura se guarda con los modificadores primero");
+Check(DictationHotkey.Parse(captured).SequenceEqual(combo), "y el servicio la relee igual");
 Check(!DictationHotkey.Triggers(combo, 0x4D, [0x11, 0x4D]), "sin todos los modificadores no dispara");
 Check(DictationHotkey.Triggers(combo, 0x4D, [0x11, 0x10, 0x4D]), "la combinación completa dispara");
 Check(DictationHotkey.Ends(combo, 0x10), "soltar cualquiera de sus teclas cierra el dictado");
-Check(!DictationHotkey.Cancels(combo, 0x4D) && !DictationHotkey.Cancels(combo, 0x11),
+Check(!DictationHotkey.Cancels(0x4D) && !DictationHotkey.Cancels(0x11),
     "las teclas del propio atajo no cancelan");
 
 // Un ajuste roto no puede dejar el dictado mudo.

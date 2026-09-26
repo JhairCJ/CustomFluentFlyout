@@ -55,6 +55,8 @@
                          FontWeight="SemiBold" TextAlignment="Center"
                          Text="{Binding DictationHotkey, Mode=OneWay}"
                          PreviewKeyDown="HotkeyBox_PreviewKeyDown" PreviewKeyUp="HotkeyBox_PreviewKeyUp"
+                         GotKeyboardFocus="HotkeyBox_GotKeyboardFocus"
+                         LostKeyboardFocus="HotkeyBox_LostKeyboardFocus"
                          ToolTip="{DynamicResource DictationHotkeyTip}" />
                 <TextBlock Text="{DynamicResource DictationHotkeyHint}" FontSize="12" Opacity="0.5"
                            VerticalAlignment="Center" Margin="10,0,0,0" />

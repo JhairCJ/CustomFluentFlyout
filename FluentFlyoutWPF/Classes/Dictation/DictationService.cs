@@ -69,6 +69,13 @@ public sealed class DictationService : IDisposable
     /// <summary>¿Está el dictado en marcha (grabando o transcribiendo)?</summary>
     public bool Active => Phase is DictationPhase.Listening or DictationPhase.Transcribing;
 
+    /// <summary>
+    /// El usuario está definiendo el atajo en Ajustes: las teclas que pulse en esa caja no
+    /// son dictado, así que no abren el micrófono ni cancelan nada. Lo pone la página del
+    /// dictado mientras su caja de captura tiene el foco.
+    /// </summary>
+    public bool HotkeyCaptureActive { get; set; }
+
     /// <summary>Nivel del micrófono ahora mismo (0..1), para el visualizador de ondas.</summary>
     public float Level => _capture.Level;
 
@@ -104,8 +111,9 @@ public sealed class DictationService : IDisposable
     /// <summary>
     /// Una tecla del gancho global. Mantiene el conjunto de teclas pulsadas —el gancho ve
     /// TODAS, la aplicación tenga el foco o no— y decide con la lógica pura del atajo:
-    /// completarlo arranca, soltar cualquiera de sus teclas cierra y una tecla ajena
-    /// cancela (RF-1/RF-3/RF-4).
+    /// completarlo arranca, soltar cualquiera de sus teclas cierra y solo Escape cancela
+    /// (RF-1/RF-3/RF-4); cualquier otra tecla ajena se ignora, así un roce con la mano no
+    /// descarta la frase que se está dictando.
     /// </summary>
     public void HandleKey(int virtualKey, bool down, bool injected = false)
     {
@@ -115,6 +123,8 @@ public sealed class DictationService : IDisposable
         // sesión que lo estaba escribiendo. Además, las teclas Unicode no traen código
         // virtual, así que tampoco cuentan para el atajo.
         if (_disposed || injected || virtualKey == 0) return;
+        // Definir el atajo en Ajustes no es dictar: esas teclas no arrancan ni cortan nada.
+        if (HotkeyCaptureActive) return;
         // El gancho entrega el modificador físico (0xA2 para Ctrl izquierdo); el atajo
         // guardado dice «Ctrl»: se unifican antes de comparar nada.
         virtualKey = DictationHotkey.Normalize(virtualKey);
@@ -126,7 +136,7 @@ public sealed class DictationService : IDisposable
             _pressed.Add(virtualKey);
             if (Active)
             {
-                if (DictationHotkey.Cancels(hotkey, virtualKey)) Cancel();
+                if (DictationHotkey.Cancels(virtualKey)) Cancel();
                 return;
             }
             if (DictationHotkey.Triggers(hotkey, virtualKey, _pressed)) Start();
@@ -411,6 +421,9 @@ public sealed class DictationService : IDisposable
     /// <summary>Duración de lo capturado, en texto, para los avisos del registro.</summary>
     private static string AudioSeconds(float[] samples) => $"{samples.Length / (double)SampleRateHz:F1} s";
 
+    /// <summary>Aviso de micrófono para el registro: solo aparece si hubo que reabrirlo.</summary>
+    private string MicNote() => _capture.Revives > 0 ? $" | micrófono reabierto {_capture.Revives}×" : "";
+
     /// <summary>
     /// Procesador de una transcripción: hilos, idioma, sin contexto arrastrado —cada dictado
     /// es independiente— y encoder acotado a lo grabado, que es lo que hace que un dictado
@@ -506,7 +519,8 @@ public sealed class DictationService : IDisposable
             if (!await ContainsSpeechAsync(samples, token))
             {
                 // RF-5: silencio = ni transcripción ni texto (y ninguna alucinación).
-                Logger.Info($"Dictado: {AudioSeconds(samples)} de audio sin voz (VAD {clock.ElapsedMilliseconds - mark} ms)");
+                Logger.Info($"Dictado: {AudioSeconds(samples)} de audio sin voz (VAD {clock.ElapsedMilliseconds - mark} ms)"
+                    + MicNote());
                 return;
             }
             vadMs = clock.ElapsedMilliseconds - mark;
@@ -549,7 +563,8 @@ public sealed class DictationService : IDisposable
             Logger.Info($"Dictado: {AudioSeconds(samples)} de audio | VAD {vadMs} ms | motor {engineMs} ms | "
                 + $"primer texto {firstTextMs} ms | decodificación {decodeMs} ms | {segments} segmento(s), "
                 + $"{characters} caracteres | escritura {sendMs} ms | encoder {AudioContextFor(samples.Length)} "
-                + $"| {(_factoryPath == null ? "?" : Path.GetFileName(_factoryPath))}");
+                + $"| {(_factoryPath == null ? "?" : Path.GetFileName(_factoryPath))}"
+                + MicNote());
         }
         catch (OperationCanceledException) when (
             sessionCts.IsCancellationRequested || _lifetimeCts.IsCancellationRequested)
@@ -731,23 +746,42 @@ public sealed class DictationService : IDisposable
     /// <summary>
     /// Captura del micrófono predeterminado a 16 kHz mono PCM16 —el formato nativo de
     /// Whisper— acumulando las muestras ya normalizadas y midiendo el nivel para las ondas.
+    ///
+    /// <para>Vigila que el dispositivo siga entregando audio. Un dictado largo se perdía
+    /// entero porque la captura se moría a mitad —otra aplicación se quedó con el micro, el
+    /// dispositivo predeterminado cambió, el controlador se durmió— y nadie lo notaba hasta
+    /// soltar la tecla, con un audio de tres segundos y sin voz. Ahora el vigía lo detecta y
+    /// reabre la captura sin salir del dictado, conservando lo ya grabado.</para>
     /// </summary>
     private sealed class MicCapture : IDisposable
     {
         private const int SampleRate = 16_000;
         /// <summary>Tope de un dictado: 2 minutos. Acota la memoria (7,7 MB de muestras).</summary>
         private const int MaxSamples = SampleRate * 120;
+        /// <summary>Sin un solo bloque del dispositivo en este tiempo, la captura está muerta (el mismo criterio que el visualizador).</summary>
+        private const int StallMs = 2000;
 
         // El dispositivo se abre en Start(), no al construir: en un equipo SIN micrófono
         // crear el objeto ya lanza, y este servicio nace con la ventana principal (el
         // dictado apagado no debe poder impedir que la aplicación arranque).
         private WaveIn? _wave;
         private readonly List<float> _samples = new(SampleRate * 15);
+        /// <summary>Muestras: las escribe el hilo de audio, las lee el de la transcripción.</summary>
         private readonly Lock _lock = new();
+        /// <summary>Dispositivo y grabación: los tocan la interfaz, el vigía y el cierre.</summary>
+        private readonly Lock _deviceLock = new();
+        private System.Timers.Timer? _watchdog;
         private volatile float _level;
+        private volatile bool _active;
+        private long _lastDataTick;
+        private int _revives;
+        private bool _capped;
 
         /// <summary>Nivel del último bloque (0..1) para el visualizador.</summary>
         public float Level => _level;
+
+        /// <summary>Reaperturas de la captura durante el dictado (0 = el dispositivo se portó bien).</summary>
+        public int Revives => _revives;
 
         public void Start()
         {
@@ -755,7 +789,60 @@ public sealed class DictationService : IDisposable
             {
                 _samples.Clear();
                 _level = 0;
+                _capped = false;
             }
+            _revives = 0;
+            lock (_deviceLock)
+            {
+                OpenAndRecord();
+                _active = true;
+            }
+            StartWatchdog();
+        }
+
+        /// <summary>Cierra el micrófono y devuelve lo capturado.</summary>
+        public float[] Stop()
+        {
+            _active = false; // antes del vigía: un tic en vuelo no debe reabrir nada
+            StopWatchdog();
+            lock (_deviceLock)
+            {
+                try
+                {
+                    CloseDevice();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn(ex, "Error al cerrar el micrófono");
+                }
+            }
+            _level = 0;
+            lock (_lock)
+            {
+                return [.. _samples];
+            }
+        }
+
+        public void Dispose()
+        {
+            _active = false;
+            StopWatchdog();
+            lock (_deviceLock)
+            {
+                try
+                {
+                    CloseDevice();
+                }
+                catch
+                {
+                    // El dispositivo ya podía estar cerrado.
+                }
+            }
+        }
+
+        /// <summary>Abre el dispositivo si hace falta y arranca la grabación.</summary>
+        private void OpenAndRecord()
+        {
             if (_wave == null)
             {
                 var wave = new WaveIn
@@ -768,40 +855,35 @@ public sealed class DictationService : IDisposable
                 _wave = wave;
             }
             _wave.StartRecording();
+            Volatile.Write(ref _lastDataTick, Environment.TickCount64);
         }
 
-        /// <summary>Cierra el micrófono y devuelve lo capturado.</summary>
-        public float[] Stop()
+        /// <summary>Suelta el dispositivo (para el próximo dictado se abre uno nuevo).</summary>
+        private void CloseDevice()
         {
-            try
-            {
-                var wave = _wave;
-                if (wave != null)
-                {
-                    wave.DataAvailable -= OnData;
-                    wave.StopRecording();
-                    wave.Dispose();
-                    _wave = null;
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn(ex, "Error al cerrar el micrófono");
-            }
-            _level = 0;
-            lock (_lock)
-            {
-                return [.. _samples];
-            }
+            var wave = _wave;
+            _wave = null;
+            if (wave == null) return;
+            wave.DataAvailable -= OnData;
+            wave.StopRecording();
+            wave.Dispose();
         }
 
         private void OnData(object? sender, WaveInEventArgs e)
         {
+            Volatile.Write(ref _lastDataTick, Environment.TickCount64);
             int count = e.BytesRecorded / 2;
             if (count <= 0) return;
             float sum = 0;
             lock (_lock)
             {
+                bool room = _samples.Count < MaxSamples;
+                if (!room && !_capped)
+                {
+                    // Tope del dictado alcanzado: lo que venga después ya no cabe.
+                    _capped = true;
+                    Logger.Warn($"Dictado: la grabación llegó al tope de {MaxSamples / SampleRate} s; lo que siga no se captura");
+                }
                 for (int i = 0; i < count; i++)
                 {
                     short raw = (short)(e.Buffer[i * 2] | (e.Buffer[i * 2 + 1] << 8));
@@ -815,21 +897,87 @@ public sealed class DictationService : IDisposable
             _level = Math.Clamp(rms * 9f, 0f, 1f);
         }
 
-        public void Dispose()
+        /// <summary>Muestras guardadas hasta ahora, en segundos (para los avisos del vigía).</summary>
+        private double CapturedSeconds()
         {
-            var wave = _wave;
-            _wave = null;
-            if (wave == null) return;
-            wave.DataAvailable -= OnData;
-            try
+            lock (_lock) return _samples.Count / (double)SampleRate;
+        }
+
+        private void StartWatchdog()
+        {
+            StopWatchdog();
+            var watchdog = new System.Timers.Timer(StallMs / 2.0) { AutoReset = true };
+            watchdog.Elapsed += (_, _) =>
             {
-                wave.StopRecording();
-            }
-            catch
+                if (!_active) return;
+                if (Environment.TickCount64 - Volatile.Read(ref _lastDataTick) < StallMs) return;
+                Revive();
+            };
+            watchdog.Start();
+            _watchdog = watchdog;
+        }
+
+        private void StopWatchdog()
+        {
+            var watchdog = _watchdog;
+            _watchdog = null;
+            if (watchdog == null) return;
+            watchdog.Stop();
+            watchdog.Dispose();
+        }
+
+        /// <summary>
+        /// El dispositivo dejó de entregar audio a mitad del dictado: se reabre y se SIGUE
+        /// grabando en la misma sesión, conservando lo capturado. Si parar y arrancar en el
+        /// mismo dispositivo falla, se suelta y se abre uno nuevo (así también recoge un
+        /// cambio de micrófono predeterminado).
+        /// </summary>
+        private void Revive()
+        {
+            lock (_deviceLock)
             {
-                // El dispositivo ya podía estar cerrado.
+                if (!_active) return; // la sesión ya cerró: no hay nada que revivir
+                Volatile.Write(ref _lastDataTick, Environment.TickCount64); // una intentona por vez
+                _revives++;
+                bool first = _revives <= 3 || _revives % 10 == 0; // sin llenar el registro
+                double captured = CapturedSeconds();
+                var wave = _wave;
+                if (wave != null)
+                {
+                    try
+                    {
+                        wave.StopRecording();
+                        wave.StartRecording();
+                        if (first)
+                            Logger.Warn($"Dictado: el micrófono dejó de entregar audio; se reanuda la captura con {captured:F1} s ya guardados");
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn(ex, "Dictado: no se pudo reanudar la captura en el mismo dispositivo; se abre otro");
+                        try
+                        {
+                            CloseDevice();
+                        }
+                        catch
+                        {
+                            // El dispositivo ya no estaba.
+                        }
+                    }
+                }
+
+                try
+                {
+                    OpenAndRecord();
+                    Logger.Warn($"Dictado: micrófono reabierto con un dispositivo nuevo ({captured:F1} s guardados)");
+                }
+                catch (Exception ex)
+                {
+                    // Sin micrófono: lo que queda del dictado no se puede capturar, pero el
+                    // vigía sigue intentándolo y lo capturado no se pierde.
+                    if (first) Logger.Error(ex, "Dictado: el micrófono no volvió a abrirse");
+                }
             }
-            wave.Dispose();
         }
     }
 }

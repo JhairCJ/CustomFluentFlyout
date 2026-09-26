@@ -15,8 +15,9 @@ namespace FluentFlyoutWPF.Models;
 /// atajo están pulsadas: da igual el orden en que se pulse la combinación.</item>
 /// <item><b>Termina</b> cuando se suelta cualquier tecla del atajo: soltar Ctrl en
 /// «Ctrl+Shift+M» cierra el dictado igual que soltar la M.</item>
-/// <item><b>Cancela</b> cuando, mientras se graba, baja una tecla que NO es del atajo
-/// (un Ctrl+C jamás debe convertirse en texto).</item>
+/// <item><b>Cancela</b> solo con Escape: una tecla ajena al atajo que se pulse mientras se
+/// graba se IGNORA —mantener el atajo y rozar otra tecla no puede llevarse por delante la
+/// frase que se está dictando—. Escape sí es una decisión: descarta el audio a propósito.</item>
 /// </list>
 /// </summary>
 public static class DictationHotkey
@@ -28,6 +29,8 @@ public static class DictationHotkey
     public const int VkCtrl = 0x11;
     public const int VkAlt = 0x12;
     public const int VkWin = 0x5B;
+    /// <summary>VK_ESCAPE: la única tecla que aborta el dictado a propósito.</summary>
+    public const int VkEscape = 0x1B;
 
     /// <summary>¿Es una tecla modificadora (puede formar atajo por sí sola)?</summary>
     public static bool IsModifier(int vk) => vk is VkShift or VkCtrl or VkAlt or VkWin;
@@ -88,8 +91,13 @@ public static class DictationHotkey
     /// <summary>¿Soltar esta tecla cierra el dictado? (cualquier tecla del atajo)</summary>
     public static bool Ends(IReadOnlyList<int> hotkey, int vk) => hotkey.Contains(vk);
 
-    /// <summary>¿Bajar esta tecla mientras se graba cancela el dictado? (una tecla ajena al atajo)</summary>
-    public static bool Cancels(IReadOnlyList<int> hotkey, int vk) => !hotkey.Contains(vk);
+    /// <summary>
+    /// ¿Bajar esta tecla mientras se graba cancela el dictado? Solo Escape. Cualquier otra
+    /// tecla ajena al atajo se ignora en silencio (RF-4 MODIFIED): mantener el atajo y rozar
+    /// otra tecla no puede descartar lo que se está dictando, y el atajo de delante sigue
+    /// funcionando igual (un Ctrl+C sigue copiando, nunca se convierte en texto).
+    /// </summary>
+    public static bool Cancels(int vk) => vk == VkEscape;
 
     /// <summary>Nombre visible de un código de tecla (el que se guarda en los ajustes).</summary>
     public static string Name(int vk) => vk switch

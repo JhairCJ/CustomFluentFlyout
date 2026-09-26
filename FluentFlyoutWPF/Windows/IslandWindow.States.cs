@@ -771,6 +771,10 @@ public partial class IslandWindow
     /// </summary>
     private bool ExpandLastUsable()
     {
+        // El dictado manda (RF-10): con una sesión en marcha no se abre ninguna pantalla
+        // encima de su tarjeta. El hit-test de la caja ya está apagado; esto es el cierre
+        // de la puerta para las vías que no vienen del ratón.
+        if (DictationActive()) return false;
         if ((Suppressed() && !HasExclusive()) || !SettingsManager.Current.IslandEnabled) { SnapHidden(); return false; }
         // La unidad de la vista es la PANTALLA (change island-pantallas RF-4): el clic
         // abre la pantalla de la funcionalidad que el usuario tiene DELANTE —el compacto
