@@ -710,7 +710,14 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="DictationLanguageSpanish">Español</system:String>
     <system:String x:Key="DictationLanguageEnglish">Inglés</system:String>
     <system:String x:Key="DictationModelsTitle">Modelos de voz</system:String>
-    <system:String x:Key="DictationModelsDescription">Se descargan una vez y después funcionan sin conexión. La lista va del más pesado al más ligero; Small Q5 es el equilibrio recomendado para CPU.</system:String>
+    <system:String x:Key="DictationModelsDescription">Se descargan una vez y después funcionan sin conexión. Incluye Whisper, Parakeet y Qwen3-ASR; los modelos externos indican el runtime que necesitan.</system:String>
+    <system:String x:Key="DictationRuntimeTitle">Instalar runtimes externos</system:String>
+    <system:String x:Key="DictationRuntimeDescription">Parakeet necesita NeMo-Speech.cpp y Qwen3-ASR necesita Python 3.12 con qwen-asr. Estos botones abren la guía oficial y copian el comando; revísalo antes de ejecutarlo.</system:String>
+    <system:String x:Key="DictationRuntimeNemo">Abrir NeMo + copiar comando</system:String>
+    <system:String x:Key="DictationRuntimeQwen">Abrir Qwen + copiar comando</system:String>
+    <system:String x:Key="DictationRuntimeCommandCopied">Comando copiado; pégalo en PowerShell o Terminal</system:String>
+    <system:String x:Key="DictationRuntimeCopyFailed">No se pudo copiar el comando: {0}</system:String>
+    <system:String x:Key="DictationRuntimeOpenGuideFailed">No se pudo abrir la guía: {0}</system:String>
     <system:String x:Key="DictationModelRecommended">Recomendado</system:String>
     <system:String x:Key="DictationModelUse">Usar</system:String>
     <system:String x:Key="DictationModelDownload">Descargar</system:String>
@@ -724,7 +731,7 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="DictationModelReady">Modelo listo</system:String>
     <system:String x:Key="DictationModelDownloadFailed">La descarga falló: {0}</system:String>
     <system:String x:Key="DictationModelCopyFailed">No se pudo añadir el modelo: {0}</system:String>
-    <system:String x:Key="DictationModelFileFilter">Modelo Whisper (*.bin)|*.bin|Todos los archivos (*.*)|*.*</system:String>
+    <system:String x:Key="DictationModelFileFilter">Modelo Whisper/Parakeet (*.bin;*.gguf)|*.bin;*.gguf|Todos los archivos (*.*)|*.*</system:String>
     <system:String x:Key="IslandFeatureDictation">Dictado</system:String>
     <system:String x:Key="IslandTooltipDictation">Dicta manteniendo {0}</system:String>
     <system:String x:Key="IslandDictationTooltipListening">Escuchando… mantén {0} para dictar</system:String>

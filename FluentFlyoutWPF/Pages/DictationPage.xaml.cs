@@ -19,14 +19,17 @@ namespace FluentFlyoutWPF.Pages;
 /// Ajustes del dictado por voz (spec 006): encenderlo, su atajo —una tecla o una
 /// combinación—, el idioma y los modelos locales.
 ///
-/// <para>Los modelos son archivos ggml que se descargan una vez; el dictado corre
-/// después en el equipo, sin red (RF-8). La lista mezcla el catálogo descargable con
-/// los <c>.bin</c> que ya haya en la carpeta, para que un modelo añadido a mano (o
-/// copiado desde otro equipo) aparezca igual.</para>
+/// <para>Los modelos se descargan una vez; el dictado corre después en el equipo, sin
+/// red (RF-8). La lista mezcla el catálogo descargable con los archivos locales, para
+/// que un modelo añadido a mano (o copiado desde otro equipo) aparezca igual.</para>
 /// </summary>
 public partial class DictationPage : Page
 {
     private const string CudaDownloadsUrl = "https://developer.nvidia.com/cuda-downloads";
+    private const string NemoRuntimeGuideUrl = "https://github.com/NVIDIA/NeMo-Speech.cpp#installation";
+    private const string NemoRuntimeInstallCommand = "irm https://github.com/NVIDIA/NeMo-Speech.cpp/raw/main/scripts/install.ps1 | iex";
+    private const string QwenRuntimeGuideUrl = "https://github.com/QwenLM/Qwen3-ASR#environment-setup";
+    private const string QwenRuntimeInstallCommand = "python -m pip install -U qwen-asr";
 
     private readonly ObservableCollection<DictationModelRow> _rows = [];
     private bool _loading;
@@ -55,6 +58,7 @@ public partial class DictationPage : Page
     {
         if (Application.Current.MainWindow is MainWindow mainWindow)
             mainWindow.Dictation.Changed += Dictation_Changed;
+        DictationModelStore.DownloadStateChanged += DictationDownloadStateChanged;
         UpdateGpuRuntimeStatus();
     }
 
@@ -65,6 +69,18 @@ public partial class DictationPage : Page
         EndHotkeyCapture();
         if (Application.Current.MainWindow is MainWindow mainWindow)
             mainWindow.Dictation.Changed -= Dictation_Changed;
+        DictationModelStore.DownloadStateChanged -= DictationDownloadStateChanged;
+    }
+
+    private void DictationDownloadStateChanged(string fileName)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(() => DictationDownloadStateChanged(fileName));
+            return;
+        }
+
+        RefreshModels();
     }
 
     private void Dictation_Changed()
@@ -118,6 +134,50 @@ public partial class DictationPage : Page
             FileName = CudaDownloadsUrl,
             UseShellExecute = true,
         });
+    }
+
+    private void InstallNemoRuntime_Click(object sender, RoutedEventArgs e)
+    {
+        PrepareExternalRuntimeInstall(NemoRuntimeGuideUrl, NemoRuntimeInstallCommand);
+    }
+
+    private void InstallQwenRuntime_Click(object sender, RoutedEventArgs e)
+    {
+        PrepareExternalRuntimeInstall(QwenRuntimeGuideUrl, QwenRuntimeInstallCommand);
+    }
+
+    private void PrepareExternalRuntimeInstall(string guideUrl, string command)
+    {
+        try
+        {
+            Clipboard.SetText(command);
+            ModelsStatus.Text = IslandStrings.Get(
+                "DictationRuntimeCommandCopied",
+                "Command copied; paste it into PowerShell or Terminal");
+        }
+        catch (Exception ex)
+        {
+            ModelsStatus.Text = IslandStrings.Format(
+                "DictationRuntimeCopyFailed",
+                "Could not copy the command: {0}",
+                ex.Message);
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = guideUrl,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            ModelsStatus.Text = IslandStrings.Format(
+                "DictationRuntimeOpenGuideFailed",
+                "Could not open the guide: {0}",
+                ex.Message);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -230,13 +290,19 @@ public partial class DictationPage : Page
         var rows = new List<DictationModelRow>();
         foreach (var model in DictationModelStore.Catalog)
         {
-            rows.Add(new DictationModelRow(
+            var row = new DictationModelRow(
                 FileName: model.FileName,
                 Name: model.Name,
                 Subtitle: ModelSubtitle(model),
                 FromCatalog: true,
                 Installed: DictationModelStore.IsInstalled(model.FileName),
-                Active: IsActive(configured, activePath, model.FileName)));
+                Active: IsActive(configured, activePath, model.FileName));
+            if (DictationModelStore.IsDownloading(model.FileName))
+            {
+                row.Busy = true;
+                row.Subtitle = IslandStrings.Get("DictationModelDownloading", "Downloading…");
+            }
+            rows.Add(row);
         }
         foreach (string file in DictationModelStore.InstalledFiles())
         {
@@ -268,7 +334,8 @@ public partial class DictationPage : Page
         string recommendation = model.Recommended
             ? $" · {IslandStrings.Get("DictationModelRecommended", "Recommended")}"
             : "";
-        return $"{model.Size} · {model.Language}{recommendation}";
+        string runtime = string.IsNullOrWhiteSpace(model.Runtime) ? "" : $" · {model.Runtime}";
+        return $"{model.Size} · {model.Language}{runtime}{recommendation}";
     }
 
     private void UseModel_Click(object sender, RoutedEventArgs e)
@@ -283,6 +350,7 @@ public partial class DictationPage : Page
     {
         if ((sender as FrameworkElement)?.DataContext is not DictationModelRow row) return;
         if (DictationModelStore.Find(row.FileName) is not { } model) return;
+        if (DictationModelStore.IsDownloading(row.FileName)) return;
 
         try
         {
@@ -331,7 +399,7 @@ public partial class DictationPage : Page
         {
             Title = IslandStrings.Get("DictationModelAddLocal", "Add local model"),
             Filter = IslandStrings.Get("DictationModelFileFilter",
-                "Whisper model (*.bin)|*.bin|All files (*.*)|*.*"),
+                "Whisper/Parakeet model (*.bin;*.gguf)|*.bin;*.gguf|All files (*.*)|*.*"),
         };
         if (dialog.ShowDialog() != true) return;
 

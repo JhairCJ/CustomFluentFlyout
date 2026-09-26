@@ -8,6 +8,7 @@ using NAudio.Wave;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using Whisper.net;
 using Whisper.net.LibraryLoader;
 
@@ -45,6 +46,7 @@ public sealed class DictationService : IDisposable
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
     private readonly MicCapture _capture = new();
+    private readonly ExternalAsrTranscriber _externalTranscriber = new();
     private readonly HashSet<int> _pressed = [];
     private readonly SemaphoreSlim _engineLock = new(1, 1);
     private readonly SemaphoreSlim _vadLock = new(1, 1);
@@ -250,6 +252,21 @@ public sealed class DictationService : IDisposable
                 if (DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel) == null)
                     return;
                 await DictationModelStore.EnsureVadModelAsync(preloadCts.Token);
+
+                string activePath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel)
+                    ?? throw new FileNotFoundException("No hay modelo de dictado activo");
+                DictationModelInfo? activeModel = DictationModelStore.Find(Path.GetFileName(activePath));
+                if (activeModel is { Backend: not DictationModelBackend.Whisper })
+                {
+                    await DictationModelStore.ValidateIntegrityAsync(activePath, preloadCts.Token);
+                    await _externalTranscriber.PreloadAsync(
+                        activeModel,
+                        activePath,
+                        SettingsManager.Current.DictationUseGpu,
+                        preloadCts.Token);
+                    return;
+                }
+
                 WhisperFactory factory = await EnsureFactoryAsync(preloadCts.Token);
                 // Cargar no basta: la PRIMERA inferencia es la que crea el contexto de CUDA,
                 // carga los kernels y reserva las memorias de ggml. Templarla aquí hace que
@@ -316,6 +333,7 @@ public sealed class DictationService : IDisposable
         CancelTranscription();
         _preloadCts?.Cancel();
         _capture.Dispose();
+        _externalTranscriber.Dispose();
         _vadFactory?.Dispose();
         _vadFactory = null;
         _engineLock.Dispose();
@@ -477,9 +495,8 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>Idioma efectivo: un modelo «.en» solo entiende inglés (RF-7).</summary>
-    private string EffectiveLanguage(string language)
+    private static string EffectiveLanguage(string language, string? activePath)
     {
-        string? activePath = _factoryPath;
         if (activePath != null && DictationModelStore.IsEnglishOnly(activePath)) return "en";
         return string.IsNullOrWhiteSpace(language) ? "auto" : language;
     }
@@ -525,11 +542,41 @@ public sealed class DictationService : IDisposable
             }
             vadMs = clock.ElapsedMilliseconds - mark;
 
+            string activePath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel)
+                ?? throw new FileNotFoundException("No hay modelo de dictado activo");
+            DictationModelInfo? activeModel = DictationModelStore.Find(Path.GetFileName(activePath));
+            if (activeModel is { Backend: not DictationModelBackend.Whisper })
+            {
+                mark = clock.ElapsedMilliseconds;
+                await DictationModelStore.ValidateIntegrityAsync(activePath, token);
+                string text = await _externalTranscriber.TranscribeAsync(
+                    activeModel,
+                    activePath,
+                    samples,
+                    EffectiveLanguage(language, activePath),
+                    SettingsManager.Current.DictationUseGpu,
+                    token);
+                engineMs = clock.ElapsedMilliseconds - mark;
+                text = text.Trim();
+                if (text.Length > 0)
+                {
+                    firstTextMs = engineMs;
+                    segments = 1;
+                    characters = text.Length;
+                    WriteDictatedText(text, token, sessionCts);
+                }
+                decodeMs = clock.ElapsedMilliseconds - mark;
+                Logger.Info($"Dictado: {AudioSeconds(samples)} de audio | VAD {vadMs} ms | motor {engineMs} ms | "
+                    + $"primer texto {firstTextMs} ms | decodificación {decodeMs} ms | {segments} segmento(s), "
+                    + $"{characters} caracteres | modelo {activeModel.Name}{MicNote()}");
+                return;
+            }
+
             mark = clock.ElapsedMilliseconds;
             WhisperFactory factory = await EnsureFactoryAsync(token);
             engineMs = clock.ElapsedMilliseconds - mark;
 
-            using var processor = BuildProcessor(factory, samples.Length, EffectiveLanguage(language));
+            using var processor = BuildProcessor(factory, samples.Length, EffectiveLanguage(language, activePath));
 
             // El texto se escribe SEGÚN se decodifica: el primer trozo aparece en cuanto el
             // modelo lo produce, sin esperar a que termine la grabación entera. El hueco que
@@ -694,6 +741,10 @@ public sealed class DictationService : IDisposable
     /// </summary>
     private static void SendText(string text)
     {
+        // Algunos motores devuelven letras con tilde como letra + acento combinante.
+        // SendInput entrega unidades UTF-16 individuales y varias aplicaciones no
+        // recomponen esa secuencia; NFC la convierte en «á», «é», etc. antes de inyectarla.
+        text = text.Normalize(NormalizationForm.FormC);
         var inputs = new List<NativeMethods.INPUT>(text.Length * 2);
         foreach (char c in text)
         {

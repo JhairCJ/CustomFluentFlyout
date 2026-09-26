@@ -90,6 +90,17 @@
             <!-- La lista la rellena el código (DictationPage.xaml.cs): mezcla el catálogo
                  descargable con los archivos que ya haya en la carpeta de modelos. -->
             <StackPanel Width="560">
+                <StackPanel Margin="0,0,0,12">
+                    <TextBlock Text="{DynamicResource DictationRuntimeTitle}" FontSize="13" FontWeight="SemiBold" />
+                    <TextBlock Text="{DynamicResource DictationRuntimeDescription}" FontSize="11" Opacity="0.6"
+                               TextWrapping="Wrap" Margin="0,2,0,6" />
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="{DynamicResource DictationRuntimeNemo}" Padding="12,4"
+                                Click="InstallNemoRuntime_Click" />
+                        <Button Content="{DynamicResource DictationRuntimeQwen}" Padding="12,4" Margin="8,0,0,0"
+                                Click="InstallQwenRuntime_Click" />
+                    </StackPanel>
+                </StackPanel>
                 <ItemsControl x:Name="ModelList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>

@@ -709,7 +709,14 @@ You can help contribute translations on</System:String>
     <System:String x:Key="DictationLanguageSpanish">Spanish</System:String>
     <System:String x:Key="DictationLanguageEnglish">English</System:String>
     <System:String x:Key="DictationModelsTitle">Speech models</System:String>
-    <System:String x:Key="DictationModelsDescription">Downloaded once and then run offline. The list goes from heaviest to lightest; Small Q5 is the recommended CPU balance.</System:String>
+    <System:String x:Key="DictationModelsDescription">Downloaded once and then run offline. Includes Whisper, Parakeet, and Qwen3-ASR; external models show the runtime they need.</System:String>
+    <System:String x:Key="DictationRuntimeTitle">Install external runtimes</System:String>
+    <System:String x:Key="DictationRuntimeDescription">Parakeet needs NeMo-Speech.cpp and Qwen3-ASR needs Python 3.12 with qwen-asr. These buttons open the official guide and copy the command; review it before running it.</System:String>
+    <System:String x:Key="DictationRuntimeNemo">Open NeMo + copy command</System:String>
+    <System:String x:Key="DictationRuntimeQwen">Open Qwen + copy command</System:String>
+    <System:String x:Key="DictationRuntimeCommandCopied">Command copied; paste it into PowerShell or Terminal</System:String>
+    <System:String x:Key="DictationRuntimeCopyFailed">Could not copy the command: {0}</System:String>
+    <System:String x:Key="DictationRuntimeOpenGuideFailed">Could not open the guide: {0}</System:String>
     <System:String x:Key="DictationModelRecommended">Recommended</System:String>
     <System:String x:Key="DictationModelUse">Use</System:String>
     <System:String x:Key="DictationModelDownload">Download</System:String>
@@ -723,7 +730,7 @@ You can help contribute translations on</System:String>
     <System:String x:Key="DictationModelReady">Model ready</System:String>
     <System:String x:Key="DictationModelDownloadFailed">Download failed: {0}</System:String>
     <System:String x:Key="DictationModelCopyFailed">Could not add the model: {0}</System:String>
-    <System:String x:Key="DictationModelFileFilter">Whisper model (*.bin)|*.bin|All files (*.*)|*.*</System:String>
+    <System:String x:Key="DictationModelFileFilter">Whisper/Parakeet model (*.bin;*.gguf)|*.bin;*.gguf|All files (*.*)|*.*</System:String>
     <System:String x:Key="IslandFeatureDictation">Dictation</System:String>
     <System:String x:Key="IslandTooltipDictation">Dictate by holding {0}</System:String>
     <System:String x:Key="IslandDictationTooltipListening">Listening… hold {0} to dictate</System:String>
