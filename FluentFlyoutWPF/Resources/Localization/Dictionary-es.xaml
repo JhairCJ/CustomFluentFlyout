@@ -693,6 +693,12 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="DictationDescription">Mantén una tecla o combinación y habla: el texto se escribe donde tengas el cursor. El modelo corre en este equipo, así que tu voz no sale de él.</system:String>
     <system:String x:Key="DictationEnableTitle">Dictado por voz</system:String>
     <system:String x:Key="DictationEnableDescription">Mientras mantienes el atajo, el Island enseña el micrófono y las ondas de tu voz; al soltar, se transcribe el audio y se escribe.</system:String>
+    <system:String x:Key="DictationGpuTitle">Aceleración GPU (CUDA)</system:String>
+    <system:String x:Key="DictationGpuDescription">Intenta usar la GPU NVIDIA para acelerar Whisper. Si CUDA no está disponible, se mantiene CPU automáticamente. El cambio se aplica al reiniciar.</system:String>
+    <system:String x:Key="DictationGpuStatusNotLoaded">Motor: todavía no cargado</system:String>
+    <system:String x:Key="DictationGpuStatusCuda">Motor actual: CUDA</system:String>
+    <system:String x:Key="DictationGpuStatusCpu">Motor actual: CPU (CUDA no disponible o desactivado)</system:String>
+    <system:String x:Key="DictationGpuRestartRequired">Reinicia la aplicación para aplicar el cambio entre CPU y CUDA</system:String>
     <system:String x:Key="DictationHotkeyTitle">Atajo a mantener</system:String>
     <system:String x:Key="DictationHotkeyDescription">Una tecla o una combinación. Ctrl a secas es lo más cómodo: lo mantienes, hablas y lo sueltas.</system:String>
     <system:String x:Key="DictationHotkeyHint">Haz clic y pulsa las teclas</system:String>

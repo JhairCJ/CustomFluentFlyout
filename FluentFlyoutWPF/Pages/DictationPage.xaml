@@ -28,6 +28,19 @@
             <ui:ToggleSwitch IsChecked="{Binding DictationEnabled, Mode=TwoWay}" />
         </ui:CardControl>
 
+        <ui:CardControl x:Name="DictationGpuCard" Tag="Indexable" Margin="0,0,0,12">
+            <ui:CardControl.Header>
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Text="{DynamicResource DictationGpuTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                    <TextBlock Text="{DynamicResource DictationGpuDescription}" FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="520" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <StackPanel>
+                <ui:ToggleSwitch IsChecked="{Binding DictationUseGpu, Mode=TwoWay}" />
+                <TextBlock x:Name="GpuRuntimeStatus" FontSize="12" Opacity="0.7" Margin="0,6,0,0" TextWrapping="Wrap" />
+            </StackPanel>
+        </ui:CardControl>
+
         <ui:CardControl x:Name="DictationHotkeyCard" Tag="Indexable" Icon="{ui:SymbolIcon Keyboard24}" Margin="0,0,0,12">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">

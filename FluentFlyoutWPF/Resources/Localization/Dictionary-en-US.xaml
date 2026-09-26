@@ -692,6 +692,12 @@ You can help contribute translations on</System:String>
     <System:String x:Key="DictationDescription">Hold a key or combination and speak: the text is written where your cursor is. The model runs on this computer, so your voice never leaves it.</System:String>
     <System:String x:Key="DictationEnableTitle">Voice dictation</System:String>
     <System:String x:Key="DictationEnableDescription">While you hold the shortcut, the Island shows the microphone and the waves of your voice; when you let go, the audio is transcribed and typed.</System:String>
+    <System:String x:Key="DictationGpuTitle">GPU acceleration (CUDA)</System:String>
+    <System:String x:Key="DictationGpuDescription">Try the NVIDIA GPU to accelerate Whisper. If CUDA is unavailable, CPU is used automatically. The change applies after restarting.</System:String>
+    <System:String x:Key="DictationGpuStatusNotLoaded">Runtime: not loaded yet</System:String>
+    <System:String x:Key="DictationGpuStatusCuda">Current runtime: CUDA</System:String>
+    <System:String x:Key="DictationGpuStatusCpu">Current runtime: CPU (CUDA unavailable or disabled)</System:String>
+    <System:String x:Key="DictationGpuRestartRequired">Restart the app to apply the CPU/CUDA change</System:String>
     <System:String x:Key="DictationHotkeyTitle">Shortcut to hold</System:String>
     <System:String x:Key="DictationHotkeyDescription">One key or a combination. Ctrl on its own is the most comfortable: hold it, speak and let go.</System:String>
     <System:String x:Key="DictationHotkeyHint">Click and press the keys</System:String>

@@ -44,7 +44,63 @@ public partial class DictationPage : Page
         };
         _loading = false;
 
+        Loaded += DictationPage_Loaded;
+        Unloaded += DictationPage_Unloaded;
         RefreshModels();
+    }
+
+    private void DictationPage_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (Application.Current.MainWindow is MainWindow mainWindow)
+            mainWindow.Dictation.Changed += Dictation_Changed;
+        UpdateGpuRuntimeStatus();
+    }
+
+    private void DictationPage_Unloaded(object sender, RoutedEventArgs e)
+    {
+        if (Application.Current.MainWindow is MainWindow mainWindow)
+            mainWindow.Dictation.Changed -= Dictation_Changed;
+    }
+
+    private void Dictation_Changed()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(UpdateGpuRuntimeStatus);
+            return;
+        }
+
+        UpdateGpuRuntimeStatus();
+    }
+
+    private void UpdateGpuRuntimeStatus()
+    {
+        if (Application.Current.MainWindow is not MainWindow mainWindow) return;
+
+        string key;
+        string fallback;
+        if (mainWindow.Dictation.AccelerationRestartRequired)
+        {
+            key = "DictationGpuRestartRequired";
+            fallback = "Restart the app to apply the CPU/CUDA change";
+        }
+        else if (!mainWindow.Dictation.RuntimeLoaded)
+        {
+            key = "DictationGpuStatusNotLoaded";
+            fallback = "Runtime: not loaded yet";
+        }
+        else if (mainWindow.Dictation.UsingGpuRuntime)
+        {
+            key = "DictationGpuStatusCuda";
+            fallback = "Runtime: CUDA";
+        }
+        else
+        {
+            key = "DictationGpuStatusCpu";
+            fallback = "Runtime: CPU (CUDA unavailable or disabled)";
+        }
+
+        GpuRuntimeStatus.Text = IslandStrings.Get(key, fallback);
     }
 
     // ------------------------------------------------------------------

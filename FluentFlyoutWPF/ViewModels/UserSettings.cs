@@ -1432,6 +1432,13 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial string DictationLanguage { get; set; } = "auto";
 
+    /// <summary>
+    /// Intenta usar CUDA para Whisper cuando el runtime está disponible. Si se apaga,
+    /// la selección queda fijada a CPU hasta el siguiente arranque.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool DictationUseGpu { get; set; }
+
 
     /// <summary>
     /// Google Calendar: minutos de antelación del recordatorio (1-60). El aviso sigue
@@ -1855,6 +1862,7 @@ public partial class UserSettings : ObservableObject
         DictationHotkey = Models.DictationHotkey.Default;
         DictationModel = "";
         DictationLanguage = "auto";
+        DictationUseGpu = false;
         GoogleCalendarReminderMinutes = 5;
         GoogleCalendarRefreshMinutes = 5;
         GoogleCalendarDaysAhead = 7;
@@ -3149,6 +3157,18 @@ public partial class UserSettings : ObservableObject
 
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
         if (DictationEnabled) mainWindow.Dictation.Preload();
+    }
+
+    /// <summary>
+    /// La selección CPU/CUDA se aplica antes de crear el primer runtime nativo. Si ya
+    /// existe uno, DictationService muestra que hace falta reiniciar la aplicación.
+    /// </summary>
+    partial void OnDictationUseGpuChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.Dictation.RefreshAccelerationSettings();
     }
 
     /// <summary>Un atajo ilegible (ajuste editado a mano) no puede dejar el dictado mudo: se devuelve el de fábrica.</summary>

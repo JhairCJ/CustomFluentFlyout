@@ -9,6 +9,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using Whisper.net;
+using Whisper.net.LibraryLoader;
 
 namespace FluentFlyoutWPF.Classes.Dictation;
 
@@ -57,6 +58,10 @@ public sealed class DictationService : IDisposable
     private CancellationTokenSource? _transcriptionCts;
     private CancellationTokenSource? _preloadCts;
     private bool _cancelRequested;
+    private bool _runtimeConfigured;
+    private bool _runtimeUseGpu;
+    private bool _runtimeLoaded;
+    private string _runtimeInfo = "";
     private volatile bool _disposed;
 
     public DictationPhase Phase { get; private set; } = DictationPhase.Idle;
@@ -72,6 +77,22 @@ public sealed class DictationService : IDisposable
 
     /// <summary>Texto de respaldo en inglés del mensaje vigente.</summary>
     public string? MessageFallback { get; private set; }
+
+    /// <summary>Indica si Whisper ya cargó un runtime nativo.</summary>
+    public bool RuntimeLoaded => _runtimeLoaded;
+
+    /// <summary>Indica si el runtime nativo cargado es CUDA.</summary>
+    public bool UsingGpuRuntime => RuntimeOptions.LoadedLibrary is RuntimeLibrary.Cuda or RuntimeLibrary.Cuda12;
+
+    /// <summary>Información del runtime nativo que Whisper.NET está usando.</summary>
+    public string RuntimeInfo => _runtimeInfo;
+
+    /// <summary>
+    /// El runtime nativo es global para el proceso: cambiar CPU/CUDA después de cargarlo
+    /// no es seguro y requiere reiniciar la aplicación.
+    /// </summary>
+    public bool AccelerationRestartRequired =>
+        _runtimeLoaded && _runtimeUseGpu != SettingsManager.Current.DictationUseGpu;
 
     /// <summary>Se dispara con cualquier cambio de fase, nivel de mensaje o fin del dictado.</summary>
     public event Action? Changed;
@@ -249,6 +270,28 @@ public sealed class DictationService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Notifica a la interfaz si el toggle de aceleración ya no coincide con el runtime
+    /// cargado. La selección efectiva se hace antes de crear el primer factory.
+    /// </summary>
+    public void RefreshAccelerationSettings()
+    {
+        if (_disposed || !_runtimeConfigured || _runtimeUseGpu == SettingsManager.Current.DictationUseGpu)
+            return;
+
+        if (!_runtimeLoaded)
+        {
+            // Preload can be between configuring the order and creating the native
+            // factory. It is still safe to replace the order during that small window.
+            _runtimeUseGpu = SettingsManager.Current.DictationUseGpu;
+            ApplyRuntimeLibraryOrder(_runtimeUseGpu);
+            return;
+        }
+
+        Logger.Info("El cambio de aceleración del dictado requiere reiniciar la aplicación");
+        Changed?.Invoke();
+    }
+
     public void Dispose()
     {
         _disposed = true;
@@ -269,10 +312,43 @@ public sealed class DictationService : IDisposable
     // Motor local (whisper.cpp)
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// Configura el orden del cargador antes de que Whisper cree cualquier factory.
+    /// CUDA se intenta solo cuando el usuario lo activa; siempre queda CPU como respaldo.
+    /// </summary>
+    private void ConfigureRuntimeIfNeeded()
+    {
+        if (_runtimeConfigured) return;
+
+        _runtimeUseGpu = SettingsManager.Current.DictationUseGpu;
+        ApplyRuntimeLibraryOrder(_runtimeUseGpu);
+        _runtimeConfigured = true;
+        Logger.Info(_runtimeUseGpu
+            ? "Dictado: se intentará usar CUDA y se conservará CPU como respaldo"
+            : "Dictado: se usará CPU");
+    }
+
+    private static void ApplyRuntimeLibraryOrder(bool useGpu)
+    {
+        RuntimeOptions.RuntimeLibraryOrder = useGpu
+            ? [RuntimeLibrary.Cuda, RuntimeLibrary.Cuda12, RuntimeLibrary.Cpu, RuntimeLibrary.CpuNoAvx]
+            : [RuntimeLibrary.Cpu, RuntimeLibrary.CpuNoAvx];
+    }
+
+    private void UpdateRuntimeState()
+    {
+        _runtimeLoaded = RuntimeOptions.LoadedLibrary.HasValue;
+        _runtimeInfo = _runtimeLoaded ? WhisperFactory.GetRuntimeInfo() : "";
+        Logger.Info($"Runtime nativo de dictado: {RuntimeOptions.LoadedLibrary?.ToString() ?? "desconocido"} ({_runtimeInfo})");
+        Changed?.Invoke();
+    }
+
     private async Task<WhisperFactory> EnsureFactoryAsync(CancellationToken cancellationToken)
     {
         string path = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel)
             ?? throw new FileNotFoundException("No hay modelo de dictado activo");
+
+        ConfigureRuntimeIfNeeded();
 
         await _engineLock.WaitAsync(cancellationToken);
         try
@@ -280,9 +356,14 @@ public sealed class DictationService : IDisposable
             if (_factory != null && _factoryPath == path) return _factory;
             await DictationModelStore.ValidateIntegrityAsync(path, cancellationToken);
             _factory?.Dispose();
-            _factory = WhisperFactory.FromPath(path);
+            _factory = WhisperFactory.FromPath(path, new WhisperFactoryOptions
+            {
+                UseGpu = _runtimeUseGpu,
+                GpuDevice = 0,
+            });
             _factoryPath = path;
-            Logger.Info($"Modelo de dictado cargado: {Path.GetFileName(path)} ({WhisperFactory.GetRuntimeInfo()})");
+            UpdateRuntimeState();
+            Logger.Info($"Modelo de dictado cargado: {Path.GetFileName(path)} ({_runtimeInfo})");
             return _factory;
         }
         finally
@@ -386,6 +467,8 @@ public sealed class DictationService : IDisposable
 
     private async Task<WhisperVadFactory> EnsureVadFactoryAsync(CancellationToken cancellationToken)
     {
+        ConfigureRuntimeIfNeeded();
+
         WhisperVadFactory? cached = _vadFactory;
         if (cached != null) return cached;
 
@@ -395,8 +478,15 @@ public sealed class DictationService : IDisposable
         {
             if (_vadFactory != null && _vadFactoryPath == path) return _vadFactory;
             _vadFactory?.Dispose();
-            _vadFactory = WhisperVadFactory.FromPath(path);
+            _vadFactory = WhisperVadFactory.FromPath(path, new WhisperFactoryOptions
+            {
+                // VAD is deliberately kept on CPU: it is tiny and this avoids reserving
+                // GPU memory before the main Whisper model starts transcription.
+                UseGpu = false,
+                GpuDevice = 0,
+            });
             _vadFactoryPath = path;
+            UpdateRuntimeState();
             return _vadFactory;
         }
         finally
