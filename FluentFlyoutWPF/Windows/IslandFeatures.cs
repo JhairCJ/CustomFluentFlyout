@@ -274,6 +274,30 @@ public sealed class IslandPowerFeature(IslandWindow owner) : IIslandFeature
 }
 
 /// <summary>
+/// Funcionalidad «dictado por voz» (spec 006): disponible cuando el dictado está
+/// activado y hay un modelo en disco; ACTIVA mientras dura la sesión —grabando o
+/// transcribiendo—, que es cuando el contenedor le da acceso exclusivo para que
+/// ningún evento le quite la tarjeta a mitad de frase. Como Bluetooth y el cargador
+/// es un AVISO: no tiene expandido ni se navega hasta ella.
+/// </summary>
+public sealed class IslandDictationFeature(IslandWindow owner) : IIslandFeature
+{
+    public string Id => IslandFeatureIds.Dictation;
+
+    public IslandFeatureState State => owner.GetDictationFeatureState();
+
+    public double CompactWidth => 240;
+    public double CompactHeight => 34;
+    public double ExpandedPreferredWidth => 0; // sin expandido propio
+    public double ExpandedPreferredHeight => 0;
+
+    /// <summary>Sin tarjeta expandida: el dictado se usa con el teclado, no con el ratón.</summary>
+    public bool TryShowExpanded() => false;
+
+    public bool TryShowCompact() => owner.ShowDictationCompactFromContract();
+}
+
+/// <summary>
 /// Funcionalidad «temporizador» del island (002): disponible siempre que esté
 /// habilitada (su configuración es usable sin media); activa con cuenta en
 /// marcha; la alerta final declara acceso exclusivo persistente (002 MOD RF-2).

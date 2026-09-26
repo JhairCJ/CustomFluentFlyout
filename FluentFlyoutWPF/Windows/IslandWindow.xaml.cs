@@ -60,8 +60,10 @@ namespace FluentFlyoutWPF.Windows;
 /// <item><c>IslandWindow.Calendar.cs</c> — funcionalidad recordatorios de
 /// calendario.</item>
 /// <item><c>IslandWindow.Bluetooth.cs</c> — funcionalidad dispositivos Bluetooth
-/// conectados (aviso siempre temporal).</item>
-/// <item><c>IslandFeatures.cs</c> — contrato de funcionalidades y registro.</item>
+/// conectados (aviso siempre temporal).</item>    /// <item><c>IslandWindow.Dictation.cs</c> — dictado por voz (spec 006): tarjeta
+    /// con micrófono a la izquierda y ondas a la derecha, y el ciclo de la sesión
+    /// mientras se mantiene la tecla.</item>
+    /// <item><c>IslandFeatures.cs</c> — contrato de funcionalidades y registro.</item>
 /// </list>
 /// </summary>
 public partial class IslandWindow : Window
@@ -283,6 +285,7 @@ public partial class IslandWindow : Window
         InitClipboard();
         InitWeather();
         InitPower();
+        InitDictation();
         // Contenedor escalable: media, temporizador, cajón de aplicaciones, estante de
         // archivos, recordatorios de calendario, dispositivos Bluetooth, portapapeles,
         // clima y cargador se registran una vez; el contrato decide qué se puede mostrar
@@ -296,6 +299,7 @@ public partial class IslandWindow : Window
         _features.Register(new IslandClipboardFeature(this));
         _features.Register(new IslandWeatherFeature(this));
         _features.Register(new IslandPowerFeature(this));
+        _features.Register(new IslandDictationFeature(this));
         // Pantallas configuradas: son la ÚNICA fuente del orden y de la vista —el
         // contenedor navega por ellas y una pantalla puede llevar varias
         // funcionalidades juntas, de izquierda a derecha (change island-pantallas).
@@ -374,6 +378,7 @@ public partial class IslandWindow : Window
         ShutdownClipboard();
         ShutdownWeather();
         ShutdownPower();
+        ShutdownDictation();
         ClearTemporaryNotice();
         StopLoop();
         StopBackgroundRotation();

@@ -301,6 +301,29 @@
                                        FontWeight="SemiBold" VerticalAlignment="Center" Visibility="Collapsed"/>
                         </Grid>
                     </Grid>
+                    <!-- Dictado por voz en compacto (spec 006): micrófono a la IZQUIERDA y
+                         visualizador de ondas a la DERECHA con el nivel real del micrófono.
+                         El centro solo escribe estado (transcribiendo o el motivo del fallo):
+                         mientras se habla no hay texto que leer, solo que ver. -->
+                    <Grid x:Name="DictationCompactGrid" Margin="6,0,10,0" Visibility="Collapsed"
+                          ToolTip="{DynamicResource IslandTooltipDictation}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="24"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ui:SymbolIcon x:Name="DictationGlyph" Grid.Column="0" Symbol="Mic24"
+                                       Filled="False" Foreground="#FF6B6B" FontSize="16"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       IsHitTestVisible="False"/>
+                        <TextBlock x:Name="DictationStatus" Grid.Column="1" Text="" Foreground="White" FontSize="12"
+                                   Margin="8,0,4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                   IsHitTestVisible="False"/>
+                        <!-- Las barras las crea el código (IslandWindow.Dictation.cs): su número y su
+                             alto siguen al nivel del micrófono, no a un valor fijo del XAML. -->
+                        <StackPanel x:Name="DictationWave" Grid.Column="2" Orientation="Horizontal"
+                                    Height="22" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                    </Grid>
                 </Grid>
 
                 <!-- Capa expandida: tarjeta compacta con carátula + título/artista + tiempos + controles.

@@ -7,6 +7,7 @@ using FluentFlyout.Classes.Utils;
 using FluentFlyout.Controls;
 using FluentFlyout.Windows;
 using FluentFlyoutWPF.Classes;
+using FluentFlyoutWPF.Classes.Dictation;
 using FluentFlyoutWPF.Classes.Utils;
 using FluentFlyoutWPF.ViewModels;
 using FluentFlyoutWPF.Windows;
@@ -75,6 +76,14 @@ public partial class MainWindow : MicaWindow
     internal TaskbarWindow? taskbarWindow;
 
     internal IslandWindow? islandWindow;
+
+    /// <summary>
+    /// Dictado por voz local (spec 006). Vive aquí porque el disparador es el MISMO
+    /// gancho de teclado global de esta ventana (el del flyout de volumen y las teclas
+    /// multimedia): el dictado solo añade un aviso por tecla, nunca consume la tecla.
+    /// El Island se suscribe a él para pintar su tarjeta.
+    /// </summary>
+    internal DictationService Dictation { get; } = new();
 
     // Taskbar widget: the media session the widget is stuck to. Set when the user
     // interacts with the widget (play/pause/next/previous buttons, album-art cycle)
@@ -938,7 +947,8 @@ public partial class MainWindow : MicaWindow
     {
         return SettingsManager.Current.LockKeysEnabled
             || SettingsManager.Current.VolumeControlEnabled
-            || SettingsManager.Current.MediaFlyoutEnabled;
+            || SettingsManager.Current.MediaFlyoutEnabled
+            || SettingsManager.Current.DictationEnabled;
     }
 
     // installs or removes the low-level keyboard hook depending on which features are enabled
@@ -963,6 +973,12 @@ public partial class MainWindow : MicaWindow
         if (nCode >= 0 && (wParam == WM_KEYDOWN || wParam == WM_KEYUP))
         {
             int vkCode = Marshal.ReadInt32(lParam);
+
+            // Dictado (spec 006): el gancho solo AVISA del estado de la tecla —completar el
+            // atajo abre el micrófono, soltarlo lo cierra y una tecla ajena cancela—. La
+            // tecla sigue su camino a la aplicación de delante: el atajo nunca se consume.
+            if (SettingsManager.Current.DictationEnabled)
+                Dictation.HandleKey(vkCode, down: wParam == WM_KEYDOWN);
 
             bool mediaKeysPressed = vkCode == 0xB3 || vkCode == 0xB0 || vkCode == 0xB1 || vkCode == 0xB2; // Play/Pause, next, previous, stop
             bool volumeKeysPressed = vkCode == 0xAD || vkCode == 0xAE || vkCode == 0xAF; // Mute, Volume Down, Volume Up
@@ -1612,6 +1628,8 @@ public partial class MainWindow : MicaWindow
                 islandWindow.Close();
             islandWindow?.Dispose();
             islandWindow = null;
+
+            Dictation.Dispose();
 
             if (volumeMixerWindow?.IsLoaded == true)
                 volumeMixerWindow.Close();

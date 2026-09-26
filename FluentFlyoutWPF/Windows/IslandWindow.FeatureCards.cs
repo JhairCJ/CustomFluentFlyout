@@ -261,11 +261,22 @@ public partial class IslandWindow
             ModeAvailable: PowerModeAvailable,
             Sustains: PowerActive,
             Middle: PowerTitle));
+        // --- dictado por voz: AVISO de una sesión con la tecla mantenida ---
+        // Vive lo que vive la sesión (grabando o transcribiendo) y solo entonces tiene
+        // acceso exclusivo: al terminar se retira sola a la vista que toque (spec 006 RF-9).
+        RegisterCard(new IslandFeatureCard(
+            IslandFeatureIds.Dictation, IslandContentMode.Dictation,
+            Compact: DictationCompactGrid,
+            Expanded: [],
+            Column: () => null,
+            ShowExpanded: () => { },
+            HideExpanded: () => { },
+            Refresh: RefreshDictationUI,
+            Tick: null,
+            ModeAvailable: DictationModeAvailable,
+            Sustains: DictationActive,
+            Middle: DictationStatus));
     }
-
-    // ------------------------------------------------------------------
-    // Punto de partida y presentación de capas
-    // ------------------------------------------------------------------
 
     /// <summary>
     /// Punto de partida de cualquier vista: NINGUNA capa a la vista (ni compactas ni

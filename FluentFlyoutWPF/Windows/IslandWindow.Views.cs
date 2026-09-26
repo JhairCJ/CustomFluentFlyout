@@ -27,6 +27,8 @@ internal enum IslandContentMode
     Weather = 8,
     /// <summary>Cargador del equipo (change island-cargador).</summary>
     Power = 9,
+    /// <summary>Dictado por voz con la tecla mantenida (spec 006).</summary>
+    Dictation = 10,
 }
 
 /// <summary>

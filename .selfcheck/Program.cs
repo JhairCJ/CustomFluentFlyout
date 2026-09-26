@@ -156,4 +156,41 @@ Check(IslandActivityPick.Winner([new(false, true, now.AddSeconds(9)), new(true, 
 Check(IslandActivityPick.Winner([new(true, true, default), new(true, true, now)]) == 1, "sin evento registrado vale la fecha mínima");
 Ok();
 
+// ------------------------------------------------------------------
+// Dictado (spec 006): el atajo que dispara, termina y cancela
+// ------------------------------------------------------------------
+// El gancho de teclado entrega el modificador FÍSICO (0xA2 = Ctrl izquierdo) y el
+// ajuste dice «Ctrl»: sin esta unificación un atajo de Ctrl no dispararía nunca.
+Check(DictationHotkey.Normalize(0xA2) == DictationHotkey.VkCtrl, "Ctrl izquierdo → Ctrl");
+Check(DictationHotkey.Normalize(0xA5) == DictationHotkey.VkAlt, "Alt derecho → Alt");
+Check(DictationHotkey.Normalize(0x5C) == DictationHotkey.VkWin, "Win derecho → Win");
+Check(DictationHotkey.Normalize(0x4D) == 0x4D, "una tecla normal no se toca");
+
+// Una tecla sola: mantén Ctrl, habla, suelta.
+var singleKey = DictationHotkey.Parse("Ctrl");
+Check(singleKey.SequenceEqual([DictationHotkey.VkCtrl]), "«Ctrl» es un atajo de una tecla");
+int hookVk = DictationHotkey.Normalize(0xA2);
+Check(DictationHotkey.Triggers(singleKey, hookVk, [hookVk]), "mantener Ctrl dispara el dictado");
+Check(!DictationHotkey.Triggers(singleKey, hookVk, []), "Ctrl sin estar pulsado no dispara nada");
+Check(DictationHotkey.Ends(singleKey, hookVk), "soltar Ctrl cierra el dictado");
+Check(DictationHotkey.Cancels(singleKey, 0x43), "una tecla ajena (Ctrl+C) cancela el dictado");
+
+// Combinación: solo dispara cuando está COMPLETA, sea cual sea el orden.
+var combo = DictationHotkey.Parse("Ctrl+Shift+M");
+Check(DictationHotkey.Format(combo) == "Ctrl+Shift+M", "la combinación se escribe igual que se lee");
+Check(DictationHotkey.Parse("shift+ctrl+m").SequenceEqual(combo), "el orden al pulsar no cambia el atajo");
+Check(!DictationHotkey.Triggers(combo, 0x4D, [0x11, 0x4D]), "sin todos los modificadores no dispara");
+Check(DictationHotkey.Triggers(combo, 0x4D, [0x11, 0x10, 0x4D]), "la combinación completa dispara");
+Check(DictationHotkey.Ends(combo, 0x10), "soltar cualquiera de sus teclas cierra el dictado");
+Check(!DictationHotkey.Cancels(combo, 0x4D) && !DictationHotkey.Cancels(combo, 0x11),
+    "las teclas del propio atajo no cancelan");
+
+// Un ajuste roto no puede dejar el dictado mudo.
+Check(!DictationHotkey.IsValid("") && !DictationHotkey.IsValid("   ") && !DictationHotkey.IsValid("Pez"),
+    "un atajo vacío o desconocido no es válido");
+Check(DictationHotkey.IsValid(DictationHotkey.Default), "el atajo de fábrica es válido");
+Check(DictationHotkey.Parse("F5").SequenceEqual([0x74]), "F5 se lee como código de tecla");
+Check(DictationHotkey.Parse("ctrl+ctrl+x").SequenceEqual([DictationHotkey.VkCtrl, 0x58]), "sin repetidos");
+Ok();
+
 Console.WriteLine($"selfcheck: {passed} bloques correctos");

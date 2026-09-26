@@ -50,8 +50,11 @@ public static class IslandFeatureIds
     /// <summary>Cargador del equipo (avisos de enchufado y desenchufado).</summary>
     public const string Power = "power";
 
+    /// <summary>Dictado por voz con la tecla mantenida (spec 006).</summary>
+    public const string Dictation = "dictation";
+
     /// <summary>Orden por defecto de las funcionalidades del contenedor.</summary>
-    public static readonly IReadOnlyList<string> All = [Media, Timer, Apps, Shelf, Calendar, Bluetooth, Clipboard, Weather, Power];
+    public static readonly IReadOnlyList<string> All = [Media, Timer, Apps, Shelf, Calendar, Bluetooth, Clipboard, Weather, Power, Dictation];
 
     /// <summary>
     /// Funcionalidades que NO son una pantalla: su vista es un AVISO de un evento
@@ -61,7 +64,7 @@ public static class IslandFeatureIds
     /// colocadas, porque no están en ninguna parte. Exigirles una pantalla era el
     /// fallo: sin ella el aviso se perdía en silencio (change island-avisos).
     /// </summary>
-    public static readonly IReadOnlyList<string> Notices = [Bluetooth, Power];
+    public static readonly IReadOnlyList<string> Notices = [Bluetooth, Power, Dictation];
 
     /// <summary>¿Es un aviso? (no tiene vista propia: solo su tarjeta temporal)</summary>
     public static bool IsNotice(string? id) => id != null && Notices.Contains(id);
@@ -145,6 +148,7 @@ public static class IslandFeatureIds
         Clipboard => "IslandFeatureClipboard",
         Weather => "IslandFeatureWeather",
         Power => "IslandFeaturePower",
+        Dictation => "IslandFeatureDictation",
         _ => "",
     };
 }

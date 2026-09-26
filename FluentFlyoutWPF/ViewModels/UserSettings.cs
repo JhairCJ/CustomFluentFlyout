@@ -1406,6 +1406,32 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial bool IslandPowerEnabled { get; set; }
 
+    /// <summary>
+    /// Dictado por voz local (spec 006): mantén la tecla o combinación configurada,
+    /// habla y suelta; el texto se escribe donde esté el cursor. El modelo corre en el
+    /// equipo: aquí no hay ningún servicio en la nube.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool DictationEnabled { get; set; }
+
+    /// <summary>
+    /// Atajo del dictado: una sola tecla («Ctrl») o una combinación («Ctrl+Shift+M»).
+    /// Se mantiene pulsado mientras se habla.
+    /// </summary>
+    [ObservableProperty]
+    public partial string DictationHotkey { get; set; } = Models.DictationHotkey.Default;
+
+    /// <summary>
+    /// Modelo de dictado activo: el nombre de un archivo de la carpeta de modelos o la
+    /// ruta completa de uno añadido a mano. Vacío = todavía no hay ninguno descargado.
+    /// </summary>
+    [ObservableProperty]
+    public partial string DictationModel { get; set; } = "";
+
+    /// <summary>Idioma del dictado: «auto» (lo detecta el modelo), «es» o «en».</summary>
+    [ObservableProperty]
+    public partial string DictationLanguage { get; set; } = "auto";
+
 
     /// <summary>
     /// Google Calendar: minutos de antelación del recordatorio (1-60). El aviso sigue
@@ -1825,6 +1851,10 @@ public partial class UserSettings : ObservableObject
         // cargar) es justo lo que se espera, y solo observa el estado que ya conoce
         // Windows.
         IslandPowerEnabled = true;
+        DictationEnabled = false;
+        DictationHotkey = Models.DictationHotkey.Default;
+        DictationModel = "";
+        DictationLanguage = "auto";
         GoogleCalendarReminderMinutes = 5;
         GoogleCalendarRefreshMinutes = 5;
         GoogleCalendarDaysAhead = 7;
@@ -1962,6 +1992,7 @@ public partial class UserSettings : ObservableObject
         [nameof(IslandWeatherEnabled)] = island => island.RefreshWeatherContent(),
         [nameof(IslandWeatherPlace)] = island => island.RefreshWeatherContent(),
         [nameof(IslandPowerEnabled)] = island => island.RefreshPowerContent(),
+        [nameof(DictationEnabled)] = island => island.RefreshDictationContent(),
     };
 
     /// <summary>
@@ -3094,5 +3125,36 @@ public partial class UserSettings : ObservableObject
 
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
         mainWindow.RefreshKeyboardHook();
+    }
+
+    /// <summary>
+    /// Dictado (spec 006): activarlo o desactivarlo instala o retira el gancho de teclado
+    /// —el atajo se escucha desde el gancho global— y, al activarlo, el modelo se precarga
+    /// en segundo plano para que el primer dictado no espere a leerlo de disco.
+    /// </summary>
+    partial void OnDictationEnabledChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.RefreshKeyboardHook();
+        mainWindow.Dictation.RefreshSettings();
+        if (newValue) mainWindow.Dictation.Preload();
+    }
+
+    /// <summary>Cambiar de modelo o de idioma no necesita nada en caliente: el motor recarga al dictar.</summary>
+    partial void OnDictationModelChanged(string oldValue, string newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        if (DictationEnabled) mainWindow.Dictation.Preload();
+    }
+
+    /// <summary>Un atajo ilegible (ajuste editado a mano) no puede dejar el dictado mudo: se devuelve el de fábrica.</summary>
+    partial void OnDictationHotkeyChanged(string oldValue, string newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        if (!Models.DictationHotkey.IsValid(newValue)) DictationHotkey = Models.DictationHotkey.Default;
     }
 }

@@ -95,6 +95,7 @@
 				<ui:NavigationViewItem Content="{DynamicResource IslandNavApps}" Icon="{ui:SymbolIcon Apps24}" TargetPageType="{x:Type pages:IslandAppsPage}" />
 				<ui:NavigationViewItem Content="{DynamicResource IslandNavOrganization}" Icon="{ui:SymbolIcon ArrowSort24}" TargetPageType="{x:Type pages:IslandOrganizationPage}" />
 				<ui:NavigationViewItem Content="{DynamicResource IslandNavTools}" Icon="{ui:SymbolIcon Toolbox24}" TargetPageType="{x:Type pages:IslandToolsPage}" />
+				<ui:NavigationViewItem Content="{DynamicResource DictationTitle}" Icon="{ui:SymbolIcon Mic24}" TargetPageType="{x:Type pages:DictationPage}" />
 				<ui:NavigationViewItem Content="{DynamicResource LockKeysCustomizationTitle}" Icon="{ui:SymbolIcon LockMultiple24}" TargetPageType="{x:Type pages:LockKeysPage}" />
 				<ui:NavigationViewItem Content="{DynamicResource SystemSettingsTitle}" Icon="{ui:SymbolIcon Settings24}" TargetPageType="{x:Type pages:SystemPage}" />
 			</ui:NavigationView.MenuItems>

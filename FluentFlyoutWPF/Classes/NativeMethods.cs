@@ -447,6 +447,49 @@ public static partial class NativeMethods
 
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial IntPtr GetForegroundWindow();
+    // SendInput (dictado, spec 006): un carácter = una pulsación Unicode, así se escribe
+    // cualquier idioma en el punto de inserción sin tocar el portapapeles.
+    internal const uint INPUT_KEYBOARD = 1;
+    internal const uint KEYEVENTF_KEYUP = 0x0002;
+    internal const uint KEYEVENTF_UNICODE = 0x0004;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    /// <summary>
+    /// La unión real de <c>SendInput</c>: el tamaño del struct tiene que ser el de Windows
+    /// (40 bytes en x64) porque SendInput valida <c>cbSize</c>. De ahí que MOUSEINPUT
+    /// —el miembro más grande— esté declarado aunque el dictado solo escriba teclas.
+    /// </summary>
+    [StructLayout(LayoutKind.Explicit)]
+    internal struct INPUT
+    {
+        [FieldOffset(0)] public uint type;
+        [FieldOffset(8)] public MOUSEINPUT mi;
+        [FieldOffset(8)] public KEYBDINPUT ki;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
     #endregion
 
     #region gdi32.dll

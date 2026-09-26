@@ -687,4 +687,41 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="MessageBoxNo">No</system:String>
     <system:String x:Key="UnknownMonitor">Monitor desconocido</system:String>
     <system:String x:Key="UnknownAppName">Desconocido</system:String>
+
+    <!-- Dictado por voz local (spec 006): página de ajustes, isla y sus mensajes. -->
+    <system:String x:Key="DictationTitle">Dictado</system:String>
+    <system:String x:Key="DictationDescription">Mantén una tecla o combinación y habla: el texto se escribe donde tengas el cursor. El modelo corre en este equipo, así que tu voz no sale de él.</system:String>
+    <system:String x:Key="DictationEnableTitle">Dictado por voz</system:String>
+    <system:String x:Key="DictationEnableDescription">Mientras mantienes el atajo, el Island enseña el micrófono y las ondas de tu voz; al soltar, se transcribe el audio y se escribe.</system:String>
+    <system:String x:Key="DictationHotkeyTitle">Atajo a mantener</system:String>
+    <system:String x:Key="DictationHotkeyDescription">Una tecla o una combinación. Ctrl a secas es lo más cómodo: lo mantienes, hablas y lo sueltas.</system:String>
+    <system:String x:Key="DictationHotkeyHint">Haz clic y pulsa las teclas</system:String>
+    <system:String x:Key="DictationHotkeyTip">Haz clic y pulsa la tecla o combinación que quieras mantener</system:String>
+    <system:String x:Key="DictationLanguageTitle">Idioma</system:String>
+    <system:String x:Key="DictationLanguageDescription">Los modelos multilingües entienden español e inglés a la vez; Automático deja que el modelo lo detecte.</system:String>
+    <system:String x:Key="DictationLanguageAuto">Automático</system:String>
+    <system:String x:Key="DictationLanguageSpanish">Español</system:String>
+    <system:String x:Key="DictationLanguageEnglish">Inglés</system:String>
+    <system:String x:Key="DictationModelsTitle">Modelos de voz</system:String>
+    <system:String x:Key="DictationModelsDescription">Se descargan una vez y después funcionan sin conexión. Los grandes aciertan más y tardan más; Base es el equilibrio recomendado.</system:String>
+    <system:String x:Key="DictationModelUse">Usar</system:String>
+    <system:String x:Key="DictationModelDownload">Descargar</system:String>
+    <system:String x:Key="DictationModelDelete">Borrar</system:String>
+    <system:String x:Key="DictationModelActive">En uso</system:String>
+    <system:String x:Key="DictationModelAddLocal">Añadir modelo local…</system:String>
+    <system:String x:Key="DictationModelOpenFolder">Abrir carpeta</system:String>
+    <system:String x:Key="DictationModelAddedByHand">Modelo añadido a mano</system:String>
+    <system:String x:Key="DictationModelDownloading">Descargando…</system:String>
+    <system:String x:Key="DictationModelDownloadingPercent">Descargando… {0}%</system:String>
+    <system:String x:Key="DictationModelReady">Modelo listo</system:String>
+    <system:String x:Key="DictationModelDownloadFailed">La descarga falló: {0}</system:String>
+    <system:String x:Key="DictationModelCopyFailed">No se pudo añadir el modelo: {0}</system:String>
+    <system:String x:Key="DictationModelFileFilter">Modelo Whisper (*.bin)|*.bin|Todos los archivos (*.*)|*.*</system:String>
+    <system:String x:Key="IslandFeatureDictation">Dictado</system:String>
+    <system:String x:Key="IslandTooltipDictation">Dicta manteniendo {0}</system:String>
+    <system:String x:Key="IslandDictationTooltipListening">Escuchando… mantén {0} para dictar</system:String>
+    <system:String x:Key="IslandDictationTranscribing">Transcribiendo…</system:String>
+    <system:String x:Key="IslandDictationNoModel">Sin modelo de voz: descarga uno en Ajustes → Dictado</system:String>
+    <system:String x:Key="IslandDictationNoMic">No hay micrófono disponible</system:String>
+    <system:String x:Key="IslandDictationFailed">No se pudo transcribir el audio</system:String>
 </ResourceDictionary>

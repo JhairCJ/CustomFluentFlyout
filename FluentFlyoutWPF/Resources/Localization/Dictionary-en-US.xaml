@@ -686,4 +686,41 @@ You can help contribute translations on</System:String>
     <System:String x:Key="MessageBoxNo">No</System:String>
     <System:String x:Key="UnknownMonitor">Unknown Monitor</System:String>
     <System:String x:Key="UnknownAppName">Unknown</System:String>
+
+    <!-- Dictado por voz local (spec 006): página de ajustes, isla y sus mensajes. -->
+    <System:String x:Key="DictationTitle">Dictation</System:String>
+    <System:String x:Key="DictationDescription">Hold a key or combination and speak: the text is written where your cursor is. The model runs on this computer, so your voice never leaves it.</System:String>
+    <System:String x:Key="DictationEnableTitle">Voice dictation</System:String>
+    <System:String x:Key="DictationEnableDescription">While you hold the shortcut, the Island shows the microphone and the waves of your voice; when you let go, the audio is transcribed and typed.</System:String>
+    <System:String x:Key="DictationHotkeyTitle">Shortcut to hold</System:String>
+    <System:String x:Key="DictationHotkeyDescription">One key or a combination. Ctrl on its own is the most comfortable: hold it, speak and let go.</System:String>
+    <System:String x:Key="DictationHotkeyHint">Click and press the keys</System:String>
+    <System:String x:Key="DictationHotkeyTip">Click and press the key or combination you want to hold</System:String>
+    <System:String x:Key="DictationLanguageTitle">Language</System:String>
+    <System:String x:Key="DictationLanguageDescription">Multilingual models understand Spanish and English at once; Automatic lets the model work it out.</System:String>
+    <System:String x:Key="DictationLanguageAuto">Automatic</System:String>
+    <System:String x:Key="DictationLanguageSpanish">Spanish</System:String>
+    <System:String x:Key="DictationLanguageEnglish">English</System:String>
+    <System:String x:Key="DictationModelsTitle">Speech models</System:String>
+    <System:String x:Key="DictationModelsDescription">Downloaded once and then run offline. Larger models get more right and take longer; Base is the recommended balance.</System:String>
+    <System:String x:Key="DictationModelUse">Use</System:String>
+    <System:String x:Key="DictationModelDownload">Download</System:String>
+    <System:String x:Key="DictationModelDelete">Delete</System:String>
+    <System:String x:Key="DictationModelActive">In use</System:String>
+    <System:String x:Key="DictationModelAddLocal">Add local model…</System:String>
+    <System:String x:Key="DictationModelOpenFolder">Open folder</System:String>
+    <System:String x:Key="DictationModelAddedByHand">Model added by hand</System:String>
+    <System:String x:Key="DictationModelDownloading">Downloading…</System:String>
+    <System:String x:Key="DictationModelDownloadingPercent">Downloading… {0}%</System:String>
+    <System:String x:Key="DictationModelReady">Model ready</System:String>
+    <System:String x:Key="DictationModelDownloadFailed">Download failed: {0}</System:String>
+    <System:String x:Key="DictationModelCopyFailed">Could not add the model: {0}</System:String>
+    <System:String x:Key="DictationModelFileFilter">Whisper model (*.bin)|*.bin|All files (*.*)|*.*</System:String>
+    <System:String x:Key="IslandFeatureDictation">Dictation</System:String>
+    <System:String x:Key="IslandTooltipDictation">Dictate by holding {0}</System:String>
+    <System:String x:Key="IslandDictationTooltipListening">Listening… hold {0} to dictate</System:String>
+    <System:String x:Key="IslandDictationTranscribing">Transcribing…</System:String>
+    <System:String x:Key="IslandDictationNoModel">No speech model: download one in Settings → Dictation</System:String>
+    <System:String x:Key="IslandDictationNoMic">No microphone available</System:String>
+    <System:String x:Key="IslandDictationFailed">Could not transcribe the audio</System:String>
 </ResourceDictionary>
