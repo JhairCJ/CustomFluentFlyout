@@ -121,7 +121,7 @@ public partial class DictationPage : Page
             rows.Add(new DictationModelRow(
                 FileName: model.FileName,
                 Name: model.Name,
-                Subtitle: $"{model.Size} · {model.Language}",
+                Subtitle: ModelSubtitle(model),
                 FromCatalog: true,
                 Installed: DictationModelStore.IsInstalled(model.FileName),
                 Active: IsActive(configured, activePath, model.FileName)));
@@ -150,6 +150,14 @@ public partial class DictationPage : Page
         string.Equals(configured, fileName, StringComparison.OrdinalIgnoreCase)
         || (activePath != null
             && string.Equals(Path.GetFileName(activePath), fileName, StringComparison.OrdinalIgnoreCase));
+
+    private static string ModelSubtitle(DictationModelInfo model)
+    {
+        string recommendation = model.Recommended
+            ? $" · {IslandStrings.Get("DictationModelRecommended", "Recommended")}"
+            : "";
+        return $"{model.Size} · {model.Language}{recommendation}";
+    }
 
     private void UseModel_Click(object sender, RoutedEventArgs e)
     {

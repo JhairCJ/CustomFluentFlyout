@@ -702,7 +702,8 @@ You can help contribute translations on</System:String>
     <System:String x:Key="DictationLanguageSpanish">Spanish</System:String>
     <System:String x:Key="DictationLanguageEnglish">English</System:String>
     <System:String x:Key="DictationModelsTitle">Speech models</System:String>
-    <System:String x:Key="DictationModelsDescription">Downloaded once and then run offline. Larger models get more right and take longer; Base is the recommended balance.</System:String>
+    <System:String x:Key="DictationModelsDescription">Downloaded once and then run offline. The list goes from heaviest to lightest; Small Q5 is the recommended CPU balance.</System:String>
+    <System:String x:Key="DictationModelRecommended">Recommended</System:String>
     <System:String x:Key="DictationModelUse">Use</System:String>
     <System:String x:Key="DictationModelDownload">Download</System:String>
     <System:String x:Key="DictationModelDelete">Delete</System:String>

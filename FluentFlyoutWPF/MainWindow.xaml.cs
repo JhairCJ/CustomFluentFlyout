@@ -970,15 +970,17 @@ public partial class MainWindow : MicaWindow
 
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode >= 0 && (wParam == WM_KEYDOWN || wParam == WM_KEYUP))
+        if (nCode >= 0 && (wParam == WM_KEYDOWN || wParam == WM_KEYUP
+            || wParam == WM_SYSKEYDOWN || wParam == WM_SYSKEYUP))
         {
             int vkCode = Marshal.ReadInt32(lParam);
+            bool keyDown = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
 
             // Dictado (spec 006): el gancho solo AVISA del estado de la tecla —completar el
             // atajo abre el micrófono, soltarlo lo cierra y una tecla ajena cancela—. La
             // tecla sigue su camino a la aplicación de delante: el atajo nunca se consume.
             if (SettingsManager.Current.DictationEnabled)
-                Dictation.HandleKey(vkCode, down: wParam == WM_KEYDOWN);
+                Dictation.HandleKey(vkCode, down: keyDown);
 
             bool mediaKeysPressed = vkCode == 0xB3 || vkCode == 0xB0 || vkCode == 0xB1 || vkCode == 0xB2; // Play/Pause, next, previous, stop
             bool volumeKeysPressed = vkCode == 0xAD || vkCode == 0xAE || vkCode == 0xAF; // Mute, Volume Down, Volume Up

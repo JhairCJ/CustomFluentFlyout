@@ -703,7 +703,8 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="DictationLanguageSpanish">Español</system:String>
     <system:String x:Key="DictationLanguageEnglish">Inglés</system:String>
     <system:String x:Key="DictationModelsTitle">Modelos de voz</system:String>
-    <system:String x:Key="DictationModelsDescription">Se descargan una vez y después funcionan sin conexión. Los grandes aciertan más y tardan más; Base es el equilibrio recomendado.</system:String>
+    <system:String x:Key="DictationModelsDescription">Se descargan una vez y después funcionan sin conexión. La lista va del más pesado al más ligero; Small Q5 es el equilibrio recomendado para CPU.</system:String>
+    <system:String x:Key="DictationModelRecommended">Recomendado</system:String>
     <system:String x:Key="DictationModelUse">Usar</system:String>
     <system:String x:Key="DictationModelDownload">Descargar</system:String>
     <system:String x:Key="DictationModelDelete">Borrar</system:String>

@@ -51,6 +51,8 @@ public static partial class NativeMethods
     internal const int WH_KEYBOARD_LL = 13;
     internal const int WM_KEYDOWN = 0x0100;
     internal const int WM_KEYUP = 0x0101;
+    internal const int WM_SYSKEYDOWN = 0x0104;
+    internal const int WM_SYSKEYUP = 0x0105;
     internal const int WM_SETTINGCHANGE = 0x001A;
 
     // Mouse Hook (change island-actividad-orientada-eventos, 001 MOD RF-3):

@@ -31,11 +31,10 @@ public enum DictationPhase
 /// <summary>
 /// Dictado por voz LOCAL (spec 006): mantén el atajo, habla, suelta, y el texto aparece
 /// donde esté el cursor.
-///    /// <para>El motor es whisper.cpp (Whisper.net) con un modelo ggml del disco: la
-    /// inferencia no sale del equipo —la red solo se usa en Ajustes para descargar el
-    /// archivo del modelo—. La captura va por <see cref="WaveIn"/> a 16 kHz mono, que
-/// es el formato nativo de Whisper, y el texto se inyecta con <c>SendInput</c> Unicode
-/// (sin tocar el portapapeles del usuario).</para>
+/// <para>El motor es whisper.cpp (Whisper.net) con un modelo ggml del disco: la
+/// inferencia no sale del equipo —la red solo se usa para descargar los modelos—. La
+/// captura va por <see cref="WaveIn"/> a 16 kHz mono, que es el formato nativo de Whisper,
+/// y el texto se inyecta con <c>SendInput</c> Unicode (sin tocar el portapapeles).</para>
 ///
 /// <para>Este objeto no conoce el Island: expone fase, nivel y mensaje, y quien lo pinta
 /// (IslandWindow.Dictation.cs) se suscribe a <see cref="Changed"/>.</para>
@@ -44,23 +43,21 @@ public sealed class DictationService : IDisposable
 {
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-    /// <summary>
-    /// Umbral de silencio por PICO (0..1). Un micrófono real nunca da cero en una sala
-    /// silenciosa, así que el corte es un pico mínimo: por debajo no hay voz y no se
-    /// transcribe —así no aparecen las alucinaciones típicas del modelo con silencio
-    /// (RF-5)—. ponytail: umbral fijo de micrófono doméstico; si en algún equipo molesta,
-    /// el sitio para el ajuste es la página de dictado.
-    /// </summary>
-    private const float SilencePeak = 0.012f;
-
     private readonly MicCapture _capture = new();
     private readonly HashSet<int> _pressed = [];
     private readonly SemaphoreSlim _engineLock = new(1, 1);
+    private readonly SemaphoreSlim _vadLock = new(1, 1);
+    private readonly CancellationTokenSource _lifetimeCts = new();
+    private readonly Lock _transcriptionGate = new();
 
     private WhisperFactory? _factory;
     private string? _factoryPath;
+    private WhisperVadFactory? _vadFactory;
+    private string? _vadFactoryPath;
+    private CancellationTokenSource? _transcriptionCts;
+    private CancellationTokenSource? _preloadCts;
     private bool _cancelRequested;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     public DictationPhase Phase { get; private set; } = DictationPhase.Idle;
 
@@ -154,9 +151,18 @@ public sealed class DictationService : IDisposable
     /// <summary>Cierra el micrófono, descarta el audio y no escribe nada (RF-4).</summary>
     public void Cancel()
     {
-        if (Phase != DictationPhase.Listening) return;
-        _cancelRequested = true;
-        Stop();
+        if (Phase == DictationPhase.Listening)
+        {
+            _cancelRequested = true;
+            Stop();
+            return;
+        }
+
+        if (Phase == DictationPhase.Transcribing)
+        {
+            CancelTranscription();
+            SetPhase(DictationPhase.Idle);
+        }
     }
 
     /// <summary>Cierra el micrófono y transcribe lo grabado, si hay voz (RF-3/RF-5).</summary>
@@ -165,11 +171,10 @@ public sealed class DictationService : IDisposable
         if (Phase != DictationPhase.Listening) return;
 
         float[] samples = _capture.Stop();
-        float peak = _capture.Peak;
         bool cancelled = _cancelRequested;
         _cancelRequested = false;
 
-        if (cancelled || peak < SilencePeak)
+        if (cancelled || samples.Length == 0)
         {
             SetPhase(DictationPhase.Idle);
             return;
@@ -177,21 +182,13 @@ public sealed class DictationService : IDisposable
 
         SetPhase(DictationPhase.Transcribing);
         string language = SettingsManager.Current.DictationLanguage;
-        _ = Task.Run(async () =>
+        var sessionCts = new CancellationTokenSource();
+        lock (_transcriptionGate)
         {
-            try
-            {
-                string text = await TranscribeAsync(samples, language, CancellationToken.None);
-                if (_disposed) return;
-                if (!string.IsNullOrWhiteSpace(text)) SendText(text.Trim());
-                SetPhase(DictationPhase.Idle);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(ex, "Falló la transcripción del dictado");
-                Fail("IslandDictationFailed", "Could not transcribe the audio");
-            }
-        });
+            CancellationTokenSource? previousCts = Interlocked.Exchange(ref _transcriptionCts, sessionCts);
+            previousCts?.Cancel();
+        }
+        _ = Task.Run(() => TranscribeAndSendAsync(samples, language, sessionCts));
     }
 
     /// <summary>
@@ -201,15 +198,38 @@ public sealed class DictationService : IDisposable
     /// </summary>
     public void Preload()
     {
+        if (_disposed) return;
+        var preloadCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
+        CancellationTokenSource? previousCts = Interlocked.Exchange(ref _preloadCts, preloadCts);
+        try
+        {
+            previousCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // La precarga anterior terminó justo al cambiar de modelo.
+        }
         _ = Task.Run(async () =>
         {
             try
             {
-                await EnsureFactoryAsync(CancellationToken.None);
+                if (DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel) == null)
+                    return;
+                await DictationModelStore.EnsureVadModelAsync(preloadCts.Token);
+                await EnsureFactoryAsync(preloadCts.Token);
+            }
+            catch (OperationCanceledException) when (preloadCts.IsCancellationRequested)
+            {
+                // Cambiar de modelo o cerrar la aplicación cancela la precarga anterior.
             }
             catch (Exception ex)
             {
                 Logger.Warn(ex, "No se pudo precargar el modelo de dictado");
+            }
+            finally
+            {
+                Interlocked.CompareExchange(ref _preloadCts, null, preloadCts);
+                preloadCts.Dispose();
             }
         });
     }
@@ -221,17 +241,28 @@ public sealed class DictationService : IDisposable
         {
             _cancelRequested = true;
             if (Phase == DictationPhase.Listening) Stop();
-            else SetPhase(DictationPhase.Idle);
+            else
+            {
+                CancelTranscription();
+                SetPhase(DictationPhase.Idle);
+            }
         }
     }
 
     public void Dispose()
     {
         _disposed = true;
+        _lifetimeCts.Cancel();
+        CancelTranscription();
+        _preloadCts?.Cancel();
         _capture.Dispose();
+        _vadFactory?.Dispose();
+        _vadFactory = null;
         _engineLock.Dispose();
+        _vadLock.Dispose();
         _factory?.Dispose();
         _factory = null;
+        _lifetimeCts.Dispose();
     }
 
     // ------------------------------------------------------------------
@@ -247,6 +278,7 @@ public sealed class DictationService : IDisposable
         try
         {
             if (_factory != null && _factoryPath == path) return _factory;
+            await DictationModelStore.ValidateIntegrityAsync(path, cancellationToken);
             _factory?.Dispose();
             _factory = WhisperFactory.FromPath(path);
             _factoryPath = path;
@@ -265,6 +297,8 @@ public sealed class DictationService : IDisposable
     /// </summary>
     private async Task<string> TranscribeAsync(float[] samples, string language, CancellationToken cancellationToken)
     {
+        if (!await ContainsSpeechAsync(samples, cancellationToken)) return string.Empty;
+
         WhisperFactory factory = await EnsureFactoryAsync(cancellationToken);
         string? activePath = _factoryPath;
         // Un modelo «.en» solo entiende inglés: pedirle español daría basura.
@@ -284,6 +318,109 @@ public sealed class DictationService : IDisposable
             text.Append(segment.Text);
         }
         return text.ToString();
+    }
+
+    private async Task TranscribeAndSendAsync(
+        float[] samples,
+        string language,
+        CancellationTokenSource sessionCts)
+    {
+        try
+        {
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                sessionCts.Token,
+                _lifetimeCts.Token);
+            string text = await TranscribeAsync(samples, language, linkedCts.Token);
+            lock (_transcriptionGate)
+            {
+                linkedCts.Token.ThrowIfCancellationRequested();
+                if (!_disposed
+                    && SettingsManager.Current.DictationEnabled
+                    && IsCurrentTranscription(sessionCts)
+                    && !string.IsNullOrWhiteSpace(text))
+                {
+                    SendText(text.Trim());
+                }
+            }
+        }
+        catch (OperationCanceledException) when (
+            sessionCts.IsCancellationRequested || _lifetimeCts.IsCancellationRequested)
+        {
+            Logger.Info("Transcripción de dictado cancelada");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Falló la transcripción del dictado");
+            if (!_disposed && IsCurrentTranscription(sessionCts))
+                Fail("IslandDictationFailed", "Could not transcribe the audio");
+        }
+        finally
+        {
+            bool current;
+            lock (_transcriptionGate)
+            {
+                current = ReferenceEquals(
+                    Interlocked.CompareExchange(ref _transcriptionCts, null, sessionCts),
+                    sessionCts);
+                sessionCts.Dispose();
+            }
+            if (current && !_disposed && Phase == DictationPhase.Transcribing)
+                SetPhase(DictationPhase.Idle);
+        }
+    }
+
+    private async Task<bool> ContainsSpeechAsync(float[] samples, CancellationToken cancellationToken)
+    {
+        WhisperVadFactory vadFactory = await EnsureVadFactoryAsync(cancellationToken);
+        using var vad = vadFactory.CreateBuilder()
+            .WithThreads(Math.Clamp(Environment.ProcessorCount - 1, 1, 4))
+            .WithThreshold(0.5f)
+            .WithMinSpeechDuration(TimeSpan.FromMilliseconds(100))
+            .WithMinSilenceDuration(TimeSpan.FromMilliseconds(250))
+            .WithSpeechPadding(TimeSpan.FromMilliseconds(150))
+            .Build();
+
+        var segments = await vad.DetectSpeechAsync(samples, cancellationToken);
+        return segments.Count > 0;
+    }
+
+    private async Task<WhisperVadFactory> EnsureVadFactoryAsync(CancellationToken cancellationToken)
+    {
+        WhisperVadFactory? cached = _vadFactory;
+        if (cached != null) return cached;
+
+        string path = await DictationModelStore.EnsureVadModelAsync(cancellationToken);
+        await _vadLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_vadFactory != null && _vadFactoryPath == path) return _vadFactory;
+            _vadFactory?.Dispose();
+            _vadFactory = WhisperVadFactory.FromPath(path);
+            _vadFactoryPath = path;
+            return _vadFactory;
+        }
+        finally
+        {
+            _vadLock.Release();
+        }
+    }
+
+    private bool IsCurrentTranscription(CancellationTokenSource sessionCts) =>
+        ReferenceEquals(Volatile.Read(ref _transcriptionCts), sessionCts);
+
+    private void CancelTranscription()
+    {
+        lock (_transcriptionGate)
+        {
+            try
+            {
+                _transcriptionCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // La transcripción terminó justo antes de observar la cancelación.
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -391,20 +528,15 @@ public sealed class DictationService : IDisposable
         private readonly List<float> _samples = new(SampleRate * 15);
         private readonly Lock _lock = new();
         private volatile float _level;
-        private volatile float _peak;
 
         /// <summary>Nivel del último bloque (0..1) para el visualizador.</summary>
         public float Level => _level;
-
-        /// <summary>Pico de todo el dictado: decide si había voz (RF-5).</summary>
-        public float Peak => _peak;
 
         public void Start()
         {
             lock (_lock)
             {
                 _samples.Clear();
-                _peak = 0;
                 _level = 0;
             }
             if (_wave == null)
@@ -459,8 +591,6 @@ public sealed class DictationService : IDisposable
                     float sample = raw / 32768f;
                     if (_samples.Count < MaxSamples) _samples.Add(sample);
                     sum += sample * sample;
-                    float absolute = Math.Abs(sample);
-                    if (absolute > _peak) _peak = absolute;
                 }
             }
             // RMS del bloque → nivel del visualizador (el suavizado lo hace el Island).
