@@ -1460,7 +1460,6 @@ public partial class UserSettings : ObservableObject
     [XmlIgnore]
     public string DictationUnloadDelayText => $"{DictationUnloadDelaySeconds} s";
 
-
     /// <summary>
     /// Google Calendar: minutos de antelación del recordatorio (1-60). El aviso sigue
     /// vivo hasta dos minutos después del comienzo.

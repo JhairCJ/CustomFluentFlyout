@@ -32,9 +32,6 @@ public static class DictationHotkey
     /// <summary>VK_ESCAPE: la única tecla que aborta el dictado a propósito.</summary>
     public const int VkEscape = 0x1B;
 
-    /// <summary>¿Es una tecla modificadora (puede formar atajo por sí sola)?</summary>
-    public static bool IsModifier(int vk) => vk is VkShift or VkCtrl or VkAlt or VkWin;
-
     /// <summary>
     /// Une las dos formas en que Windows nombra a un modificador: el gancho de teclado
     /// de bajo nivel y WPF entregan el lado físico (VK_LCONTROL 0xA2, VK_RALT 0xA5…) y el

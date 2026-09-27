@@ -755,7 +755,7 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Escribe un trozo ya decodificado donde esté el cursor, si la sesión sigue vigente y no
+    /// Escribe la transcripción donde esté el cursor, si la sesión sigue vigente y no
     /// se ha cancelado (RF-3/RF-4). Es el mismo candado que usa la cancelación: texto y
     /// cancelación no se cruzan a mitad.
     /// </summary>
@@ -776,7 +776,7 @@ public sealed class DictationService : IDisposable
         CancellationTokenSource sessionCts)
     {
         var clock = Stopwatch.StartNew();
-        long vadMs = 0, engineMs = 0, firstTextMs = 0, decodeMs = 0, sendMs = 0;
+        long vadMs = 0, engineMs = 0, decodeMs = 0;
         int segments = 0, characters = 0;
         try
         {
@@ -813,14 +813,13 @@ public sealed class DictationService : IDisposable
                 text = text.Trim();
                 if (text.Length > 0)
                 {
-                    firstTextMs = engineMs;
                     segments = 1;
                     characters = text.Length;
                     WriteDictatedText(text, token, sessionCts);
                 }
                 decodeMs = clock.ElapsedMilliseconds - mark;
                 Logger.Info($"Dictado: {AudioSeconds(samples)} de audio | VAD {vadMs} ms | motor {engineMs} ms | "
-                    + $"primer texto {firstTextMs} ms | decodificación {decodeMs} ms | {segments} segmento(s), "
+                    + $"decodificación {decodeMs} ms | {segments} segmento(s), "
                     + $"{characters} caracteres | modelo {activeModel.Name}{MicNote()}");
                 return;
             }
@@ -831,38 +830,24 @@ public sealed class DictationService : IDisposable
 
             using var processor = BuildProcessor(factory, samples.Length, EffectiveLanguage(language, activePath));
 
-            // El texto se escribe SEGÚN se decodifica: el primer trozo aparece en cuanto el
-            // modelo lo produce, sin esperar a que termine la grabación entera. El hueco que
-            // separa un trozo del siguiente se guarda y se escribe con el siguiente (así el
-            // espacio entre palabras no se pierde), y el del último se descarta: el dictado
-            // no termina en un salto de línea ni en un espacio suelto.
-            string pending = string.Empty;
+            // Whisper puede devolver varios segmentos para una sola sesión. Se acumulan y se
+            // inyectan juntos: una sesión de dictado produce una sola escritura en destino.
+            var transcript = new StringBuilder();
             mark = clock.ElapsedMilliseconds;
             await foreach (var segment in processor.ProcessAsync(samples, token))
             {
-                string text = pending + segment.Text;
-                if (segments == 0) text = text.TrimStart(); // el dictado nunca empieza en blanco
-                if (text.Length == 0) continue;
-
-                int bodyEnd = text.Length;
-                while (bodyEnd > 0 && char.IsWhiteSpace(text[bodyEnd - 1])) bodyEnd--;
-                string body = text[..bodyEnd];
-                pending = text[bodyEnd..];
-                if (body.Length == 0) continue; // solo hueco: espera al trozo siguiente
-
-                if (segments == 0) firstTextMs = clock.ElapsedMilliseconds - mark;
                 segments++;
-                characters += body.Length;
-
-                long sendMark = clock.ElapsedMilliseconds;
-                WriteDictatedText(body, token, sessionCts);
-                sendMs += clock.ElapsedMilliseconds - sendMark;
+                transcript.Append(segment.Text);
             }
             decodeMs = clock.ElapsedMilliseconds - mark;
+            string whisperText = transcript.ToString().Trim();
+            characters = whisperText.Length;
+            if (whisperText.Length > 0)
+                WriteDictatedText(whisperText, token, sessionCts);
 
             Logger.Info($"Dictado: {AudioSeconds(samples)} de audio | VAD {vadMs} ms | motor {engineMs} ms | "
-                + $"primer texto {firstTextMs} ms | decodificación {decodeMs} ms | {segments} segmento(s), "
-                + $"{characters} caracteres | escritura {sendMs} ms | encoder {AudioContextFor(samples.Length)} "
+                + $"decodificación {decodeMs} ms | {segments} segmento(s), "
+                + $"{characters} caracteres | encoder {AudioContextFor(samples.Length)} "
                 + $"| {(_factoryPath == null ? "?" : Path.GetFileName(_factoryPath))}"
                 + MicNote());
         }

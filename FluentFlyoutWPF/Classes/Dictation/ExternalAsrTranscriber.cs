@@ -209,129 +209,6 @@ public sealed class ExternalAsrTranscriber : IDisposable
         return await ReadProcessOutputAsync(process, cancellationToken);
     }
 
-    private async Task<string> TranscribeWithQwenAsync(
-        string modelPath,
-        string wavPath,
-        string language,
-        bool useGpu,
-        CancellationToken cancellationToken)
-    {
-        await _externalLock.WaitAsync(cancellationToken);
-        try
-        {
-            Process process = await EnsureQwenProcessCoreAsync(modelPath, useGpu, cancellationToken);
-            var request = new QwenRequest(wavPath, QwenLanguage(language));
-            try
-            {
-                await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(request, JsonOptions));
-                await process.StandardInput.FlushAsync(cancellationToken);
-
-                string? line = await process.StandardOutput.ReadLineAsync(cancellationToken);
-                if (string.IsNullOrWhiteSpace(line))
-                    throw new InvalidOperationException("Qwen3-ASR no devolvió ningún resultado");
-
-                QwenResponse? response = JsonSerializer.Deserialize<QwenResponse>(line, JsonOptions);
-                if (response?.Ok != true)
-                    throw new InvalidOperationException(response?.Error ?? "Qwen3-ASR no pudo transcribir el audio");
-                return response.Text?.Trim() ?? "";
-            }
-            catch
-            {
-                // Si se cancela o se rompe el protocolo, se descarta el worker para que la
-                // siguiente sesión no lea una respuesta vieja.
-                StopQwenProcess();
-                throw;
-            }
-        }
-        finally
-        {
-            _externalLock.Release();
-        }
-    }
-
-    private async Task<Process> EnsureQwenProcessCoreAsync(
-        string modelPath,
-        bool useGpu,
-        CancellationToken cancellationToken)
-    {
-        if (_disposed) throw new ObjectDisposedException(nameof(ExternalAsrTranscriber));
-        if (_qwenProcess is { HasExited: false }
-            && string.Equals(_qwenModelPath, modelPath, StringComparison.OrdinalIgnoreCase)
-            && _qwenUseGpu == useGpu)
-            return _qwenProcess;
-
-        StopQwenProcess();
-        string scriptPath = Path.Combine(
-            AppContext.BaseDirectory,
-            "Resources",
-            "Dictation",
-            "qwen_asr_runner.py");
-        if (!File.Exists(scriptPath))
-            throw new FileNotFoundException("No se encontró el runner de Qwen3-ASR", scriptPath);
-
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "python",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
-        };
-        startInfo.Environment["PYTHONUTF8"] = "1";
-        startInfo.Environment["PYTHONIOENCODING"] = "utf-8";
-        startInfo.ArgumentList.Add(scriptPath);
-        startInfo.ArgumentList.Add("--model");
-        startInfo.ArgumentList.Add(modelPath);
-        startInfo.ArgumentList.Add("--device");
-        startInfo.ArgumentList.Add(useGpu ? "cuda:0" : "cpu");
-
-        Process process = StartProcess(startInfo, "Qwen3-ASR");
-        process.ErrorDataReceived += (_, args) =>
-        {
-            if (!string.IsNullOrWhiteSpace(args.Data)) Logger.Debug($"Qwen3-ASR: {args.Data}");
-        };
-        process.BeginErrorReadLine();
-
-        string? readyLine;
-        try
-        {
-            readyLine = await process.StandardOutput.ReadLineAsync(cancellationToken);
-        }
-        catch
-        {
-            StopProcess(process);
-            throw;
-        }
-
-        QwenResponse? ready;
-        try
-        {
-            ready = string.IsNullOrWhiteSpace(readyLine)
-                ? null
-                : JsonSerializer.Deserialize<QwenResponse>(readyLine, JsonOptions);
-        }
-        catch
-        {
-            StopProcess(process);
-            throw;
-        }
-        if (ready?.Ready != true)
-        {
-            string error = ready?.Error ?? "el runner no terminó de cargar el modelo";
-            StopProcess(process);
-            throw new InvalidOperationException(
-                $"No se pudo iniciar Qwen3-ASR: {error}. Instala Python 3.12 y qwen-asr.");
-        }
-
-        _qwenProcess = process;
-        _qwenModelPath = modelPath;
-        _qwenUseGpu = useGpu;
-        return process;
-    }
-
     private async Task EnsureNemoServerCoreAsync(
         string modelPath,
         bool useGpu,
@@ -513,6 +390,129 @@ public sealed class ExternalAsrTranscriber : IDisposable
         {
             // El proceso pudo cerrar el pipe durante la cancelación.
         }
+    }
+
+    private async Task<string> TranscribeWithQwenAsync(
+        string modelPath,
+        string wavPath,
+        string language,
+        bool useGpu,
+        CancellationToken cancellationToken)
+    {
+        await _externalLock.WaitAsync(cancellationToken);
+        try
+        {
+            Process process = await EnsureQwenProcessCoreAsync(modelPath, useGpu, cancellationToken);
+            var request = new QwenRequest(wavPath, QwenLanguage(language));
+            try
+            {
+                await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(request, JsonOptions));
+                await process.StandardInput.FlushAsync(cancellationToken);
+
+                string? line = await process.StandardOutput.ReadLineAsync(cancellationToken);
+                if (string.IsNullOrWhiteSpace(line))
+                    throw new InvalidOperationException("Qwen3-ASR no devolvió ningún resultado");
+
+                QwenResponse? response = JsonSerializer.Deserialize<QwenResponse>(line, JsonOptions);
+                if (response?.Ok != true)
+                    throw new InvalidOperationException(response?.Error ?? "Qwen3-ASR no pudo transcribir el audio");
+                return response.Text?.Trim() ?? "";
+            }
+            catch
+            {
+                // Si se cancela o se rompe el protocolo, se descarta el worker para que la
+                // siguiente sesión no lea una respuesta vieja.
+                StopQwenProcess();
+                throw;
+            }
+        }
+        finally
+        {
+            _externalLock.Release();
+        }
+    }
+
+    private async Task<Process> EnsureQwenProcessCoreAsync(
+        string modelPath,
+        bool useGpu,
+        CancellationToken cancellationToken)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(ExternalAsrTranscriber));
+        if (_qwenProcess is { HasExited: false }
+            && string.Equals(_qwenModelPath, modelPath, StringComparison.OrdinalIgnoreCase)
+            && _qwenUseGpu == useGpu)
+            return _qwenProcess;
+
+        StopQwenProcess();
+        string scriptPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "Resources",
+            "Dictation",
+            "qwen_asr_runner.py");
+        if (!File.Exists(scriptPath))
+            throw new FileNotFoundException("No se encontró el runner de Qwen3-ASR", scriptPath);
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "python",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+        startInfo.Environment["PYTHONUTF8"] = "1";
+        startInfo.Environment["PYTHONIOENCODING"] = "utf-8";
+        startInfo.ArgumentList.Add(scriptPath);
+        startInfo.ArgumentList.Add("--model");
+        startInfo.ArgumentList.Add(modelPath);
+        startInfo.ArgumentList.Add("--device");
+        startInfo.ArgumentList.Add(useGpu ? "cuda:0" : "cpu");
+
+        Process process = StartProcess(startInfo, "Qwen3-ASR");
+        process.ErrorDataReceived += (_, args) =>
+        {
+            if (!string.IsNullOrWhiteSpace(args.Data)) Logger.Debug($"Qwen3-ASR: {args.Data}");
+        };
+        process.BeginErrorReadLine();
+
+        string? readyLine;
+        try
+        {
+            readyLine = await process.StandardOutput.ReadLineAsync(cancellationToken);
+        }
+        catch
+        {
+            StopProcess(process);
+            throw;
+        }
+
+        QwenResponse? ready;
+        try
+        {
+            ready = string.IsNullOrWhiteSpace(readyLine)
+                ? null
+                : JsonSerializer.Deserialize<QwenResponse>(readyLine, JsonOptions);
+        }
+        catch
+        {
+            StopProcess(process);
+            throw;
+        }
+        if (ready?.Ready != true)
+        {
+            string error = ready?.Error ?? "el runner no terminó de cargar el modelo";
+            StopProcess(process);
+            throw new InvalidOperationException(
+                $"No se pudo iniciar Qwen3-ASR: {error}. Instala Python 3.12 y qwen-asr.");
+        }
+
+        _qwenProcess = process;
+        _qwenModelPath = modelPath;
+        _qwenUseGpu = useGpu;
+        return process;
     }
 
     private static Process StartProcess(ProcessStartInfo startInfo, string runtimeName)
