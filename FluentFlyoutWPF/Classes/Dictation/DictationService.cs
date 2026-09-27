@@ -52,18 +52,23 @@ public sealed class DictationService : IDisposable
     private readonly SemaphoreSlim _vadLock = new(1, 1);
     private readonly CancellationTokenSource _lifetimeCts = new();
     private readonly Lock _transcriptionGate = new();
+    private readonly Lock _resourceStateGate = new();
+    private readonly SemaphoreSlim _resourcePolicyLock = new(1, 1);
 
     private WhisperFactory? _factory;
     private string? _factoryPath;
     private WhisperVadFactory? _vadFactory;
     private string? _vadFactoryPath;
     private CancellationTokenSource? _transcriptionCts;
-    private CancellationTokenSource? _preloadCts;
     private bool _cancelRequested;
     private bool _runtimeConfigured;
     private bool _runtimeUseGpu;
     private bool _runtimeLoaded;
     private string _runtimeInfo = "";
+    private CancellationTokenSource? _resourceReleaseCts;
+    private CancellationTokenSource? _resourcePolicyCts;
+    private bool _resourcePolicyPending;
+    private bool _resourceSessionStarting;
     private volatile bool _disposed;
 
     public DictationPhase Phase { get; private set; } = DictationPhase.Idle;
@@ -165,6 +170,12 @@ public sealed class DictationService : IDisposable
             return;
         }
 
+        lock (_resourceStateGate)
+        {
+            CancelResourceReleaseTimerUnsafe();
+            _resourceSessionStarting = true;
+        }
+
         // El micrófono se abre AQUÍ y no en un hilo aparte a propósito: el gancho de
         // teclado tiene un plazo de ~300 ms y abrir el dispositivo son unas decenas de
         // ms, mientras que diferirlo abriría la puerta a que la tecla se suelte antes de
@@ -175,13 +186,16 @@ public sealed class DictationService : IDisposable
         }
         catch (Exception ex)
         {
+            lock (_resourceStateGate) _resourceSessionStarting = false;
             Logger.Warn(ex, "No se pudo abrir el micrófono");
             Fail("IslandDictationNoMic", "No microphone available");
+            ScheduleResourceRelease();
             return;
         }
 
         _cancelRequested = false;
         SetPhase(DictationPhase.Listening);
+        lock (_resourceStateGate) _resourceSessionStarting = false;
     }
 
     /// <summary>Cierra el micrófono, descarta el audio y no escribe nada (RF-4).</summary>
@@ -213,6 +227,7 @@ public sealed class DictationService : IDisposable
         if (cancelled || samples.Length == 0)
         {
             SetPhase(DictationPhase.Idle);
+            FinishSessionWithoutTranscription();
             return;
         }
 
@@ -228,65 +243,56 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Carga el modelo en segundo plano para que el primer dictado no pague la carga
-    /// entera (un `small` son cientos de MB desde disco). Se llama al cambiar de modelo
-    /// o al activar el dictado en Ajustes; si falla, no se avisa: el fallo se ve al dictar.
+    /// Aplica la política actual de carga. Se conserva como punto de compatibilidad para el
+    /// arranque y para los cambios de configuración.
     /// </summary>
     public void Preload()
     {
+        RefreshResourcePolicy();
+    }
+
+    /// <summary>
+    /// Reaplica el modo de carga y el modelo seleccionado. En automático libera primero lo
+    /// que hubiera quedado cargado; en permanente deja la carga preparada en segundo plano.
+    /// </summary>
+    public void RefreshResourcePolicy()
+    {
         if (_disposed) return;
-        var preloadCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
-        CancellationTokenSource? previousCts = Interlocked.Exchange(ref _preloadCts, preloadCts);
-        try
-        {
-            previousCts?.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            // La precarga anterior terminó justo al cambiar de modelo.
-        }
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                if (DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel) == null)
-                    return;
-                await DictationModelStore.EnsureVadModelAsync(preloadCts.Token);
 
-                string activePath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel)
-                    ?? throw new FileNotFoundException("No hay modelo de dictado activo");
-                DictationModelInfo? activeModel = DictationModelStore.Find(Path.GetFileName(activePath));
-                if (activeModel is { Backend: not DictationModelBackend.Whisper })
-                {
-                    await DictationModelStore.ValidateIntegrityAsync(activePath, preloadCts.Token);
-                    await _externalTranscriber.PreloadAsync(
-                        activeModel,
-                        activePath,
-                        SettingsManager.Current.DictationUseGpu,
-                        preloadCts.Token);
-                    return;
-                }
+        CancellationTokenSource? work;
+        lock (_resourceStateGate)
+        {
+            CancelResourceReleaseTimerUnsafe();
+            CancelResourcePolicyUnsafe();
+            if (IsResourceBusyUnsafe())
+            {
+                _resourcePolicyPending = true;
+                return;
+            }
 
-                WhisperFactory factory = await EnsureFactoryAsync(preloadCts.Token);
-                // Cargar no basta: la PRIMERA inferencia es la que crea el contexto de CUDA,
-                // carga los kernels y reserva las memorias de ggml. Templarla aquí hace que
-                // el primer dictado sea tan rápido como los demás.
-                await WarmUpAsync(factory, preloadCts.Token);
-            }
-            catch (OperationCanceledException) when (preloadCts.IsCancellationRequested)
-            {
-                // Cambiar de modelo o cerrar la aplicación cancela la precarga anterior.
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn(ex, "No se pudo precargar el modelo de dictado");
-            }
-            finally
-            {
-                Interlocked.CompareExchange(ref _preloadCts, null, preloadCts);
-                preloadCts.Dispose();
-            }
-        });
+            _resourcePolicyPending = false;
+            work = new CancellationTokenSource();
+            _resourcePolicyCts = work;
+        }
+
+        _ = Task.Run(() => ApplyResourcePolicyAsync(work));
+    }
+
+    /// <summary>Reinicia el temporizador con el nuevo valor del deslizador.</summary>
+    public void RefreshResourceTimeout()
+    {
+        if (_disposed) return;
+
+        bool schedule;
+        lock (_resourceStateGate)
+        {
+            CancelResourceReleaseTimerUnsafe();
+            schedule = !SettingsManager.Current.DictationKeepModelLoaded
+                && !IsResourceBusyUnsafe()
+                && HasLoadedResourcesUnsafe();
+        }
+
+        if (schedule) ScheduleResourceRelease();
     }
 
     /// <summary>Ajuste en caliente: si el dictado dejó de estar activado, se corta en seco.</summary>
@@ -302,6 +308,8 @@ public sealed class DictationService : IDisposable
                 SetPhase(DictationPhase.Idle);
             }
         }
+
+        RefreshResourcePolicy();
     }
 
     /// <summary>
@@ -315,8 +323,8 @@ public sealed class DictationService : IDisposable
 
         if (!_runtimeLoaded)
         {
-            // Preload can be between configuring the order and creating the native
-            // factory. It is still safe to replace the order during that small window.
+            // Todavía no se ha creado el runtime nativo; se puede cambiar el orden antes
+            // de la primera transcripción.
             _runtimeUseGpu = SettingsManager.Current.DictationUseGpu;
             ApplyRuntimeLibraryOrder(_runtimeUseGpu);
             return;
@@ -328,10 +336,17 @@ public sealed class DictationService : IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
         _disposed = true;
+        lock (_resourceStateGate)
+        {
+            CancelResourceReleaseTimerUnsafe();
+            CancelResourcePolicyUnsafe();
+            _resourcePolicyPending = false;
+            _resourceSessionStarting = false;
+        }
         _lifetimeCts.Cancel();
         CancelTranscription();
-        _preloadCts?.Cancel();
         _capture.Dispose();
         _externalTranscriber.Dispose();
         _vadFactory?.Dispose();
@@ -341,6 +356,235 @@ public sealed class DictationService : IDisposable
         _factory?.Dispose();
         _factory = null;
         _lifetimeCts.Dispose();
+    }
+
+    private bool IsResourceBusyUnsafe() =>
+        _resourceSessionStarting
+        || Active
+        || Volatile.Read(ref _transcriptionCts) != null;
+
+    private bool HasLoadedResourcesUnsafe() =>
+        _factory != null
+        || _vadFactory != null
+        || _externalTranscriber.RuntimeLoaded;
+
+    private void CancelResourceReleaseTimerUnsafe()
+    {
+        CancellationTokenSource? cts = _resourceReleaseCts;
+        _resourceReleaseCts = null;
+        try
+        {
+            cts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // El temporizador terminó justo antes de que se cancelara.
+        }
+    }
+
+    private void CancelResourcePolicyUnsafe()
+    {
+        CancellationTokenSource? cts = _resourcePolicyCts;
+        _resourcePolicyCts = null;
+        try
+        {
+            cts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // La transición terminó justo antes de que se cancelara.
+        }
+    }
+
+    private void FinishSessionWithoutTranscription()
+    {
+        bool policyPending;
+        lock (_resourceStateGate)
+        {
+            policyPending = _resourcePolicyPending;
+            _resourcePolicyPending = false;
+        }
+
+        if (policyPending) RefreshResourcePolicy();
+        else if (!SettingsManager.Current.DictationKeepModelLoaded) ScheduleResourceRelease();
+    }
+
+    private async Task ApplyResourcePolicyAsync(CancellationTokenSource work)
+    {
+        bool lockTaken = false;
+        try
+        {
+            await _resourcePolicyLock.WaitAsync(work.Token);
+            lockTaken = true;
+            if (_disposed || work.IsCancellationRequested) return;
+
+            lock (_resourceStateGate)
+            {
+                if (IsResourceBusyUnsafe())
+                {
+                    _resourcePolicyPending = true;
+                    return;
+                }
+            }
+
+            // A cancelled policy still releases what it already owned. The next policy
+            // transition will then load the newly selected backend if necessary.
+            await ReleaseLoadedResourcesCoreAsync();
+            if (_disposed || work.IsCancellationRequested) return;
+
+            if (!SettingsManager.Current.DictationEnabled
+                || !SettingsManager.Current.DictationKeepModelLoaded)
+                return;
+
+            lock (_resourceStateGate)
+            {
+                if (IsResourceBusyUnsafe())
+                {
+                    _resourcePolicyPending = true;
+                    return;
+                }
+            }
+
+            await LoadResourcesCoreAsync(work.Token);
+        }
+        catch (OperationCanceledException) when (work.IsCancellationRequested || _disposed)
+        {
+            // Un cambio de modelo o de política invalida esta transición.
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "No se pudo aplicar la política de carga del dictado");
+        }
+        finally
+        {
+            if (lockTaken) _resourcePolicyLock.Release();
+            lock (_resourceStateGate)
+            {
+                if (ReferenceEquals(_resourcePolicyCts, work)) _resourcePolicyCts = null;
+            }
+            work.Dispose();
+        }
+    }
+
+    private async Task LoadResourcesCoreAsync(CancellationToken cancellationToken)
+    {
+        string? modelPath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel);
+        if (modelPath == null) return;
+
+        await EnsureVadFactoryCoreAsync(cancellationToken);
+        DictationModelInfo? model = DictationModelStore.Find(Path.GetFileName(modelPath));
+        if (model is { Backend: not DictationModelBackend.Whisper })
+        {
+            await DictationModelStore.ValidateIntegrityAsync(modelPath, cancellationToken);
+            await _externalTranscriber.EnsureLoadedAsync(
+                model,
+                modelPath,
+                SettingsManager.Current.DictationUseGpu,
+                cancellationToken);
+        }
+        else
+        {
+            WhisperFactory factory = await EnsureFactoryCoreAsync(cancellationToken);
+            await WarmUpAsync(factory, cancellationToken);
+        }
+
+        Logger.Info($"Dictado: recursos preparados para {Path.GetFileName(modelPath)}");
+    }
+
+    private async Task ReleaseLoadedResourcesCoreAsync()
+    {
+        try
+        {
+            await _externalTranscriber.ReleaseLoadedResourcesAsync();
+
+            await _engineLock.WaitAsync();
+            try
+            {
+                _factory?.Dispose();
+                _factory = null;
+                _factoryPath = null;
+            }
+            finally
+            {
+                _engineLock.Release();
+            }
+
+            await _vadLock.WaitAsync();
+            try
+            {
+                _vadFactory?.Dispose();
+                _vadFactory = null;
+                _vadFactoryPath = null;
+            }
+            finally
+            {
+                _vadLock.Release();
+            }
+
+            Logger.Info("Dictado: pesos, contextos, VAD y workers liberados");
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "No se pudieron liberar todos los recursos del dictado");
+        }
+    }
+
+    private void ScheduleResourceRelease()
+    {
+        if (_disposed || SettingsManager.Current.DictationKeepModelLoaded) return;
+
+        CancellationTokenSource? timer;
+        int delaySeconds = Math.Clamp(
+            SettingsManager.Current.DictationUnloadDelaySeconds,
+            15,
+            600);
+        lock (_resourceStateGate)
+        {
+            CancelResourceReleaseTimerUnsafe();
+            if (IsResourceBusyUnsafe() || !HasLoadedResourcesUnsafe()) return;
+            timer = new CancellationTokenSource();
+            _resourceReleaseCts = timer;
+        }
+
+        _ = Task.Run(() => ReleaseWhenIdleAsync(timer, TimeSpan.FromSeconds(delaySeconds)));
+    }
+
+    private async Task ReleaseWhenIdleAsync(
+        CancellationTokenSource timer,
+        TimeSpan delay)
+    {
+        bool lockTaken = false;
+        try
+        {
+            await Task.Delay(delay, timer.Token);
+            if (_disposed || timer.IsCancellationRequested) return;
+
+            await _resourcePolicyLock.WaitAsync(timer.Token);
+            lockTaken = true;
+            lock (_resourceStateGate)
+            {
+                if (_disposed
+                    || timer.IsCancellationRequested
+                    || SettingsManager.Current.DictationKeepModelLoaded
+                    || IsResourceBusyUnsafe())
+                    return;
+            }
+
+            await ReleaseLoadedResourcesCoreAsync();
+        }
+        catch (OperationCanceledException) when (timer.IsCancellationRequested || _disposed)
+        {
+            // Se canceló al empezar otro dictado o al cambiar la política.
+        }
+        finally
+        {
+            if (lockTaken) _resourcePolicyLock.Release();
+            lock (_resourceStateGate)
+            {
+                if (ReferenceEquals(_resourceReleaseCts, timer)) _resourceReleaseCts = null;
+            }
+            timer.Dispose();
+        }
     }
 
     // ------------------------------------------------------------------
@@ -379,6 +623,19 @@ public sealed class DictationService : IDisposable
     }
 
     private async Task<WhisperFactory> EnsureFactoryAsync(CancellationToken cancellationToken)
+    {
+        await _resourcePolicyLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await EnsureFactoryCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            _resourcePolicyLock.Release();
+        }
+    }
+
+    private async Task<WhisperFactory> EnsureFactoryCoreAsync(CancellationToken cancellationToken)
     {
         string path = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel)
             ?? throw new FileNotFoundException("No hay modelo de dictado activo");
@@ -456,20 +713,16 @@ public sealed class DictationService : IDisposable
             .Build();
 
     /// <summary>
-    /// Primer pase de inferencia de regalo al cargar el modelo: CUDA crea su contexto, ggml
-    /// reserva sus memorias y los kernels se cargan en la PRIMERA pasada. Hacerla aquí —en
-    /// segundo plano, al arrancar o al cambiar de modelo— deja el primer dictado tan rápido
-    /// como los siguientes; el texto del silencio se descarta.
+    /// La primera pasada reserva el contexto y los buffers que algunos backends solo crean
+    /// al inferir. Solo se usa en modo permanente; en automático la primera frase conserva
+    /// el comportamiento bajo demanda y evita trabajo extra si el dictado no se utiliza.
     /// </summary>
     private async Task WarmUpAsync(WhisperFactory factory, CancellationToken cancellationToken)
     {
-        if (_disposed || Phase is DictationPhase.Listening or DictationPhase.Transcribing)
-            return; // un dictado en marcha manda: nada de competir por la GPU/CPU justo entonces
-
         var clock = Stopwatch.StartNew();
         try
         {
-            float[] silence = new float[SampleRateHz]; // 1 s de silencio: solo templa
+            float[] silence = new float[SampleRateHz];
             using var processor = factory.CreateBuilder()
                 .WithThreads(TranscriptionThreads)
                 .WithLanguage("en")
@@ -479,13 +732,13 @@ public sealed class DictationService : IDisposable
                 .Build();
             await foreach (var segment in processor.ProcessAsync(silence, cancellationToken))
             {
-                _ = segment; // lo que diga el silencio no se usa
+                _ = segment;
             }
             Logger.Info($"Dictado: motor templado en {clock.ElapsedMilliseconds} ms ({_runtimeInfo})");
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || _disposed)
         {
-            // Cambiar de modelo o cerrar la aplicación cancela el templado.
+            // Cambiar de modelo, apagar el dictado o cerrar la aplicación cancela el templado.
         }
         catch (Exception ex)
         {
@@ -549,7 +802,7 @@ public sealed class DictationService : IDisposable
             {
                 mark = clock.ElapsedMilliseconds;
                 await DictationModelStore.ValidateIntegrityAsync(activePath, token);
-                string text = await _externalTranscriber.TranscribeAsync(
+                string text = await TranscribeExternalAsync(
                     activeModel,
                     activePath,
                     samples,
@@ -634,8 +887,53 @@ public sealed class DictationService : IDisposable
                     sessionCts);
                 sessionCts.Dispose();
             }
-            if (current && !_disposed && Phase == DictationPhase.Transcribing)
-                SetPhase(DictationPhase.Idle);
+            if (current)
+            {
+                if (!_disposed && Phase == DictationPhase.Transcribing)
+                    SetPhase(DictationPhase.Idle);
+
+                bool policyPending;
+                lock (_resourceStateGate)
+                {
+                    policyPending = _resourcePolicyPending;
+                    _resourcePolicyPending = false;
+                }
+
+                if (!_disposed)
+                {
+                    if (policyPending) RefreshResourcePolicy();
+                    else if (SettingsManager.Current.DictationKeepModelLoaded)
+                    {
+                        lock (_resourceStateGate) CancelResourceReleaseTimerUnsafe();
+                    }
+                    else ScheduleResourceRelease();
+                }
+            }
+        }
+    }
+
+    private async Task<string> TranscribeExternalAsync(
+        DictationModelInfo model,
+        string modelPath,
+        float[] samples,
+        string language,
+        bool useGpu,
+        CancellationToken cancellationToken)
+    {
+        await _resourcePolicyLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await _externalTranscriber.TranscribeAsync(
+                model,
+                modelPath,
+                samples,
+                language,
+                useGpu,
+                cancellationToken);
+        }
+        finally
+        {
+            _resourcePolicyLock.Release();
         }
     }
 
@@ -655,6 +953,19 @@ public sealed class DictationService : IDisposable
     }
 
     private async Task<WhisperVadFactory> EnsureVadFactoryAsync(CancellationToken cancellationToken)
+    {
+        await _resourcePolicyLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await EnsureVadFactoryCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            _resourcePolicyLock.Release();
+        }
+    }
+
+    private async Task<WhisperVadFactory> EnsureVadFactoryCoreAsync(CancellationToken cancellationToken)
     {
         ConfigureRuntimeIfNeeded();
 

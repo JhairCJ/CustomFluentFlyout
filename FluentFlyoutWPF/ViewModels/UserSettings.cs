@@ -1439,6 +1439,27 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial bool DictationUseGpu { get; set; }
 
+    /// <summary>
+    /// Mantiene los pesos del modelo cargados entre dictados para evitar pagar la carga
+    /// inicial cuando se dictan varias frases seguidas.
+    /// </summary>
+    [NotifyPropertyChangedFor(nameof(DictationAutoReleaseEnabled))]
+    [ObservableProperty]
+    public partial bool DictationKeepModelLoaded { get; set; }
+
+    /// <summary>Segundos de inactividad antes de liberar los recursos del dictado (15-600).</summary>
+    [NotifyPropertyChangedFor(nameof(DictationUnloadDelayText))]
+    [ObservableProperty]
+    public partial int DictationUnloadDelaySeconds { get; set; }
+
+    /// <summary>Indica si el tiempo de liberación automática está activo.</summary>
+    [XmlIgnore]
+    public bool DictationAutoReleaseEnabled => !DictationKeepModelLoaded;
+
+    /// <summary>Texto corto para mostrar el tiempo elegido junto al deslizador.</summary>
+    [XmlIgnore]
+    public string DictationUnloadDelayText => $"{DictationUnloadDelaySeconds} s";
+
 
     /// <summary>
     /// Google Calendar: minutos de antelación del recordatorio (1-60). El aviso sigue
@@ -1863,6 +1884,8 @@ public partial class UserSettings : ObservableObject
         DictationModel = "";
         DictationLanguage = "auto";
         DictationUseGpu = false;
+        DictationKeepModelLoaded = false;
+        DictationUnloadDelaySeconds = 120;
         GoogleCalendarReminderMinutes = 5;
         GoogleCalendarRefreshMinutes = 5;
         GoogleCalendarDaysAhead = 7;
@@ -3137,8 +3160,7 @@ public partial class UserSettings : ObservableObject
 
     /// <summary>
     /// Dictado (spec 006): activarlo o desactivarlo instala o retira el gancho de teclado
-    /// —el atajo se escucha desde el gancho global— y, al activarlo, el modelo se precarga
-    /// en segundo plano para que el primer dictado no espere a leerlo de disco.
+    /// —el atajo se escucha desde el gancho global— y actualiza la política de recursos.
     /// </summary>
     partial void OnDictationEnabledChanged(bool oldValue, bool newValue)
     {
@@ -3147,16 +3169,15 @@ public partial class UserSettings : ObservableObject
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
         mainWindow.RefreshKeyboardHook();
         mainWindow.Dictation.RefreshSettings();
-        if (newValue) mainWindow.Dictation.Preload();
     }
 
-    /// <summary>Cambiar de modelo o de idioma no necesita nada en caliente: el motor recarga al dictar.</summary>
+    /// <summary>Cambiar de modelo libera el anterior y aplica la política al nuevo.</summary>
     partial void OnDictationModelChanged(string oldValue, string newValue)
     {
         if (oldValue == newValue || _initializing) return;
 
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
-        if (DictationEnabled) mainWindow.Dictation.Preload();
+        mainWindow.Dictation.RefreshResourcePolicy();
     }
 
     /// <summary>
@@ -3169,6 +3190,28 @@ public partial class UserSettings : ObservableObject
 
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
         mainWindow.Dictation.RefreshAccelerationSettings();
+    }
+
+    partial void OnDictationKeepModelLoadedChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.Dictation.RefreshResourcePolicy();
+    }
+
+    partial void OnDictationUnloadDelaySecondsChanged(int oldValue, int newValue)
+    {
+        int fixedValue = Math.Clamp(newValue, 15, 600);
+        if (fixedValue != newValue)
+        {
+            DictationUnloadDelaySeconds = fixedValue;
+            return;
+        }
+
+        if (_initializing) return;
+        MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
+        mainWindow.Dictation.RefreshResourceTimeout();
     }
 
     /// <summary>Un atajo ilegible (ajuste editado a mano) no puede dejar el dictado mudo: se devuelve el de fábrica.</summary>

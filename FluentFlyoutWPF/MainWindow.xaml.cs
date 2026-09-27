@@ -182,9 +182,8 @@ public partial class MainWindow : MicaWindow
 
         RefreshKeyboardHook();
 
-        // El modelo del dictado se carga, se verifica y se templa YA, en segundo plano: el
-        // primer dictado de la sesión no debe pagar la lectura del archivo, su SHA-256 ni el
-        // arranque de CUDA (spec 006). Preload no hace nada si el dictado está apagado.
+        // Aplica la política elegida: en modo automático no carga nada al arrancar; en modo
+        // permanente prepara VAD y backend en segundo plano para evitar latencia inicial.
         if (SettingsManager.Current.DictationEnabled) Dictation.Preload();
 
         WindowStartupLocation = WindowStartupLocation.Manual;
