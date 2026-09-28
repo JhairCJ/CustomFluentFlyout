@@ -229,4 +229,122 @@ Check(DictationHotkey.Parse("F5").SequenceEqual([0x74]), "F5 se lee como código
 Check(DictationHotkey.Parse("ctrl+ctrl+x").SequenceEqual([DictationHotkey.VkCtrl, 0x58]), "sin repetidos");
 Ok();
 
+// ------------------------------------------------------------------
+// Lista de eventos activos: la vista sale de aquí (IslandActivityRegistry)
+// ------------------------------------------------------------------
+var t0 = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+var registry = new IslandActivityRegistry();
+Check(registry.Alive(t0).Count == 0, "sin entradas no hay nada activo");
+registry.SetLive("media", active: true, t0);
+Check(registry.IsAlive("media", t0) && registry.Alive(t0).Count == 1, "una actividad viva está viva");
+registry.SetLive("media", active: true, t0.AddSeconds(5));
+Check(registry.Live("media", t0)!.Value.StartedUtc == t0, "repetir el mismo estado no cambia el instante de nacimiento");
+registry.SetLive("media", active: false, t0);
+Check(!registry.IsAlive("media", t0), "cerrar la actividad la retira de la lista");
+// Un AVISO vive su plazo y, a diferencia de la actividad viva, vence solo.
+registry.Pulse("bluetooth", t0, t0.AddSeconds(4));
+Check(registry.IsAlive("bluetooth", t0.AddSeconds(3)), "el aviso vive mientras corre su plazo");
+Check(!registry.IsAlive("bluetooth", t0.AddSeconds(4)) && registry.Alive(t0.AddSeconds(9)).Count == 0,
+    "el aviso vencido no sostiene nada");
+// Renovar un aviso NO lo convierte en un evento nuevo (su instante no cambia): es lo que
+// permite reintentar el vencimiento bajo el cursor sin reiniciar el plazo.
+registry.Pulse("bluetooth", t0, t0.AddSeconds(4));
+Check(registry.Renew("bluetooth", t0.AddSeconds(6)) && registry.NoticeAlive("bluetooth", t0.AddSeconds(5)),
+    "renovar prolonga el plazo sin reiniciarlo");
+Check(registry.NoticeStarted("bluetooth", t0.AddSeconds(5)) == t0, "renovar conserva el instante de nacimiento");
+Check(registry.NextNoticeExpiry(t0.AddSeconds(5)) == t0.AddSeconds(6), "el vencimiento más cercano manda el despertador");
+Check(!registry.Renew("power", t0.AddSeconds(6)), "sin aviso no hay nada que renovar");
+// Sólo el aviso FORZADO vence también en «Visible mientras activo» (Bluetooth, cargador).
+registry.Pulse("power", t0, t0.AddSeconds(4), alwaysTemporal: true);
+Check(registry.NoticeAlwaysTemporal("power", t0) && !registry.NoticeAlwaysTemporal("bluetooth", t0),
+    "el aviso forzado se distingue del que solo vive en modo aviso");
+// Dos caras de la misma funcionalidad: la más reciente de las dos es la que desempata.
+registry.SetLive("timer", active: true, t0);
+registry.Pulse("timer", t0.AddSeconds(2), t0.AddSeconds(9));
+Check(registry.Live("timer", t0.AddSeconds(3))!.Value.Kind == IslandActivityKind.Notice,
+    "de sus dos entradas manda la más reciente");
+var live = registry.Alive(t0.AddSeconds(3));
+Check(live.Count == 3 && live.Count(e => e.Id == "timer") == 1,
+    "cada funcionalidad con algo vivo aparece UNA sola vez en la lista");
+registry.Forget("timer");
+Check(!registry.Contains("timer"), "olvidar retira actividad y aviso");
+// La exclusiva manda: la alerta del temporizador y el dictado.
+registry.SetExclusive("timer", true, t0);
+Check(registry.HasExclusive(t0) && registry.ExclusiveId(t0) == "timer", "la exclusiva vigente se identifica");
+registry.SetExclusive("timer", false, t0);
+Check(!registry.HasExclusive(t0), "cerrar la exclusiva la retira");
+Ok();
+
+// ------------------------------------------------------------------
+// Política de presentación: la lista de activos traducida a UNA vista
+// ------------------------------------------------------------------
+string[] screens = ["media", "timer", "calendar"];
+var at = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+IslandPresentationInput Input(IslandActivityRegistry activity, string[] ids,
+    bool suppressed = false, bool returnToInactive = true, bool userExpanded = false,
+    string? userExpandedFeatureId = null, bool anyScreenUsable = true,
+    string? presentedNoticeId = null, DateTime presentedNoticeStarted = default,
+    string[]? usable = null, string[]? expandable = null)
+    => new(suppressed, returnToInactive, userExpanded, userExpandedFeatureId, anyScreenUsable,
+        presentedNoticeId, presentedNoticeStarted, ids, expandable ?? ids, usable ?? ids, activity, at);
+
+var idle = new IslandActivityRegistry();
+// Sin nada activo: pieza inactiva si el ajuste la pide y hay algo que abrir; si no, nada.
+var rest = IslandPresentation.Resolve(Input(idle, screens));
+Check(rest.View == IslandDesiredView.Inactive && rest.FeatureId == null, "sin actividad reposa en la pieza");
+Check(IslandPresentation.Resolve(Input(idle, screens, returnToInactive: false)).View == IslandDesiredView.Hidden,
+    "sin «volver a inactivo» el reposo es nada");
+Check(IslandPresentation.Resolve(Input(idle, screens, anyScreenUsable: false)).View == IslandDesiredView.Hidden,
+    "sin pantalla usable no se ancla una caja vacía");
+// Un evento activo se presenta en compacto, en el mismo instante de su evento.
+var playing = new IslandActivityRegistry();
+playing.SetLive("media", true, at);
+var active = IslandPresentation.Resolve(Input(playing, screens));
+Check(active.View == IslandDesiredView.Compact && active.FeatureId == "media",
+    "un evento activo se presenta en compacto");
+// Suprimido: nada, aunque haya actividad... salvo exclusiva.
+Check(IslandPresentation.Resolve(Input(playing, screens, suppressed: true)).View == IslandDesiredView.Hidden,
+    "suprimido no se muestra nada");
+playing.SetExclusive("timer", true, now);
+var exclusive = IslandPresentation.Resolve(Input(playing, screens, suppressed: true));
+Check(exclusive.View == IslandDesiredView.Expanded && exclusive.FeatureId == "timer",
+    "la exclusiva manda y atraviesa la supresión");
+// Una exclusiva sin expandido —el dictado vive fuera de las pantallas— se queda en compacto.
+var dictating = new IslandActivityRegistry();
+dictating.SetExclusive("dictation", true, now);
+var dictation = IslandPresentation.Resolve(Input(dictating, [.. screens, "dictation"], expandable: screens));
+Check(dictation.View == IslandDesiredView.Compact && dictation.FeatureId == "dictation",
+    "una exclusiva sin expandido se queda en compacto");
+// El expandido que el usuario abrió se respeta: un evento ordinario no le quita la vista.
+var expanded = IslandPresentation.Resolve(Input(playing, screens, userExpanded: true, userExpandedFeatureId: "timer"));
+Check(expanded.View == IslandDesiredView.Expanded && expanded.FeatureId == "timer",
+    "el expandido del usuario no lo roba una actividad");
+// Con varias activas gana la del evento más reciente y, a igualdad, la del orden de pantallas.
+var both = new IslandActivityRegistry();
+both.SetLive("timer", true, at.AddSeconds(5));
+both.SetLive("media", true, at.AddSeconds(3));
+Check(IslandPresentation.Resolve(Input(both, screens)).FeatureId == "timer", "gana el evento más reciente");
+var tie = new IslandActivityRegistry();
+tie.SetLive("timer", true, at);
+tie.SetLive("media", true, at);
+Check(IslandPresentation.Resolve(Input(tie, screens)).FeatureId == "media", "empate: la primera del orden de pantallas");
+// Un aviso nuevo estrena plazo; re-presentar el mismo no lo reinicia (001 RF-2).
+string[] notices = ["bluetooth", "power"];
+var notice = new IslandActivityRegistry();
+notice.Pulse("bluetooth", at, at.AddSeconds(5), alwaysTemporal: true);
+var fresh = IslandPresentation.Resolve(Input(notice, notices));
+Check(fresh.FeatureId == "bluetooth" && fresh.RestartNotice && fresh.AlwaysTemporal,
+    "un aviso nuevo estrena su plazo y conserva su carácter forzado");
+var again = IslandPresentation.Resolve(Input(notice, notices, presentedNoticeId: "bluetooth", presentedNoticeStarted: at));
+Check(again.FeatureId == "bluetooth" && !again.RestartNotice, "re-presentar el mismo aviso no reinicia su plazo");
+// Una actividad que no puede abrirse no sostiene la vista: ni la música apagada ni un aviso
+// cuya funcionalidad se deshabilitó.
+var mediaOnly = new IslandActivityRegistry();
+mediaOnly.SetLive("media", true, at);
+Check(IslandPresentation.Resolve(Input(mediaOnly, screens, usable: ["timer"])).View == IslandDesiredView.Inactive,
+    "una activa no usable no abre nada");
+Check(IslandPresentation.Resolve(Input(notice, notices, usable: [])).View == IslandDesiredView.Inactive,
+    "un aviso no usable tampoco sostiene la vista");
+Ok();
+
 Console.WriteLine($"selfcheck: {passed} bloques correctos");

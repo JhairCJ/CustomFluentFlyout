@@ -1,337 +1,395 @@
 // Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-using FluentFlyout.Classes;
 using FluentFlyout.Classes.Settings;
-using FluentFlyout.Classes.Utils;
-using FluentFlyout.Controls.TaskbarWidget;
 using FluentFlyoutWPF.Classes;
-using FluentFlyoutWPF.Classes.Utils;
 using FluentFlyoutWPF.Models;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Input;
-using System.Windows.Interop;
-using System.Windows.Media;
 using System.Windows.Media.Animation;
-using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using System.Text;
 using Windows.Media.Control;
-using static WindowsMediaController.MediaManager;
 
 namespace FluentFlyoutWPF.Windows;
 
 /// <summary>
-/// Máquina de estados del contenedor: qué vista se muestra (pieza inactiva,
+/// Máquina de estados del contenedor: qué vista se muestra (nada, pieza inactiva,
 /// compacto o expandido) y cómo se llega a ella.
 ///
-/// <para>Reglas que sostiene:</para>
+/// <para>Reglas que sostiene (change island-lista-de-activos):</para>
 /// <list type="bullet">
-/// <item>El reposo lo decide el toggle «volver a inactivo» (pieza negra estrecha)
-/// o nada (001 MOD RF-2).</item>
-/// <item>«Visible mientras activo» nunca reposa con actividad vigente: el
-/// compacto es de la activa del momento (001 MOD RF-4).</item>
-/// <item>«Aviso temporal» muestra el contenido del evento durante el plazo
-/// configurado, que no se reinicia al interactuar (001 RF-2, 002 RF-16).</item>
-/// <item>El repliegue CON contenido pasa por la pieza inactiva en dos fases
-/// (001 MOD RF-16): la fase 1 apaga el contenido VIGENTE sobre la geometría
-/// encogiéndose y la fase 2 presenta el compacto nuevo ya sobre la pieza, así el
-/// intercambio de contenido nunca se ve. El repliegue hacia el reposo es una sola
-/// transición, también directa.</item>
+/// <item><b>Una sola decisión</b>: la vista sale SIEMPRE de la LISTA DE EVENTOS ACTIVOS
+/// (<c>IslandActivityRegistry</c>) traducida por la política pura
+/// (<c>IslandPresentation</c>). Cada ruta de cada funcionalidad publica su evento y llama
+/// a <see cref="RefreshPresentation"/>; ninguna decide por su cuenta qué se ve. Antes esa
+/// misma decisión estaba escrita en seis sitios con guardas distintas —de ahí los
+/// compactos que tardaban y los que no aparecían nunca.</item>
+/// <item><b>Instante</b>: un evento activo se presenta en el MISMO turno. La geometría
+/// acompaña después (muelles), pero nada espera a que se asiente: la pieza inactiva es un
+/// DESTINO (el reposo), no un paso obligatorio del repliegue.</item>
+/// <item><b>El reposo lo decide el ajuste</b>: pieza negra estrecha o nada (001 MOD RF-2),
+/// y solo con alguna pantalla usable: nunca una caja vacía.</item>
+/// <item><b>El aviso temporal conserva su plazo</b>: interactuar no lo prolonga (001 RF-2)
+/// y re-presentar el mismo aviso tampoco (su instante de nacimiento manda).</item>
 /// </list>
 ///
-/// <para>Parte del IslandWindow; el estado vive en <c>IslandWindow.xaml.cs</c>,
-/// el motor de animación en <c>IslandWindow.Frame.cs</c> y el contenido musical
-/// en <c>IslandWindow.Media.cs</c>.</para>
+/// <para>Parte del IslandWindow; el estado vive en <c>IslandWindow.xaml.cs</c>, el motor
+/// de animación en <c>IslandWindow.Frame.cs</c> y el contenido en las fichas
+/// (<c>IslandWindow.FeatureCards.cs</c>).</para>
 /// </summary>
 public partial class IslandWindow
 {
     private bool IsBoxShown => IslandBox.Visibility == Visibility.Visible;
 
-    // --- aviso temporal (001 RF-2, 002 RF-16) ---
+    // ------------------------------------------------------------------
+    // Lista de eventos activos (change island-lista-de-activos)
+    // ------------------------------------------------------------------
+
+    /// <summary>Lista de lo que está pasando ahora mismo: actividad viva, avisos con plazo y exclusivas.</summary>
+    private readonly IslandActivityRegistry _activity = new();
+
+    /// <summary>Vista aplicada en el último <see cref="ApplyPresentation"/>: es lo que permite reparar.</summary>
+    private IslandPresentationResult? _appliedPresentation;
+
+    /// <summary>Acción vacía para las fichas sin repintado propio.</summary>
+    private static readonly Action NoOp = static () => { };
 
     /// <summary>
-    /// Plazo del «Aviso temporal» (001 RF-2, 002 RF-8): el contenido mostrado por
-    /// un evento se repliega al vencer la duración configurada. Vale para media
-    /// Y para el temporizador. Nunca toca una exclusiva vigente (la alerta final
-    /// se retira solo con su interacción).
+    /// Funcionalidades con actividad PROPIA: viven mientras pasa algo (reproducir,
+    /// contar, un recordatorio). Las que solo llevan AVISOS —Bluetooth, cargador,
+    /// dictado— y las de contenido bajo demanda —cajón, estante, portapapeles, clima— no
+    /// están aquí: su vista vive lo que vive el plazo que arma su presentación.
+    /// </summary>
+    private static readonly string[] LiveActivityFeatures =
+        [IslandFeatureIds.Media, IslandFeatureIds.Timer, IslandFeatureIds.Calendar];
+
+    /// <summary>
+    /// Vuelca el estado de las funcionalidades a la lista de eventos activos. Se llama en
+    /// cada resolución: repetir el mismo estado no toca las entradas —su instante de
+    /// nacimiento, que es el desempate, sobrevive a los refrescos—.
     ///
-    /// <para><paramref name="restart"/> = true cuando el aviso NACE (un evento
-    /// nuevo): fija el vencimiento. Con false (repliegue de un aviso ya vigente,
-    /// p. ej. al volver a compacto tras expandirlo) se conserva el vencimiento que
-    /// ya tenía, así interactuar nunca prolonga el plazo (001 RF-2).</para>
+    /// <para>En «Aviso temporal» NO hay actividad viva: allí el contenido vive lo que vive
+    /// su aviso, y ese aviso lo arma la presentación del compacto (001 RF-2).</para>
+    /// </summary>
+    private void PublishActivity()
+    {
+        var now = DateTime.UtcNow;
+        bool temporalMode = SettingsManager.Current.IslandVisibilityMode == 1;
+        var inScreens = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (feature, _) in ScreenOrderedFeatures())
+        {
+            inScreens.Add(feature.Id);
+            if (!LiveActivityFeatures.Contains(feature.Id)) continue;
+            _activity.SetLive(feature.Id, FeatureIsLiveActivity(feature, temporalMode), now);
+        }
+        // Una funcionalidad que se quedó sin ninguna pantalla no tiene vista: su actividad
+        // deja de contar (antes se quedaba en la lista y ya no la miraba nadie).
+        foreach (string id in LiveActivityFeatures)
+        {
+            if (!inScreens.Contains(id)) _activity.SetLive(id, false, now);
+        }
+        // Acceso exclusivo: la alerta del temporizador y el dictado en marcha, que la
+        // política hace valer por encima de cualquier otra actividad.
+        foreach (var feature in _features.Features)
+            _activity.SetExclusive(feature.Id, feature.State.Exclusive, now);
+    }
+
+    /// <summary>
+    /// ¿Esta funcionalidad es ACTIVIDAD VIVA con el modo dado? En «Visible mientras activo»
+    /// lo es mientras esté pasando (reproducir, contar, un recordatorio). En «Aviso temporal»
+    /// el contenido vive lo que vive su plazo, con UNA excepción que es un ESTADO y no un
+    /// aviso: una sesión PAUSADA que el usuario ha declarado activa sostiene la vista hasta
+    /// que reanude o se cierre la sesión.
     ///
-    /// <para><paramref name="force"/> = true para los contenidos cuyo aviso es
-    /// SIEMPRE temporal, aunque el modo sea «Visible mientras activo» (dispositivos
-    /// Bluetooth, change island-bluetooth-conectado RF-1). El aviso forzado es de
-    /// la vista que lo pidió: cualquier armado sin force lo descarta, así una vista
-    /// de música o de temporizador que tome el relevo no hereda un vencimiento que
-    /// no le toca (001 MOD RF-2).</para>
+    /// <para>Sin esto el ajuste no servía de nada en «Aviso temporal»: pausar mostraba el
+    /// compacto durante el plazo configurado y luego lo escondía por completo, cuando lo que
+    /// el usuario pidió con «pausa cuenta como activo» es que la pausa SEA la vista
+    /// (change island-lista-de-activos).</para>
     /// </summary>
-    private void ArmTemporaryHide(bool restart = true, bool force = false)
+    private bool FeatureIsLiveActivity(IIslandFeature feature, bool temporalMode)
     {
-        _noticeForced = force;
-        // La regla de armado vive una sola vez, en la política (IslandPolicy.cs).
-        if (!IslandNoticePolicy.Arms(force, SettingsManager.Current.IslandVisibilityMode == 1, HasExclusive()))
+        if (!temporalMode) return FeatureIsActiveNow(feature);
+        return feature.Id switch
         {
-            ClearTemporaryNotice();
+            // Música pausada: es el ajuste el que decide si la pausa es estado.
+            IslandFeatureIds.Media => SettingsManager.Current.IslandPauseCountsActive && MediaPausedNow(),
+            // Cuenta pausada: sigue siendo una cuenta, con su tiempo restante a la vista.
+            IslandFeatureIds.Timer => _timer.State == IslandTimerState.Paused,
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// ¿Esta funcionalidad está pasando AHORA? La actividad propia la declara su ficha
+    /// (reproducir, contar); una funcionalidad sin actividad propia la declara su
+    /// sostenimiento, y una futura sin ficha, su contrato.
+    /// </summary>
+    private bool FeatureIsActiveNow(IIslandFeature feature) =>
+        FeatureCard(feature.Id) switch
+        {
+            { OwnActivity: { } own } => own(),
+            { } card => card.Sustains(),
+            _ => feature.State.Active,
+        };
+
+    /// <summary>
+    /// Funcionalidades con vista posible, en ORDEN DE PANTALLAS y con las que conservan su
+    /// vista propia fuera de ellas al final (avisos y exclusivas: su tarjeta no depende de
+    /// que el usuario las haya colocado en ninguna parte).
+    /// </summary>
+    private List<IIslandFeature> PresentationFeatures()
+    {
+        var list = new List<IIslandFeature>();
+        foreach (var (feature, _) in ScreenOrderedFeatures()) list.Add(feature);
+        foreach (var feature in _features.Features)
+        {
+            if (!ScreenlessFeatureKeepsOwnView(feature)) continue;
+            if (list.Any(f => f.Id == feature.Id)) continue;
+            list.Add(feature);
+        }
+        return list;
+    }
+
+    /// <summary>Funcionalidad que sostiene la vista vigente (null con una pantalla combinada o sin vista).</summary>
+    private string? CurrentViewFeatureId() => _contentMode == IslandContentMode.Screen
+        ? CompactMemberOfCurrentScreen()?.Id
+        : ViewOwnerFeature()?.Id;
+
+    /// <summary>Funcionalidad del aviso presentado, si su plazo sigue vivo.</summary>
+    private string? PresentedNoticeId(DateTime now) =>
+        _noticeUntil > now ? _noticeFeatureId : null;
+
+    /// <summary>Snapshot completo para la política: es lo único que ella consulta.</summary>
+    private IslandPresentationInput PresentationInput(bool userExpanded)
+    {
+        var now = DateTime.UtcNow;
+        var features = PresentationFeatures();
+        var ordered = new List<string>(features.Count);
+        var usable = new List<string>(features.Count);
+        foreach (var feature in features)
+        {
+            ordered.Add(feature.Id);
+            if (feature.State.Usable) usable.Add(feature.Id);
+        }
+        // Con expandido propio: solo las que están en una PANTALLA. Un aviso o una exclusiva
+        // fuera de ellas (el dictado) vive en el compacto.
+        var expandable = new List<string>(features.Count);
+        foreach (var (feature, _) in ScreenOrderedFeatures()) expandable.Add(feature.Id);
+        return new IslandPresentationInput(
+            Suppressed: Suppressed(),
+            ReturnToInactive: SettingsManager.Current.IslandReturnToInactive,
+            UserExpanded: userExpanded,
+            UserExpandedFeatureId: CurrentViewFeatureId(),
+            AnyScreenUsable: AnyScreenUsable(),
+            PresentedNoticeId: PresentedNoticeId(now),
+            PresentedNoticeStarted: _noticeStarted,
+            ScreenOrderedIds: ordered,
+            ExpandableIds: expandable,
+            UsableIds: usable,
+            Activity: _activity,
+            Now: now);
+    }
+
+    /// <summary>Vista que toca mostrar AHORA según la lista de activos (pura, sin tocar nada).</summary>
+    private IslandPresentationResult DesiredPresentation() =>
+        IslandPresentation.Resolve(PresentationInput(userExpanded: _expanded));
+
+    // ------------------------------------------------------------------
+    // Aplicación de la vista (punto ÚNICO)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Publica la actividad y aplica la vista que le toca. Es el ÚNICO punto por el que el
+    /// contenedor entra a una vista: lo llaman las rutas de cada funcionalidad, los
+    /// ajustes, el vencimiento del aviso, el puntero y el arranque.
+    /// </summary>
+    private void RefreshPresentation()
+    {
+        if (_disposed) return;
+        PublishActivity();
+        ApplyPresentation(DesiredPresentation());
+    }
+
+    /// <summary>
+    /// Repara la vista si la lista de activos cambió mientras la geometría estaba en
+    /// vuelo: se re-resuelve y, si es otra, se aplica. Es la red que garantiza que el
+    /// contenedor JAMÁS se quede en la pieza teniendo algo activo (change
+    /// island-lista-de-activos).
+    /// </summary>
+    private void RepairPresentation()
+    {
+        if (_disposed || !SettingsManager.Current.IslandEnabled) return;
+        PublishActivity();
+        var desired = DesiredPresentation();
+        if (_appliedPresentation is { } applied
+            && applied.View == desired.View && applied.FeatureId == desired.FeatureId)
+            return;
+        ApplyPresentation(desired);
+    }
+
+    /// <summary>
+    /// Pinta la vista deseada. La CARA (la tarjeta de la funcionalidad con su contenido) se
+    /// presenta siempre y en el mismo turno; la animación solo decide la geometría. Con el
+    /// modo «Aviso temporal» y sin aviso vivo se cae al reposo (001 RF-2).
+    /// </summary>
+    private void ApplyPresentation(IslandPresentationResult desired)
+    {
+        // Idempotencia: la vista que YA está aplicada no se vuelve a presentar (evita
+        // repintar la pieza y reiniciar su micro-animación en cada pasada del buzón). El
+        // compacto se deja pasar: ahí puede tocar armar el plazo de un aviso nuevo.
+        if (desired.View != IslandDesiredView.Compact
+            && _appliedPresentation is { } applied
+            && applied.View == desired.View && applied.FeatureId == desired.FeatureId)
+            return;
+        _appliedPresentation = desired;
+        if (_disposed) return;
+        if (!SettingsManager.Current.IslandEnabled)
+        {
+            SnapHidden();
+            Visibility = Visibility.Collapsed;
             return;
         }
-        if (restart || _noticeUntil == DateTime.MinValue)
+        switch (desired.View)
         {
-            int ms = Math.Clamp(SettingsManager.Current.IslandVisibilityDuration, 1000, 10000);
-            _noticeUntil = DateTime.UtcNow.AddMilliseconds(ms);
-            // El plazo es de la vista que lo arma: sin esta etiqueta, un aviso vivo
-            // declaraba «activa» a cualquier funcionalidad que solo espera su plazo
-            // (Bluetooth y cargador) y saltaba una tarjeta que nadie pidió.
-            _noticeMode = _contentMode;
+            case IslandDesiredView.Hidden:
+                _expanded = false;
+                // Ya oculto: no hay nada que replegar (y no se toca el aviso vigente, que
+                // puede estar esperando a su propio evento).
+                if (!IsBoxShown && _qT == 0) return;
+                GoHidden();
+                return;
+            case IslandDesiredView.Inactive:
+                _expanded = false;
+                ShowInactive();
+                return;
+            case IslandDesiredView.Expanded:
+                PresentExpanded(desired);
+                return;
+            default:
+                PresentCompact(desired);
+                return;
         }
-        ScheduleNoticeRetraction();
     }
 
     /// <summary>
-    /// El aviso se expandió: el plazo sigue corriendo, solo se pospone su repliegue
-    /// hasta que la vista vuelva a ser compacta. Sin esto el vencimiento moría
-    /// dentro del expandido y el aviso se quedaba pegado en compacto para siempre.
+    /// Presenta el COMPACTO de la funcionalidad activa. Si su cara ya está delante, solo se
+    /// repinta su contenido y —si el aviso es nuevo— se arma su plazo: repetir la misma
+    /// vista no reanima nada.
     /// </summary>
-    private void HoldTemporaryNotice() => _noticeVersion++;
-
-    /// <summary>Cierra el aviso vigente: no hay plazo pendiente que cumplir.</summary>
-    private void ClearTemporaryNotice()
+    private void PresentCompact(IslandPresentationResult desired)
     {
-        _noticeVersion++;
-        _noticeCheckActive = false;
-        _noticeUntil = DateTime.MinValue;
-        _noticeForced = false;
-        _noticeMode = IslandContentMode.Media;
-        _pendingTimerNotice = false;
-    }
-
-    /// <summary>
-    /// ¿Sigue vivo el aviso de ESTA vista? El plazo es compartido, así que también hay
-    /// que comprobar de quién es: un aviso del temporizador no puede hacer que el
-    /// cargador o Bluetooth se declaren activos (change island-avisos).
-    /// </summary>
-    private bool NoticeAliveFor(IslandContentMode mode) =>
-        _noticeUntil > DateTime.UtcNow && _noticeMode == mode;
-
-    /// <summary>
-    /// Programa el vencimiento del aviso con un temporizador de UN SOLO disparo
-    /// (nada de latido): a la hora absoluta del plazo se repliega. Si el disparo
-    /// se perdiera, la recuperación de 5 s lo detecta y lo cumple
-    /// (change island-actividad-orientada-eventos, 001 MOD RF-2).
-    /// </summary>
-    private void ScheduleNoticeRetraction()
-    {
-        int version = ++_noticeVersion;
-        TimeSpan wait = _noticeUntil - DateTime.UtcNow;
-        if (wait < TimeSpan.Zero) wait = TimeSpan.Zero;
-        ScheduleNoticeCheck(version, wait);
-    }
-
-    /// <summary>
-    /// Deja armado un único chequeo del aviso. <c>_noticeCheckActive</c> evita
-    /// cadenas duplicadas cuando la recuperación lenta repara un disparo perdido.
-    /// </summary>
-    private void ScheduleNoticeCheck(int version, TimeSpan wait)
-    {
-        _noticeCheckActive = true;
-        _ = Task.Delay(wait).ContinueWith(_ => Dispatcher.Invoke(() =>
+        var feature = desired.FeatureId == null ? null : FeatureById(desired.FeatureId);
+        if (feature == null || !feature.State.Usable)
         {
-            _noticeCheckActive = false;
-            RetractTemporaryNotice(version);
-        }));
-    }
-
-    /// <summary>
-    /// Repliegue del aviso temporal al vencer su plazo. El puntero ni las
-    /// actualizaciones de datos reinician el plazo, pero el aviso tampoco se
-    /// cierra bajo el cursor ni mientras está expandido: se reintenta hasta que la
-    /// vista vuelva a ser compacta y el ratón no estorbe. Así el aviso nunca se
-    /// queda pegado indefinidamente (001 RF-2, 002 RF-8/RF-16).
-    /// </summary>
-    private void RetractTemporaryNotice(int version)
-    {
-        if (_disposed || version != _noticeVersion) return;
-        // Qué toca al vencer lo decide la política (IslandPolicy.cs): olvidar el aviso si
-        // ya no es de esta vista —o vence también forzado en «Visible mientras activo»—,
-        // reintentar si la vista está expandida o el ratón estorba (nunca se queda
-        // pegado), y retirarse al reposo en cualquier otro caso (001 RF-2, 002 RF-16).
-        var step = IslandNoticePolicy.OnExpired(
-            forced: _noticeForced,
-            temporalMode: SettingsManager.Current.IslandVisibilityMode == 1,
-            hasExclusive: HasExclusive(),
-            boxShown: IsBoxShown,
-            expanded: _expanded,
-            pointerOver: IsMouseOverBoxOrStrip());
-        if (step == IslandNoticeStep.Retry)
-        {
-            ScheduleNoticeCheck(version, TimeSpan.FromMilliseconds(250));
+            // La activa dejó de ser presentable en el último instante: reposo, nunca una
+            // caja vacía (001 MOD RF-9).
+            PresentRest();
             return;
         }
-        ClearTemporaryNotice();
-        if (step == IslandNoticeStep.Forget) return;
-        ShowInactiveOrHidden();
+        _expanded = false;
+        var mode = ModeForFeature(feature.Id);
+        // El aviso presentado era de otra funcionalidad: se olvida con su vista.
+        if (_noticeFeatureId != null && _noticeFeatureId != feature.Id) ClearTemporaryNotice();
+        if (IsBoxShown && !_inactiveShown && _inactiveTt == 0 && _contentMode == mode)
+        {
+            FeatureCard(feature.Id)?.Refresh();
+            ApplyContentVisibility();
+            ArmTemporaryHide(restart: desired.RestartNotice, force: desired.AlwaysTemporal);
+            UpdateLine();
+            // La geometría también tiene que llegar al compacto: si el usuario tenía el
+            // expandido abierto, esta es la ÚNICA transición (expandido → compacto, sin
+            // pasar por la pieza), y la cara del compacto ya está presentada.
+            if (AnimationsEnabled) SetCompactFrame();
+            return;
+        }
+        ShowCompactView(mode, feature, FeatureCard(feature.Id)?.Refresh ?? NoOp,
+            forceNotice: desired.AlwaysTemporal, restartNotice: desired.RestartNotice);
     }
-
-    // --- resolución de la vista ---
-
-    private void HidePerMode()
-    {
-        UpdateRotationPauseState();
-        // Temporizador vivo: repliega a su compacto en vez de ocultar (H2 del spec 002).
-        // Salvo avisando: la alerta manda y persiste expandida hasta X o reinicio.
-        if (_timer.State == Classes.IslandTimerState.Alerting) return;
-        // «Visible mientras activo»: con algo activo SIEMPRE hay compacto; nunca se
-        // oculta ni cae al reposo, y la vista se resuelve a la activa vigente con la
-        // MISMA regla que el repliegue por puntero —así minimizar el temporizador
-        // expandido con música sonando deja la música, no la pieza inactiva
-        // (001 MOD RF-4, RF-24).
-        if (SettingsManager.Current.IslandVisibilityMode == 0
-            && ResolveActiveVigenteForVisible() is { } activa && ShowScreenOfFeature(activa))
-            return;
-        if (TimerKeepsAlive())
-        {
-            // T2: en Visible mientras activo un timer pausado es inactivo
-            // (002 MOD RF-7) y no sostiene compacto: cae a inactivo/nada.
-            if (SettingsManager.Current.IslandVisibilityMode == 0
-                && _timer.State == IslandTimerState.Paused
-                && !IsMediaActiveForContract())
-            {
-                // No hay activa vigente: caer a reposo sin sostener timer pausado.
-            }
-            else { ShowTimerCompact(); return; }
-        }
-        if (IsMouseOverBoxOrStrip())
-        {
-            // El puntero estorba: el aviso temporal no se cierra bajo el cursor,
-            // pero tampoco se queda pegado — se le pone plazo si no hubiera uno
-            // vigente (restart:false respeta el que ya corría), para que venza en
-            // cuanto el ratón se aparte (001 RF-2, 002 RF-16). Un aviso forzado
-            // vigente (Bluetooth) se conserva tal cual: no es de esta ruta.
-            ArmTemporaryHide(restart: false, force: _noticeForced);
-            return;
-        }
-        if (_expanded)
-        {
-            _expanded = false;
-            // Nada activo: el repliegue va DIRECTO a la pieza inactiva, en una sola
-            // transición fluida —el contenido se desvanece mientras el ancho morfa
-            // al de la pieza—: el compacto no es un paso intermedio que se vea
-            // (001 MOD RF-4, RF-16).
-            if (ReturnToInactive() || !AnimationsEnabled) { ShowInactiveOrHidden(); return; }
-            _hidingViaCompact = true;
-            _pT = 0; _qT = 0;
-            EnsureLoop();
-            return;
-        }
-        ShowInactiveOrHidden();
-    }
-
-    private bool IsTimerActiveForCompact() =>
-        SettingsManager.Current.IslandEnabled
-        && SettingsManager.Current.IslandTimerEnabled
-        && _timer.State == IslandTimerState.Running;
 
     /// <summary>
-    /// Funcionalidad activa VIGENTE en «Visible mientras activo» (001 MOD RF-4,
-    /// RF-12). Actividad = contrato: media reproduciendo (o pausada si «pausa
-    /// cuenta como activo») y timer en marcha; una pausa/timer pausado no
-    /// sostiene el compacto. Con varias candidatas gana la del evento más
-    /// reciente y, ante empate (mismo instante o sin evento registrado), la primera
-    /// en el ORDEN DE LAS PANTALLAS: desempate explícito, sin depender del orden que
-    /// devuelva un sort inestable ni de ninguna lista de orden aparte.
-    ///
-    /// <para>Solo entran las funcionalidades que están en alguna pantalla: sin pantalla
-    /// no hay vista, así que tampoco pueden sostener el compacto.</para>
+    /// Presenta el EXPANDIDO de la funcionalidad que lo sostiene (la exclusiva vigente o el
+    /// que el usuario tiene abierto). Con su expandido ya delante solo se repinta: la
+    /// alerta final se fuerza para imponerse sobre cualquier vista (002 RF-2/RF-6).
     /// </summary>
-    private IIslandFeature? ResolveActiveVigenteForVisible()
+    private void PresentExpanded(IslandPresentationResult desired)
     {
-        // Las candidatas van en ORDEN DE PANTALLAS, que es el desempate: la elección la
-        // hace la política, que es pura y está comprobada (IslandPolicy.cs).
-        var ordered = ScreenOrderedFeatures().ToList();
-        var candidates = new List<IslandActivityCandidate>(ordered.Count);
-        foreach (var (feature, _) in ordered)
+        var feature = desired.FeatureId == null ? null : FeatureById(desired.FeatureId);
+        if (feature == null)
         {
-            // La actividad propia la declara la ficha (música reproduciendo, temporizador en
-            // marcha); una funcionalidad sin ficha, o sin actividad propia, la declara su contrato.
-            bool active = FeatureCard(feature.Id)?.OwnActivity?.Invoke() ?? feature.State.Active;
-            candidates.Add(new IslandActivityCandidate(active, feature.State.Usable,
-                _lastFeatureEvent.TryGetValue(feature.Id, out var stamp) ? stamp : DateTime.MinValue));
+            // Sin dueño identificable (una pantalla sin miembro concreto): se repinta la
+            // vista vigente tal cual.
+            if (IsBoxShown) { ApplyContentVisibility(); SyncMeasuredHeight(); }
+            return;
         }
-        int winner = IslandActivityPick.Winner(candidates);
-        return winner < 0 ? null : ordered[winner].Feature;
+        bool alert = feature.Id == IslandFeatureIds.Timer && _timer.State == IslandTimerState.Alerting;
+        var mode = ModeForFeature(feature.Id);
+        if (_expanded && _contentMode == mode && !alert)
+        {
+            FeatureCard(feature.Id)?.Refresh();
+            ApplyContentVisibility();
+            SyncMeasuredHeight();
+            _pT = 1;
+            _qT = 1;
+            if (AnimationsEnabled) EnsureLoop();
+            return;
+        }
+        ShowExpandedView(mode, feature, FeatureCard(feature.Id)?.Refresh ?? NoOp, skipIfExpanded: alert);
+    }
+
+    // --- reposo ---
+
+    /// <summary>
+    /// Reposo del contenedor (001 MOD RF-2): pieza inactiva o nada según el ajuste; ante
+    /// supresión, oculto (la pieza también se suprime, RF-14).
+    /// </summary>
+    private void PresentRest()
+    {
+        if (Suppressed() && !HasExclusive()) { SnapHidden(); return; }
+        if (!ReturnToInactive()) { GoHidden(); return; }
+        ShowInactive();
     }
 
     /// <summary>¿Hay alguna PANTALLA con algo usable? (001 MOD RF-9): sin pantalla usable no hay vista que anclar.</summary>
     private bool AnyScreenUsable() => UsableScreenCount() > 0;
 
     /// <summary>
-    /// El toggle «volver a inactivo» decide el reposo: pieza negra visible o
-    /// nada (001 MOD RF-2, por defecto inactivo visible). Sin funcionalidades
-    /// usables no hay pieza: no se ancla una caja vacía.
+    /// El toggle «volver a inactivo» decide el reposo: pieza negra visible o nada
+    /// (001 MOD RF-2, por defecto inactivo visible). Sin funcionalidades usables no hay
+    /// pieza: no se ancla una caja vacía.
     /// </summary>
     private bool ReturnToInactive() =>
         SettingsManager.Current.IslandReturnToInactive && AnyScreenUsable();
 
     /// <summary>
-    /// Reposo del contenedor (001 MOD RF-2): pieza inactiva o nada según el
-    /// toggle; ante supresión, oculto (la pieza también se suprime, RF-14).
-    ///
-    /// <para>Es el ÚNICO punto por el que se entra al reposo, así que también
-    /// garantiza su coherencia (001 MOD RF-4, RF-16): en «Visible mientras activo»
-    /// con actividad vigente el reposo NUNCA es la pieza —se muestra el compacto
-    /// de la activa— y por tanto no existe el paso pieza → compacto que se veía
-    /// al minimizar con algo activo.</para>
-    /// </summary>
-    private void ShowInactiveOrHidden()
-    {
-        if (Suppressed() && !HasExclusive()) { SnapHidden(); return; }
-        if (!ReturnToInactive()) { GoHidden(); return; }
-        if (SettingsManager.Current.IslandVisibilityMode == 0
-            && ResolveActiveVigenteForVisible() is { } activa && ShowScreenOfFeature(activa))
-            return;
-        ShowInactive();
-    }
-
-    /// <summary>
-    /// Estado inactivo (001 MOD RF-11, RF-16): pill negra más estrecha que el
-    /// compacto, sin ninguna vista de contenido; el hover solo la agranda y el
-    /// clic abre la última usable.
+    /// Estado inactivo (001 MOD RF-11, RF-16): pill negra más estrecha que el compacto, sin
+    /// ninguna vista de contenido; el hover solo la agranda y el clic abre la última usable.
     /// </summary>
     private void ShowInactive()
     {
-        // Diagnóstico del contrato de actividad: la pieza no debería reposar con
-        // media reproduciendo en «Visible mientras activo» (001 MOD RF-4). Si
-        // aparece en el log, la resolución de actividad dejó pasar una sesión.
+        // Diagnóstico del contrato de actividad: la pieza no debería reposar con media
+        // reproduciendo (001 MOD RF-4). Si aparece en el log, la lista de activos dejó
+        // pasar una sesión.
         if (SettingsManager.Current.IslandVisibilityMode == 0 && !_expanded
             && _music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
             Logger.Warn("Island: reposo en la pieza con media reproduciendo " +
-                "(snapshot={Snap}, permitidas reproduciendo={Playing}); revisar la resolución de actividad",
+                "(snapshot={Snap}, permitidas reproduciendo={Playing}); revisar la lista de activos",
                 _music?.Id, NewestPlaying() != null);
         ClearTemporaryNotice();
-        // El repliegue parte de la geometría expandida: el compacto no debe
-        // florecer de paso mientras el ancho morfa al de la pieza (001 MOD RF-16).
+        // El repliegue parte de la geometría expandida: el compacto no debe florecer de
+        // paso mientras el ancho morfa al de la pieza (001 MOD RF-16).
         _collapseFromExpanded = _expanded || _p > 0.02;
         _hidingViaCompact = false;
         _expanded = false;
         _contentMode = IslandContentMode.Media;
         _inactiveHot = false;
-        // El reposo olvida el alto compartido: el próximo despliegue se mide de
-        // nuevo (001 MOD RF-15).
+        // El reposo olvida el alto compartido: el próximo despliegue se mide de nuevo
+        // (001 MOD RF-15).
         ResetSharedHeight();
         SetInactiveRest(true);
-        // Animado cuando la pieza todavía no domina la vista (contenido que fundir)
-        // o cuando la geometría aún no es la de reposo (expandido que morfar): en
-        // ambos casos hay algo que interpolar.
+        // Animado cuando la pieza todavía no domina la vista (contenido que fundir) o
+        // cuando la geometría aún no es la de reposo (expandido que morfar): en ambos
+        // casos hay algo que interpolar.
         if (AnimationsEnabled && IsBoxShown && (_inactiveT < 1 || _p > 0.05))
         {
-            // Transición animada: el contenido actual (la vista compacta que
-            // había) se queda en el árbol y se desvanece MIENTRAS el ancho
-            // morfa al de la pieza; la limpieza real corre al asentarse
-            // (FinishInactive), nunca antes (001 MOD RF-16).
             _pT = 0;
             _pv = 0;
             _qT = 1;
@@ -342,8 +400,8 @@ public partial class IslandWindow
             EnsureLoop();
             return;
         }
-        // Reposo inmediato (animaciones off o caja recién aparecida): sin
-        // contenido que fundir, la pieza se limpia de golpe.
+        // Reposo inmediato (animaciones off o caja recién aparecida): sin contenido que
+        // fundir, la pieza se limpia de golpe.
         _p = _pT = 0; _pv = 0;
         _q = _qT = 1; _qv = 0;
         _inactiveHotT = 0;
@@ -357,19 +415,14 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Fija el objetivo del reposo inactivo. Hacia la pieza (on) funde la vista
-    /// actual hacia ella; hacia contenido delega en <see cref="EnterContent"/>.
-    /// Con la caja oculta (o las animaciones apagadas) el progreso salta directo:
-    /// no hay contenido que fundir ni morfología que interpolar, y arrancaría un
-    /// ancho equivocado.
+    /// Fija el objetivo del reposo inactivo. Hacia la pieza (on) funde la vista actual hacia
+    /// ella; hacia contenido delega en <see cref="EnterContent"/>. Con la caja oculta (o las
+    /// animaciones apagadas) el progreso salta directo: no hay contenido que fundir ni
+    /// morfología que interpolar, y arrancaría un ancho equivocado.
     /// </summary>
     private void SetInactiveRest(bool on)
     {
         if (!on) { EnterContent(); return; }
-        // OJO: la reapertura pendiente (_pendingCompactFeature) NO se toca aquí. La
-        // pieza es un punto de tránsito: al llegar a ella, TryReopenFromInactive
-        // decide si se reabre el compacto (actividad vigente o fase 2 de un
-        // repliegue en dos fases) o si el reposo se queda (001 MOD RF-16).
         _inactiveTt = 1;
         _inactiveShown = true;
         if (!AnimationsEnabled || !IsBoxShown)
@@ -381,124 +434,34 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Punto ÚNICO de entrada al contenido (compacto o expandido, 001 MOD RF-16):
-    /// mientras hay una funcionalidad a la vista, el reposo inactivo no aplica ni
-    /// deja residuos. Ahí el reloj de reposo se reapunta a contenido y viaja desde
-    /// donde esté: si la pieza ya domina la vista, el contenido se funde hacia
-    /// fuera de ella; si el repliegue iba a medio camino, se da la vuelta desde su
-    /// progreso actual (nada de saltos: pegar el salto a 0 era justo el corte seco
-    /// que se veía al reapuntar en vuelo). Si el repliegue era deliberado hacia el
-    /// compacto, no pasa por aquí: lo atraviesa en dos fases encadenadas por
-    /// <see cref="BeginCollapseThroughInactive"/>.
+    /// Punto ÚNICO de entrada al contenido (compacto o expandido, 001 MOD RF-16): mientras
+    /// hay una funcionalidad a la vista, el reposo inactivo no aplica ni deja residuos. El
+    /// reloj de reposo se reapunta a contenido y viaja desde donde esté: si la pieza ya
+    /// domina la vista, el contenido se funde hacia fuera de ella; si el repliegue iba a
+    /// medio camino, se da la vuelta desde su progreso actual (nada de saltos: pegar el
+    /// salto a 0 era justo el corte seco que se veía al reapuntar en vuelo).
     /// </summary>
     private void EnterContent()
     {
-        // Entrar a contenido cancela cualquier repliegue pendiente: la vista es
-        // contenido, no hay fase 2 que encadenar ni compacto que reabrir después.
-        _pendingCompactFeature = null;
         _collapseFromExpanded = false;
         _inactiveShown = false;
         _inactiveTt = 0;
         if (_inactiveT <= 0) return;
         if (AnimationsEnabled && IsBoxShown) { EnsureLoop(); return; }
-        // Sin animaciones (o con la caja fuera del árbol) no hay nada que
-        // interpolar: el progreso se pega al destino.
+        // Sin animaciones (o con la caja fuera del árbol) no hay nada que interpolar: el
+        // progreso se pega al destino.
         _inactiveT = 0;
     }
 
     /// <summary>
-    /// La pieza inactiva es la vista ASENTADA del contenedor: ya no hay geometría
-    /// en vuelo, ni fase 2 pendiente, ni expansión a la vista. Es la única
-    /// situación en la que el contenedor puede reabrir el compacto sin romper un
-    /// repliegue deliberado a mitad de camino (001 MOD RF-16).
-    /// </summary>
-    private bool AtInactiveRest =>
-        !_disposed && _inactiveShown && !_expanded && !_hidingViaCompact
-        && _inactiveT >= 1 && _inactiveTt == 1 && _pT == 0 && _p <= 0.02;
-
-    /// <summary>
-    /// ¿La funcionalidad sigue sosteniendo la vista AHORA? Media lo hace
-    /// reproduciendo (o pausada si «pausa cuenta como activo»: 001 MOD RF-6/RF-7) y
-    /// el temporizador contando —en «Aviso temporal» también con su alerta vigente
-    /// (002 MOD RF-8)—. El cajón de aplicaciones no tiene actividad propia: solo
-    /// lo sostiene el plazo de su aviso. La funcionalidad futura lo declara ella.
-    /// </summary>
-    private bool FeatureSustainsView(IIslandFeature feature)
-    {
-        // Pantalla combinada: la vista la sostiene CUALQUIERA de sus miembros
-        // (change island-pantallas RF-4). Con una sola funcionalidad manda su regla.
-        if (_contentMode == IslandContentMode.Screen && ScreenIsCombined()) return ScreenSustainsView();
-        return SingleFeatureSustainsView(feature);
-    }
-
-    /// <summary>
-    /// ¿Esta funcionalidad, ella sola, sostiene la vista? Media lo hace
-    /// reproduciendo (o pausada si «pausa cuenta como activo»: 001 MOD RF-6/RF-7) y
-    /// el temporizador contando —en «Aviso temporal» también con su alerta vigente
-    /// (002 MOD RF-8)—.
-    /// </summary>
-    // `SingleFeatureSustainsView` (quién sostiene la vista) lo declara la ficha de cada
-    // funcionalidad: IslandWindow.FeatureCards.cs.
-
-    /// <summary>
-    /// Salida del reposo inactivo: ÚNICO punto por el que la pieza se reabre.
-    ///
-    /// <list type="number">
-    /// <item>Fase 2 de un repliegue en dos fases (<c>_pendingCompactFeature</c>):
-    /// la funcionalidad que estaba expandida vuelve en compacto.</item>
-    /// <item>Llegada de actividad sin evento propio en «Visible mientras activo»:
-    /// el reposo nunca tapa lo que está activo (001 MOD RF-4, RF-24).</item>
-    /// </list>
-    ///
-    /// En «Aviso temporal» el contenido solo vive lo que vive su aviso (001 RF-2,
-    /// 002 RF-16): sin plazo vigente la pieza se queda. Devuelve true si la vista
-    /// ya está entrando (el reloj de reposo se funde hacia el contenido).
-    ///
-    /// <para>La reapertura usa el reloj RÁPIDO de salida del reposo
-    /// (<see cref="InactiveReopenSeconds"/>): salir de la pieza dura menos que
-    /// entrar en ella, porque el usuario que vuelve mira, no espera.</para>
-    /// </summary>
-    private bool TryReopenFromInactive()
-    {
-        var target = _pendingCompactFeature;
-        _pendingCompactFeature = null;
-        if (_disposed || !SettingsManager.Current.IslandEnabled || Suppressed()) return false;
-        if (HasExclusive() || _timer.State == Classes.IslandTimerState.Alerting) return false;
-        if (SettingsManager.Current.IslandVisibilityMode == 1 && _noticeUntil <= DateTime.UtcNow)
-            return false;
-        // El repliegue no puede revivir contenido que dejó de estar activo a mitad
-        // de vuelo (pausa que no cuenta como activa, temporizador cancelado, sesión
-        // cerrada): en ese caso la reapertura se descarta (001 MOD RF-4/RF-7).
-        if (target != null && !FeatureSustainsView(target)) target = null;
-        if (target == null)
-        {
-            if (SettingsManager.Current.IslandVisibilityMode != 0) return false;
-            target = ResolveActiveVigenteForVisible();
-        }
-        if (target == null || !target.State.Usable) return false;
-        // La reapertura NO es un evento nuevo: el aviso conserva el plazo que le
-        // quedaba en lugar de reiniciarse —interactuar nunca prolonga el aviso
-        // (001 RF-2)—. La entrada a contenido arranca aquí, con el mismo reloj de
-        // reposo: crossfade pieza -> contenido, sin saltos ni estados intermedios.
-        DateTime notice = _noticeUntil;
-        // La reapertura muestra el COMPACTO de la funcionalidad que la sostiene dentro
-        // de su PANTALLA (change island-pantallas): una sola vista rica, y su pantalla
-        // queda adoptada como la que abrirá un clic.
-        if (!ShowScreenOfFeature(target)) return false;
-        _noticeUntil = notice;
-        if (notice != DateTime.MinValue) ScheduleNoticeRetraction();
-        return true;
-    }
-
-    /// <summary>
-    /// Cierre de la transición a inactivo: ahora sí se retira el contenido
-    /// residual (001 MOD RF-11) y se apagan indicadores. Se llama solo cuando
-    /// el progreso llegó a 1, jamás a mitad de vuelo.
+    /// Cierre de la transición a inactivo: ahora sí se retira el contenido residual
+    /// (001 MOD RF-11) y se apagan indicadores. Se llama solo cuando el progreso llegó a 1,
+    /// jamás a mitad de vuelo.
     /// </summary>
     private void FinishInactive()
     {
-        // La pieza es la vista final de este repliegue: la próxima reapertura
-        // entra por la ruta normal (y así el contenido puede florecer).
+        // La pieza es la vista final de este repliegue: la próxima reapertura entra por la
+        // ruta normal (y así el contenido puede florecer).
         _collapseFromExpanded = false;
         ClearInactiveResidue();
         UpdateLine();
@@ -506,25 +469,19 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Limpieza real del estado inactivo (001 MOD RF-11): no basta con fundir
-    /// las capas por opacidad, el contenido residual (grillas compactas con la
-    /// última funcionalidad, carátula, fondo, títulos y textos del temporizador)
-    /// se retira de verdad. La restauración corre por las rutas normales
-    /// (ApplyContentVisibility + RefreshUi/RefreshTimerUI al mostrar
-    /// compacto o expandido).
+    /// Limpieza real del estado inactivo (001 MOD RF-11): no basta con fundir las capas por
+    /// opacidad, el contenido residual (grillas compactas con la última funcionalidad,
+    /// carátula, fondo, títulos y textos del temporizador) se retira de verdad. La
+    /// restauración corre por las rutas normales (ApplyContentVisibility + el repintado de
+    /// la ficha al mostrar compacto o expandido).
     /// </summary>
     private void ClearInactiveResidue()
     {
-        // Ninguna capa a la vista (todas las fichas, sin olvidar ninguna: una que se
-        // quedara encendida seguiría pintada detrás de la pieza).
         HideAllContentLayers();
-        // Y el contenido a cero: sin carátula ni fondo difuminado, sin títulos y sin
-        // restante ni progreso heredados.
         ClearMusicResidue();
         TimerRemaining.Text = "00:00:00";
         TimerProgressFill.Width = 0;
         TimerRunRemaining.Text = "00:00:00";
-        // Los paneles vuelven a su sitio (una pantalla combinada los había movido).
         RestoreExpandedHomes();
         ApplyFrame();
     }
@@ -548,8 +505,10 @@ public partial class IslandWindow
 
     private void SnapCompact()
     {
+        // Estado aplicado de golpe: no hay vista aplicada que comparar (la próxima
+        // resolución vuelve a presentarla).
+        _appliedPresentation = null;
         _inactiveShown = false;
-        _pendingCompactFeature = null;
         _collapseFromExpanded = false;
         _inactiveTt = 0; _inactiveT = 0;
         _p = _pT = 0; _pv = 0;
@@ -561,16 +520,15 @@ public partial class IslandWindow
         IslandBox.Visibility = Visibility.Visible;
         UpdateMediaStatusDot();
         UpdateRotationPauseState();
-        // Cadencia por contenido coherente con la vista que acaba de aterrizar.
         SyncEq();
         UpdateVisibleRefresh();
     }
 
     private void SnapHidden()
     {
+        _appliedPresentation = null;
         _hidingViaCompact = false;
         _inactiveShown = false;
-        _pendingCompactFeature = null;
         _collapseFromExpanded = false;
         ResetSharedHeight();
         ClearTemporaryNotice();
@@ -585,210 +543,96 @@ public partial class IslandWindow
         UpdateRotationPauseState();
         UpdateLine();
         UpdateMediaStatusDot();
-        // Sin caja no hay nada que refrescar ni que visualizar.
         SyncEq();
         UpdateVisibleRefresh();
     }
 
-    // --- repliegue del puntero ---
+    // ------------------------------------------------------------------
+    // Rutas de repliegue (re-resuelven la vista: ya no la deciden ellas)
+    // ------------------------------------------------------------------
 
-    // Repliegue a compacto conservando el contenido (último-activo, 001 MOD RF-4).
-    // El compacto se alcanza PASANDO por la pieza inactiva (fase 1 → fase 2): el
-    // usuario pidió que el repliegue con contenido pase primero por el cuadrado
-    // negro estrecho y recién después florezca el compacto (001 MOD RF-16).
-    private void CollapseToCompact(IIslandFeature target)
+    /// <summary>
+    /// Algo dejó de tener vista (se apagó, se cerró, dejó de ser presentable) o hay que
+    /// replantear la vista: el contenedor re-resuelve con la lista de activos. Replegar no
+    /// es decidir: si sigue habiendo algo activo, se muestra su compacto.
+    /// </summary>
+    private void HidePerMode()
     {
+        UpdateRotationPauseState();
+        // Alerta final: es exclusiva y modal hasta que se cierra (002 RF-2); la propia
+        // política la vuelve a poner, así que no hay nada que replantear.
+        if (_timer.State == IslandTimerState.Alerting) return;
         _expanded = false;
-        _hidingViaCompact = false;
-        UpdateLine();
-        PositionTopCenter();
-        if (!AnimationsEnabled)
-        {
-            EnterContent();
-            _p = _pT = 0; _pv = 0;
-            ApplyFrame();
-            return;
-        }
-        // Animado, el repliegue con contenido pasa PRIMERO por la pieza inactiva
-        // (el cuadrado negro) y solo después florece el compacto con su contenido
-        // (001 MOD RF-16). El aviso temporal vigente conserva su plazo.
-        if (BeginCollapseThroughInactive(target))
-        {
-            ArmTemporaryHide(restart: false, force: _noticeForced);
-            return;
-        }
-        // Ya en el compacto: sin geometría que replegar, solo se cancela el reposo.
-        EnterContent();
-        _pT = 0;
-        EnsureLoop();
+        RefreshPresentation();
     }
 
     /// <summary>
-    /// El puntero se alejó del island expandido Y ya venció su tolerancia
-    /// (<see cref="HoverLeaveGraceMs"/>): resuelve a qué vista se repliega. En
-    /// «Aviso temporal» conserva la misma funcionalidad que estaba expandida
-    /// (002 RF-8) cuando sigue sosteniendo la vista y si no manda la activa vigente
-    /// (con música sonando el compacto es la música, nunca la pieza: 001 MOD RF-4);
-    /// en «Visible mientras activo» manda la activa vigente por último evento. Sin
-    /// activa vigente el repliegue va al reposo.
+    /// La vista vigente se repliega a lo que toque: la activa que siga viva o el reposo
+    /// (001 MOD RF-2, RF-4). Es el punto por el que entraban las seis decisiones dispersas.
+    /// </summary>
+    private void ShowInactiveOrHidden()
+    {
+        _expanded = false;
+        RefreshPresentation();
+    }
+
+    /// <summary>
+    /// El puntero se alejó del Island expandido Y ya venció su tolerancia
+    /// (<see cref="HoverLeaveGraceMs"/>): el expandido del usuario termina aquí y la vista
+    /// se re-resuelve con la lista de activos —con música sonando el compacto es la música,
+    /// nunca la pieza (001 MOD RF-4)—.
     /// </summary>
     private void CollapseFromHover()
     {
         if (!_expanded) return;
-        // Alerta de fin (exclusiva): persistente hasta X o reinicio, aunque el
-        // ratón se vaya; el minimizado ordinario no la toca (001 MOD RF-4).
-        if (_timer.State == Classes.IslandTimerState.Alerting) return;
-        if (HasExclusive()) return;
-        if (Suppressed()) { HidePerMode(); return; }
-
-        // Delta island-compacto-activo-animado: en Visible mientras activo el
-        // compacto al minimizar resuelve a la activa vigente por último evento
-        // (pausa-OFF = inactiva, timer pausado = inactivo); en Aviso temporal
-        // conserva la misma funcionalidad que estaba expandida (001 MOD RF-4/RF-24, 002 MOD RF-7/RF-8).
-        if (SettingsManager.Current.IslandVisibilityMode == 1)
-        {
-            // El aviso temporal solo conserva contenido mientras su plazo siga
-            // vivo: si ya venció (o no hay aviso), replegar al compacto sería un
-            // destello condenado y el repliegue va DIRECTO al reposo (001 RF-2,
-            // 001 MOD RF-16). Interactuar nunca prolonga el plazo.
-            bool noticeAlive = _noticeUntil > DateTime.UtcNow;
-            if (_contentMode == IslandContentMode.Media)
-            {
-                // La vista musical vigente, adoptando sesión si el snapshot no la
-                // tenía: sin esto el aviso temporal caía al reposo con música
-                // sonando y el compacto aparecía un tick después (RF-11, RF-13).
-                // Con «pausa cuenta como activo» desactivado una pausa no sostiene
-                // el compacto: la vista cae a inactivo/nada (001 MOD RF-4, RF-7).
-                var session = IsMediaActiveForContract() ? ActiveMediaSession() : null;
-                if (session != null && noticeAlive && MediaFeature is { } media) { CollapseToCompact(media); return; }
-                ShowInactiveOrHidden();
-                return;
-            }
-            if (_contentMode == IslandContentMode.Timer)
-            {
-                // Conserva la funcionalidad expandida (002 RF-8); si el temporizador
-                // ya no sostiene la vista, manda la activa vigente: con música
-                // sonando el compacto es la música, nunca la pieza (001 MOD RF-4).
-                // TimerNoticeAlive() incluye el aviso PENDIENTE de una acción de la
-                // cuenta hecha dentro del expandido: su plazo empieza aquí, al
-                // presentarse el compacto, no cuando se pulsó Iniciar (002 RF-16).
-                if (TimerKeepsAlive() && TimerNoticeAlive()) { ShowTimerCompact(); return; }
-                if (noticeAlive && _timer.State != Classes.IslandTimerState.Alerting
-                    && ResolveActiveVigenteForVisible() is { } vigente1 && ShowScreenOfFeature(vigente1))
-                    return;
-                ShowInactiveOrHidden();
-                return;
-            }
-            if (_contentMode == IslandContentMode.Apps)
-            {
-                // El cajón es un aviso más: se repliega al compacto mientras su
-                // plazo siga vivo y, si ya venció, al reposo sin destellos
-                // (001 RF-2, 001 MOD RF-16).
-                if (AppsKeepsView()) { ShowAppsCompact(); return; }
-                ShowInactiveOrHidden();
-                return;
-            }
-            if (_contentMode == IslandContentMode.Shelf)
-            {
-                // El estante sigue la misma regla: vive lo que vive su aviso.
-                if (ShelfKeepsView()) { ShowShelfCompact(); return; }
-                ShowInactiveOrHidden();
-                return;
-            }
-            if (_contentMode == IslandContentMode.Calendar)
-            {
-                // El calendario es el único contenido del contenedor con actividad
-                // propia además de música y temporizador: el plazo del aviso no corta
-                // el recordatorio, solo lo devuelve al compacto, que aguanta hasta que
-                // el evento empieza (001 MOD RF-4).
-                if (CalendarKeepsView()) { ShowCalendarCompact(); return; }
-                ShowInactiveOrHidden();
-                return;
-            }
-            if (_contentMode == IslandContentMode.Bluetooth)
-            {
-                // El aviso de Bluetooth es siempre temporal: se repliega al compacto
-                // mientras su plazo siga vivo y, ya vencido, al reposo sin destellos
-                // (change island-bluetooth-conectado RF-1).
-                if (BluetoothActive()) { ShowBluetoothCompact(restartNotice: false); return; }
-                ShowInactiveOrHidden();
-                return;
-            }
-            if (_contentMode == IslandContentMode.Screen)
-            {
-                // La pantalla vigente es un aviso más (change island-pantallas): vuelve
-                // a su compacto —la vista rica de la funcionalidad que la sostiene, una
-                // sola— mientras su plazo siga vivo y algo de ella sostenga la vista; si
-                // no, la activa vigente o el reposo, sin destellos (001 RF-2, RF-16).
-                if (noticeAlive && ScreenSustainsView() && ShowCurrentScreenCompact()) return;
-                if (ResolveActiveVigenteForVisible() is { } vigenteScreen
-                    && ShowScreenOfFeature(vigenteScreen)) return;
-                ShowInactiveOrHidden();
-                return;
-            }
-            HidePerMode();
-            return;
-        }
-
-        // Visible mientras activo: resolver a activo vigente por último evento.
-        var vigente = ResolveActiveVigenteForVisible();
-        if (vigente == null)
-        {
-            ShowInactiveOrHidden();
-            return;
-        }
-        if (vigente.Id == "media")
-        {
-            // La actividad manda sobre el snapshot: si el snapshot apunta a una
-            // pausa mientras otra sesión reproduce, el compacto muestra lo activo.
-            var session = ActiveMediaSession();
-            if (session != null)
-            {
-                // NADA de adelantar el contenido aquí: si lo expandido era el
-                // temporizador, el repliegue debe empezar mostrando el
-                // temporizador (el intercambio lo hace la fase 2, sobre la pieza,
-                // donde no se ve). Presentarlo ahora pintaba media en la tarjeta
-                // expandida antes de encogerse: el parpadeo de «se esconde y
-                // aparece lo activo». RefreshUi deja el modo de contenido en media
-                // cuando le toca presentarlo.
-                if (ShowScreenOfFeature(vigente)) return;
-                CollapseToCompact(vigente);
-                return;
-            }
-            ShowInactiveOrHidden();
-            return;
-        }
-        // Resto de funcionalidades: la pantalla que las contiene (simple o
-        // combinada) con su propia ruta de presentación (change island-pantallas RF-4).
-        if (ShowScreenOfFeature(vigente)) return;
-        ShowInactiveOrHidden();
+        // Alerta de fin (exclusiva): persistente hasta X o reinicio, aunque el ratón se
+        // vaya (001 MOD RF-4).
+        if (_timer.State == IslandTimerState.Alerting) return;
+        _expanded = false;
+        RefreshPresentation();
     }
 
     /// <summary>
-    /// Expande la última usable con repliegue seguro: si la elegida deja de ser
-    /// presentable en el último instante, prueba la siguiente usable; si no hay
-    /// ninguna, resuelve el reposo sin abrir una caja vacía (RF-3, RF-9, RF-16).
+    /// Funcionalidad que SOSTIENE la vista vigente según la lista de activos (null si no hay
+    /// ninguna). Es lo que abre el clic en la pieza y el punto de partida de los repliegues
+    /// que conservan contenido: una sola resolución para todos (001 MOD RF-4).
+    /// </summary>
+    private IIslandFeature? ResolveActiveVigenteForVisible()
+    {
+        var result = IslandPresentation.Resolve(PresentationInput(userExpanded: false));
+        return result.FeatureId is { } id ? FeatureById(id) : null;
+    }
+
+    /// <summary>
+    /// ¿La funcionalidad sigue sosteniendo la vista AHORA? (actividad propia o su aviso
+    /// vivo). Con una pantalla combinada delante la sostiene CUALQUIERA de sus miembros
+    /// (change island-pantallas RF-4).
+    /// </summary>
+    private bool FeatureSustainsView(IIslandFeature feature)
+    {
+        if (_contentMode == IslandContentMode.Screen && ScreenIsCombined()) return ScreenSustainsView();
+        return SingleFeatureSustainsView(feature);
+    }
+
+    /// <summary>
+    /// Expande la última usable con repliegue seguro: si la elegida deja de ser presentable
+    /// en el último instante, prueba la siguiente usable; si no hay ninguna, resuelve el
+    /// reposo sin abrir una caja vacía (RF-3, RF-9, RF-16).
     /// </summary>
     private bool ExpandLastUsable()
     {
         // El dictado manda (RF-10): con una sesión en marcha no se abre ninguna pantalla
-        // encima de su tarjeta. El hit-test de la caja ya está apagado; esto es el cierre
-        // de la puerta para las vías que no vienen del ratón.
+        // encima de su tarjeta.
         if (DictationActive()) return false;
         if ((Suppressed() && !HasExclusive()) || !SettingsManager.Current.IslandEnabled) { SnapHidden(); return false; }
-        // La unidad de la vista es la PANTALLA (change island-pantallas RF-4): el clic
-        // abre la pantalla de la funcionalidad que el usuario tiene DELANTE —el compacto
-        // enseña una sola— y, sin compacto a la vista (la pieza de reposo), la de la
-        // activa vigente. Nunca una funcionalidad suelta: el orden de las pantallas es
-        // el único orden.
+        // La unidad de la vista es la PANTALLA (change island-pantallas RF-4): el clic abre
+        // la pantalla de la funcionalidad que el usuario tiene DELANTE —el compacto enseña
+        // una sola— y, sin compacto a la vista (la pieza de reposo), la de la activa vigente.
         if ((ShownCompactFeature() ?? ResolveActiveVigenteForVisible()) is { } target)
         {
             int index = ResolveScreenIndexFor(target.Id);
             if (index >= 0) _screenIndex = index;
         }
-        // Se abre la pantalla usable más cercana, orillando las que no pueden abrir
-        // nada (las que solo llevan avisos sin expandido) para que el clic nunca se
-        // quede sin efecto teniendo algo que enseñar.
         for (int step = 0; step < _screens.Count; step++)
         {
             int index = WrapUnit(_screenIndex + step, _screens.Count);
@@ -798,5 +642,153 @@ public partial class IslandWindow
         }
         HidePerMode();
         return false;
+    }
+
+    // ------------------------------------------------------------------
+    // Aviso temporal (001 RF-2, 002 RF-16): una entrada más de la lista
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Arma el plazo del aviso de la vista que se acaba de presentar. Y con él publica la
+    /// ENTRADA en la lista de activos: es lo que hace que la vista siga siendo la deseada
+    /// mientras su plazo corra (y que deje de serlo al vencer).
+    ///
+    /// <list type="bullet">
+    /// <item><b>force</b> = true para los contenidos cuyo aviso es SIEMPRE temporal, aunque
+    /// el modo sea «Visible mientras activo» (Bluetooth, cargador: su vista es una
+    /// notificación, no un estado).</item>
+    /// <item><b>restart</b> = false conserva el plazo que ya corría: interactuar —expandir y
+    /// volver— o re-presentar el mismo aviso nunca lo prolonga (001 RF-2). Un evento nuevo
+    /// (una conexión, una copia, una pista) sí estrena plazo.</item>
+    /// </list>
+    /// </summary>
+    private void ArmTemporaryHide(bool restart = true, bool force = false)
+    {
+        var now = DateTime.UtcNow;
+        // Una acción de la cuenta hecha dentro del expandido deja su aviso PENDIENTE: el
+        // plazo del temporizador arranca al presentarse su compacto, no al pulsar Iniciar
+        // (002 RF-16), y eso es justo lo que acaba de ocurrir.
+        if (_pendingTimerNotice) { restart = true; _pendingTimerNotice = false; }
+        string? id = FeatureCardOfMode(_contentMode)?.Id ?? CompactMemberOfCurrentScreen()?.Id;
+        // Una vista que ya sostiene su ACTIVIDAD no necesita plazo: la pausa que cuenta como
+        // activo o la cuenta pausada son ESTADOS, y su vista no vence. Armarles un aviso las
+        // haría re-armar y vencer cada pocos segundos sin que nada cambiara.
+        if (id != null && _activity.HasLive(id, now))
+        {
+            ClearTemporaryNotice();
+            return;
+        }
+        // La regla de armado vive una sola vez, en la política (IslandPolicy.cs): sin aviso
+        // que armar, el de esta vista se olvida.
+        if (id == null || !IslandNoticePolicy.Arms(force, SettingsManager.Current.IslandVisibilityMode == 1, HasExclusive()))
+        {
+            ClearTemporaryNotice();
+            return;
+        }
+        if (restart || !_activity.NoticeAlive(id, now))
+        {
+            int ms = Math.Clamp(SettingsManager.Current.IslandVisibilityDuration, 1000, 10000);
+            _activity.Pulse(id, now, now.AddMilliseconds(ms), force);
+        }
+        _noticeFeatureId = id;
+        _noticeStarted = _activity.NoticeStarted(id, now);
+        _noticeForced = force;
+        _noticeUntil = _activity.NoticeExpiry(id, now);
+        ScheduleNoticeRetraction();
+    }
+
+    /// <summary>
+    /// El aviso se expandió: el plazo sigue corriendo, solo se pospone su repliegue hasta que
+    /// la vista vuelva a ser compacta. Sin esto el vencimiento moría dentro del expandido y
+    /// el aviso se quedaba pegado para siempre.
+    /// </summary>
+    private void HoldTemporaryNotice() => _noticeVersion++;
+
+    /// <summary>
+    /// Cierra el aviso presentado: no hay plazo pendiente que cumplir ni entrada que
+    /// sostenga la vista (la lista de activos deja de contarlo y el contenedor
+    /// re-resuelve en la siguiente pasada, no antes: olvidar un aviso no cambia la vista).
+    /// </summary>
+    private void ClearTemporaryNotice()
+    {
+        _noticeVersion++;
+        _noticeCheckActive = false;
+        _noticeUntil = DateTime.MinValue;
+        _noticeForced = false;
+        // Solo el AVISO: si la funcionalidad tiene además actividad viva (una pausa que cuenta
+        // como activo, una cuenta pausada), esa sigue sosteniendo su vista.
+        if (_noticeFeatureId is { } id) _activity.ForgetNotice(id);
+        _noticeFeatureId = null;
+        _noticeStarted = DateTime.MinValue;
+        _pendingTimerNotice = false;
+    }
+
+    /// <summary>
+    /// ¿Sigue vivo el aviso de ESTA vista? Con las entradas por funcionalidad ya no puede
+    /// confundirse: un aviso del temporizador no declara activo al cargador ni a Bluetooth.
+    /// </summary>
+    private bool NoticeAliveFor(IslandContentMode mode)
+    {
+        string? id = FeatureCardOfMode(mode)?.Id;
+        return id != null && _activity.NoticeAlive(id, DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// Programa el vencimiento del aviso con un temporizador de UN SOLO disparo (nada de
+    /// latido): a la hora absoluta del plazo se repliega. Si el disparo se perdiera, la
+    /// recuperación de 5 s lo detecta y lo cumple.
+    /// </summary>
+    private void ScheduleNoticeRetraction()
+    {
+        int version = ++_noticeVersion;
+        TimeSpan wait = _noticeUntil - DateTime.UtcNow;
+        if (wait < TimeSpan.Zero) wait = TimeSpan.Zero;
+        ScheduleNoticeCheck(version, wait);
+    }
+
+    /// <summary>
+    /// Deja armado un único chequeo del aviso. <c>_noticeCheckActive</c> evita cadenas
+    /// duplicadas cuando la recuperación lenta repara un disparo perdido.
+    /// </summary>
+    private void ScheduleNoticeCheck(int version, TimeSpan wait)
+    {
+        _noticeCheckActive = true;
+        _ = Task.Delay(wait).ContinueWith(_ => Dispatcher.Invoke(() =>
+        {
+            _noticeCheckActive = false;
+            RetractTemporaryNotice(version);
+        }));
+    }
+
+    /// <summary>
+    /// Repliegue del aviso temporal al vencer su plazo. El puntero ni las actualizaciones de
+    /// datos reinician el plazo, pero el aviso tampoco se cierra bajo el cursor ni mientras
+    /// está expandido: se reintenta hasta que la vista vuelva a ser compacta y el ratón no
+    /// estorbe, así nunca se queda pegado (001 RF-2, 002 RF-8/RF-16).
+    /// </summary>
+    private void RetractTemporaryNotice(int version)
+    {
+        if (_disposed || version != _noticeVersion) return;
+        var now = DateTime.UtcNow;
+        string? id = _noticeFeatureId;
+        var step = IslandNoticePolicy.OnExpired(
+            forced: _noticeForced,
+            temporalMode: SettingsManager.Current.IslandVisibilityMode == 1,
+            hasExclusive: HasExclusive(),
+            boxShown: IsBoxShown,
+            expanded: _expanded,
+            pointerOver: IsMouseOverBoxOrStrip());
+        if (step == IslandNoticeStep.Retry)
+        {
+            // La vista no puede replegarse ahora: se le da un plazo corto MÁS al mismo
+            // aviso —renovando, para no tocar su instante de nacimiento— y se reintenta.
+            if (id != null && !_activity.NoticeAlive(id, now))
+                _activity.Renew(id, now.AddMilliseconds(250));
+            ScheduleNoticeCheck(version, TimeSpan.FromMilliseconds(250));
+            return;
+        }
+        ClearTemporaryNotice();
+        if (step == IslandNoticeStep.Forget) return;
+        RefreshPresentation();
     }
 }

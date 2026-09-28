@@ -16,6 +16,8 @@
     <Compile Include="../FluentFlyoutWPF/Classes/IslandLine.cs" />
     <Compile Include="../FluentFlyoutWPF/Classes/MediaTrackIdentity.cs" />
     <Compile Include="../FluentFlyoutWPF/Classes/IslandPolicy.cs" />
+    <Compile Include="../FluentFlyoutWPF/Classes/IslandActivityRegistry.cs" />
+    <Compile Include="../FluentFlyoutWPF/Classes/IslandPresentation.cs" />
     <Compile Include="../FluentFlyoutWPF/Models/DictationHotkey.cs" />
   </ItemGroup>
 </Project>

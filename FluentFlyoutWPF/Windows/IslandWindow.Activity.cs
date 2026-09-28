@@ -262,9 +262,9 @@ public partial class IslandWindow
             // Al salir de supresión, la exclusiva ya estaba visible si atravesó.
             if (HasExclusive() && IsBoxShown) { }
             else if (_pendingTimerAlert && SettingsManager.Current.IslandEnabled) { _pendingTimerAlert = false; ShowTimerAlert(); }
-            else if (TimerKeepsAlive()) ShowTimerCompact();
+            // La vista (compacto de lo activo o reposo) la resuelve la lista de activos.
             else
-                RefreshVisibilityState();
+                RefreshPresentation();
         }
         else if (Suppressed() && HasExclusive() && !IsBoxShown)
         {
@@ -277,21 +277,12 @@ public partial class IslandWindow
         if ((reasons & IslandActivityReason.Timer) != 0)
             PollTimerSafely();
 
-        // «Visible mientras activo»: si algo entra en actividad sin un evento que
-        // lo anuncie, el compacto aparece solo (001 MOD RF-4, RF-24). La pieza se
-        // reabre solo cuando ya es la vista asentada (001 MOD RF-16).
-        if ((reasons & (IslandActivityReason.Media | IslandActivityReason.Timer | IslandActivityReason.Recovery)) != 0)
-        {
-            if (AtInactiveRest && SettingsManager.Current.IslandVisibilityMode == 0
-                && _timer.State != IslandTimerState.Alerting
-                && DateTime.UtcNow >= _hoverSnoozeUntil)
-                TryReopenFromInactive();
-
-            if ((reasons & IslandActivityReason.Media) != 0)
-                ReconcileMediaState();
-            else if ((reasons & IslandActivityReason.Recovery) != 0)
-                ReconcileMediaState(recoveryOnly: true);
-        }
+        // La única conciliación con el sistema multimedia de esta pasada: adopta la sesión
+        // que esté activa y deja lista la identidad de lo que suena.
+        if ((reasons & IslandActivityReason.Media) != 0)
+            ReconcileMediaState();
+        else if ((reasons & IslandActivityReason.Recovery) != 0)
+            ReconcileMediaState(recoveryOnly: true);
 
         // Bluetooth: una conexión presenta su aviso por sí misma (OnBluetoothConnected);
         // aquí solo se refina lo que YA está a la vista (batería que llega tarde),
@@ -311,6 +302,11 @@ public partial class IslandWindow
             ReconcilePowerState();
 
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
+        // La VISTA sale de la lista de activos, en el mismo turno: un evento activo se
+        // muestra ya, sin esperar a que la geometría se asiente ni a ninguna puerta
+        // (change island-lista-de-activos). La decisión es una sola, aunque el motivo haya
+        // llegado por caminos distintos.
+        if (DateTime.UtcNow >= _hoverSnoozeUntil) RefreshPresentation();
         if (_expanded && !_drag && !_reelDragging && !IsMouseOverBoxOrStrip()) LeaveHover();
         SyncEq();
         UpdateArrows();

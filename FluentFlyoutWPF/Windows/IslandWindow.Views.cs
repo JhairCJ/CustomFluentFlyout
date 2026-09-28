@@ -33,7 +33,7 @@ internal enum IslandContentMode
 
 /// <summary>
 /// Ruta ÚNICA de presentación del contenedor: cómo se llega al compacto y al
-/// expandido, escrita una sola vez para las tres funcionalidades.
+/// expandido, escrita una sola vez para todas las funcionalidades.
 ///
 /// <para>Antes música, temporizador y cajón repetían la misma secuencia
 /// (calcular el repliegue en curso, cancelar el reposo inactivo, aplicar
@@ -45,10 +45,16 @@ internal enum IslandContentMode
 ///
 /// <list type="bullet">
 /// <item><b>Compacto</b> — guardas → contenido → geometría de reposo → snap o
-/// repliegue en dos fases (001 MOD RF-16) → plazo del aviso temporal (001 RF-2).</item>
+/// muelles → plazo del aviso temporal (001 RF-2).</item>
 /// <item><b>Expandido</b> — guardas → contenido → geometría expandida → snap o
 /// muelles hacia p=1, q=1.</item>
 /// </list>
+///
+/// <para>La CARA se presenta SIEMPRE y en el mismo turno (change
+/// island-lista-de-activos): un evento activo se ve de inmediato, y ninguna caja
+/// puede quedarse sin capas. Antes el repliegue desde el expandido podía saltarse
+/// la presentación y dejar la píldora negra vacía —el «bloque negro» del
+/// temporizador—.</para>
 ///
 /// <para>Parte del IslandWindow; el estado vive en <c>IslandWindow.xaml.cs</c>,
 /// la máquina de estados en <c>IslandWindow.States.cs</c> y el motor de
@@ -57,34 +63,15 @@ internal enum IslandContentMode
 public partial class IslandWindow
 {
     /// <summary>
-    /// ¿Hay un repliegue desde el expandido en curso? El compacto se alcanza
-    /// PASANDO por la pieza inactiva (fase 1 → fase 2), nunca apareciendo de
-    /// golpe bajo el contenido que se repliega (001 MOD RF-16).
-    /// </summary>
-    private bool IsCollapsingFromExpanded() =>
-        _expanded || _p > 0.02 || _pendingCompactFeature != null;
-
-    /// <summary>
     /// Punto ÚNICO de entrada a la vista compacta. La funcionalidad aporta su
     /// disponibilidad (guardas propias, ya evaluadas por quien llama) y el
     /// contenido de <paramref name="present"/>; el contenedor decide la
     /// geometría, la animación y el aviso temporal.
     ///
-    /// <para><paramref name="feature"/> es la funcionalidad que sostiene la
-    /// vista: es la que el repliegue en dos fases reabre al llegar a la pieza.
-    /// Con <c>null</c> el compacto aparece sin fase 2 (vista huérfana: no hay
-    /// actividad que reabrir).</para>
-    ///
-    /// <para>Si el repliegue parte del expandido, la fase 1 (hasta la pieza) NO
-    /// presenta contenido nuevo: encoge y apaga lo que el usuario está mirando, y
-    /// el compacto entra en la fase 2, sobre la pieza y ya sin intercambio a la
-    /// vista. Así replegar un temporizador no enseña media de golpe y luego la
-    /// música otra vez: se ve UNA transición, la del contenido que había.</para>
-    ///
     /// <para><paramref name="forceNotice"/> y <paramref name="restartNotice"/> son
-    /// para los contenidos cuyo aviso es SIEMPRE temporal (dispositivos Bluetooth,
-    /// change island-bluetooth-conectado RF-1): el aviso vence aunque el modo sea
-    /// «Visible mientras activo», y re-presentarlo no reinicia su plazo —solo un
+    /// para los contenidos cuyo aviso es SIEMPRE temporal (dispositivos Bluetooth, el
+    /// cargador: change island-bluetooth-conectado RF-1): el aviso vence aunque el modo
+    /// sea «Visible mientras activo», y re-presentarlo no reinicia su plazo —solo un
     /// evento nuevo lo hace—.</para>
     ///
     /// <para>La vista del Island es una PANTALLA (change island-pantallas): la
@@ -102,9 +89,6 @@ public partial class IslandWindow
         // mismo. Sin esto, un aviso que llega con la ventana retirada pintaba su
         // tarjeta dentro de una ventana que no se veía.
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
-        // El repliegue se mide ANTES de tocar nada: define si el compacto es una
-        // transición en dos fases (venía del expandido) o una entrada directa.
-        bool collapsing = IsCollapsingFromExpanded();
         _hidingViaCompact = false;
         if (feature != null) SelectFeature(feature.Id);
         // Entrar al contenido cancela el reposo inactivo: sin esto el compacto se
@@ -114,42 +98,25 @@ public partial class IslandWindow
         // PANTALLAS: la vista la manda la pantalla de la funcionalidad, y el compacto
         // enseña UNA sola de sus funcionalidades (su vista rica): agrupar es cosa del
         // expandido, que es lo que abre el clic. Sin pantalla no hay nada que presentar:
-        // se resuelve la vista por las vías normales (otra pantalla, el temporizador o el
+        // se resuelve la vista por las vías normales (otra pantalla, otra activa o el
         // reposo). Las excepciones conservan su vista propia: una exclusiva (la alerta del
-        // temporizador) y un AVISO (Bluetooth, cargador), que no es pantalla ni se navega.
+        // temporizador) y un AVISO (Bluetooth, cargador, dictado), que no es pantalla ni se
+        // navega.
         if (feature != null && !AdoptScreenFor(feature, expanded: false, ref mode, ref present)
             && !ScreenlessFeatureKeepsOwnView(feature))
         {
             _expanded = false;
-            ShowInactiveOrHidden();
+            HidePerMode();
             return;
         }
-        // Repliegue en dos fases con la pieza de tránsito (001 MOD RF-16): la fase
-        // 1 baja la geometría hasta la pieza con el contenido vigente intacto y la
-        // fase 2 (TryReopenFromInactive) presenta el compacto nuevo ya sobre ella.
-        // Sin side effects si no procede (ya en la pieza, sin animaciones o sin
-        // caja), así que puede decidirse antes de presentar nada.
-        //
-        // Un AVISO no atraviesa la pieza: es una tarjeta que aparece con su evento, no
-        // un contenido que se repliegue del expandido —y su fase 2 no sabría reabrirla,
-        // porque no está en ninguna pantalla: se perdería el aviso y quedaría la pieza—.
-        bool notice = feature != null && IslandFeatureIds.IsNotice(feature.Id);
-        bool throughPiece = AnimationsEnabled && collapsing && feature != null && !notice
-            && BeginCollapseThroughInactive(feature);
-        if (!throughPiece)
-        {
-            // La vista compacta debe estar resuelta antes de pintar. Mantener _expanded
-            // vivo aquí hacía que una actualización intermedia de la pantalla leyera el
-            // estado expandido y mezclara paneles de las dos presentaciones.
-            _expanded = false;
-            _contentMode = mode;
-            // El aviso vigente es de ESTA vista: así `NoticeAlive` no declara activa
-            // a una funcionalidad cuyo plazo corre para otra (002 RF-16, change island-avisos).
-            _noticeMode = mode;
-            present();
-            ApplyContentVisibility();
-        }
+        // La cara y la geometría, en el MISMO turno: la vista compacta debe estar resuelta
+        // antes de pintar (mantener _expanded vivo aquí hacía que una actualización
+        // intermedia leyera el estado expandido y mezclara paneles de las dos
+        // presentaciones).
         _expanded = false;
+        _contentMode = mode;
+        present();
+        ApplyContentVisibility();
         // Las flechas de navegación solo existen en expandido: se apagan ya, en el
         // mismo turno, en vez de esperar al siguiente latido del contenedor.
         UpdateArrows();
@@ -157,12 +124,11 @@ public partial class IslandWindow
         PositionTopCenter();
         SyncMeasuredHeight();
         if (!AnimationsEnabled) SnapCompact();
-        else if (!throughPiece) SetCompactFrame();
-        // «Aviso temporal» (001 RF-2, 002 RF-16): la vista compacta vence al plazo
-        // configurado. restart:false conserva el plazo que ya corría, así
-        // interactuar (expandir y volver) nunca prolonga el aviso. Un aviso que no
-        // atraviesa la pieza arranca SIEMPRE su plazo: es un evento nuevo.
-        ArmTemporaryHide(restart: notice || (restartNotice && !collapsing), force: forceNotice);
+        else SetCompactFrame();
+        // «Aviso temporal» (001 RF-2, 002 RF-16): la vista compacta publica su aviso en la
+        // lista de activos con el plazo configurado. restart:false conserva el plazo que ya
+        // corría, así interactuar (expandir y volver) nunca prolonga el aviso.
+        ArmTemporaryHide(restart: restartNotice, force: forceNotice);
     }
 
     /// <summary>
@@ -228,8 +194,7 @@ public partial class IslandWindow
     // --- geometría compartida de los dos extremos ---
 
     /// <summary>
-    /// Destino de reposo del compacto: muelles hacia p=0 con la caja viva. Se usa
-    /// tanto al entrar al compacto sin repliegue como al descartar una fase 2.
+    /// Destino de reposo del compacto: muelles hacia p=0 con la caja viva.
     /// </summary>
     private void SetCompactFrame()
     {

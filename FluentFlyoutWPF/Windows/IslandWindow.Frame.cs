@@ -124,12 +124,6 @@ public partial class IslandWindow
 
         if (pSettled && qSettled && popSettled && hSettled && hotSettled && inactSettled)
         {
-            // La pieza inactiva ya es la vista asentada. Recién AHORA decide el
-            // contenedor si se reabre al compacto —fase 2 de un repliegue en dos
-            // fases o actividad vigente en «Visible mientras activo»— sin limpiar
-            // residuos: el mismo contenido reaparece en el compacto (001 MOD RF-16).
-            if (AtInactiveRest && TryReopenFromInactive())
-                return; // el loop sigue: la reapertura acaba de empezar
             StopLoop();
             _lastTick = TimeSpan.Zero;
             if (_inactiveShown && _inactiveT == 1)
@@ -144,7 +138,13 @@ public partial class IslandWindow
                 if (_wasSuppressed) Visibility = Visibility.Collapsed;
                 UpdateLine();
             }
-            // Si llegamos a compacto vía hidingViaCompact y no hay q pendiente, ya se ocultó arriba
+            // Si llegamos a compacto vía hidingViaCompact y no hay q pendiente, ya se ocultó arriba.
+            //
+            // Red de seguridad (una comprobación por asentamiento, no un latido): si la lista
+            // de activos cambió mientras la geometría volaba, la vista deseada se aplica ahora.
+            // Antes esto era una PUERTA —la reapertura de la pieza solo se intentaba aquí y con
+            // TODO asentado—, y de ahí salían los compactos que tardaban o no aparecían nunca.
+            RepairPresentation();
         }
         else if (_qT == 0 && _q <= 0.12)
         {
@@ -236,49 +236,10 @@ public partial class IslandWindow
         _p = _pT; _q = _qT;
         _pv = _qv = 0;
         _inactiveT = _inactiveTt = _inactiveShown ? 1 : 0;
-        _pendingCompactFeature = null;
         _collapseFromExpanded = false;
         _hexpShown = _hexp;
         _inactiveHotT = _inactiveHot ? 1 : 0;
         ApplyFrame();
-    }
-
-    /// <summary>
-    /// Arranca un repliegue CON contenido en dos fases (001 MOD RF-16):
-    ///
-    /// <list type="number">
-    /// <item>fase 1 — el expandido se contrae y su contenido se desvanece hasta
-    /// la pieza inactiva (el cuadrado negro estrecho);</item>
-    /// <item>fase 2 — la pieza se reabre al compacto con su contenido, disparada
-    /// al asentarse la fase 1 (<see cref="OnFrame"/>).</item>
-    /// </list>
-    ///
-    /// Se usa el mismo reloj de reposo (<c>_inactiveT</c>) para las dos fases, así
-    /// que no hay dos estados visibles a la vez ni saltos de geometría. Devuelve
-    /// false cuando ya se está en el compacto (sin geometría que replegar): ahí el
-    /// compacto se muestra por su ruta normal.
-    ///
-    /// <para><paramref name="target"/> es la funcionalidad a la que hay que
-    /// reabrir en la fase 2: <see cref="TryReopenFromInactive"/> la consume al
-    /// llegar a la pieza, de modo que ninguna ruta puede quedarse pegada en el
-    /// reposo teniendo algo activo que mostrar.</para>
-    /// </summary>
-    private bool BeginCollapseThroughInactive(IIslandFeature target)
-    {
-        if (!AnimationsEnabled || !IsBoxShown) return false;
-        if (_p <= 0.02 && _inactiveT <= 0.02) return false;
-        _pendingCompactFeature = target;
-        _collapseFromExpanded = true;
-        _inactiveShown = true;  // la pieza es la vista intermedia (fase 1)
-        _inactiveTt = 1;
-        _hidingViaCompact = false;
-        _pT = 0;
-        _pv = 0;
-        _qT = 1;
-        IslandBox.Visibility = Visibility.Visible;
-        UpdateRotationPauseState();
-        EnsureLoop();
-        return true;
     }
 
     /// <summary>

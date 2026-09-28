@@ -37,6 +37,18 @@ public partial class IslandWindow
     private bool TimerModeAvailable() =>
         SettingsManager.Current.IslandEnabled && SettingsManager.Current.IslandTimerEnabled;
 
+    /// <summary>
+    /// Actividad PROPIA del temporizador (change island-lista-de-activos): con una cuenta
+    /// VIVA —en marcha o PAUSADA— el contenedor la sostiene y su compacto enseña el tiempo
+    /// que queda. Una cuenta pausada sigue siendo una cuenta: antes caía al reposo en
+    /// «Visible mientras activo» (002 MOD RF-7) y el usuario se quedaba sin ver su tiempo. La
+    /// alerta final no entra aquí: es exclusiva y manda por su cuenta (002 MOD RF-2).
+    /// </summary>
+    private bool IsTimerActiveForCompact() =>
+        SettingsManager.Current.IslandEnabled
+        && SettingsManager.Current.IslandTimerEnabled
+        && _timer.IsCounting;
+
     // Implementaciones del contrato del contenedor para el temporizador
     // (001 MOD RF-11, RF-13): cada vista se abre solo si sigue siendo usable.
     internal bool ShowTimerExpandedFromContract()
@@ -64,7 +76,7 @@ public partial class IslandWindow
     /// expandido iba directo al reposo y el aviso del temporizador no se veía
     /// nunca en «Aviso temporal».
     /// </summary>
-    private bool TimerNoticeAlive() => _noticeUntil > DateTime.UtcNow || _pendingTimerNotice;
+    private bool TimerNoticeAlive() => _pendingTimerNotice || NoticeAliveFor(IslandContentMode.Timer);
 
     /// <summary>
     /// «Aviso temporal» (001 RF-2, 002 RF-16): las acciones que ponen la cuenta
@@ -79,13 +91,15 @@ public partial class IslandWindow
     private void ArmTimerNotice()
     {
         if (SettingsManager.Current.IslandVisibilityMode != 1 || !TimerModeAvailable()) return;
-        if (HasExclusive()) { ClearTemporaryNotice(); return; }
+        if (HasExclusive()) return;
         // Con el compacto del temporizador ya a la vista manda su plazo vigente:
         // la acción de la cuenta no reinicia un aviso que ya estaba corriendo
         // (001 RF-2). Vale también con el temporizador dentro de una pantalla.
         if (!_expanded && IsBoxShown && ViewShowsFeature(IslandFeatureIds.Timer)) return;
+        // El plazo NO corre dentro del expandido: queda PENDIENTE y arranca cuando el
+        // compacto del temporizador se presenta (002 RF-16). Lo consume ArmTemporaryHide.
         _pendingTimerNotice = true;
-        if (!_expanded) ShowTimerCompact();
+        RefreshPresentation();
     }
 
     private void InitTimer()
@@ -277,21 +291,12 @@ public partial class IslandWindow
         // único punto por el que el motor comunica su estado nuevo, así que el
         // aviso se arma aquí y no en cada botón.
         if (_timer.State == IslandTimerState.Running) ArmTimerNotice();
-        // T2: si el timer acaba de pausarse y en «Visible mientras activo» no hay
-        // otra activa vigente, la vista debe caer a inactivo/nada —el compacto
-        // pausado no sostiene nada (002 MOD RF-7)—. Vale tanto si el panel estaba
-        // expandido como si el compacto del timer seguía a la vista: una sola
-        // regla, un solo punto de salida.
-        if (_timer.State == IslandTimerState.Paused
-            && SettingsManager.Current.IslandVisibilityMode == 0
-            && !IsMediaActiveForContract()
-            && (_expanded || (IsBoxShown && ViewShowsFeature(IslandFeatureIds.Timer))))
-        {
-            _expanded = false;
-            ShowInactiveOrHidden();
-            return;
-        }
-        ApplyContentVisibility();
+        // La vista la resuelve la LISTA DE ACTIVOS (change island-lista-de-activos): una
+        // cuenta viva —en marcha o pausada— sostiene su compacto, y la cuenta que se cancela
+        // deja paso a otra activa o al reposo. Aquí solo se publica el evento; la regla T2
+        // del 002 MOD RF-7 (una pausa no sostiene nada) queda MODIFICADA: una cuenta pausada
+        // sigue teniendo un tiempo restante que enseñar.
+        RefreshPresentation();
         RefreshTimerUI();
         SyncMeasuredHeight();
     }
@@ -337,17 +342,10 @@ public partial class IslandWindow
     private void ShowTimerCompact()
     {
         if (!TimerModeAvailable()) { SnapHidden(); return; }
-        // «Aviso temporal»: el compacto del timer es un aviso como el de media y
-        // también vence (002 RF-8/RF-16) con la cuenta intacta por detrás.
-        // Un aviso PENDIENTE (acción de la cuenta dentro del expandido) estrena
-        // aquí su plazo: se descarta el vencimiento heredado —o ya gastado en el
-        // expandido— y ShowCompactView lo arma con la duración configurada, así
-        // el aviso se ve entero en vez de nacer vencido (001 RF-2, 002 RF-16).
-        if (_pendingTimerNotice)
-        {
-            _pendingTimerNotice = false;
-            _noticeUntil = DateTime.MinValue;
-        }
+        // «Aviso temporal»: el compacto del timer es un aviso como el de media y también
+        // vence (002 RF-8/RF-16) con la cuenta intacta por detrás. El aviso PENDIENTE —una
+        // acción de la cuenta hecha dentro del expandido— estrena aquí su plazo: lo consume
+        // ArmTemporaryHide, que es donde vive la regla del aviso.
         ShowCompactView(IslandContentMode.Timer, TimerFeature, RefreshTimerUI);
     }
 
@@ -366,24 +364,19 @@ public partial class IslandWindow
         _hoverSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
         _expanded = false;
         RefreshTimerUI();
-        if (SettingsManager.Current.IslandVisibilityMode == 0)
+        // El cierre del temporizador es un evento con entidad propia: en «Aviso temporal»,
+        // con música sonando, su compacto vuelve a la vista con su propio plazo (002 RF-6).
+        if (SettingsManager.Current.IslandVisibilityMode == 1 && ActiveMediaSession() is { } session)
         {
-            // Visible mientras activo: manda la activa vigente (pausa-OFF no
-            // sostiene nada y cae a inactivo/nada: 001 MOD RF-4).
-            if (ResolveActiveVigenteForVisible()?.TryShowCompact() == true) return;
-        }
-        else if (ActiveMediaSession() is { } session)
-        {
-            // Aviso temporal: con sesión la vista vuelve a media (002 RF-6) y ese
-            // aviso vuelve a cumplir su propio plazo.
             ShowMusicCompact(session);
             return;
         }
-        // Sin activa vigente ni sesión que presentar: reposo sin residuos.
+        // En cualquier otro caso manda la lista de activos: la activa que siga viva o el
+        // reposo, sin residuos y sin abrir una caja vacía (001 MOD RF-4).
         _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();
         ClearMusicResidue();
-        ShowInactiveOrHidden();
+        RefreshPresentation();
     }
 
     private void ExpandTimer()

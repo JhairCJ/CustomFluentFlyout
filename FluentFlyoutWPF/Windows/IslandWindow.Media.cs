@@ -263,15 +263,18 @@ public partial class IslandWindow
             // Ya no existe (o no está permitida): liberar y limpiar residuos.
             OnMusicUnavailable();
         }
-        // Sin snapshot: adoptar algo que se esté reproduciendo AHORA (evento de
-        // arranque perdido); una sesión pausada NO se adopta sola para no
-        // robarle la vista al temporizador ni sorprender al usuario.
-        var playing = NewestPlaying();
-        if (playing != null)
+        // Sin snapshot: adoptar algo que se esté reproduciendo AHORA (evento de arranque
+        // perdido). Con «pausa cuenta como activo» también se adopta una sesión EN PAUSA: es
+        // actividad vigente y su compacto necesita datos que pintar (título, carátula). Sin
+        // ese ajuste una pausa NO se adopta sola: no se le roba la vista al temporizador ni
+        // se sorprende al usuario (001 MOD RF-6/RF-7).
+        var adopt = NewestPlaying();
+        if (adopt == null && SettingsManager.Current.IslandPauseCountsActive) adopt = PausedAllowed();
+        if (adopt != null)
         {
-            NotePlay(playing.Id);
-            ApplyMediaSnapshot(new IslandMediaSnapshot(playing.Id,
-                GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
+            NotePlay(adopt.Id);
+            ApplyMediaSnapshot(new IslandMediaSnapshot(adopt.Id, SafeStatus(adopt)
+                ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
         }
     }
 
@@ -445,7 +448,11 @@ public partial class IslandWindow
             }
             bool show = SettingsManager.Current.IslandShowOnPause || (pauseCounts && mode0)
                 || (trackChanged && SettingsManager.Current.IslandShowOnTrackChange);
-            if (show) { PresentMediaSnapshot(status); return; }
+            // Con «pausa cuenta como activo» la pausa es un ESTADO y sostiene la vista sola; si
+            // el ajuste está apagado y la pausa se enseña por «mostrar al pausar», su vista es
+            // un aviso más y necesita su plazo en LOS DOS modos: sin forzarlo, el contenedor
+            // re-resolvía y la escondía en el mismo turno (change island-lista-de-activos).
+            if (show) { PresentMediaSnapshot(status, forceNotice: !pauseCounts); return; }
             // Pausa que no cuenta como activa: no sostiene una vista compacta, en
             // los DOS modos (001 MOD RF-4/RF-7).
             if (MediaOwnsView())
@@ -517,7 +524,8 @@ public partial class IslandWindow
     /// real de la sesión: es el caso del cambio de canción que llega con un estado
     /// intermedio que no debe pintarse.
     /// </summary>
-    private void PresentMediaSnapshot(GlobalSystemMediaTransportControlsSessionPlaybackStatus? status, bool trackChanged = false)
+    private void PresentMediaSnapshot(GlobalSystemMediaTransportControlsSessionPlaybackStatus? status,
+        bool trackChanged = false, bool forceNotice = false)
     {
         var session = Current() ?? ActiveMediaSession();
         if (session == null) return;
@@ -545,7 +553,7 @@ public partial class IslandWindow
             RefreshUi(session, status);
             return;
         }
-        ShowMusicCompact(session, status);
+        ShowMusicCompact(session, status, forceNotice: forceNotice);
     }
 
     /// <summary>
@@ -719,8 +727,34 @@ public partial class IslandWindow
         if (!MusicAvailable() && FirstAllowed() == null) return false;
         if (_music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) return true;
         if (NewestPlaying() != null) return true;
-        return SettingsManager.Current.IslandPauseCountsActive
-            && _music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
+        if (!SettingsManager.Current.IslandPauseCountsActive) return false;
+        // La pausa cuenta como activo: vale la del snapshot y la de CUALQUIER sesión
+        // permitida. Mirar solo el snapshot dejaba fuera el caso corriente de una música
+        // pausada antes de arrancar el Island (todavía sin snapshot): el contenedor caía al
+        // reposo y, con «volver a inactivo» apagado, el Island desaparecía del todo.
+        if (_music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused) return true;
+        return PausedAllowed() != null;
+    }
+
+    /// <summary>
+    /// ¿La música está EN PAUSA ahora mismo? Vale el snapshot y cualquier sesión permitida
+    /// (una música pausada antes de arrancar el Island no tiene snapshot todavía). Es lo que
+    /// consulta la lista de activos para decidir si la pausa es un ESTADO que sostiene la
+    /// vista (change island-lista-de-activos).
+    /// </summary>
+    private bool MediaPausedNow() =>
+        _music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused
+        || PausedAllowed() != null;
+
+    /// <summary>Sesión permitida que está en pausa ahora mismo («pausa cuenta como activo»).</summary>
+    private MediaSession? PausedAllowed()
+    {
+        foreach (var s in _main.mediaManager.CurrentMediaSessions.Values)
+        {
+            if (!_main.IsSessionAllowed(s)) continue;
+            if (SafeStatus(s) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused) return s;
+        }
+        return null;
     }
 
     /// <summary>
@@ -795,12 +829,13 @@ public partial class IslandWindow
         return true;
     }
 
-    private void ShowMusicCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null, bool forceAlbumFlip = false)
+    private void ShowMusicCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null,
+        bool forceAlbumFlip = false, bool forceNotice = false)
     {
-        if (_timer.State == Classes.IslandTimerState.Alerting) return;
+        if (_timer.State == IslandTimerState.Alerting) return;
         if (!MusicAvailable()) return; // sin snapshot musical no hay vista musical (RF-13)
         ShowCompactView(IslandContentMode.Media, MediaFeature,
-            () => RefreshUi(session, knownStatus, forceAlbumFlip));
+            () => RefreshUi(session, knownStatus, forceAlbumFlip), forceNotice: forceNotice);
     }
 
     private void ExpandSession(MediaSession session)

@@ -220,16 +220,10 @@ public partial class IslandWindow : Window
     // geometría de la pieza (residuo a medio camino = se descarta).
     private double _inactiveT;  // 0..1 progreso real hacia la pieza inactiva
     private double _inactiveTt; // objetivo 0/1 de _inactiveT
-    // Repliegue en dos fases (001 MOD RF-16): cuando el repliegue parte del
-    // expandido CON contenido que debe seguir visible (la activa vigente), la fase
-    // 1 (hacia la pieza inactiva) encadena la fase 2 (de la pieza al compacto) al
-    // asentarse. Aquí vive la funcionalidad a la que hay que reabrir; null = el
-    // repliegue va al reposo. La reapertura la resuelve TryReopenFromInactive() al
-    // llegar a la pieza (o el tick, si la actividad llega más tarde).
-    private IIslandFeature? _pendingCompactFeature;
     // El repliegue en curso partió de la geometría expandida: mientras el ancho
     // morfa hacia la pieza, el compacto no florece de paso —expandido → inactivo es
-    // UNA sola transición (001 MOD RF-16)—.
+    // UNA sola transición (001 MOD RF-16)—. Es geometría, no decisión: la vista la
+    // resuelve la lista de activos (IslandWindow.States.cs).
     private bool _collapseFromExpanded;
 
     // --- Estado del aviso y del hover ---
@@ -256,11 +250,14 @@ public partial class IslandWindow : Window
     // Bluetooth, change island-bluetooth-conectado RF-1). Cualquier armado sin
     // force lo descarta, así la vista siguiente no hereda un vencimiento ajeno.
     private bool _noticeForced;
-    // A qué VISTA pertenece el plazo vigente. El vencimiento es uno solo para todo el
-    // contenedor, así que sin esta etiqueta un plazo armado por el temporizador (o por
-    // la música) hacía que Bluetooth o el cargador se declararan «activos» y saltara su
-    // aviso sin que hubiera pasado nada (change island-avisos).
-    private IslandContentMode _noticeMode;
+    // A qué FUNCIONALIDAD pertenece el aviso presentado y cuándo nació. El plazo es uno
+    // solo para todo el contenedor, así que sin esta etiqueta un plazo armado por el
+    // temporizador (o por la música) hacía que Bluetooth o el cargador se declararan
+    // «activos» y saltara su aviso sin que hubiera pasado nada (change island-avisos).
+    // El instante de nacimiento es lo que distingue un evento NUEVO de la misma vista
+    // re-presentada: solo el primero estrena plazo (001 RF-2).
+    private string? _noticeFeatureId;
+    private DateTime _noticeStarted = DateTime.MinValue;
     // Aviso PENDIENTE del temporizador (002 RF-16): una acción que pone la cuenta
     // en marcha (empezar, reanudar, reiniciar) dentro del expandido deja su aviso
     // armado pero sin gastar. El plazo debe correr cuando el compacto del
@@ -485,104 +482,33 @@ public partial class IslandWindow : Window
         }
 
         Visibility = Visibility.Visible;
-        // El contenido visible (temporizador o cajón) se conserva ante
-        // actualizaciones del contenedor (001 ADDED RF-1): no se reconstruye ni
-        // se desplaza sin un evento nuevo.
+        // Vistas que dejaron de ser presentables con el ajuste nuevo: se repliegan por su
+        // propia ruta (cancela arrastres, suelta el snapshot…) antes de re-resolver.
         if (IsBoxShown && _contentMode != IslandContentMode.Media)
         {
             if (_contentMode == IslandContentMode.Apps && !AppsModeAvailable()) FallbackFromAppsView();
-            // Mismo caso para el estante: si dejó de ser usable mientras estaba a la
-            // vista (se apagó en ajustes), se repliega a la activa vigente o al reposo.
             else if (_contentMode == IslandContentMode.Shelf && !ShelfModeAvailable()) FallbackFromShelfView();
-            // Y el calendario: sin sesión (o con la funcionalidad apagada) no puede
-            // quedarse pintado (cerrar sesión no deja eventos ajenos a la vista).
             else if (_contentMode == IslandContentMode.Calendar && !CalendarModeAvailable()) FallbackFromCalendarView();
-            // El aviso de Bluetooth, igual: apagado el ajuste no puede quedarse su
-            // capa puesta (RefreshBluetoothContent ya lo repliega, pero el ajuste del
-            // contenedor puede llegar por esta ruta).
             else if (_contentMode == IslandContentMode.Bluetooth && !BluetoothModeAvailable()) FallbackFromBluetoothView();
-            else
-            {
-                if (_contentMode == IslandContentMode.Timer) RefreshTimerUI();
-                ApplyContentVisibility();
-                SyncMeasuredHeight();
-            }
-            RefreshAppearance();
-            return;
         }
-        // SIN media no hay vista musical; con cuenta viva el clic abre el
-        // temporizador (RF-13). Never anchoring an empty music box.
-        var session0 = MediaContentAvailable() ? ActiveMediaSession() : null;
-        var status0 = session0 == null ? null : SafeStatus(session0) ?? _music?.Status;
-        bool active = status0 == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
-            || (SettingsManager.Current.IslandPauseCountsActive
-                && status0 == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused);
-        if (SettingsManager.Current.IslandVisibilityMode == 0 && active)
-        {
-            if (session0 != null) ShowMusicCompact(session0, status0);
-        }
-        else if (TimerKeepsAlive()) ShowTimerCompact();
-        else if (!_expanded)
-        {
-            // Reposo re-resuelto (pieza o nada) al cambiar ajustes y TAMBIÉN al
-            // arrancar: la condición no puede exigir una caja ya visible, porque el
-            // arranque es justo el caso en que todavía no hay ninguna (001 MOD RF-2).
-            ShowInactiveOrHidden();
-        }
+        // La vista la resuelve la LISTA DE ACTIVOS (change island-lista-de-activos): un
+        // ajuste no la decide por su cuenta, y el reposo se re-resuelve también al
+        // arrancar —cuando todavía no hay ninguna caja a la vista (001 MOD RF-2)—.
+        RefreshPresentation();
         RefreshAppearance();
-        // El ajuste ya presentó la vista; el buzón reconcilia una sola vez el
-        // estado final (ecualizador, flechas, cadencia por contenido).
+        // El buzón reconcilia una sola vez el estado final (ecualizador, flechas, cadencia).
         PostActivity(IslandActivityReason.Settings);
     }
 
+    /// <summary>
+    /// Un ajuste que cambia QUÉ se ve o CÓMO se ve el contenido vigente (duración del aviso,
+    /// «pausa cuenta como activo», «volver a inactivo», estilo…): se re-resuelve la vista con
+    /// la lista de activos y se re-aplica la apariencia, sin reconstruir la vista si no cambió.
+    /// </summary>
     public void RefreshVisibilityState()
     {
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
-        if (IsBoxShown && _contentMode != IslandContentMode.Media)
-        {
-            // Temporizador o cajón visible: la actualización re-aplica su estado
-            // sin reconstruir paneles ni ceder la vista a música sin evento nuevo
-            // (001 ADDED RF-1, 002 ADDED RF-1).
-            if (_contentMode == IslandContentMode.Timer) RefreshTimerUI();
-            ApplyContentVisibility();
-            SyncMeasuredHeight();
-            return;
-        }
-        // Sin media no hay vista por estado musical: el clic con el temporizador
-        // lo cubre (RF-13); salir sin tocar el control multimedia.
-        // La vista vigente es la de la actividad real (adoptando sesión si el
-        // snapshot estaba ausente o desfasado): nunca una decisión tomada con un
-        // snapshot obsoleto (001 MOD RF-4, RF-11).
-        var session = ActiveMediaSession();
-        if (session == null)
-        {
-            // Igual que en RefreshEnabledState: el reposo se resuelve aunque la caja
-            // todavía no esté a la vista (arranque), no solo cuando ya lo estaba.
-            if (!TimerKeepsAlive() && !_expanded) ShowInactiveOrHidden();
-            return;
-        }
-        var status = SafeStatus(session) ?? _music?.Status;
-        if (status == null) return;
-        // «Visible mientras activo»: reproducir es actividad por sí mismo y la
-        // pausa sostiene solo con el ajuste de pausa-activa (001 MOD RF-6);
-        // «Aviso temporal»: rigen los activadores legacy.
-        bool showForStatus = status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
-            ? (SettingsManager.Current.IslandVisibilityMode == 0 || SettingsManager.Current.IslandShowOnPlayPause)
-            : status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused
-                && (SettingsManager.Current.IslandShowOnPause
-                    || (SettingsManager.Current.IslandPauseCountsActive
-                        && SettingsManager.Current.IslandVisibilityMode == 0));
-        if (showForStatus)
-        {
-            _currentId = session.Id;
-            if (_expanded) RefreshUi(session, status);
-            else ShowMusicCompact(session, status);
-        }
-        else if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing ||
-                 status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
-        {
-            HidePerMode();
-        }
+        RefreshPresentation();
         PostActivity(IslandActivityReason.Settings);
     }
 }
