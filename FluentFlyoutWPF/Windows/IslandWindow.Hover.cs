@@ -31,6 +31,11 @@ namespace FluentFlyoutWPF.Windows;
 /// clic explícito (001 MOD RF-3, RF-10). La tolerancia horizontal/vertical es
 /// configurable (<c>IslandHoverTolerance*</c>) y se mide en DIPs del monitor
 /// principal, escalada por su DPI.</para>
+///
+/// <para>La franja del borde es la PUERTA del Island y su geometría y su estado salen
+/// de un solo sitio —<see cref="IslandLine"/> y <c>UpdateLine</c>—: la franja sigue a
+/// la línea que el usuario ve, y sin nada visible deja de existir salvo que pida una
+/// puerta invisible (<c>IslandHiddenAccess</c>).</para>
 /// </summary>
 public partial class IslandWindow
 {
@@ -61,6 +66,9 @@ public partial class IslandWindow
         // mismo aunque el Island esté a punto de replegarse (001 MOD RF-4).
         CancelHoverLeave();
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
+        // Sin puerta viva la franja no existe: ni micro-crecimiento ni re-despliegue
+        // (el hook ya filtra, pero la caja también entra por aquí).
+        if (!AccessZoneActive()) return;
         // El dictado manda (RF-10): con una sesión en marcha la franja tampoco agranda ni
         // saca al Island de su tarjeta. La franja es geometría —el hook nativo y el sondeo
         // la detectan sin hit-test—, así que el veto tiene que estar aquí.
@@ -105,15 +113,37 @@ public partial class IslandWindow
     private bool FringeContains(int x, int y)
     {
         if (_disposed || !SettingsManager.Current.IslandEnabled || Suppressed()) return false;
+        // Sin puerta viva el puntero ni entra aquí: ni el hook ni el fallback.
+        if (!AccessZoneActive()) return false;
         var primary = PrimaryMonitor();
+        if (!FringeBounds(primary, out double left, out double top, out double right, out double bottom)) return false;
+        return x >= left && x <= right && y >= top && y <= bottom;
+    }
+
+    /// <summary>
+    /// La banda de la franja en píxeles FÍSICOS del monitor: de dónde a dónde el puntero
+    /// pertenece a la manija. Es la ÚNICA geometría de la franja —la usan la detección
+    /// nativa, el fallback de 250 ms y el veto de repliegue— y su offset sale de la MISMA
+    /// regla que pinta la línea (<see cref="IslandLine.TopDip"/>), así que la zona no puede
+    /// quedar por encima ni por debajo de la raya que el usuario ve.
+    /// </summary>
+    private bool FringeBounds(MonitorUtil.MonitorInfo primary,
+        out double left, out double top, out double right, out double bottom)
+    {
+        left = top = right = bottom = 0;
         if (primary.monitorArea.Width == 0) return false;
         double tolH = HoverTolH * primary.dpiX / 96.0;
         double tolV = HoverTolV * primary.dpiY / 96.0;
-        double halfRaw = LineFullWidth * 0.5 * primary.dpiX / 96.0 + tolH;
-        double cx = primary.workArea.Left + primary.workArea.Width / 2;
-        if (Math.Abs(x - cx) > halfRaw) return false;
-        double lineTop = primary.workArea.Top + (IsNotch ? 1 : Math.Clamp(SettingsManager.Current.IslandLineTopOffset, 0, 60)) * primary.dpiY / 96.0;
-        return y >= primary.monitorArea.Top - 2 && y <= lineTop + 3 + tolV;
+        double half = IslandLine.BarWidth * 0.5 * primary.dpiX / 96.0 + tolH;
+        double cx = primary.workArea.Left + primary.workArea.Width / 2.0;
+        // La ventana arranca en el borde del área de trabajo (PositionTopCenter): la
+        // franja no puede empezar más arriba que el propio Island, o el puntero cruzaría
+        // la barra de tareas para despertarlo.
+        top = primary.workArea.Top;
+        bottom = top + (_lineTopDip + IslandLine.BarHeight) * primary.dpiY / 96.0 + tolV;
+        left = cx - half;
+        right = cx + half;
+        return true;
     }
 
     /// <summary>
@@ -223,7 +253,7 @@ public partial class IslandWindow
             double islandOff = (IsNotch ? 0 : Math.Clamp(SettingsManager.Current.IslandTopOffset, 0, 80)) * primary.dpiY / 96.0;
             double islandTop = primary.workArea.Top + islandOff;
             if (p.Y < primary.workArea.Top - 2 || p.Y > islandTop + 2) return false;
-            double halfW = ((_expanded || _p > 0.2) ? ContentExpandedWidth : LineFullWidth) * 0.5;
+            double halfW = ((_expanded || _p > 0.2) ? ContentExpandedWidth : IslandLine.BarWidth) * 0.5;
             halfW = halfW * primary.dpiX / 96.0 + HoverTolH * primary.dpiX / 96.0;
             double cx = primary.workArea.Left + primary.workArea.Width / 2;
             return Math.Abs(p.X - cx) <= halfW;
@@ -248,21 +278,21 @@ public partial class IslandWindow
             double tolH = HoverTolH * primary.dpiX / 96.0;
             double tolV = HoverTolV * primary.dpiY / 96.0;
             double cx = primary.workArea.Left + primary.workArea.Width / 2;
-            double halfW = (_expanded || _p > 0.2)
-                ? ContentExpandedWidth * 0.5 * primary.dpiX / 96.0 + tolH
-                : LineFullWidth * 0.5 * primary.dpiX / 96.0 + tolH;
-            if (Math.Abs(p.X - cx) > halfW) return false;
+            // Expandido: la zona es la caja abierta, con su alto real medido.
             if (_expanded || _p > 0.2)
             {
+                double expandedHalf = ContentExpandedWidth * 0.5 * primary.dpiX / 96.0 + tolH;
+                if (Math.Abs(p.X - cx) > expandedHalf) return false;
                 double top = primary.workArea.Top;
                 double islandOff = (IsNotch ? 0 : Math.Clamp(SettingsManager.Current.IslandTopOffset, 0, 80)) * primary.dpiY / 96.0;
                 double bottom = top + (_hexp + 8) * primary.dpiY / 96.0 + islandOff + tolV;
-                if (p.Y < top - 2 || p.Y > bottom) return false;
-                return true;
+                return p.Y >= top - 2 && p.Y <= bottom;
             }
-            double lineTop = primary.workArea.Top + (IsNotch ? 1 : Math.Clamp(SettingsManager.Current.IslandLineTopOffset, 0, 60)) * primary.dpiY / 96.0;
-            if (p.Y < primary.monitorArea.Top - 2 || p.Y > lineTop + 3 + tolV) return false;
-            return true;
+            // En reposo la zona es la franja de la manija: misma geometría que la
+            // detección nativa, y sin puerta no está «encima» de nada.
+            if (!AccessZoneActive()) return false;
+            if (!FringeBounds(primary, out double fringeLeft, out double fringeTop, out double fringeRight, out double fringeBottom)) return false;
+            return p.X >= fringeLeft && p.X <= fringeRight && p.Y >= fringeTop && p.Y <= fringeBottom;
         }
         catch { return false; }
     }
@@ -273,6 +303,8 @@ public partial class IslandWindow
     private void InactiveZone_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
+        // Con la puerta cerrada la franja no existe: el clic no hace nada.
+        if (!AccessZoneActive()) return;
         // El clic completa el crecimiento y abre la última usable; sin usable
         // no abre vista vacía (001 MOD RF-3, RF-9, RF-16).
         if (!ExpandLastUsable())

@@ -314,11 +314,10 @@ public partial class IslandWindow
         double restReveal = IslandPhysics.Smooth(Math.Clamp((1 - inact - 0.10) / 0.90, 0, 1));
         // Línea gris con el mismo reloj que la isla (p y q): la isla crece
         // centrada = de adentro hacia afuera, la línea encoge centrada = de
-        // afuera hacia adentro. Sigue al más rápido (Max): p termina antes
-        // que q al emerger expandido, así la línea es 0 cuando el expandido
-        // ya salió. En compacto p=0 y queda igual que antes. Sin tween separado.
-        bool allowed = SettingsManager.Current.IslandActivityLine && IsAliveForLine();
-        _lineW = allowed ? LineFullWidth * (1 - Math.Max(IslandPhysics.Smooth(p), IslandPhysics.Smooth(q))) * contentOp : 0;
+        // afuera hacia adentro. Su ancho y su presencia los resuelve IslandLine
+        // —una sola regla, compartida con la franja del puntero—: sin puerta
+        // detrás no hay manija, y sin pintarla tampoco queda una raya suelta.
+        _lineW = _lineShown ? IslandLine.BarWidth * IslandLine.WidthFactor(p, q, contentOp) : 0;
         ActivityLine.Width = _lineW;
         ActivityLine.Visibility = _lineW > 0.5 ? Visibility.Visible : Visibility.Collapsed;
         MediaStatusDot.Opacity = contentOp;

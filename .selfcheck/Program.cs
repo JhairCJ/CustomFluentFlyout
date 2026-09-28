@@ -157,6 +157,33 @@ Check(IslandActivityPick.Winner([new(true, true, default), new(true, true, now)]
 Ok();
 
 // ------------------------------------------------------------------
+// Línea gris y su franja: una manija con su puerta (IslandLine)
+// ------------------------------------------------------------------
+// Un solo offset para las tres copias que antes lo repetían (pintado, detección
+// de puntero y veto de repliegue): en notch la línea es parte del borde.
+CheckNear(IslandLine.TopDip(notch: false, configuredOffset: 0), 0, 1e-9, "flotante: el offset lo pone el ajuste (0)");
+CheckNear(IslandLine.TopDip(notch: false, configuredOffset: 60), 60, 1e-9, "flotante: el ajuste manda");
+CheckNear(IslandLine.TopDip(notch: false, configuredOffset: 999), 60, 1e-9, "flotante: el offset se acota por arriba");
+CheckNear(IslandLine.TopDip(notch: false, configuredOffset: -5), 0, 1e-9, "flotante: el offset se acota por abajo");
+CheckNear(IslandLine.TopDip(notch: true, configuredOffset: 45), IslandLine.NotchTopDip, 1e-9, "notch: la línea va pegada al borde");
+// La manija existe si hay puerta: una raya que no abre nada miente.
+Check(!IslandLine.Shown(enabled: true, doorAvailable: false), "sin nada que abrir no hay línea");
+Check(!IslandLine.Shown(enabled: false, doorAvailable: true), "con el ajuste apagado no hay línea");
+Check(IslandLine.Shown(enabled: true, doorAvailable: true), "con ajuste y puerta, la línea se pinta");
+// La franja del borde sigue a lo visible; sin nada dibujado solo si se pide.
+Check(IslandLine.AccessZone(boxShown: true, lineShown: false, allowWhenHidden: false), "con la caja a la vista hay franja");
+Check(IslandLine.AccessZone(boxShown: false, lineShown: true, allowWhenHidden: false), "con la línea a la vista hay franja");
+Check(!IslandLine.AccessZone(boxShown: false, lineShown: false, allowWhenHidden: false), "sin nada dibujado el puntero no hace nada ahí");
+Check(IslandLine.AccessZone(boxShown: false, lineShown: false, allowWhenHidden: true), "la puerta invisible es opcional");
+// El ancho: entera con la caja oculta, cero cuando la caja ocupa su sitio.
+CheckNear(IslandLine.WidthFactor(0, 0, 1), 1, 1e-9, "caja oculta: línea entera");
+CheckNear(IslandLine.WidthFactor(0, 1, 1), 0, 1e-9, "caja revelada: sin línea");
+CheckNear(IslandLine.WidthFactor(1, 1, 1), 0, 1e-9, "expandido: sin línea");
+CheckNear(IslandLine.WidthFactor(0, 0, 0), 0, 1e-9, "contenido apagado (pieza): sin línea");
+Check(IslandLine.WidthFactor(0.1, 0, 1) < 1, "la línea se repliega con la caja");
+Ok();
+
+// ------------------------------------------------------------------
 // Dictado (spec 006): el atajo que dispara, termina y cancela
 // ------------------------------------------------------------------
 // El gancho de teclado entrega el modificador FÍSICO (0xA2 = Ctrl izquierdo) y el

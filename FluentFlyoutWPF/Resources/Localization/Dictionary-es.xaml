@@ -158,6 +158,10 @@
     <system:String x:Key="IslandPage_IslandOffsetDesc">Qué tan abajo queda la isla del borde superior, como en iPhone. Solo isla flotante.</system:String>
     <system:String x:Key="IslandPage_LineOffset">Separación de la línea gris</system:String>
     <system:String x:Key="IslandPage_LineOffsetDesc">Qué tan abajo queda la línea gris del borde superior. Solo isla flotante.</system:String>
+    <system:String x:Key="IslandPage_ActivityLine">Línea gris</system:String>
+    <system:String x:Key="IslandPage_ActivityLineDesc">Dibuja una barra gris mientras el Island está oculto y es la manija que lo trae de vuelta: solo se pinta cuando hay algo que abrir.</system:String>
+    <system:String x:Key="IslandPage_HiddenAccess">Acceso con el Island oculto</system:String>
+    <system:String x:Key="IslandPage_HiddenAccessDesc">Mantén la franja superior activa aunque no se dibuje nada (ni isla ni línea gris). Apagado por defecto, para que un punto invisible no abra nunca el Island.</system:String>
     <system:String x:Key="IslandPage_CompactRadius">Radio en compacto</system:String>
     <system:String x:Key="IslandPage_CompactRadiusDesc">Ajusta lo redondeado del borde exterior en el island compacto.</system:String>
     <system:String x:Key="IslandPage_ExpandedRadius">Radio en expandido</system:String>

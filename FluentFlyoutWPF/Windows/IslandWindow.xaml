@@ -13,17 +13,21 @@
          nivel OS; la ventana transparente fija mide 640 px y la zona muerta es click-through (Background null); solo la isla
          y la franja hover capturan el ratón. -->
     <Grid x:Name="Root" Background="{x:Null}">
-        <!-- Línea gris opcional: indica que el Island está activo -->
-        <Border x:Name="ActivityLine" Height="3" Width="120" CornerRadius="1.5"
-                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0"
+        <!-- Línea gris opcional: la MANIJA del Island (si el Island está oculto, anuncia
+             que hay algo que abrir). Su tamaño, su offset y su presencia los resuelve
+             IslandLine/UpdateLine: solo se pinta cuando hay una puerta detrás. -->
+        <Border x:Name="ActivityLine" CornerRadius="1.5"
+                HorizontalAlignment="Center" VerticalAlignment="Top"
                 Background="#66FFFFFF" Visibility="Collapsed"/>
         <Border x:Name="MediaStatusDot" Width="3" Height="3" CornerRadius="1.5"
-                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,1,0,0"
+                HorizontalAlignment="Center" VerticalAlignment="Top"
                 Visibility="Collapsed" IsHitTestVisible="False"/>
-        <!-- Franja de detección (001 MOD RF-10): mantiene la zona activa cuando hay
-             una funcionalidad habilitada accesible por clic; por sí sola nunca
-             despliega contenido: el clic en la pieza inactiva es el que abre. -->
-        <Border x:Name="HoverStrip" Height="12" Width="120" HorizontalAlignment="Center" VerticalAlignment="Top" Background="Transparent"
+        <!-- Franja de detección (001 MOD RF-10): la PUERTA del borde. Existe donde hay
+             algo visible —la caja o su línea gris— o donde el usuario pida una puerta
+             invisible (IslandHiddenAccess); su tamaño, su offset y su hit-test los pone
+             UpdateLine (IslandWindow.Presentation.cs) desde la regla IslandLine. Por sí
+             sola nunca despliega contenido: el clic es el que abre. -->
+        <Border x:Name="HoverStrip" HorizontalAlignment="Center" VerticalAlignment="Top" Background="Transparent"
                 MouseLeftButtonUp="InactiveZone_Click"/>
 
         <!-- La pieza inactiva (001 MOD RF-11, RF-16) NO es un elemento aparte: es

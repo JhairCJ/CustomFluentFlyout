@@ -83,8 +83,6 @@ public partial class IslandWindow : Window
     // Es a propósito la MISMA en los dos estilos —no deriva del compacto—, porque
     // el reposo es una presencia mínima, no una cápsula alargada.
     private const double InactivePillWidth = 112;
-    // Ancho de la línea de actividad (y base de la franja de detección).
-    private const double LineFullWidth = 120;
 
     // Sin latido global: la actividad llega por el buzón coalescido de
     // IslandWindow.Activity.cs (001 MOD RF-1/RF-16, ADDED RF-3) y cada refresco
@@ -164,7 +162,12 @@ public partial class IslandWindow : Window
     private bool _hidingViaCompact; // salida directa desde expandido: p y q van a 0 a la vez
     private double _hexp = 172;
     private double _hexpShown = 172; // altura renderizada: glidea tras _hexp sin saltos
-    private double _lineW = LineFullWidth;
+    private double _lineW = IslandLine.BarWidth;
+    // Línea gris: si el indicador se pinta (la manija) y el offset con el que se pinta.
+    // Los fija UpdateLine (IslandWindow.Presentation.cs) y los lee el hook del ratón,
+    // que corre en cada movimiento y no puede consultar nada caro.
+    private bool _lineShown;
+    private double _lineTopDip;
     private string _lastTrackKey = "";
     private bool _popPlaying;
     private double _pop; // 0..1 pulso de cambio de pista

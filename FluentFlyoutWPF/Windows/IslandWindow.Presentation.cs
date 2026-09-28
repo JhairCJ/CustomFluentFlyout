@@ -213,41 +213,75 @@ public partial class IslandWindow
     // --- línea de actividad y punto de estado ---
 
     /// <summary>
-    /// Línea de actividad y márgenes del notch/pieza según los offsets
-    /// configurados, más la franja de detección que cubre del borde a la línea.
+    /// Línea de actividad y márgenes del notch/pieza según los offsets configurados.
+    /// Aquí se resuelven las DOS caras de lo mismo (<see cref="IslandLine"/>): la MANIJA
+    /// —si la línea y su punto se pintan— y la PUERTA —si la franja del borde sigue
+    /// viva—, que comparten offset y presencia. Con la puerta cerrada el puntero no hace
+    /// nada en esa zona: ni micro-crecimiento, ni apertura por clic, ni hook de ratón.
     /// </summary>
     private void UpdateLine()
     {
         ApplyStyle();
-        // ponytail: offsets solo en flotante; notch queda pegado como antes
-        int lineOff = IsNotch ? 1 : Math.Clamp(SettingsManager.Current.IslandLineTopOffset, 0, 60);
+        // La línea y la isla salen de la MISMA regla pura (IslandLine): el offset con
+        // el que se pinta la línea es el que usa el puntero para su franja, así que las
+        // dos ya no pueden desincronizarse. En notch la línea es parte del borde; en
+        // flotante la baja el ajuste.
+        double lineOff = IslandLine.TopDip(IsNotch, SettingsManager.Current.IslandLineTopOffset);
         int islandOff = IsNotch ? 0 : Math.Clamp(SettingsManager.Current.IslandTopOffset, 0, 80);
+        _lineTopDip = lineOff;
+        // La manija existe si hay puerta: alguna cosa usable que el clic pueda abrir.
+        _lineShown = IslandLine.Shown(SettingsManager.Current.IslandActivityLine, AnyScreenUsable());
+        ActivityLine.Height = IslandLine.BarHeight;
         ActivityLine.Margin = new Thickness(0, lineOff, 0, 0);
         MediaStatusDot.Margin = new Thickness(0, lineOff, 0, 0);
         IslandBox.Margin = new Thickness(0, islandOff, 0, 0);
-        // Ventana arranca en workArea.Top, pero HoverStrip pilla desde el borde físico vía PollFringe;
-        // aquí cubre al menos borde→línea + V abajo, centrado al ancho H.
-        HoverStrip.Margin = new Thickness(0, 0, 0, 0);
-        HoverStrip.Height = lineOff + 3 + HoverTolV;
-        HoverStrip.Width = LineFullWidth + 2 * HoverTolH;
+        // La franja cubre del borde superior de la ventana (donde arranca el Island) a
+        // la línea: es la zona de la manija, así que su alto sale del MISMO offset.
+        HoverStrip.Margin = new Thickness(0);
+        HoverStrip.Height = lineOff + IslandLine.BarHeight + HoverTolV;
+        HoverStrip.Width = IslandLine.BarWidth + 2 * HoverTolH;
         HoverStrip.HorizontalAlignment = HorizontalAlignment.Center;
         HoverStrip.VerticalAlignment = VerticalAlignment.Top;
+        ApplyAccessZone();
         var eqVis = SettingsManager.Current.IslandEqEnabled ? Visibility.Visible : Visibility.Collapsed;
         ExpandedEq.Visibility = eqVis;
         UpdateEqButton(); // arbitra CompactEq vs icono de pausa
         UpdateMediaStatusDot();
+        // La línea la pinta el motor por frame; sin motor hay que pintarla aquí, que su
+        // presencia (la manija) acaba de cambiar.
+        if (!_loopOn) ApplyFrame();
     }
 
-    private bool IsAliveForLine() =>
-        IsBoxShown || _qT > 0.02 || _music != null || TimerKeepsAlive();
+    /// <summary>
+    /// La franja del borde es la PUERTA del Island: existe donde hay algo visible a lo
+    /// que apuntar —la caja o su línea— y, si el usuario lo pide, también sin nada
+    /// dibujado (<c>IslandHiddenAccess</c>). Con la puerta cerrada el puntero ni la ve:
+    /// ni micro-crecimiento, ni apertura por clic, ni disparo del hook. El dictado la
+    /// veta siempre (RF-10).
+    /// </summary>
+    private void ApplyAccessZone()
+    {
+        bool zone = AccessZoneActive();
+        HoverStrip.Visibility = zone ? Visibility.Visible : Visibility.Collapsed;
+        HoverStrip.IsHitTestVisible = zone;
+    }
+
+    /// <summary>
+    /// ¿La franja del borde está viva ahora mismo? La consulta el pintado y también el
+    /// hook del ratón, que corre en cada movimiento: solo lee estado cacheado.
+    /// </summary>
+    private bool AccessZoneActive() =>
+        !DictationActive()
+        && IslandLine.AccessZone(IsBoxShown, _lineShown, SettingsManager.Current.IslandHiddenAccess);
 
     /// <summary>El punto de estado solo con contenido visible y sin pieza inactiva.</summary>
     private void UpdateMediaStatusDot()
     {
-        // Coupled to the activity line: if the line is off, the dot must not show either.
-        // Durante la transición a inactivo el punto sigue visible y se apaga por
-        // opacidad (ApplyFrame); solo se retira al llegar del todo a la pieza.
-        if (!SettingsManager.Current.IslandActivityLine || _inactiveT >= 1 || !IsAliveForLine())
+        // El punto vive en la MISMA manija que la línea: si el indicador no se pinta
+        // —ajuste apagado, sin puerta o caja ocupando su sitio— tampoco hay punto.
+        // Durante la transición a inactivo sigue visible y se apaga por opacidad
+        // (ApplyFrame); solo se retira al llegar del todo a la pieza.
+        if (!_lineShown || _inactiveT >= 1)
         {
             MediaStatusDot.Visibility = Visibility.Collapsed;
             return;

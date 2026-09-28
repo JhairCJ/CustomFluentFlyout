@@ -13,6 +13,7 @@
          compila y eso es justo lo que queremos saber. -->
     <Compile Include="../FluentFlyoutWPF/Models/IslandFeatureIds.cs" />
     <Compile Include="../FluentFlyoutWPF/Classes/IslandPhysics.cs" />
+    <Compile Include="../FluentFlyoutWPF/Classes/IslandLine.cs" />
     <Compile Include="../FluentFlyoutWPF/Classes/MediaTrackIdentity.cs" />
     <Compile Include="../FluentFlyoutWPF/Classes/IslandPolicy.cs" />
     <Compile Include="../FluentFlyoutWPF/Models/DictationHotkey.cs" />

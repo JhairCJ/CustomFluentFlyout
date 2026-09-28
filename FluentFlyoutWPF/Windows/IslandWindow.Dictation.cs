@@ -86,9 +86,10 @@ public partial class IslandWindow
             if (AnimationsEnabled) EnsureLoop();
             else { _inactiveHotT = 0; ApplyFrame(); }
         }
-        if (IslandBox.IsHitTestVisible == interactive && HoverStrip.IsHitTestVisible == interactive) return;
-        IslandBox.IsHitTestVisible = interactive;
-        HoverStrip.IsHitTestVisible = interactive;
+        if (IslandBox.IsHitTestVisible != interactive) IslandBox.IsHitTestVisible = interactive;
+        // La franja de detección la gobierna la PUERTA del borde (ApplyAccessZone), que ya
+        // veta el dictado por su cuenta: aquí se reevalúa, no se pisa su estado.
+        ApplyAccessZone();
     }
 
     internal IslandFeatureState GetDictationFeatureState()

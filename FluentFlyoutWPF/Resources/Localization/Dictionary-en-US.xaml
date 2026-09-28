@@ -159,6 +159,10 @@
     <System:String x:Key="IslandPage_IslandOffsetDesc">How far down the island sits from the top edge, like on iPhone. Floating island only.</System:String>
     <System:String x:Key="IslandPage_LineOffset">Grey line offset</System:String>
     <System:String x:Key="IslandPage_LineOffsetDesc">How far down the grey line sits from the top edge. Floating island only.</System:String>
+    <System:String x:Key="IslandPage_ActivityLine">Grey line</System:String>
+    <System:String x:Key="IslandPage_ActivityLineDesc">Draws a small grey bar while the Island is hidden, and it is the handle that brings it back: it only shows when there is something to open.</System:String>
+    <System:String x:Key="IslandPage_HiddenAccess">Access while hidden</System:String>
+    <System:String x:Key="IslandPage_HiddenAccessDesc">Keeps the top strip reacting even when nothing is drawn (no island and no grey line). Off by default, so an invisible spot never opens the Island.</System:String>
     <System:String x:Key="IslandPage_CompactRadius">Compact radius</System:String>
     <System:String x:Key="IslandPage_CompactRadiusDesc">Rounds the outer edge on the compact island.</System:String>
     <System:String x:Key="IslandPage_ExpandedRadius">Expanded radius</System:String>

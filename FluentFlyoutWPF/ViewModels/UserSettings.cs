@@ -1117,6 +1117,16 @@ public partial class UserSettings : ObservableObject
     public partial bool IslandActivityLine { get; set; }
 
     /// <summary>
+    /// Fluent Island: mantener la puerta del puntero con el Island OCULTO. Apagado (por
+    /// defecto) la franja del borde existe solo donde hay algo visible —la caja o su
+    /// línea gris—: sin ninguna de las dos, el puntero no hace nada ahí, que era justo el
+    /// disparador invisible molesto. Encendido, la franja del borde sigue abriendo el
+    /// Island aunque no se dibuje nada (una puerta invisible a propósito).
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IslandHiddenAccess { get; set; }
+
+    /// <summary>
     /// Fluent Island: 0 = isla flotante, 1 = notch superior (sale del borde de arriba).
     /// </summary>
     [ObservableProperty]
@@ -1824,6 +1834,7 @@ public partial class UserSettings : ObservableObject
         IslandShowOnPause = false;
         IslandShowOnTrackChange = true;
         IslandActivityLine = true;
+        IslandHiddenAccess = false;
         IslandEqEnabled = true;
         IslandEqCenteredBars = true;
         IslandEqBarCount = 8;
@@ -1974,7 +1985,11 @@ public partial class UserSettings : ObservableObject
         [nameof(IslandExpandedWidth)] = island => island.RefreshAppearance(),
         [nameof(IslandExpandedHeight)] = island => island.RefreshAppearance(),
         [nameof(IslandActivityLine)] = island => island.RefreshAppearance(),
-        [nameof(IslandReturnToInactive)] = island => island.RefreshAppearance(),
+        [nameof(IslandHiddenAccess)] = island => island.RefreshAppearance(),
+        // Reposo (pieza o nada): es cuándo se asoma, no cómo se ve, así que re-resuelve
+        // la vista en vez de limitarse a repintarla (el interruptor surtía efecto recién
+        // en la siguiente reconciliación).
+        [nameof(IslandReturnToInactive)] = island => island.RefreshVisibilityState(),
         [nameof(IslandStyle)] = island => island.RefreshAppearance(),
         [nameof(IslandLineTopOffset)] = island => island.RefreshAppearance(),
         [nameof(IslandTopOffset)] = island => island.RefreshAppearance(),
