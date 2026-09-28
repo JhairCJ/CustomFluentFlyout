@@ -178,11 +178,14 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Alto compartido del expandido en la sesión visible (001 MOD RF-15): el
-    /// MÁS ALTO que haya pedido un contenido desde que el Island se desplegó. Se
-    /// olvida al ocultarse (ResetSharedHeight).
+    /// Alto compartido del expandido (001 MOD RF-15): el máximo de las pantallas
+    /// configuradas que se pueden mostrar. Todas las pantallas usan este mismo
+    /// objetivo, aunque la que esté delante tenga menos contenido.
     /// </summary>
     private double _hexpShared;
+
+    /// <summary>Evita que una medición de todas las pantallas se vuelva a entrar.</summary>
+    private bool _measuringExpandedHeight;
 
     /// <summary>
     /// Olvida el alto compartido: la próxima vez que el Island se despliegue se
@@ -191,32 +194,33 @@ public partial class IslandWindow
     private void ResetSharedHeight() => _hexpShared = 0;
 
     /// <summary>
-    /// Mide el alto real del expandido con el ancho efectivo y fija el objetivo de
+    /// Mide el alto real de todas las pantallas configuradas y fija el objetivo de
     /// UN solo alto para todo el contenedor (001 MOD RF-15); el loop lo glidea (o
     /// lo pega, sin animaciones).
     ///
-    /// <para>El alto es COMPARTIDO: manda el contenido más alto que se haya
-    /// mostrado en la sesión visible y, en estilo cápsula, el alto configurado es
-    /// el suelo (música siempre lo usa). Antes cada funcionalidad ponía su propia
-    /// medida y cambiar de una a otra cambiaba el alto del Island; al encoger, el
-    /// puntero que estaba sobre la caja terminaba FUERA de ella y el Island se
-    /// ocultaba solo. Con un solo alto eso no puede pasar y ningún contenido se
-    /// recorta.</para>
+    /// <para>El alto es COMPARTIDO: manda la pantalla más alta que exista ahora,
+    /// y en estilo cápsula el alto configurado sigue siendo el suelo. Antes solo
+    /// se acumulaban las vistas que ya habían aparecido en la sesión, por lo que
+    /// la primera pantalla podía dejar el contenedor demasiado bajo para otra.
+    /// Medirlas todas evita ese salto y conserva el puntero dentro de la caja.</para>
     /// </summary>
     private void SyncMeasuredHeight()
     {
         try
         {
-            // Medir la altura expandida real con el ancho configurado.
-            // ExpandedLayer está siempre en el árbol (Opacity 0 cuando compacto),
-            // así que es medible.
-            ExpandedLayer.Measure(new Size(ContentExpandedWidth, double.PositiveInfinity));
-            double measuredHeight = ExpandedLayer.DesiredSize.Height; // DesiredSize ya incluye el Margin vertical
+            double measuredHeight = MeasureMaxScreenHeight();
+            if (measuredHeight <= 0)
+            {
+                // Sin pantallas usables todavía (por ejemplo, durante el arranque),
+                // conserva una medida de respaldo del contenido que esté montado.
+                ExpandedLayer.Measure(new Size(ContentExpandedWidth, double.PositiveInfinity));
+                measuredHeight = ExpandedLayer.DesiredSize.Height;
+            }
             // En notch el alto lo pone el contenido (el ajuste configurado es del
             // estilo cápsula); en cápsula, el configurado es el suelo de música.
             double floor = IsNotch ? 0 : ContentExpandedHeight;
-            if (measuredHeight > _hexpShared) _hexpShared = Math.Max(floor, measuredHeight);
-            double h = Math.Max(_hexpShared, measuredHeight);
+            _hexpShared = Math.Max(floor, measuredHeight);
+            double h = _hexpShared;
             double old = _hexp;
             if (h > 34 && h < 260) _hexp = h;
             // El objetivo manda: si cambió, correr frames (o snapping). Si no
@@ -229,6 +233,115 @@ public partial class IslandWindow
         }
         catch { }
     }
+
+    /// <summary>
+    /// Mide cada pantalla con sus columnas reales, sin esperar a que el usuario la
+    /// abra. La composición es horizontal, por eso la altura de una pantalla
+    /// combinada es la de su columna más alta, no la suma de todas las columnas.
+    /// </summary>
+    private double MeasureMaxScreenHeight()
+    {
+        if (_measuringExpandedHeight || _screens.Count == 0) return 0;
+
+        int savedScreenIndex = _screenIndex;
+        bool savedExpanded = _expanded;
+        IslandContentMode savedContentMode = _contentMode;
+        IIslandFeature? savedSelectedFeature = _selectedFeature;
+        double savedLayerWidth = ExpandedLayer.Width;
+        HorizontalAlignment savedLayerAlignment = ExpandedLayer.HorizontalAlignment;
+        Thickness savedLayerMargin = ExpandedLayer.Margin;
+        string savedClipboardStatus = ClipboardStatus.Text;
+        double maxHeight = 0;
+
+        _measuringExpandedHeight = true;
+        try
+        {
+            // Las columnas pueden tener paneles movidos desde ExpandedLayer. Cada
+            // pasada empieza con el árbol en su sitio original.
+            RestoreExpandedHomes();
+
+            for (int index = 0; index < _screens.Count; index++)
+            {
+                var members = ScreenUsableFeatures(_screens[index])
+                    .Where(feature => ColumnFor(feature.Id) != null)
+                    .ToList();
+                if (members.Count == 0) continue;
+
+                int columns = members.Count;
+                bool combined = columns > 1;
+                double screenWidth = combined
+                    ? ScreenExpandedWidthForMembers(columns)
+                    : ExpandedWidthForFeature(members[0]);
+                double memberWidth = combined
+                    ? ScreenColumnWidthForCount(columns)
+                    : screenWidth;
+
+                _screenIndex = index;
+                _expanded = true;
+                _contentMode = combined ? IslandContentMode.Screen : ModeForFeature(members[0].Id);
+                SelectFeature(members[0].Id);
+                ExpandedLayer.Width = IsNotch ? screenWidth : double.NaN;
+                ExpandedLayer.HorizontalAlignment = IsNotch
+                    ? HorizontalAlignment.Center
+                    : HorizontalAlignment.Stretch;
+                ExpandedLayer.Margin = _expandedMarginOrig;
+                HideAllExpandedPanels();
+
+                double screenContentHeight = 0;
+                foreach (var member in members)
+                {
+                    var card = FeatureCard(member.Id);
+                    if (card == null) continue;
+
+                    card.ShowExpanded();
+                    double memberHeight = 0;
+                    foreach (var panel in card.Expanded)
+                    {
+                        if (panel.Visibility == Visibility.Collapsed) continue;
+                        panel.Measure(new Size(memberWidth, double.PositiveInfinity));
+                        memberHeight += panel.DesiredSize.Height;
+                    }
+                    screenContentHeight = Math.Max(screenContentHeight, memberHeight);
+                }
+
+                if (screenContentHeight > 0)
+                {
+                    maxHeight = Math.Max(
+                        maxHeight,
+                        screenContentHeight + _expandedMarginOrig.Top + _expandedMarginOrig.Bottom);
+                }
+            }
+        }
+        finally
+        {
+            try
+            {
+                // La medición es invisible para el usuario: deja intacta la vista que
+                // estaba delante y vuelve a componer la pantalla vigente si hacía falta.
+                RestoreExpandedHomes();
+                _screenIndex = savedScreenIndex;
+                _expanded = savedExpanded;
+                _contentMode = savedContentMode;
+                _selectedFeature = savedSelectedFeature;
+                try { ApplyContentVisibility(); } catch { }
+                ClipboardStatus.Text = savedClipboardStatus;
+                ExpandedLayer.Width = savedLayerWidth;
+                ExpandedLayer.HorizontalAlignment = savedLayerAlignment;
+                ExpandedLayer.Margin = savedLayerMargin;
+            }
+            finally
+            {
+                _measuringExpandedHeight = false;
+            }
+        }
+
+        return maxHeight;
+    }
+
+    private double ExpandedWidthForFeature(IIslandFeature feature) =>
+        feature.ExpandedPreferredWidth > 0
+            ? Math.Clamp(feature.ExpandedPreferredWidth, 200, 600)
+            : ExpandedIslandWidth;
 
     private void SnapFrame()
     {

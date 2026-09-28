@@ -73,7 +73,7 @@ public partial class IslandWindow : Window
     /// <summary>Ancho del lienzo transparente de la ventana (crece con el contenido: <see cref="PositionTopCenter"/>).</summary>
     private const double DefaultWindowWidth = 640;
     private const int DefaultExpandedIslandWidth = 320;
-    private const int DefaultExpandedIslandHeight = 126;
+    private const int DefaultExpandedIslandHeight = 120;
     // Estados del contenedor (001 MOD RF-11): compacto estándar y la pieza
     // inactiva (negra, más estrecha que el compacto, sin contenido).
     private const double CompactPillWidth = 240;

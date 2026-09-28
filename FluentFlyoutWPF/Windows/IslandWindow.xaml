@@ -333,7 +333,7 @@
                 <!-- Capa expandida: tarjeta compacta con carátula + título/artista + tiempos + controles.
                      Siempre Visible (medible) y gobernada por opacidad; el hit-test lo
                      decide el código según el progreso del morph. -->
-                <StackPanel x:Name="ExpandedLayer" Margin="14,10,14,5" Opacity="0">
+                <StackPanel x:Name="ExpandedLayer" Margin="14,10,14,2" Opacity="0">
                     <Grid x:Name="MusicExpandedTop">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="56"/>

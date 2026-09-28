@@ -942,12 +942,12 @@ public partial class UserSettings : ObservableObject
     [XmlIgnore]
     public string IslandExpandedHeightText
     {
-        get => (IslandExpandedHeight > 0 ? Math.Clamp(IslandExpandedHeight, 100, 220) : 126).ToString();
+        get => (IslandExpandedHeight > 0 ? Math.Clamp(IslandExpandedHeight, 100, 220) : 120).ToString();
         set
         {
             IslandExpandedHeight = int.TryParse(value, out var result)
                 ? Math.Clamp(result, 100, 220)
-                : 126;
+                : 120;
             OnPropertyChanged();
         }
     }
@@ -1808,7 +1808,7 @@ public partial class UserSettings : ObservableObject
         IslandNotchFilletExpanded = 20;
         IslandAlbumArtRadius = 8;
         IslandExpandedWidth = 320;
-        IslandExpandedHeight = 126;
+        IslandExpandedHeight = 120;
         IslandBackgroundBlur = true;
         IslandBackgroundBlurIntensity = 50;
         IslandBackgroundBlurRadius = 40;
