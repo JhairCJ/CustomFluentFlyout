@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
+using FluentFlyout.Classes.Utils;
 using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Classes.Dictation;
 using FluentFlyoutWPF.Models;
@@ -40,8 +41,8 @@ public partial class IslandWindow
     /// <summary>Cadencia del visualizador: 20 fps bastan para una onda suave y cuestan poco.</summary>
     private static readonly TimeSpan DictationBarInterval = TimeSpan.FromMilliseconds(50);
 
-    private static readonly Brush DictationListeningBrush = Frozen(Color.FromRgb(0xFF, 0x8A, 0x8A));
-    private static readonly Brush DictationIdleBrush = Frozen(Color.FromRgb(0xFF, 0xFF, 0xFF));
+    private static readonly Brush DictationWhiteBrush = Frozen(Color.FromRgb(0xFF, 0xFF, 0xFF));
+    private Brush _dictationIndicatorBrush = DictationWhiteBrush;
 
     private readonly Border[] _dictationBars = new Border[DictationBarCount];
     private readonly double[] _dictationLevels = new double[DictationBarCount];
@@ -135,13 +136,15 @@ public partial class IslandWindow
     public void RefreshDictationContent() => Dispatcher.Invoke(() =>
     {
         ApplyDictationInteractionLock();
+        bool returnedFromDictation = false;
         if (!DictationModeAvailable() && _dictationViewShown)
         {
             _dictationViewShown = false;
             StopDictationBars();
             FallbackFromDictationView();
+            returnedFromDictation = true;
         }
-        ApplyContentVisibility();
+        if (!returnedFromDictation) ApplyContentVisibility();
         SyncMeasuredHeight();
         UpdateArrows();
     });
@@ -222,8 +225,6 @@ public partial class IslandWindow
         if (_noticeForced) ClearTemporaryNotice();
         if (RecoverScreensAfterMemberLost()) return;
         _expanded = false;
-        _contentMode = IslandContentMode.Media;
-        ApplyContentVisibility();
         if (SettingsManager.Current.IslandVisibilityMode == 0
             && ResolveActiveVigenteForVisible() is { } vigente && ShowScreenOfFeature(vigente))
             return;
@@ -235,18 +236,17 @@ public partial class IslandWindow
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Pinta el estado: micrófono rojo y sin texto mientras graba (el centro es para lo que
-    /// hay que LEER), y el mensaje —transcribiendo o el motivo del fallo— cuando lo hay.
+    /// Pinta el estado: micrófono y ondas blancos —o con el acento de la portada vigente—,
+    /// sin texto mientras graba (el centro es para lo que hay que LEER), y el mensaje
+    /// cuando transcribe o falla.
     /// </summary>
     private void RefreshDictationUI()
     {
         var dictation = _dictation;
         if (dictation == null) return;
 
-        bool listening = dictation.Phase == DictationPhase.Listening;
-        // Rojo mientras escucha; el micro tachado se reserva para el fallo (no para
-        // «transcribiendo», que sería leerlo como «te estoy ignorando»).
-        DictationGlyph.Foreground = listening ? DictationListeningBrush : DictationIdleBrush;
+        RefreshDictationIndicatorBrush();
+        DictationGlyph.Foreground = _dictationIndicatorBrush;
         DictationGlyph.Symbol = dictation.Phase == DictationPhase.Error
             ? Wpf.Ui.Controls.SymbolRegular.MicOff24
             : Wpf.Ui.Controls.SymbolRegular.Mic24;
@@ -279,6 +279,7 @@ public partial class IslandWindow
     private void BuildDictationBars()
     {
         DictationWave.Children.Clear();
+        RefreshDictationIndicatorBrush();
         for (int i = 0; i < _dictationBars.Length; i++)
         {
             var bar = new Border
@@ -286,12 +287,34 @@ public partial class IslandWindow
                 Width = 3,
                 Height = DictationBarMin,
                 CornerRadius = new CornerRadius(1.5),
-                Background = DictationListeningBrush,
+                Background = _dictationIndicatorBrush,
                 Margin = new Thickness(0, 0, 2, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             };
             _dictationBars[i] = bar;
             DictationWave.Children.Add(bar);
+        }
+    }
+
+    /// <summary>
+    /// Comparte el color del micrófono y de las ondas: acento del sistema cuando el
+    /// ajuste de portada está apagado; con el ajuste encendido usa el acento de la
+    /// portada mostrada, y blanco si todavía no hay portada válida.
+    /// </summary>
+    private void RefreshDictationIndicatorBrush()
+    {
+        bool useAlbumAccent = SettingsManager.Current.UseAlbumArtAsAccentColor;
+        Brush next = !useAlbumAccent
+            || (_displayedAlbumArt != null && AlbumAccent.HasAlbumColor)
+                ? AlbumAccent.Brush
+                : DictationWhiteBrush;
+        if (ReferenceEquals(next, _dictationIndicatorBrush)) return;
+
+        _dictationIndicatorBrush = next;
+        DictationGlyph.Foreground = next;
+        foreach (var bar in _dictationBars)
+        {
+            if (bar != null) bar.Background = next;
         }
     }
 
@@ -323,7 +346,12 @@ public partial class IslandWindow
     private void OnDictationBarsTick(object? sender, EventArgs e)
     {
         var dictation = _dictation;
-        if (dictation == null || !dictation.Active) return;
+        if (dictation == null || !dictation.Active)
+        {
+            StopDictationBars();
+            return;
+        }
+        RefreshDictationIndicatorBrush();
 
         for (int i = 0; i < _dictationLevels.Length - 1; i++)
         {

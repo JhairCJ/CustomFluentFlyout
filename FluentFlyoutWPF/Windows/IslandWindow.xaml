@@ -317,7 +317,7 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <ui:SymbolIcon x:Name="DictationGlyph" Grid.Column="0" Symbol="Mic24"
-                                       Filled="False" Foreground="#FF6B6B" FontSize="16"
+                                       Filled="False" Foreground="White" FontSize="16"
                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                        IsHitTestVisible="False"/>
                         <TextBlock x:Name="DictationStatus" Grid.Column="1" Text="" Foreground="White" FontSize="12"

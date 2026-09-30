@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
+using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Models;
 using System.Windows;
 
@@ -117,6 +118,11 @@ public partial class IslandWindow
         _contentMode = mode;
         present();
         ApplyContentVisibility();
+        // Las vistas que llegan directamente desde una función también deben
+        // actualizar la caché de presentación. Si no, un cierre rápido podía
+        // comparar contra el estado anterior (inactivo/oculto) y no aplicar la salida.
+        _appliedPresentation = new IslandPresentationResult(
+            IslandDesiredView.Compact, CurrentViewFeatureId(), restartNotice, forceNotice);
         // Las flechas de navegación solo existen en expandido: se apagan ya, en el
         // mismo turno, en vez de esperar al siguiente latido del contenedor.
         UpdateArrows();
@@ -176,6 +182,8 @@ public partial class IslandWindow
         _expanded = true;
         present();
         ApplyContentVisibility();
+        _appliedPresentation = new IslandPresentationResult(
+            IslandDesiredView.Expanded, CurrentViewFeatureId(), false, false);
         // Con la vista ya expandida, las flechas de navegación entran en el mismo
         // turno.
         UpdateArrows();
