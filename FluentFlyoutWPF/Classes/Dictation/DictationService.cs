@@ -195,7 +195,44 @@ public sealed class DictationService : IDisposable
 
         _cancelRequested = false;
         SetPhase(DictationPhase.Listening);
+        _ = PrefetchEngineAsync();
         lock (_resourceStateGate) _resourceSessionStarting = false;
+    }
+
+    /// <summary>
+    /// Adelanta la carga del motor mientras el usuario habla (en CUDA son segundos):
+    /// al soltar ya está caliente y el icono se retira antes. No toca fase ni micro;
+    /// si falla o se cancela, la transcripción lo carga igual que antes.
+    /// </summary>
+    private async Task PrefetchEngineAsync()
+    {
+        try
+        {
+            if (_disposed || !SettingsManager.Current.DictationEnabled) return;
+            string? path = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel);
+            if (path == null) return;
+            DictationModelInfo? model = DictationModelStore.Find(Path.GetFileName(path));
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
+            cts.CancelAfter(TimeSpan.FromSeconds(30));
+            if (model is { Backend: not DictationModelBackend.Whisper })
+            {
+                await DictationModelStore.ValidateIntegrityAsync(path, cts.Token);
+                await _externalTranscriber.EnsureLoadedAsync(
+                    model, path, SettingsManager.Current.DictationUseGpu, cts.Token);
+            }
+            else
+            {
+                await EnsureFactoryAsync(cts.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // La sesión terminó antes de que el motor se templara: la transcripción lo carga.
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug(ex, "Precarga del motor de dictado fallida; se cargará al transcribir");
+        }
     }
 
     /// <summary>Cierra el micrófono, descarta el audio y no escribe nada (RF-4).</summary>
@@ -670,29 +707,6 @@ public sealed class DictationService : IDisposable
     /// <summary>Hilos del motor: los núcleos disponibles menos uno, acotado para no ahogar la interfaz.</summary>
     private static int TranscriptionThreads => Math.Clamp(Environment.ProcessorCount - 1, 2, 8);
 
-    /// <summary>Tramas del encoder por segundo de audio (16 kHz, paso de 320 muestras).</summary>
-    private const int EncoderFramesPerSecond = 50;
-
-    /// <summary>Contexto completo del encoder: los 30 s de la ventana nativa de Whisper.</summary>
-    private const int FullAudioContext = 30 * EncoderFramesPerSecond;
-
-    /// <summary>Suelo del contexto: por debajo no se gana nada y el modelo pierde margen.</summary>
-    private const int MinAudioContext = 384;
-
-    /// <summary>
-    /// Contexto del encoder que necesita este audio, con un 50 % de margen. Whisper trabaja
-    /// SIEMPRE sobre una ventana de 30 s: acotar el contexto a lo grabado —el mismo truco que
-    /// usa whisper.cpp para audio corto— recorta el trabajo del encoder y de la atención
-    /// cruzada sin tocar el resultado, porque el audio entero sigue dentro. Con grabaciones
-    /// largas se deja el contexto completo, que es lo que necesitan los trozos de 30 s.
-    /// </summary>
-    private static int AudioContextFor(int sampleCount)
-    {
-        int needed = (int)Math.Ceiling(sampleCount / 320.0 * 1.5);
-        int rounded = (needed + 63) / 64 * 64;
-        return Math.Clamp(rounded, MinAudioContext, FullAudioContext);
-    }
-
     /// <summary>Duración de lo capturado, en texto, para los avisos del registro.</summary>
     private static string AudioSeconds(float[] samples) => $"{samples.Length / (double)SampleRateHz:F1} s";
 
@@ -700,16 +714,14 @@ public sealed class DictationService : IDisposable
     private string MicNote() => _capture.Revives > 0 ? $" | micrófono reabierto {_capture.Revives}×" : "";
 
     /// <summary>
-    /// Procesador de una transcripción: hilos, idioma, sin contexto arrastrado —cada dictado
-    /// es independiente— y encoder acotado a lo grabado, que es lo que hace que un dictado
-    /// corto sea casi instantáneo.
+    /// Procesador de una transcripción: hilos e idioma, con los defaults del motor
+    /// (contexto completo, condicionamiento entre segmentos y fallback de temperatura
+    /// con sus thresholds: es lo que evita los bucles con audio pobre).
     /// </summary>
-    private static WhisperProcessor BuildProcessor(WhisperFactory factory, int sampleCount, string language) =>
+    private static WhisperProcessor BuildProcessor(WhisperFactory factory, string language) =>
         factory.CreateBuilder()
             .WithThreads(TranscriptionThreads)
             .WithLanguage(language)
-            .WithNoContext()
-            .WithAudioContextSize(AudioContextFor(sampleCount))
             .Build();
 
     /// <summary>
@@ -728,7 +740,6 @@ public sealed class DictationService : IDisposable
                 .WithLanguage("en")
                 .WithNoContext()
                 .WithSingleSegment()
-                .WithAudioContextSize(MinAudioContext)
                 .Build();
             await foreach (var segment in processor.ProcessAsync(silence, cancellationToken))
             {
@@ -786,7 +797,9 @@ public sealed class DictationService : IDisposable
             CancellationToken token = linkedCts.Token;
 
             long mark = clock.ElapsedMilliseconds;
-            if (!await ContainsSpeechAsync(samples, token))
+            var voiced = await DetectVoiceAsync(samples, token);
+            float[] useful = TrimSilence(samples, voiced);
+            if (useful.Length == 0)
             {
                 // RF-5: silencio = ni transcripción ni texto (y ninguna alucinación).
                 Logger.Info($"Dictado: {AudioSeconds(samples)} de audio sin voz (VAD {clock.ElapsedMilliseconds - mark} ms)"
@@ -805,7 +818,7 @@ public sealed class DictationService : IDisposable
                 string text = await TranscribeExternalAsync(
                     activeModel,
                     activePath,
-                    samples,
+                    useful,
                     EffectiveLanguage(language, activePath),
                     SettingsManager.Current.DictationUseGpu,
                     token);
@@ -818,7 +831,7 @@ public sealed class DictationService : IDisposable
                     WriteDictatedText(text, token, sessionCts);
                 }
                 decodeMs = clock.ElapsedMilliseconds - mark;
-                Logger.Info($"Dictado: {AudioSeconds(samples)} de audio | VAD {vadMs} ms | motor {engineMs} ms | "
+                Logger.Info($"Dictado: {AudioSeconds(samples)}→{AudioSeconds(useful)} de audio | VAD {vadMs} ms ({voiced.Count} tramo(s)) | motor {engineMs} ms | "
                     + $"decodificación {decodeMs} ms | {segments} segmento(s), "
                     + $"{characters} caracteres | modelo {activeModel.Name}{MicNote()}");
                 return;
@@ -828,13 +841,13 @@ public sealed class DictationService : IDisposable
             WhisperFactory factory = await EnsureFactoryAsync(token);
             engineMs = clock.ElapsedMilliseconds - mark;
 
-            using var processor = BuildProcessor(factory, samples.Length, EffectiveLanguage(language, activePath));
+            using var processor = BuildProcessor(factory, EffectiveLanguage(language, activePath));
 
             // Whisper puede devolver varios segmentos para una sola sesión. Se acumulan y se
             // inyectan juntos: una sesión de dictado produce una sola escritura en destino.
             var transcript = new StringBuilder();
             mark = clock.ElapsedMilliseconds;
-            await foreach (var segment in processor.ProcessAsync(samples, token))
+            await foreach (var segment in processor.ProcessAsync(useful, token))
             {
                 segments++;
                 transcript.Append(segment.Text);
@@ -845,9 +858,9 @@ public sealed class DictationService : IDisposable
             if (whisperText.Length > 0)
                 WriteDictatedText(whisperText, token, sessionCts);
 
-            Logger.Info($"Dictado: {AudioSeconds(samples)} de audio | VAD {vadMs} ms | motor {engineMs} ms | "
+            Logger.Info($"Dictado: {AudioSeconds(samples)}→{AudioSeconds(useful)} de audio | VAD {vadMs} ms ({voiced.Count} tramo(s)) | motor {engineMs} ms | "
                 + $"decodificación {decodeMs} ms | {segments} segmento(s), "
-                + $"{characters} caracteres | encoder {AudioContextFor(samples.Length)} "
+                + $"{characters} caracteres "
                 + $"| {(_factoryPath == null ? "?" : Path.GetFileName(_factoryPath))}"
                 + MicNote());
         }
@@ -922,7 +935,14 @@ public sealed class DictationService : IDisposable
         }
     }
 
-    private async Task<bool> ContainsSpeechAsync(float[] samples, CancellationToken cancellationToken)
+    /// <summary>Padding extra al recortar por VAD: no cortar el ataque ni la cola de palabra.</summary>
+    private static readonly TimeSpan VadTrimPadding = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>
+    /// Tramos con voz según Silero (RF-5). El builder ya añade 150 ms de padding por
+    /// tramo; aquí solo se usan sus marcas para recortar el audio antes de inferir.
+    /// </summary>
+    private async Task<IReadOnlyList<VadSegmentData>> DetectVoiceAsync(float[] samples, CancellationToken cancellationToken)
     {
         WhisperVadFactory vadFactory = await EnsureVadFactoryAsync(cancellationToken);
         using var vad = vadFactory.CreateBuilder()
@@ -933,8 +953,23 @@ public sealed class DictationService : IDisposable
             .WithSpeechPadding(TimeSpan.FromMilliseconds(150))
             .Build();
 
-        var segments = await vad.DetectSpeechAsync(samples, cancellationToken);
-        return segments.Count > 0;
+        return await vad.DetectSpeechAsync(samples, cancellationToken);
+    }
+
+    /// <summary>
+    /// Recorta silencio inicial/final entre el primer y el último tramo con voz. Al motor
+    /// le llega audio útil en vez del buffer crudo con silencios: eso evita bucles,
+    /// parciales e inventos con habla lenta. Sin voz → vacío (RF-5).
+    /// </summary>
+    private static float[] TrimSilence(float[] samples, IReadOnlyList<VadSegmentData> voiced)
+    {
+        if (voiced.Count == 0) return [];
+        int start = Math.Max(0, (int)((voiced[0].Start - VadTrimPadding).TotalSeconds * SampleRateHz));
+        int end = Math.Min(
+            samples.Length,
+            (int)Math.Ceiling((voiced[voiced.Count - 1].End + VadTrimPadding).TotalSeconds * SampleRateHz));
+        if (end <= start) return [];
+        return samples[start..end];
     }
 
     private async Task<WhisperVadFactory> EnsureVadFactoryAsync(CancellationToken cancellationToken)
@@ -1166,7 +1201,9 @@ public sealed class DictationService : IDisposable
             _level = 0;
             lock (_lock)
             {
-                return [.. _samples];
+                float[] copy = [.. _samples];
+                _samples.Clear(); // un segundo Stop sin Start devuelve vacío, no duplica sesión
+                return copy;
             }
         }
 
