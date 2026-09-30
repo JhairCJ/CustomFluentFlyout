@@ -1763,42 +1763,43 @@ public partial class UserSettings : ObservableObject
         NextUpAcrylicWindowEnabled = true;
         LockKeysAcrylicWindowEnabled = true;
         VolumeMixerAcrylicWindowEnabled = true;
-        TaskbarWidgetEnabled = false;
+        TaskbarWidgetEnabled = true;
         TaskbarWidgetSelectedMonitor = 0;
+        TaskbarWidgetAutoHide = false;
         TaskbarWidgetPosition = 0;
         TaskbarWidgetPadding = true;
         TaskbarWidgetManualPadding = 0;
-        TaskbarWidgetBorderRadius = 6;
-        TaskbarWidgetAlbumArtRadius = 5;
-        TaskbarWidgetButtonHoverRadius = 6;
-        TaskbarWidgetBackgroundBlur = false;
+        TaskbarWidgetBorderRadius = 12;
+        TaskbarWidgetAlbumArtRadius = 10;
+        TaskbarWidgetButtonHoverRadius = 10;
+        TaskbarWidgetBackgroundBlur = true;
         TaskbarWidgetBackgroundBlurIntensity = 65;
-        TaskbarWidgetBackgroundBlurRadius = 35;
-        TaskbarWidgetBackgroundRotate = false;
+        TaskbarWidgetBackgroundBlurRadius = 30;
+        TaskbarWidgetBackgroundRotate = true;
         TaskbarWidgetBackgroundRotateSide = 0;
-        TaskbarWidgetBackgroundRotateDirection = 0;
+        TaskbarWidgetBackgroundRotateDirection = 1;
         TaskbarWidgetBackgroundRotateHighRefreshRate = false;
-        TaskbarWidgetBackgroundRotateDuration = 20;
-        TaskbarWidgetBackgroundRotateSize = 300;
-        TaskbarWidgetHideCompletely = false;
-        TaskbarWidgetClickOpensFlyout = true;
+        TaskbarWidgetBackgroundRotateDuration = 60;
+        TaskbarWidgetBackgroundRotateSize = 400;
+        TaskbarWidgetHideCompletely = true;
+        TaskbarWidgetClickOpensFlyout = false;
         TaskbarWidgetFixedWidth = false;
-        TaskbarWidgetFixedWidthPx = 216;
+        TaskbarWidgetFixedWidthPx = 200;
         TaskbarWidgetShowAlbumArt = true;
-        TaskbarWidgetShowPauseOverlay = true;
-        TaskbarWidgetControlsEnabled = false;
+        TaskbarWidgetShowPauseOverlay = false;
+        TaskbarWidgetControlsEnabled = true;
         TaskbarWidgetControlsPosition = 1;
         TaskbarWidgetAnimated = true;
-        TaskbarWidgetSongChangeAnimation = 0;
+        TaskbarWidgetSongChangeAnimation = 1;
         TaskbarWidgetResizeAnimated = true;
-        TaskbarWidgetFontFamily = "Segoe UI Variable";
+        TaskbarWidgetFontFamily = "Quicksand";
         TaskbarWidgetTextStyle = 0;
         TaskbarWidgetTitleFontSize = 13;
-        TaskbarWidgetArtistFontSize = 12;
+        TaskbarWidgetArtistFontSize = 13;
         TaskbarWidgetScrollingEnabled = false;
         TaskbarWidgetScrollingTextSpeed = 20;
         TaskbarWidgetScrollingTextLoopForever = false;
-        TaskbarVisualizerEnabled = false;
+        TaskbarVisualizerEnabled = true;
         IslandEnabled = true;
         IslandBorderEnabled = false;
         IslandBorderRadius = 40;
@@ -1808,7 +1809,7 @@ public partial class UserSettings : ObservableObject
         IslandNotchFilletExpanded = 20;
         IslandAlbumArtRadius = 8;
         IslandExpandedWidth = 320;
-        IslandExpandedHeight = 120;
+        IslandExpandedHeight = 126;
         IslandBackgroundBlur = true;
         IslandBackgroundBlurIntensity = 50;
         IslandBackgroundBlurRadius = 40;
@@ -1823,17 +1824,17 @@ public partial class UserSettings : ObservableObject
         IslandHoverToleranceHorizontal = 32;
         IslandHoverToleranceVertical = 3;
         IslandLineTopOffset = 2;
-        IslandTopOffset = 6;
+        IslandTopOffset = 2;
         IslandVisibilityMode = 0;
-        IslandReturnToInactive = true;
-        IslandUltraCompact = false;
+        IslandReturnToInactive = false;
+        IslandUltraCompact = true;
         IslandPauseCountsActive = true;
         IslandExpandTrigger = 2;
         IslandVisibilityDuration = 4000;
         IslandShowOnPlayPause = true;
         IslandShowOnPause = false;
         IslandShowOnTrackChange = true;
-        IslandActivityLine = true;
+        IslandActivityLine = false;
         IslandHiddenAccess = false;
         IslandEqEnabled = true;
         IslandEqCenteredBars = true;
@@ -1846,7 +1847,7 @@ public partial class UserSettings : ObservableObject
         IslandCompactTitleFontSize = 12;
         IslandExpandedTitleFontSize = 12;
         IslandExpandedArtistFontSize = 12;
-        IslandMediaEnabled = true;
+        IslandMediaEnabled = false;
         IslandTimerEnabled = true;
         IslandTimerShowProgress = true;
         IslandTimerShowArrows = false;
@@ -1867,7 +1868,8 @@ public partial class UserSettings : ObservableObject
         IslandShelfItems = [];
         IslandShelfError = "";
         IslandHideOnFullscreen = true;
-        IslandCalendarEnabled = false;
+        // Activado como en los ajustes guardados; sin sesión no se consulta ni muestra nada.
+        IslandCalendarEnabled = true;
         // Sí por defecto: un aviso al conectar (que además usa el plazo del aviso
         // temporal) es justo lo que se espera de la funcionalidad, y no toca nada
         // del sistema: solo observa conexiones.
@@ -1877,9 +1879,9 @@ public partial class UserSettings : ObservableObject
         // funcionalidad; apagarla desde ajustes para la escucha en el acto.
         IslandClipboardEnabled = true;
         IslandClipboardMaxItems = 25;
-        // El clima necesita que el usuario elija SU lugar: nace apagado y sin lugar
-        // (apagado no se consulta nada a la red).
-        IslandWeatherEnabled = false;
+        // El lugar es propio de cada usuario y empieza vacío; mientras no se elija,
+        // el clima no consulta la red aunque el ajuste quede activado.
+        IslandWeatherEnabled = true;
         IslandWeatherPlace = "";
         IslandWeatherLatitude = 0;
         IslandWeatherLongitude = 0;
@@ -1917,15 +1919,15 @@ public partial class UserSettings : ObservableObject
         AppFilteringEnabled = false;
         AppFilteringMode = 0;
         TaskbarVisualizerPosition = 1;
-        TaskbarVisualizerClickable = true;
-        TaskbarVisualizerBarCount = 10;
+        TaskbarVisualizerClickable = false;
+        TaskbarVisualizerBarCount = 8;
         TaskbarVisualizerCenteredBars = false;
         TaskbarVisualizerBaseline = false;
-        TaskbarVisualizerAudioSensitivity = 2;
+        TaskbarVisualizerAudioSensitivity = 3;
         TaskbarVisualizerAudioPeakLevel = 3;
-        TaskbarVisualizerSmoothing = 50;
-        TaskbarVisualizerBaselineAutoHide = false;
-        TaskbarVisualizerHighRefreshRate = false;
+        TaskbarVisualizerSmoothing = 70;
+        TaskbarVisualizerBaselineAutoHide = true;
+        TaskbarVisualizerHighRefreshRate = true;
         VolumeControlEnabled = false;
         VolumeControlAboveMediaFlyout = false;
         VolumeControlDuration = 3000;

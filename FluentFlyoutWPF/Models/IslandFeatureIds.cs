@@ -6,11 +6,10 @@ namespace FluentFlyoutWPF.Models;
 /// <summary>
 /// Identificadores estables de las funcionalidades del Island.
 ///
-/// <para>El orden de <see cref="All"/> es el orden por defecto de las PANTALLAS (una
-/// por funcionalidad) y el orden en el que las funcionalidades se ofrecen en el editor.
-/// La navegación y la vista las manda <c>IslandScreens</c>: la rueda y las flechas
-/// recorren pantallas y cada pantalla compone sus funcionalidades de izquierda a
-/// derecha. No hay ninguna otra lista de orden.</para>
+/// <para>El orden de <see cref="All"/> es el orden en que las funcionalidades se ofrecen
+/// en el editor. La disposición inicial la define <see cref="DefaultScreens"/> y, tras
+/// guardarse, la manda <c>IslandScreens</c>: la rueda y las flechas recorren pantallas y
+/// cada pantalla compone sus funcionalidades de izquierda a derecha.</para>
 ///
 /// <para>Cada pantalla lleva como máximo <see cref="MaxFeaturesPerScreen"/>
 /// funcionalidades: son las que caben en su composición (las columnas del expandido).
@@ -86,16 +85,14 @@ public static class IslandFeatureIds
     public const int MaxFeaturesPerScreen = 4;
 
     /// <summary>
-    /// Pantallas por defecto de una instalación nueva: agrupan por lo que la
-    /// funcionalidad ES (contenido del Island, información del día y avisos), no una
-    /// pantalla por funcionalidad. Cada grupo cabe en una sola pantalla (máximo
-    /// <see cref="MaxFeaturesPerScreen"/> funcionalidades) y ninguna queda fuera: sin
-    /// pantalla una funcionalidad no se muestra (change island-pantallas).
+    /// Pantallas por defecto de una instalación nueva. Cada grupo cabe en una sola
+    /// pantalla (máximo <see cref="MaxFeaturesPerScreen"/> funcionalidades); las
+    /// funcionalidades que no estén en una pantalla no se muestran allí.
     /// </summary>
     public static IReadOnlyList<string> DefaultScreens =>
     [
-        Screen(Media, Timer, Apps, Shelf),
-        Screen(Calendar, Clipboard, Weather),
+        Screen(Media, Timer),
+        Screen(Shelf, Apps, Weather),
     ];
 
     /// <summary>Compone una pantalla con las funcionalidades dadas (formato guardado).</summary>
