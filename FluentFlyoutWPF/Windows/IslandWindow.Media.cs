@@ -119,12 +119,22 @@ public partial class IslandWindow
     }
 
     /// <summary>
+    /// Reengancha el seguimiento de sesiones según pueda usarse o no: sin contenido
+    /// musical disponible (Island apagado o «Control multimedia» apagado) no se escucha
+    /// nada del sistema —ni eventos, ni memos, ni carátulas—. Para quien solo quiere
+    /// avisos temporales (Bluetooth, dictado) el gestor multimedia deja de despertar al
+    /// Island por completo.
+    /// </summary>
+    private void SyncMediaHooks() => HookMediaEvents(MediaContentAvailable());
+
+    /// <summary>
     /// Cambio del ajuste «Control multimedia» del Island: con el contenido
     /// apagado se libera el snapshot (sin vista musical vacía) y la vista
     /// vuelve al temporizador o se oculta; con él encendido se reconcilia.
     /// </summary>
     public void RefreshMediaContent() => Dispatcher.Invoke(() =>
     {
+        SyncMediaHooks();
         if (!MediaContentAvailable())
         {
             if (_music != null) OnMusicUnavailable();

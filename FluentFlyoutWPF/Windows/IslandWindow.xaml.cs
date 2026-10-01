@@ -320,11 +320,12 @@ public partial class IslandWindow : Window
         Show();
         Visibility = Visibility.Visible;
         PositionTopCenter();
-        // El Island sigue siempre las sesiones del sistema: es parte de su
-        // función, independiente del toggle del Media Flyout (que solo
-        // controla la ventana emergente de música). Sin sesión disponible el
-        // contenido se reduce al temporizador (RF-13, RF-14).
-        HookMediaEvents(true);
+        // El seguimiento de sesiones solo se engancha si su contenido puede usarse
+        // (Island encendido y «Control multimedia» encendido): para quien solo quiere
+        // avisos —Bluetooth, dictado— el gestor multimedia no despierta al Island. Sin
+        // sesión disponible el contenido se reduce al temporizador o al reposo
+        // (RF-13, RF-14).
+        SyncMediaHooks();
         // Actividad orientada a eventos: buzón coalescido, notificación nativa de
         // puntero, contexto por eventos de Windows y red de recuperación de 5 s
         // (001 MOD RF-1/RF-3/RF-12/RF-28). Sin latido de 200 ms ni poll de 40 ms.
@@ -460,6 +461,11 @@ public partial class IslandWindow : Window
 
     public void RefreshEnabledState()
     {
+        // El seguimiento multimedia vive con el Island: apagado se suelta entero y al
+        // volver a encenderlo se reengancha y adopta lo que ya esté sonando.
+        bool mediaHooksOff = !_mediaHooksOn;
+        SyncMediaHooks();
+        if (mediaHooksOff && _mediaHooksOn) SyncExistingMediaState();
         // Re-vincula la lista de presets: restaurar un archivo de ajustes en
         // caliente reemplaza la colección y el ItemsSource se quedaría en la
         // vieja (asignar la misma instancia es inofensivo).

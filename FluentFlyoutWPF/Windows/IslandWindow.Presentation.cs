@@ -250,6 +250,9 @@ public partial class IslandWindow
         // La línea la pinta el motor por frame; sin motor hay que pintarla aquí, que su
         // presencia (la manija) acaba de cambiar.
         if (!_loopOn) ApplyFrame();
+        // La puerta la acaba de resolver ApplyAccessZone: el hook del ratón solo debe
+        // existir mientras haya puerta viva, y este es el punto donde eso cambia.
+        SyncPointerHook();
     }
 
     /// <summary>

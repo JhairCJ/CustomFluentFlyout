@@ -92,6 +92,8 @@ public partial class IslandWindow
     private DispatcherTimer? _hoverFallback;
     private bool _fallbackInside;
     private IslandPointerHook? _pointerHook;
+    // ¿Debería estar instalado ahora mismo? (solo con puerta viva; ver SyncPointerHook).
+    private bool _pointerHookWanted;
 
     // --- instantánea de contexto (001 MOD RF-12) ---
     private MonitorUtil.MonitorInfo _ctxPrimary;
@@ -113,7 +115,7 @@ public partial class IslandWindow
         _recovery.Tick += OnRecoveryTick;
         _recovery.Start();
 
-        InstallPointerHook();
+        SyncPointerHook();
         InstallForegroundHook();
         try
         {
@@ -146,8 +148,8 @@ public partial class IslandWindow
         _timerWake?.Stop();
         _timerWake = null;
 
-        _pointerHook?.Dispose();
-        _pointerHook = null;
+        RemovePointerHook();
+        _pointerHookWanted = false;
 
         if (_foregroundHook != IntPtr.Zero)
         {
@@ -225,6 +227,11 @@ public partial class IslandWindow
         InvalidateMediaReads();
         if ((reasons & IslandActivityReason.Context) != 0 || !_ctxValid)
             RefreshContextSnapshot();
+
+        // El hook del ratón se instala/retira con la PUERTA. Esta pasada es donde
+        // desembocan ajustes, supresión y vencimientos, así que aquí se re-evalúa
+        // siempre (idempotente y barato: solo compara un booleano).
+        SyncPointerHook();
 
         if (!SettingsManager.Current.IslandEnabled)
         {
@@ -582,8 +589,35 @@ public partial class IslandWindow
     // Notificación nativa de puntero con fallback (001 MOD RF-3)
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// El hook del ratón (WH_MOUSE_LL) solo vive mientras haya PUERTA viva: el sistema
+    /// pasa por él CADA movimiento del ratón del escritorio, así que con el Island
+    /// apagado, suprimido o sin nada a lo que apuntar se retira. Para quien solo quiere
+    /// avisos temporales —Bluetooth, dictado— no queda ningún callback de ratón.
+    /// </summary>
+    private void SyncPointerHook()
+    {
+        if (_disposed) return;
+        bool want = SettingsManager.Current.IslandEnabled && !Suppressed() && AccessZoneActive();
+        if (want == _pointerHookWanted) return;
+        _pointerHookWanted = want;
+        if (want) InstallPointerHook();
+        else RemovePointerHook();
+    }
+
+    /// <summary>Retira el hook y su fallback: sin timers vivos y sin cruces heredados.</summary>
+    private void RemovePointerHook()
+    {
+        _hoverFallback?.Stop();
+        _hoverFallback = null;
+        _fallbackInside = false;
+        _pointerHook?.Dispose();
+        _pointerHook = null;
+    }
+
     private void InstallPointerHook()
     {
+        if (_pointerHook != null || _hoverFallback != null) return;
         var hook = new IslandPointerHook(FringeContains, OnPointerFringeCross);
         if (hook.Install())
         {
