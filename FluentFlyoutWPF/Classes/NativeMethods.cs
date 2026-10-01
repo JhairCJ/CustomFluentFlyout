@@ -364,6 +364,19 @@ public static partial class NativeMethods
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
 
+    /// <summary>PID del proceso dueño de una ventana (para no tocar ventanas ajenas).</summary>
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial uint GetWindowProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    /// <summary>
+    /// ¿Sigue viva esa ventana? Obligatorio antes de restaurar algo guardado por
+    /// handle: Windows recicla los HWND muertos, así que escribirle estilos a un
+    /// handle viejo se los escribe a una ventana de otro (ver VolumeMixerWindow).
+    /// </summary>
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsWindow(IntPtr hWnd);
+
     [LibraryImport("user32.dll", EntryPoint = "SetWindowLongW")]
     internal static partial int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 

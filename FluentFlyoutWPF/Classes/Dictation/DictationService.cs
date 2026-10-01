@@ -393,6 +393,8 @@ public sealed class DictationService : IDisposable
         _factory?.Dispose();
         _factory = null;
         _lifetimeCts.Dispose();
+        // Cierre ordenado con CUDA cargada: no es un fallo, el aviso se retira.
+        DictationGpuSafety.Disarm();
     }
 
     private bool IsResourceBusyUnsafe() =>
@@ -636,12 +638,44 @@ public sealed class DictationService : IDisposable
     {
         if (_runtimeConfigured) return;
 
-        _runtimeUseGpu = SettingsManager.Current.DictationUseGpu;
+        bool requested = SettingsManager.Current.DictationUseGpu;
+        // El aviso se lee SIEMPRE (y se consume), aunque la GPU esté apagada: si no,
+        // un aviso viejo se quedaría en disco y saltaría al activar CUDA meses después.
+        bool previousCrash = DictationGpuSafety.PreviousLoadCrashed;
+
+        if (requested && previousCrash)
+        {
+            // Aquí no hay nada que contener: el fallo fue nativo. Se dicta en CPU y se
+            // apaga el ajuste para que el próximo arranque no lo vuelva a intentar.
+            Logger.Warn("Dictado: la sesión anterior murió cargando CUDA; se arranca en CPU");
+            requested = false;
+            DisableGpuPreference();
+        }
+
+        _runtimeUseGpu = requested;
         ApplyRuntimeLibraryOrder(_runtimeUseGpu);
         _runtimeConfigured = true;
         Logger.Info(_runtimeUseGpu
             ? "Dictado: se intentará usar CUDA y se conservará CPU como respaldo"
             : "Dictado: se usará CPU");
+    }
+
+    /// <summary>
+    /// Apaga el ajuste de aceleración y lo guarda: la GPU que ha tumbado el proceso no
+    /// vuelve a intentarse sola, ni en esta sesión ni en la siguiente.
+    /// </summary>
+    private static void DisableGpuPreference()
+    {
+        try
+        {
+            if (!SettingsManager.Current.DictationUseGpu) return;
+            SettingsManager.Current.DictationUseGpu = false;
+            SettingsManager.SaveSettings();
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "No se pudo guardar el ajuste de aceleración del dictado");
+        }
     }
 
     private static void ApplyRuntimeLibraryOrder(bool useGpu)
@@ -685,11 +719,7 @@ public sealed class DictationService : IDisposable
             if (_factory != null && _factoryPath == path) return _factory;
             await DictationModelStore.ValidateIntegrityAsync(path, cancellationToken);
             _factory?.Dispose();
-            _factory = WhisperFactory.FromPath(path, new WhisperFactoryOptions
-            {
-                UseGpu = _runtimeUseGpu,
-                GpuDevice = 0,
-            });
+            _factory = LoadFactory(path);
             _factoryPath = path;
             UpdateRuntimeState();
             Logger.Info($"Modelo de dictado cargado: {Path.GetFileName(path)} ({_runtimeInfo})");
@@ -699,6 +729,45 @@ public sealed class DictationService : IDisposable
         {
             _engineLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Crea el motor con el runtime ya elegido. Con CUDA delante, un controlador NVIDIA
+    /// roto hace que la carga reviente o se cuelgue sin excepción gestionada, así que
+    /// aquí está la única red posible: dejar el aviso en disco antes de tocar la DLL
+    /// nativa y, si aun así falla de forma gestionada, seguir la sesión en CPU.
+    /// </summary>
+    private WhisperFactory LoadFactory(string path)
+    {
+        if (!_runtimeUseGpu)
+            return WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = false, GpuDevice = 0 });
+
+        DictationGpuSafety.Arm();
+        try
+        {
+            return WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = true, GpuDevice = 0 });
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "El motor CUDA del dictado no cargó; se continúa en CPU");
+            FallBackToCpu();
+        }
+
+        return WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = false, GpuDevice = 0 });
+    }
+
+    /// <summary>
+    /// Deja la sesión en CPU: se corrige el orden del cargador (no se vuelve a pedir
+    /// CUDA), se apaga el ajuste y se retira el aviso de disco para que el próximo
+    /// arranque no lo interprete como una muerte sucia.
+    /// </summary>
+    private void FallBackToCpu()
+    {
+        _runtimeUseGpu = false;
+        ApplyRuntimeLibraryOrder(false);
+        DictationGpuSafety.Disarm();
+        DisableGpuPreference();
+        Changed?.Invoke();
     }
 
     /// <summary>Frecuencia de muestreo del dictado (y del formato nativo de Whisper): 16 kHz.</summary>
@@ -745,6 +814,9 @@ public sealed class DictationService : IDisposable
             {
                 _ = segment;
             }
+            // La primera inferencia con CUDA también puede reventar en la DLL nativa: el
+            // aviso sigue puesto hasta que una pasa de verdad.
+            DictationGpuSafety.Disarm();
             Logger.Info($"Dictado: motor templado en {clock.ElapsedMilliseconds} ms ({_runtimeInfo})");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || _disposed)
@@ -857,6 +929,8 @@ public sealed class DictationService : IDisposable
             characters = whisperText.Length;
             if (whisperText.Length > 0)
                 WriteDictatedText(whisperText, token, sessionCts);
+            // CUDA ya cargó y ya infirió: el aviso de seguridad sobra hasta la próxima carga.
+            DictationGpuSafety.Disarm();
 
             Logger.Info($"Dictado: {AudioSeconds(samples)}→{AudioSeconds(useful)} de audio | VAD {vadMs} ms ({voiced.Count} tramo(s)) | motor {engineMs} ms | "
                 + $"decodificación {decodeMs} ms | {segments} segmento(s), "
