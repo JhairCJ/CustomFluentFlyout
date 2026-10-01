@@ -17,7 +17,6 @@ public partial class SettingsWindow : FluentWindow
 
     private static SettingsWindow? instance;
     private Type? _currentPageType;
-    private ScrollViewer? _contentScrollViewer;
     private List<SearchItem> _allSearchItems = [];
     private string? _pendingHighlightElementId = null;
     static readonly Regex SplitCamelCaseRegex = new(@"(?<=[a-z0-9])(?=[A-Z])", RegexOptions.Compiled);
@@ -241,17 +240,22 @@ public partial class SettingsWindow : FluentWindow
         SettingsManager.SaveSettings();
     }
 
+    /// <summary>
+    /// Devuelve al principio el scroll del contenido recién mostrado. A propósito NO se
+    /// busca «el primer ScrollViewer con scroll» del NavigationView: ese es el del panel
+    /// de navegación —la lista de funcionalidades de la izquierda—, y devolverlo al
+    /// principio hacía que la lista saltara arriba con cada clic de página. La búsqueda
+    /// parte del Frame del presentador de contenido, que es lo único que se toca.
+    /// </summary>
     private void ResetScrollPosition()
     {
         Dispatcher.BeginInvoke(new Action(() =>
         {
             try
             {
-                _contentScrollViewer ??= FindScrollableScrollViewer(RootNavigation);
-
-                if (_contentScrollViewer != null)
+                if (FindVisualChild<Frame>(RootNavigation) is { } contentFrame)
                 {
-                    _contentScrollViewer.ScrollToVerticalOffset(0);
+                    ResetScrollOffsets(contentFrame);
                 }
             }
             catch (Exception ex)
@@ -259,6 +263,24 @@ public partial class SettingsWindow : FluentWindow
                 Logger.Error(ex, "Error resetting scroll position in SettingsWindow");
             }
         }), System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Pone a cero el scroll de todo lo que hay dentro del contenido recién navegado: el
+    /// ScrollViewer que envuelve a la página y los que la propia página traiga dentro.
+    /// </summary>
+    private static void ResetScrollOffsets(DependencyObject parent)
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is ScrollViewer scrollViewer && scrollViewer.ScrollableHeight > 0)
+            {
+                scrollViewer.ScrollToVerticalOffset(0);
+            }
+
+            ResetScrollOffsets(child);
+        }
     }
 
     // helper functions to traverse visual tree
@@ -274,25 +296,6 @@ public partial class SettingsWindow : FluentWindow
             }
 
             var result = FindChildByName<T>(child, name);
-            if (result != null)
-            {
-                return result;
-            }
-        }
-        return null;
-    }
-
-    private static ScrollViewer? FindScrollableScrollViewer(DependencyObject parent)
-    {
-        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
-        {
-            var child = VisualTreeHelper.GetChild(parent, i);
-            if (child is ScrollViewer sv && sv.ScrollableHeight > 0)
-            {
-                return sv;
-            }
-
-            var result = FindScrollableScrollViewer(child);
             if (result != null)
             {
                 return result;
