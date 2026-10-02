@@ -84,6 +84,18 @@ public partial class IslandWindow
     }
 
     /// <summary>
+    /// Ajuste del ecualizador en caliente (encendido/apagado o número de barras): el
+    /// contenedor re-aplica su presencia (manija y barras) y, si su tarjeta está delante,
+    /// repinta. Los demás parámetros (centrado, sensibilidad, suavizado) los lee el
+    /// visualizador EN VIVO por delegado en cada frame, así que no necesitan aviso.
+    /// </summary>
+    public void RefreshEqContent() => Dispatcher.Invoke(() =>
+    {
+        SyncEq();
+        UpdateLine();
+    });
+
+    /// <summary>
     /// ¿Debe correr el ecualizador? (001 MOD RF-14): MIENTRAS hay media visible
     /// reproduciéndose, con el audio real; SI el Island está inactivo, pausado,
     /// suprimido o en reposo, se mantiene detenido. La consulta al gestor

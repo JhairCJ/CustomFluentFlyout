@@ -2002,6 +2002,16 @@ public partial class UserSettings : ObservableObject
         [nameof(IslandExpandedArtistFontSize)] = island => island.RefreshAppearance(),
         [nameof(IslandTimerShowProgress)] = island => island.RefreshAppearance(),
         [nameof(IslandTimerShowArrows)] = island => island.RefreshAppearance(),
+        // Ecualizador: su presencia y su arranque/parada los decide el CONTENEDOR (no el
+        // visualizador, que lee el resto de parámetros en vivo): sin esto el interruptor
+        // solo surtía efecto en la siguiente reconciliación —podía tardar hasta el
+        // próximo evento de media—.
+        [nameof(IslandEqEnabled)] = island => island.RefreshEqContent(),
+        [nameof(IslandEqBarCount)] = island => island.RefreshEqContent(),
+        // Franja del ratón: el hook lee la tolerancia en vivo, pero la franja pulsable y
+        // el veto de repliegue miden con la geometría aplicada; hay que repintar.
+        [nameof(IslandHoverToleranceHorizontal)] = island => island.RefreshAppearance(),
+        [nameof(IslandHoverToleranceVertical)] = island => island.RefreshAppearance(),
 
         // Cuándo y cómo se asoma: el contrato de visibilidad se recalcula en el acto.
         [nameof(IslandShowOnPlayPause)] = island => island.RefreshVisibilityState(),
