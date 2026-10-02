@@ -4,48 +4,48 @@
 namespace FluentFlyoutWPF.Classes;
 
 /// <summary>
-/// Coeficientes del muelle subamortiguado del Island, ya escalados por la duración
-/// global de animaciones.
+/// Coefficients of the Island's underdamped spring, already scaled by the global
+/// animation duration.
 /// </summary>
 public readonly record struct IslandSpring(double KP, double CP, double KQ, double CQ);
 
 /// <summary>
-/// FÍSICA del Island: el muelle que gobierna su geometría y las curvas que la pintan.
-/// Es aritmética pura, sin WPF y sin estado del contenedor, así que se puede comprobar
-/// sin abrir una ventana (antes vivía dentro del motor por frame, donde solo se podía
-/// validar a ojo).
+/// The Island's PHYSICS: the spring that governs its geometry and the curves that
+/// paint it. It is pure arithmetic, with no WPF and no container state, so it can be
+/// tested without opening a window (it used to live inside the per-frame engine, where
+/// it could only be validated by eye).
 ///
-/// <para>Reglas que sostiene:</para>
+/// <para>Rules it holds:</para>
 /// <list type="bullet">
-/// <item>Amortiguamiento elegido para que el muelle REBOTE como los de Apple
-/// (ζ ≈ 0.58 en el morfe, ζ ≈ 0.72 en el revelado): al llegar al tamaño final se pasa
-/// un poco y vuelve. El rebote es el mismo a cualquier velocidad configurada, porque la
-/// duración escala frecuencia y amortiguamiento a la vez.</item>
-/// <item>El paso del muelle está acotado por debajo (1/240 s) y por arriba (1/25 s), de
-/// modo que un frame perdido o una suspensión no lo desbocan.</item>
-/// <item>El rebote pintado tiene techo (<see cref="BounceLimit"/>) y suelo mínimo
-/// (<see cref="BounceCompress"/>): el sobrecrecimiento al ABRIR se acota a un 5% y
-/// la compresión al CERRAR a un 0,6%, de modo que la isla aterriza casi firme sin
-/// perder del todo el muelle.</item>
+/// <item>Damping is chosen so the spring BOUNCES like Apple's (ζ ≈ 0.58 on the morph,
+/// ζ ≈ 0.72 on the reveal): reaching the final size it overshoots a little and comes
+/// back. The bounce is the same at any configured speed, because the duration scales
+/// frequency and damping at the same time.</item>
+/// <item>The spring step is clamped at the bottom (1/240 s) and at the top (1/25 s), so
+/// that a dropped frame or a suspend does not blow it up.</item>
+/// <item>The painted bounce has a ceiling (<see cref="BounceLimit"/>) and a minimum
+/// floor (<see cref="BounceCompress"/>): the overshoot when OPENING is capped at 5%
+/// and the compression when CLOSING at 0.6%, so the island lands almost firm without
+/// losing the spring entirely.</item>
 /// </list>
 /// </summary>
 public static class IslandPhysics
 {
-    /// <summary>Paso mínimo del muelle (un frame a 240 Hz).</summary>
+    /// <summary>Minimum spring step (one frame at 240 Hz).</summary>
     public const double MinStepSeconds = 1.0 / 240.0;
 
-    /// <summary>Paso máximo del muelle (un frame a 25 Hz): un frame perdido no desboca el rebote.</summary>
+    /// <summary>Maximum spring step (one frame at 25 Hz): a dropped frame does not blow up the bounce.</summary>
     public const double MaxStepSeconds = 1.0 / 25.0;
 
-    /// <summary>Techo del rebote: cuánto puede pasarse la geometría de su tamaño final.</summary>
+    /// <summary>Bounce ceiling: how far the geometry may overshoot its final size.</summary>
     public const double BounceLimit = 0.05;
 
-    /// <summary>Cuánto puede comprimirse la geometría por debajo de su destino.</summary>
+    /// <summary>How far the geometry may compress below its destination.</summary>
     public const double BounceCompress = 0.006;
 
     /// <summary>
-    /// Coeficientes del muelle para una duración global y un estilo, memorizados por
-    /// (duración, estilo): el frame solo los lee, no los recalcula.
+    /// Spring coefficients for a global duration and a style, memoized by
+    /// (duration, style): the frame only reads them, it does not recompute them.
     /// </summary>
     public static IslandSpring Coefficients(double durationMs, bool notch)
     {
@@ -60,9 +60,9 @@ public static class IslandPhysics
             double cp = 26 * dampingScale;
             double kq = 200 * frequencyScale;
             double cq = 20 * dampingScale; // ambos estilos emergen desde el centro como Island
-            // El notch empuja un 5% más fuerte (sube la rigidez, no el amortiguamiento),
-            // así que su ζ baja un 2%: 0,570 → 0,556. Es el rebote que ya se veía; está
-            // fijado en el check para que nadie lo cambie sin querer.
+            // Notch pushes 5% harder (it raises stiffness, not damping), so its ζ drops by
+            // 2%: 0.570 → 0.556. It is the bounce that was already visible; it is pinned
+            // in the check so nobody changes it by accident.
             if (notch) kp *= 1.05;
             _spring = new IslandSpring(kp, cp, kq, cq);
         }
@@ -74,8 +74,8 @@ public static class IslandPhysics
     private static IslandSpring _spring;
 
     /// <summary>
-    /// Un paso del muelle (integración semi-implícita de Euler). El desplazamiento se
-    /// acota a [-0.15, 1.15] para que el overshoot se vea pero no se desborde.
+    /// One spring step (semi-implicit Euler integration). The displacement is clamped
+    /// to [-0.15, 1.15] so the overshoot is visible but does not run away.
     /// </summary>
     public static void Step(ref double x, ref double v, double target, double k, double c, double dt)
     {
@@ -85,28 +85,28 @@ public static class IslandPhysics
         x = Math.Clamp(x, -0.15, 1.15);
     }
 
-    /// <summary>¿El muelle ya está en su destino? (umbral de posición y de velocidad)</summary>
+    /// <summary>Is the spring already at its destination? (position and velocity threshold)</summary>
     public static bool Settled(double x, double v, double target) =>
         Math.Abs(x - target) < 0.002 && Math.Abs(v) < 0.02;
 
-    /// <summary>Suavizado de Hermite (arranca y frena solo): el easing de todo el Island.</summary>
+    /// <summary>Hermite smoothing (starts and stops on its own): the easing of the whole Island.</summary>
     public static double Smooth(double t) => t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
 
     public static double Lerp(double a, double b, double t) => a + (b - a) * t;
 
     /// <summary>
-    /// Progreso con el REBOTE del muelle intacto por arriba y comprimido por abajo: el
-    /// contenedor se pasa un poco de su tamaño y vuelve —el rebote de Apple— en lugar de
-    /// frenar en seco, pero no se adelgaza por debajo del destino.
+    /// Progress with the spring BOUNCE intact on the upper side and compressed on the
+    /// lower one: the container overshoots its size a little and comes back - Apple's
+    /// bounce - instead of stopping dead, but it does not thin out below the target.
     /// </summary>
     public static double BounceCurve(double t) => Math.Clamp(t, -BounceCompress, 1 + BounceLimit);
 
     /// <summary>
-    /// Curva del estirón del revelado (oculto → punto → ancho de reposo). Mantiene la
-    /// forma suave original —el punto nace sin dar un salto al cruzar su umbral de
-    /// ancho— y deja pasar el rebote SOLO en la cola, cuando el muelle ya se ha pasado de
-    /// su objetivo: inyectarlo en toda la curva multiplicaría el valor del umbral y el
-    /// punto pegaría un tirón al empezar a estirarse.
+    /// Reveal stretch curve (hidden → dot → rest width). It keeps the original smooth
+    /// shape - the dot is born without a jump when it crosses its width threshold - and
+    /// lets the bounce through ONLY on the tail, once the spring has already passed its
+    /// target: injecting it across the whole curve would multiply the threshold value
+    /// and the dot would jerk as it started stretching.
     /// </summary>
     public static double RevealStretch(double q)
     {
@@ -116,7 +116,7 @@ public static class IslandPhysics
         return 1 + Math.Min(t - 1, BounceLimit);
     }
 
-    /// <summary>Acota el paso de un frame al rango que el muelle entiende.</summary>
+    /// <summary>Clamps one frame's step to the range the spring understands.</summary>
     public static double ClampStep(double seconds) =>
         Math.Clamp(seconds, MinStepSeconds, MaxStepSeconds);
 }

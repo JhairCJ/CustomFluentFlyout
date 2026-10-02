@@ -4,67 +4,68 @@
 namespace FluentFlyoutWPF.Classes;
 
 /// <summary>
-/// La LÍNEA GRIS del Island —la manija que anuncia que hay algo que abrir— y la
-/// FRANJA de puntero que la acompaña, como decisiones puras y comprobables.
+/// The Island's GREY LINE - the handle that announces there is something to open - and
+/// the POINTER STRIP that accompanies it, as pure and testable decisions.
 ///
-/// <para>La línea es la MANIJA de una puerta y la franja del borde ES esa puerta: por
-/// eso las dos se resuelven aquí y con las mismas reglas. Antes vivían en ramas
-/// distintas —la línea en el pintado por frame, la franja en la presentación del
-/// puntero— y de ahí salían las dos incoherencias de siempre: línea invisible con
-/// puerta activa (un disparador que nadie ve y que resulta molesto) y puerta cerrada
-/// con línea pintada (una manija que no abre nada).</para>
+/// <para>The line is a door's HANDLE and the edge strip IS that door: that is why both
+/// are resolved here and by the same rules. They used to live in separate branches - the
+/// line in the per-frame paint, the strip in pointer presentation - and from that came
+/// the two usual inconsistencies: an invisible line with an active door (a trigger
+/// nobody sees, which is annoying) and a closed door with a painted line (a handle that
+/// opens nothing).</para>
 ///
 /// <list type="bullet">
-/// <item><b>Un solo offset</b>: en notch la línea va pegada al borde; en la isla
-/// flotante la baja el ajuste, acotado. La regla estaba escrita tres veces —pintado,
-/// detección de puntero y veto de repliegue— y las tres tenían que coincidir a mano.</item>
-/// <item><b>La manija existe si hay puerta</b>: sin nada que abrir no se pinta, porque
-/// una raya que no lleva a ninguna parte miente.</item>
-/// <item><b>La puerta sigue a lo visible</b>: sin nada dibujado solo hay franja si el
-/// usuario pide una puerta invisible a propósito (<c>IslandHiddenAccess</c>).</item>
+/// <item><b>One single offset</b>: on notch the line hugs the edge; on the floating
+/// island the setting lowers it, clamped. The rule was written three times - paint,
+/// pointer detection and fold-back veto - and all three had to match by hand.</item>
+/// <item><b>The handle exists if there is a door</b>: with nothing to open it is not
+/// painted, because a stripe that leads nowhere is a lie.</item>
+/// <item><b>The door follows what is visible</b>: with nothing drawn there is a strip
+/// only if the user deliberately asked for an invisible door
+/// (<c>IslandHiddenAccess</c>).</item>
 /// </list>
 /// </summary>
 public static class IslandLine
 {
-    /// <summary>Alto de la línea gris (DIP).</summary>
+    /// <summary>Grey line height (DIP).</summary>
     public const double BarHeight = 3;
 
-    /// <summary>Ancho de la línea gris con la caja oculta del todo (DIP).</summary>
+    /// <summary>Grey line width with the box fully hidden (DIP).</summary>
     public const double BarWidth = 120;
 
-    /// <summary>Offset de la línea en notch: es parte del borde y no se mueve (DIP).</summary>
+    /// <summary>Line offset on notch: it is part of the edge and does not move (DIP).</summary>
     public const double NotchTopDip = 1;
 
     /// <summary>
-    /// Offset vertical de la línea (y del punto de estado) en DIP desde el borde
-    /// superior de la ventana: la regla ÚNICA que comparten el pintado, la franja del
-    /// puntero y el veto de repliegue.
+    /// Vertical offset of the line (and of the status dot), in DIP from the window's
+    /// top edge: the SINGLE rule shared by the paint, the pointer strip and the
+    /// fold-back veto.
     /// </summary>
     public static double TopDip(bool notch, int configuredOffset) =>
         notch ? NotchTopDip : Math.Clamp(configuredOffset, 0, 60);
 
     /// <summary>
-    /// Factor 0..1 del ancho de la línea: 1 con la caja oculta del todo y 0 cuando la
-    /// caja (o el punto del revelado) ya ocupa su sitio. Sigue al MÁS RÁPIDO de los dos
-    /// muelles porque <c>p</c> termina antes que <c>q</c> al emerger expandido, y se
-    /// apaga además con la opacidad del contenido para que la raya no sobreviva al
-    /// apagado hacia la pieza inactiva.
+    /// 0..1 factor for the line width: 1 with the box fully hidden, 0 when the box (or
+    /// the reveal's dot) has already taken its place. It follows the FASTER of the two
+    /// springs because <c>p</c> finishes before <c>q</c> when emerging expanded, and it
+    /// also fades out with the content opacity so the stripe does not outlive the fade
+    /// towards the inactive piece.
     /// </summary>
     public static double WidthFactor(double p, double q, double contentOpacity) =>
         (1 - Math.Max(IslandPhysics.Smooth(p), IslandPhysics.Smooth(q)))
         * Math.Clamp(contentOpacity, 0, 1);
 
     /// <summary>
-    /// ¿Se pinta la línea (y su punto)? Hace falta el ajuste encendido Y algo que
-    /// abrir: la línea es la manija de una puerta, nunca un adorno suelto.
+    /// Is the line (and its dot) painted? It needs the setting on AND something to
+    /// open: the line is a door's handle, never a loose ornament.
     /// </summary>
     public static bool Shown(bool enabled, bool doorAvailable) => enabled && doorAvailable;
 
     /// <summary>
-    /// ¿Existe la franja de puntero del borde superior? Con la caja a la vista la
-    /// franja es la propia caja (más su tolerancia); con la caja oculta la sostiene la
-    /// línea; y sin nada dibujado solo si el usuario pidió la puerta invisible. Sin
-    /// franja, el puntero no hace nada en esa zona.
+    /// Does the top edge pointer strip exist? With the box in view the strip is the box
+    /// itself (plus its tolerance); with the box hidden the line holds it; and with
+    /// nothing drawn only if the user asked for the invisible door. Without a strip the
+    /// pointer does nothing in that zone.
     /// </summary>
     public static bool AccessZone(bool boxShown, bool lineShown, bool allowWhenHidden) =>
         boxShown || lineShown || allowWhenHidden;

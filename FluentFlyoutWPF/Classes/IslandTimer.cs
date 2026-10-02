@@ -4,7 +4,7 @@
 namespace FluentFlyoutWPF.Classes;
 
 /// <summary>
-/// Estado de la cuenta única del temporizador (spec 002: solo una a la vez).
+/// State of the single timer countdown (spec 002: only one at a time).
 /// </summary>
 public enum IslandTimerState
 {
@@ -15,10 +15,10 @@ public enum IslandTimerState
 }
 
 /// <summary>
-/// Motor de la cuenta atrás única. Guarda hora objetivo + restante congelado
-/// (plan 002 D1) para seguir exacto aunque el Island esté oculto o se cambie
-/// de funcionalidad. Sin hilos ni temporizadores propios: el host lo sondea
-/// con <see cref="Poll"/> desde su tick de UI.
+/// Engine of the single countdown. It stores the target time plus the frozen
+/// remainder (plan 002 D1) to stay exact even while the Island is hidden or another
+/// feature takes over. No threads or timers of its own: the host polls it with
+/// <see cref="Poll"/> from its UI tick.
 /// </summary>
 public sealed class IslandTimer
 {
@@ -30,26 +30,26 @@ public sealed class IslandTimer
     public TimeSpan Configured { get; private set; } = TimeSpan.Zero;
 
     /// <summary>
-    /// Etiqueta del aviso: «Timer» si vino de tiempo libre, nombre del preset si no.
+    /// Notice label: "Timer" if it came from free time, the preset name otherwise.
     /// </summary>
     public string OriginLabel { get; private set; } = DefaultOriginLabel;
 
-    /// <summary>Etiqueta por defecto del aviso (tiempo libre), localizada.</summary>
+    /// <summary>Default notice label (free time), localized.</summary>
     private static string DefaultOriginLabel => IslandStrings.Get("IslandTimerOrigin", "Timer");
 
     private DateTime _endUtc;
     private TimeSpan _frozen = TimeSpan.Zero;
 
     /// <summary>
-    /// Se eleva una sola vez al llegar a cero (el host muestra el aviso, RF-6).
+    /// Raised exactly once on reaching zero (the host shows the notice, RF-6).
     /// </summary>
     public event Action? Finished;
 
     /// <summary>
-    /// Se eleva en CADA cambio de estado (iniciar, pausar, reanudar, reiniciar,
-    /// cancelar y vencimiento) — 002 MOD RF-2. El host lo usa para notificar la
-    /// actividad, rearmar su despertador único de vencimiento y refrescar solo
-    /// lo visible; la cuenta NO depende de ningún latido global (002 MOD RF-13).
+    /// Raised on EVERY state change (start, pause, resume, restart, cancel and
+    /// expiry) - 002 MOD RF-2. The host uses it to notify activity, re-arm its single
+    /// expiry alarm and refresh only what is visible; the countdown does NOT depend on
+    /// any global heartbeat (002 MOD RF-13).
     /// </summary>
     public event Action? Changed;
 
@@ -73,7 +73,7 @@ public sealed class IslandTimer
     }
 
     /// <summary>
-    /// Fracción transcurrida 0..1 para el progreso central del compacto (RF-8).
+    /// Elapsed fraction 0..1 for the compact view's center progress (RF-8).
     /// </summary>
     public double ElapsedFraction
     {
@@ -93,8 +93,8 @@ public sealed class IslandTimer
         duration.TotalSeconds >= MinDurationSeconds && duration.TotalSeconds <= MaxDurationSeconds;
 
     /// <summary>
-    /// Inicia una cuenta nueva sustituyendo la anterior si la había (RF-3).
-    /// Devuelve false y no cambia nada si la duración no es válida (RF-2).
+    /// Starts a new countdown, replacing the previous one if there was one (RF-3).
+    /// Returns false and changes nothing if the duration is not valid (RF-2).
     /// </summary>
     public bool Start(TimeSpan duration, string originLabel)
     {
@@ -125,7 +125,8 @@ public sealed class IslandTimer
     }
 
     /// <summary>
-    /// Reinicia: devuelve el tiempo al valor configurado y deja sin cuenta activa (RF-5).
+    /// Restarts: returns the time to the configured value and leaves no active
+    /// countdown (RF-5).
     /// </summary>
     public void Restart()
     {
@@ -135,7 +136,7 @@ public sealed class IslandTimer
     }
 
     /// <summary>
-    /// Cancela/descarta: sin cuenta activa y sin valor configurado (RF-5, X del aviso).
+    /// Cancels/discards: no active countdown and no configured value (RF-5, notice X).
     /// </summary>
     public void Cancel()
     {
@@ -147,10 +148,10 @@ public sealed class IslandTimer
     }
 
     /// <summary>
-    /// Comprobación de vencimiento. El host la dispara desde su despertador
-    /// ÚNICO sobre la hora objetivo (y desde su red de recuperación de 5 s tras
-    /// una suspensión), nunca desde un latido global: al pasar la hora objetivo
-    /// detiene la cuenta y pasa a avisando una sola vez (RF-6).
+    /// Expiry check. The host fires it from its SINGLE alarm on the target time (and
+    /// from its 5 s recovery net after a suspend), never from a global heartbeat: once
+    /// the target time passes it stops the countdown and moves to alerting exactly once
+    /// (RF-6).
     /// </summary>
     public void Poll(DateTime utcNow)
     {
@@ -163,7 +164,7 @@ public sealed class IslandTimer
     }
 
     /// <summary>
-    /// Formato del temporizador: siempre h:mm:ss con dos dígitos (00:00:00).
+    /// Timer format: always h:mm:ss with two digits (00:00:00).
     /// </summary>
     public static string FormatHms(TimeSpan t)
     {
@@ -173,7 +174,7 @@ public sealed class IslandTimer
     }
 
     /// <summary>
-    /// Acepta h:mm:ss, m:ss y segundos sueltos. Solo rango 00:00:01–24:00:00.
+    /// Accepts h:mm:ss, m:ss and bare seconds. Only the 00:00:01-24:00:00 range.
     /// </summary>
     public static bool TryParseDuration(string? text, out TimeSpan duration)
     {
@@ -193,7 +194,7 @@ public sealed class IslandTimer
         {
             long seconds = 0;
             foreach (var p in parts) seconds = seconds * 60 + long.Parse(p);
-            // m:ss no admite minutos de 2+ dígitos fuera de 0-59 cuando hay horas
+            // m:ss does not allow 2+ digit minutes outside 0-59 when there are hours
             if (parts.Length == 3)
             {
                 long m = long.Parse(parts[1]);

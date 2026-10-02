@@ -7,50 +7,52 @@ using System.Windows;
 namespace FluentFlyoutWPF.Windows;
 
 /// <summary>
-/// MODO ULTRA COMPACTO: con la cápsula replegada solo se ven sus DOS EXTREMOS —lo que
-/// va a la izquierda y lo que va a la derecha— y el hueco del medio queda vacío. En el
-/// control de medios quedan, por ejemplo, la carátula y el ecualizador: lo que
-/// identifica el contenido y lo que se puede accionar, sin título ni artista.
+/// ULTRA COMPACT MODE: with the capsule folded back only its TWO EXTREMES are
+/// seen - what goes on the left and what goes on the right - and the gap in the middle
+/// is left empty. In the media controls that leaves, for example, the artwork and the
+/// equalizer: what identifies the content and what can be operated, with no title or
+/// artist.
 ///
-/// <para>Es el ajuste pensado para convivir con «Volver a inactivo» APAGADO: el Island
-/// no vive en pantalla, solo aparece cuando algo hay que enseñar, y su presencia de
-/// reposo es mínima. Como en ese caso no hay ni pieza ni cápsula a la que apuntar, la
-/// franja de arriba —de la línea de actividad al borde superior— es la puerta que lo
-/// trae de vuelta expandido.</para>
+/// <para>It is the setting meant to coexist with "Return to inactive" OFF: the Island
+/// does not live on screen, it only appears when there is something to show, and its
+/// resting presence is minimal. Since in that case there is neither piece nor capsule
+/// to point at, the top strip - from the activity line to the top edge - is the door
+/// that brings it back expanded.</para>
 /// </summary>
 public partial class IslandWindow
 {
     /// <summary>
-    /// Ancho del compacto en modo ultra: dos extremos y nada más. Está medido sobre el
-    /// par más ancho (el icono del temporizador a la izquierda y sus dígitos a la
-    /// derecha), que pide unos 107 DIPs con los márgenes del XAML y su separación.
+    /// Compact view width in ultra mode: two extremes and nothing else. It is measured
+    /// on the widest pair (the timer icon on the left and its digits on the right),
+    /// which takes about 107 DIPs with the XAML margins and spacing.
     /// </summary>
     private const double UltraCompactWidth = 120;
 
-    /// <summary>¿Está puesto el modo ultra compacto?</summary>
+    /// <summary>Is ultra compact mode on?</summary>
     private static bool UltraCompactOn => SettingsManager.Current.IslandUltraCompact;
 
     /// <summary>
-    /// Ancho del compacto vigente con el modo ultra por delante: manda sobre el ancho de
-    /// la funcionalidad y sobre el del estilo (notch incluido), porque en ultra la
-    /// cápsula la fijan sus dos extremos.
+    /// Current compact view width with ultra mode in front: it overrides both the
+    /// feature's width and the style's (notch included), because in ultra the capsule
+    /// is defined by its two extremes.
     /// </summary>
     private static double RestCompactWidth(double styleWidth) =>
         UltraCompactOn ? UltraCompactWidth : styleWidth;
 
     /// <summary>
-    /// Cuántas celdas caben en un renglón compacto (cajón, estante, portapapeles): el
-    /// modo ultra deja UNA, y el resto se cuenta con su «+N», que es el extremo derecho.
+    /// How many cells fit in a compact row (tray, shelf, clipboard): ultra mode
+    /// leaves ONE, and the rest are counted with its "+N", which is the right
+    /// extreme.
     /// </summary>
     private static int CompactRowFit(int fullFit) => UltraCompactOn ? 1 : fullFit;
 
     /// <summary>
-    /// Aplica el modo ultra al compacto vigente: aparta el medio de la vista de delante o
-    /// lo devuelve a su regla —que declara la propia funcionalidad en su ficha, porque el
-    /// progreso del temporizador depende de su ajuste y el resto se ven siempre—.
-    /// <paramref name="refitRows"/> re-cuenta además los renglones de una celda; solo hace
-    /// falta al CAMBIAR el ajuste, porque cada refresco de contenido ya cuenta con el modo
-    /// (<see cref="CompactRowFit"/>).
+    /// Applies ultra mode to the current compact view: it moves the middle out of the
+    /// view in front or returns it to its own rule - which the feature itself declares
+    /// on its card, because the timer progress depends on its setting while the rest
+    /// are always visible. <paramref name="refitRows"/> also recounts the rows of a
+    /// cell; it is only needed when the setting CHANGES, because every content refresh
+    /// already accounts for the mode (<see cref="CompactRowFit"/>).
     /// </summary>
     private void ApplyUltraCompactContent(bool refitRows = false)
     {
@@ -68,16 +70,16 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// ¿Procede que el puntero traiga el Island desde arriba? Solo en modo ultra con el
-    /// Island OCULTO del todo: sin pieza ni cápsula no hay nada a lo que apuntar, así que
-    /// la franja superior es la única puerta que queda.
+    /// Should the pointer bring the Island back from the top? Only in ultra mode with
+    /// the Island fully HIDDEN: with no piece and no capsule there is nothing to point
+    /// at, so the top strip is the only door left.
     /// </summary>
     private bool UltraCompactPullsFromTop =>
         UltraCompactOn && !IsBoxShown && !Suppressed();
 
     /// <summary>
-    /// Ajuste del modo ultra en caliente: aparta (o devuelve) el medio de la vista
-    /// vigente, re-cuenta los renglones y re-mide la cápsula con el ancho nuevo.
+    /// Hot change of the ultra mode setting: it moves (or returns) the middle of the
+    /// current view, recounts the rows and re-measures the capsule with the new width.
     /// </summary>
     public void RefreshUltraCompact() => Dispatcher.Invoke(() =>
     {

@@ -14,31 +14,31 @@ using System.Windows.Threading;
 namespace FluentFlyoutWPF.Windows;
 
 /// <summary>
-/// Dictado por voz en el Island (spec 006): la tarjeta que se ve mientras se mantiene la
-/// tecla —micrófono a la izquierda, ondas del micrófono real a la derecha— y las tres
-/// transiciones que la acompañan (grabar, transcribir, retirarse).
+/// Voice dictation on the Island (spec 006): the card shown while the key is held
+/// - microphone on the left, waves from the real microphone on the right - and the
+/// three transitions that accompany it (recording, transcribing, withdrawing).
 ///
-/// <para>Reglas que sostiene:</para>
+/// <para>Rules it holds:</para>
 /// <list type="bullet">
-/// <item><b>Mientras se dicta, la vista es suya</b>: la funcionalidad sostiene la vista y
-/// declara acceso exclusivo, así ningún cambio de canción ni aviso le quita la tarjeta a
-/// mitad de frase y el plazo del aviso temporal no la esconde.</item>
-/// <item><b>Las ondas son el micrófono, no el sistema</b>: el nivel llega del propio
-/// <see cref="DictationService"/> (RMS del último bloque capturado) y se pinta en barras
-/// pequeñas; al callar se aplanan, al hablar saltan (RF-2).</item>
-/// <item><b>Al terminar se retira sola</b>: escrito el texto, cancelado o con error, el
-/// Island vuelve a lo que correspondía —activa vigente o reposo—, sin dejar la tarjeta
-/// pegada (RF-9).</item>
+/// <item><b>While dictating, the view belongs to it</b>: the feature holds the view and
+/// declares exclusive access, so no song change or notice takes the card away
+/// mid-phrase and the temporary notice deadline does not hide it.</item>
+/// <item><b>The waves are the microphone, not the system</b>: the level comes from
+/// <see cref="DictationService"/> itself (RMS of the last captured block) and is drawn
+/// as small bars; they flatten when you go quiet and jump when you speak (RF-2).</item>
+/// <item><b>When it ends it withdraws by itself</b>: once the text is written, it is
+/// cancelled, or it fails, the Island goes back to whatever applied - the current
+/// active item or rest - without leaving the card stuck (RF-9).</item>
 /// </list>
 /// </summary>
 public partial class IslandWindow
 {
-    /// <summary>Número de barras del visualizador: ancho / paso (3 + 2).</summary>
+    /// <summary>Number of visualizer bars: width / step (3 + 2).</summary>
     private const int DictationBarCount = 12;
-    /// <summary>Alto mínimo y máximo de una barra, dentro de los 22 px de la zona.</summary>
+    /// <summary>Minimum and maximum bar height, within the zone's 22 px.</summary>
     private const double DictationBarMin = 4;
     private const double DictationBarMax = 20;
-    /// <summary>Cadencia del visualizador: 20 fps bastan para una onda suave y cuestan poco.</summary>
+    /// <summary>Visualizer cadence: 20 fps is enough for a smooth wave and costs little.</summary>
     private static readonly TimeSpan DictationBarInterval = TimeSpan.FromMilliseconds(50);
 
     private static readonly Brush DictationWhiteBrush = Frozen(Color.FromRgb(0xFF, 0xFF, 0xFF));
@@ -48,35 +48,36 @@ public partial class IslandWindow
     private readonly double[] _dictationLevels = new double[DictationBarCount];
     private DispatcherTimer? _dictationBarsTimer;
     private DictationService? _dictation;
-    /// <summary>La tarjeta del dictado es la vista de delante ahora mismo.</summary>
+    /// <summary>The dictation card is the view in front right now.</summary>
     private bool _dictationViewShown;
 
-    /// <summary>Funcionalidad «dictado» registrada (nunca null tras el arranque).</summary>
+    /// <summary>Registered "dictation" feature (never null after startup).</summary>
     private IIslandFeature? DictationFeature => FeatureById(IslandFeatureIds.Dictation);
 
-    /// <summary>¿La funcionalidad está encendida con el contenedor?</summary>
+    /// <summary>Is the feature turned on with the container?</summary>
     private bool DictationModeAvailable() =>
         SettingsManager.Current.IslandEnabled && SettingsManager.Current.DictationEnabled;
 
-    /// <summary>¿Hay una sesión de dictado en marcha? Es lo que sostiene la vista y da acceso exclusivo.</summary>
+    /// <summary>Is a dictation session in progress? It is what holds the view and grants exclusive access.</summary>
     private bool DictationActive() => _dictation?.Active == true;
 
     /// <summary>
-    /// ¿Otra funcionalidad tiene ahora mismo acceso exclusivo (la alerta del temporizador)?
-    /// Se pregunta SIN contar al dictado: la tarjeta de dictado es exclusiva mientras dura la
-    /// sesión, así que un <c>HasExclusive()</c> a secas se vetaría a sí misma.
+    /// Does another feature have exclusive access right now (the timer alert)? It is
+    /// asked WITHOUT counting dictation: the dictation card is exclusive while the
+    /// session lasts, so a plain <c>HasExclusive()</c> would veto itself.
     /// </summary>
     private bool AnotherFeatureExclusive() =>
         _features.Features.Any(f => f.State.Exclusive && f.Id != IslandFeatureIds.Dictation);
 
     /// <summary>
-    /// Mientras se dicta, el Island queda fuera de servicio para el puntero (RF-10): se apaga
-    /// el hit-test de la caja —y con él TODOS sus clics, su rueda y el arrastrar-y-soltar— y el
-    /// de la franja de detección. Un roce, o un clic que iba a la ventana de detrás, no puede
-    /// abrir una pantalla encima de la tarjeta ni cambiarla a mitad de frase: el dictado se
-    /// cierra con su atajo, no con el ratón. El hover ya encendido se retira aquí mismo (su
-    /// salida no llega: sin hit-test no hay MouseLeave) para que el micro-crecimiento no se
-    /// quede congelado debajo de la tarjeta.
+    /// While dictating, the Island is out of service for the pointer (RF-10): the box's
+    /// hit-test is turned off - and with it ALL of its clicks, its wheel and its
+    /// drag-and-drop - and so is the detection strip's. A brush, or a click that was
+    /// meant for the window behind, cannot open a screen over the card or change it
+    /// mid-phrase: dictation is closed with its hotkey, not with the mouse. An already
+    /// lit hover is withdrawn right here (its exit never arrives: without hit-testing
+    /// there is no MouseLeave) so the micro-growth does not stay frozen under the
+    /// card.
     /// </summary>
     private void ApplyDictationInteractionLock()
     {
@@ -88,8 +89,8 @@ public partial class IslandWindow
             else { _inactiveHotT = 0; ApplyFrame(); }
         }
         if (IslandBox.IsHitTestVisible != interactive) IslandBox.IsHitTestVisible = interactive;
-        // La franja de detección la gobierna la PUERTA del borde (ApplyAccessZone), que ya
-        // veta el dictado por su cuenta: aquí se reevalúa, no se pisa su estado.
+        // The detection strip is governed by the edge DOOR (ApplyAccessZone), which
+        // already vetoes dictation on its own: here it is re-evaluated, not overridden.
         ApplyAccessZone();
     }
 
@@ -99,8 +100,8 @@ public partial class IslandWindow
         bool active = DictationActive();
         return new IslandFeatureState(enabled, enabled, active,
             Selected: _selectedFeature?.Id == IslandFeatureIds.Dictation,
-            // Con una sesión en marcha la tarjeta es exclusiva: ni un cambio de canción,
-            // ni un aviso, ni el puntero la sustituyen hasta que el dictado termina.
+            // With a session in progress the card is exclusive: not a song change, not a
+            // notice, not the pointer can replace it until dictation ends.
             Exclusive: active);
     }
 
@@ -112,9 +113,9 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Vincula el servicio de dictado —vive en MainWindow, que es quien tiene el gancho de
-    /// teclado— y crea las barras del visualizador, que no pueden venir del XAML porque su
-    /// número y su alto los manda el nivel capturado.
+    /// Binds the dictation service - it lives in MainWindow, which owns the keyboard
+    /// hook - and creates the visualizer bars, which cannot come from the XAML because
+    /// their count and height are driven by the captured level.
     /// </summary>
     private void InitDictation()
     {
@@ -128,11 +129,11 @@ public partial class IslandWindow
         if (_dictation != null) _dictation.Changed -= OnDictationChanged;
         _dictation = null;
         StopDictationBars();
-        // Sin servicio no hay dictado: el Island vuelve a responder al puntero.
+        // Without the service there is no dictation: the Island responds to the pointer again.
         ApplyDictationInteractionLock();
     }
 
-    /// <summary>Ajuste en caliente: el dictado se apagó con su tarjeta delante.</summary>
+    /// <summary>Hot setting change: dictation was turned off with its card in front.</summary>
     public void RefreshDictationContent() => Dispatcher.Invoke(() =>
     {
         ApplyDictationInteractionLock();
@@ -150,10 +151,10 @@ public partial class IslandWindow
     });
 
     // ------------------------------------------------------------------
-    // Ciclo de la sesión
+    // Session lifecycle
     // ------------------------------------------------------------------
 
-    /// <summary>El servicio avisa desde su propio hilo (el de la transcripción): al de UI.</summary>
+    /// <summary>The service notifies from its own thread (the transcription one): over to the UI one.</summary>
     private void OnDictationChanged()
     {
         if (_disposed) return;
@@ -161,15 +162,16 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Punto único de la tarjeta: sesión en marcha la presenta, terminada la retira. El
-    /// error se enseña —con su motivo— hasta que el servicio lo olvida.
+    /// Single point for the card: a running session presents it, a finished one
+    /// withdraws it. The error is shown - with its reason - until the service forgets
+    /// it.
     /// </summary>
     private void SyncDictationView()
     {
         var dictation = _dictation;
         if (_disposed || dictation == null) return;
-        // El bloqueo del puntero acompaña a la fase: entra con la sesión y sale con ella
-        // (también con el aviso de error, que es una tarjeta que SÍ se puede clicar).
+        // The pointer lock follows the phase: it comes in with the session and leaves
+        // with it (also with the error notice, which is a card that CAN be clicked).
         ApplyDictationInteractionLock();
 
         if (dictation.Active)
@@ -177,9 +179,9 @@ public partial class IslandWindow
             ShowDictationCompact();
             return;
         }
-        // El fallo se presenta aunque la tarjeta no estuviera a la vista (falta el modelo,
-        // no hay micrófono): el motivo es justo lo que el usuario necesita leer, y sin esta
-        // rama el dictado se quedaba mudo (RF-6).
+        // The failure is shown even if the card was not on screen (model missing, no
+        // microphone): the reason is exactly what the user needs to read, and without
+        // this branch dictation stayed mute (RF-6).
         if (dictation.Phase == DictationPhase.Error)
         {
             ShowDictationCompact();
@@ -187,29 +189,29 @@ public partial class IslandWindow
         }
         if (!_dictationViewShown) return;
 
-        // Idle: la tarjeta se retira y el Island vuelve a lo suyo (RF-9).
+        // Idle: the card is withdrawn and the Island goes back to its own business (RF-9).
         _dictationViewShown = false;
         StopDictationBars();
         FallbackFromDictationView();
     }
 
     /// <summary>
-    /// Presenta la tarjeta. AVISO: no tiene expandido ni se navega hasta ella, así que vive
-    /// fuera de las pantallas (como el de Bluetooth y el del cargador). Con la sesión en
-    /// marcha la funcionalidad es exclusiva y la política del aviso no arma plazo: la
-    /// tarjeta dura lo que dure el dictado, no lo que dure un aviso.
+    /// Presents the card. NOTE: it has no expanded view and is not navigated to, so it
+    /// lives outside the screens (like Bluetooth's and the charger's). With the
+    /// session in progress the feature is exclusive and the notice policy does not arm
+    /// a deadline: the card lasts as long as the dictation, not as long as a notice.
     /// </summary>
     private void ShowDictationCompact()
     {
         if (!DictationModeAvailable() || _dictation == null) return;
-        // Una exclusiva AJENA (la alerta del temporizador) manda y es modal hasta que se
-        // cierra: la tarjeta espera en vez de arrebatarle la superficie —la alerta se
-        // quedaría sin forma de retirarse—. El dictado no se corta: sigue capturando y
-        // escribiendo, que es lo que importa; solo no pinta su tarjeta. Mismo veto que
-        // Bluetooth y el cargador, que tampoco se presentan sobre una exclusiva.
+        // A FOREIGN exclusive (the timer alert) wins and is modal until it closes: the
+        // card waits instead of taking the surface away - the alert would have no way
+        // left to withdraw. Dictation is not cut: it keeps capturing and writing,
+        // which is what matters; it just does not paint its card. Same veto as
+        // Bluetooth and the charger, which also do not present over an exclusive.
         if (AnotherFeatureExclusive()) return;
         _dictationViewShown = true;
-        // Las ondas solo corren con micro abierto: un aviso de fallo no anima nada.
+        // The waves only run with the mic open: a failure notice animates nothing.
         if (DictationActive()) StartDictationBars(); else StopDictationBars();
         RefreshDictationUI();
         ShowCompactView(IslandContentMode.Dictation, DictationFeature, RefreshDictationUI,
@@ -217,8 +219,9 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// La tarjeta del dictado dejó de ser la vista de delante: se repliega a la activa
-    /// vigente o al reposo, sin dejar la superficie del aviso (mismo camino que el cargador).
+    /// The dictation card stopped being the view in front: it folds back to the current
+    /// active item or to rest, without leaving the notice's surface (same route as the
+    /// charger).
     /// </summary>
     private void FallbackFromDictationView()
     {
@@ -232,13 +235,13 @@ public partial class IslandWindow
     }
 
     // ------------------------------------------------------------------
-    // Pintado
+    // Painting
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Pinta el estado: micrófono y ondas blancos —o con el acento de la portada vigente—,
-    /// sin texto mientras graba (el centro es para lo que hay que LEER), y el mensaje
-    /// cuando transcribe o falla.
+    /// Paints the state: microphone and waves in white - or with the current artwork's
+    /// accent -, no text while recording (the center is for what has to be READ), and
+    /// the message while transcribing or failing.
     /// </summary>
     private void RefreshDictationUI()
     {
@@ -260,7 +263,7 @@ public partial class IslandWindow
         DictationCompactGrid.ToolTip = DictationTooltip(dictation);
     }
 
-    /// <summary>Rótulo al pasar por encima: qué atajo se mantiene y con qué modelo se dicta.</summary>
+    /// <summary>Label on hover: which hotkey to hold and which model is used.</summary>
     private string DictationTooltip(DictationService dictation)
     {
         string hotkey = DictationHotkey.IsValid(SettingsManager.Current.DictationHotkey)
@@ -297,9 +300,9 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Comparte el color del micrófono y de las ondas: acento del sistema cuando el
-    /// ajuste de portada está apagado; con el ajuste encendido usa el acento de la
-    /// portada mostrada, y blanco si todavía no hay portada válida.
+    /// Shares the microphone and wave color: the system accent when the artwork setting
+    /// is off; with the setting on it uses the displayed artwork's accent, and white
+    /// while there is no valid artwork yet.
     /// </summary>
     private void RefreshDictationIndicatorBrush()
     {
@@ -339,9 +342,9 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// La onda entra por la derecha (el dato nuevo siempre es el borde): las barras corren
-    /// una posición y la última recibe el nivel de ahora, con caída suave para que el
-    /// silencio no corte en seco (RF-2).
+    /// The wave enters from the right (new data is always the edge): the bars shift one
+    /// position and the last one takes the current level, with a smooth fall so that
+    /// silence does not cut dead (RF-2).
     /// </summary>
     private void OnDictationBarsTick(object? sender, EventArgs e)
     {
@@ -357,7 +360,7 @@ public partial class IslandWindow
         {
             _dictationLevels[i] = _dictationLevels[i + 1];
         }
-        // El nivel crudo salta mucho entre bloques; se queda lo alto para que la onda respire.
+        // The raw level jumps a lot between blocks; the high value is kept so the wave can breathe.
         double incoming = Math.Clamp(dictation.Level, 0, 1);
         _dictationLevels[^1] = Math.Max(incoming, _dictationLevels[^1] * 0.6);
 

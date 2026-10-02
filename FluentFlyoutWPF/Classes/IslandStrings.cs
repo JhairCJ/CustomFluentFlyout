@@ -8,24 +8,24 @@ using System.Windows;
 namespace FluentFlyoutWPF.Classes;
 
 /// <summary>
-/// Punto único de los textos de UI del Island en la capa WPF.
+/// Single point for the Island's UI text in the WPF layer.
 ///
-/// <para>Resuelve una clave del diccionario de localización con un respaldo en inglés,
-/// de modo que un idioma sin traducir —o un diccionario incompleto— nunca deja el texto
-/// en blanco: el diccionario <c>en-US</c> va SIEMPRE cargado como base
-/// (<c>LocalizationManager</c>) y solo el idioma elegido se apila encima.</para>
+/// <para>It resolves a localization dictionary key with an English fallback, so an
+/// untranslated language - or an incomplete dictionary - never leaves the text blank:
+/// the <c>en-US</c> dictionary is ALWAYS loaded as the base (<c>LocalizationManager</c>)
+/// and only the chosen language is stacked on top.</para>
 ///
-/// <para>En XAML no hace falta pasar por aquí: se usa <c>{DynamicResource Clave}</c>,
-/// que además se refresca solo al cambiar de idioma. Este ayudante existe para los
-/// textos que se escriben desde código (tooltips, estados, mensajes de error).</para>
+/// <para>XAML does not need to come through here: it uses <c>{DynamicResource Key}</c>,
+/// which also refreshes by itself when the language changes. This helper exists for the
+/// text written from code (tooltips, states, error messages).</para>
 /// </summary>
 public static class IslandStrings
 {
     /// <summary>
-    /// Texto localizado de <paramref name="key"/>, o <paramref name="fallback"/> (inglés)
-    /// si no existe. Un fallo de resolución devuelve el respaldo en vez de propagar la
-    /// excepción: el vigía de Bluetooth y el bucle del calendario escriben desde hilos
-    /// de fondo, donde tocar recursos de WPF puede lanzar por afinidad de hilo.
+    /// Localized text for <paramref name="key"/>, or <paramref name="fallback"/> (English)
+    /// if it does not exist. A resolution failure returns the fallback instead of
+    /// letting the exception escape: the Bluetooth watchdog and the calendar loop write
+    /// from background threads, where touching WPF resources can throw on thread affinity.
     /// </summary>
     public static string Get(string key, string fallback)
     {
@@ -41,11 +41,11 @@ public static class IslandStrings
         }
     }
 
-    /// <summary>Texto localizado con formato (usa la cultura actual).</summary>
+    /// <summary>Localized text with formatting (uses the current culture).</summary>
     public static string Format(string key, string fallback, params object?[] args) =>
         string.Format(CultureInfo.CurrentCulture, Get(key, fallback), args);
 
-    /// <summary>Nombre visible de una funcionalidad (clave declarada en <see cref="IslandFeatureIds.DisplayNameKey"/>).</summary>
+    /// <summary>Display name of a feature (key declared in <see cref="IslandFeatureIds.DisplayNameKey"/>).</summary>
     public static string FeatureName(string? id) =>
         Get(IslandFeatureIds.DisplayNameKey(id), id ?? "");
 }

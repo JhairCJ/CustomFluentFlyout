@@ -4,29 +4,29 @@
 namespace FluentFlyoutWPF.Classes;
 
 /// <summary>
-/// Identidad de la última canción PRESENTADA (título + autor) y detector de cambio de
-/// pista. Es lógica pura —sin sesiones, sin UI— y por eso se comprueba sola.
+/// Identity of the last PRESENTED song (title + artist) and track change detector. It
+/// is pure logic - no sessions, no UI - which is why it can be tested on its own.
 ///
-/// <para>Reglas que sostiene (001 MOD RF-1):</para>
+/// <para>Rules it holds (001 MOD RF-1):</para>
 /// <list type="bullet">
-/// <item>Un evento sin TÍTULO no marca nada: los reproductores que lo vacían un instante
-/// entre pistas no pueden contar como cambio de canción. El autor conocido se conserva
-/// si el evento llega sin él.</item>
-/// <item>El título manda: nombre distinto = canción distinta.</item>
-/// <item>El autor cuenta solo cuando los DOS lados lo aportan, para no confundir a un
-/// reproductor que rellena el autor con retraso con un cambio de canción.</item>
+/// <item>An event with no TITLE flags nothing: players that blank it for an instant
+/// between tracks must not count as a song change. A known artist is kept if the
+/// event arrives without it.</item>
+/// <item>The title wins: a different name is a different song.</item>
+/// <item>The artist only counts when BOTH sides provide it, so a player that fills the
+/// artist in late is not mistaken for a song change.</item>
 /// </list>
 /// </summary>
 public sealed class MediaTrackIdentity
 {
-    /// <summary>Título registrado (vacío = todavía no se conoce ninguna canción).</summary>
+    /// <summary>Recorded title (empty = no song known yet).</summary>
     public string Title { get; private set; } = string.Empty;
 
-    /// <summary>Autor registrado (vacío = no se conoce).</summary>
+    /// <summary>Recorded artist (empty = unknown).</summary>
     public string Artist { get; private set; } = string.Empty;
 
     /// <summary>
-    /// Registra lo que anuncia el reproductor y responde si es una canción NUEVA.
+    /// Records what the player announces and answers whether it is a NEW song.
     /// </summary>
     public bool Observe(string? title, string? artist)
     {

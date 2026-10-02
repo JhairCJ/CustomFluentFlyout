@@ -13,16 +13,16 @@ using Windows.Media.Control;
 namespace FluentFlyoutWPF.Windows;
 
 /// <summary>
-/// Fondo del Island: la carátula como viewport desenfocado (y opcionalmente
-/// giratorio), con crossfade real a dos capas en cada cambio de álbum.
-/// Parte del IslandWindow; el estado vive en <c>IslandWindow.xaml.cs</c>.
+/// The Island background: the artwork as a blurred (and optionally rotating)
+/// viewport, with a real two-layer crossfade on every album change.
+/// Part of IslandWindow; the state lives in <c>IslandWindow.xaml.cs</c>.
 /// </summary>
 public partial class IslandWindow
 {
     /// <summary>
-    /// Re-evalúa el modo de fondo (desactivado, fijo o giratorio) tras cambiar
-    /// una carátula o un ajuste. Sin carátula o con el fondo apagado, las capas
-    /// se retiran del árbol: nada de fondos vacíos ni residuos (001 RF-19).
+    /// Re-evaluates the background mode (off, fixed or rotating) after an artwork or
+    /// a setting changes. Without artwork, or with the background off, the layers
+    /// are removed from the tree: no empty backgrounds and no residue (001 RF-19).
     /// </summary>
     public void UpdateBackgroundMode()
     {
@@ -52,7 +52,7 @@ public partial class IslandWindow
         UpdateRotationPauseState();
     }
 
-    /// <summary>Ajuste de frecuencia alta/30 FPS del giro: reaplica el reloj sin saltar de ángulo.</summary>
+    /// <summary>High-refresh/30 FPS rotation setting: reapplies the clock without jumping the angle.</summary>
     public void RefreshBackgroundRotationFrameRate()
     {
         if (!SettingsManager.Current.IslandBackgroundBlur ||
@@ -68,7 +68,7 @@ public partial class IslandWindow
     {
         double opacity = Math.Clamp(SettingsManager.Current.IslandBackgroundBlurIntensity, 0, 100) / 100.0;
         double radius = Math.Clamp(SettingsManager.Current.IslandBackgroundBlurRadius, 0, 150);
-        // ponytail: no tocar opacidades a mitad de fade, el snap se vería como parpadeo
+        // NOTE: do not touch opacities mid-fade, the snap would read as a flicker
         if (_backgroundCrossfadeTarget != null)
         {
             BackgroundImageBlurEffect.Radius = radius;
@@ -185,8 +185,8 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Portada de fondo (o null para retirarla). Un cambio de imagen invalida el
-    /// horneado en vuelo; con null se apaga el giro y se vacían las capas.
+    /// Background artwork (or null to remove it). An image change invalidates a bake
+    /// in flight; with null the rotation stops and the layers are emptied.
     /// </summary>
     private void SetBackground(BitmapImage? icon)
     {
@@ -209,8 +209,8 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Pre-desenfoca la carátula a un bitmap de 256 px (WinUI/WPF sin BlurEffect
-    /// por frame): el coste se paga una vez por canción y no por fotograma.
+    /// Pre-blurs the artwork into a 256 px bitmap (WinUI/WPF has no per-frame
+    /// BlurEffect): the cost is paid once per song instead of per frame.
     /// </summary>
     private static BitmapSource? BakeBlurredBackground(BitmapImage icon, double discSide, double blurRadiusDips)
     {
@@ -234,8 +234,8 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Horneado asíncrono con guard de versión + tamaño cuantizado (16 DIPs):
-    /// ráfagas de cambios de canción no lanzan dos horneados ni republican uno viejo.
+    /// Async bake with a version guard and a quantized size (16 DIPs): bursts of
+    /// song changes do not start two bakes nor repaint an old one.
     /// </summary>
     private async void UpdateBakedBackgroundAsync(BitmapImage icon, double discSide)
     {
@@ -290,9 +290,9 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Fundido real a dos capas: la entrante funde 0 -> enlace sobre la vieja
-    /// quieta, y al completar la vieja adopta la imagen nueva y la entrante se
-    /// aparca. El compuesto nunca pasa por transparente o negro.
+    /// Real two-layer fade: the incoming layer fades 0 -> bound over the still one,
+    /// and on completion the still one adopts the new image and the incoming one
+    /// parks. The composite never passes through transparent or black.
     /// </summary>
     private void BeginBackgroundCrossfade(BitmapSource target, int durationMs)
     {
@@ -365,8 +365,8 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// El giro solo corre con reproducción activa y la caja a la vista; al
-    /// pausar conserva el ángulo para reanudar sin salto (001 RF-19).
+    /// The rotation only runs with playback active and the box on screen; on pause
+    /// it keeps the angle so resuming has no jump (001 RF-19).
     /// </summary>
     private void UpdateRotationPauseState()
     {

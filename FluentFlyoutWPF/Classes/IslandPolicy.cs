@@ -3,40 +3,41 @@
 
 namespace FluentFlyoutWPF.Classes;
 
-/// <summary>Qué hacer cuando vence el plazo de un aviso temporal.</summary>
+/// <summary>What to do when a temporary notice's deadline expires.</summary>
 public enum IslandNoticeStep
 {
-    /// <summary>El aviso ya no es de esta vista (otra tomó el relevo o hay una exclusiva): se olvida sin tocar la vista.</summary>
+    /// <summary>The notice no longer belongs to this view (another one took over or there is an exclusive one): it is forgotten without touching the view.</summary>
     Forget,
 
-    /// <summary>El aviso sigue vigente pero no puede retirarse ahora (expandido o bajo el cursor): se reintenta.</summary>
+    /// <summary>The notice is still in force but cannot be withdrawn now (expanded or under the cursor): it is retried.</summary>
     Retry,
 
-    /// <summary>El aviso se retira: su vista vuelve al reposo.</summary>
+    /// <summary>The notice is withdrawn: its view goes back to rest.</summary>
     Retract,
 }
 
 /// <summary>
-/// POLÍTICA del aviso temporal del Island, como decisiones puras y comprobables. Antes
-/// la misma condición estaba escrita tres veces de dos formas distintas —en el armado y
-/// en el vencimiento— y de ahí salían los avisos que se quedaban pegados o los que
-/// aparecían sin que hubiera pasado nada.
+/// The Island temporary notice POLICY, as pure and testable decisions. The same
+/// condition used to be written three times in two different forms - on arming and on
+/// expiry - and from that came the notices that stayed stuck or that appeared without
+/// anything having happened.
 /// </summary>
 public static class IslandNoticePolicy
 {
     /// <summary>
-    /// ¿Se arma el plazo? Un aviso FORZADO (Bluetooth, cargador) vence aunque el modo sea
-    /// «Visible mientras activo», porque su vista es una notificación y no se queda
-    /// pegada; uno normal solo vive en «Aviso temporal». Una exclusiva vigente manda
-    /// sobre todo (001 RF-2, 002 RF-16).
+    /// Is the deadline armed? A FORCED notice (Bluetooth, charger) expires even in
+    /// "Visible while active" mode, because its view is a notification and does not
+    /// stick around; a normal one only lives in "Temporary notice". A live exclusive
+    /// overrides everything (001 RF-2, 002 RF-16).
     /// </summary>
     public static bool Arms(bool forced, bool temporalMode, bool hasExclusive) =>
         !hasExclusive && (forced || temporalMode);
 
     /// <summary>
-    /// Qué hacer al vencer el plazo (o al reparar un disparo perdido): el aviso no se
-    /// cierra bajo el cursor ni con la vista expandida —se reintenta hasta que la vista
-    /// vuelva a ser compacta y el ratón no estorbe, así nunca se queda pegado—.
+    /// What to do when the deadline expires (or when repairing a missed trigger): the
+    /// notice is not closed under the cursor nor with the view expanded - it is retried
+    /// until the view is compact again and the mouse is out of the way, so it never
+    /// stays stuck.
     /// </summary>
     public static IslandNoticeStep OnExpired(bool forced, bool temporalMode, bool hasExclusive,
         bool boxShown, bool expanded, bool pointerOver)
@@ -48,19 +49,19 @@ public static class IslandNoticePolicy
     }
 }
 
-/// <summary>Candidata a ser la «activa vigente» del contenedor.</summary>
+/// <summary>Candidate to be the container's "current active item".</summary>
 public readonly record struct IslandActivityCandidate(bool Active, bool Usable, DateTime LastEvent);
 
 /// <summary>
-/// POLÍTICA de la actividad vigente: quién merece el compacto cuando hay varias
-/// funcionalidades activas (001 MOD RF-4/RF-12). Gana la del EVENTO más reciente y, en
-/// caso de empate (mismo instante o sin evento registrado), la PRIMERA del orden de las
-/// pantallas. Es un desempate explícito: no depende del orden que devuelva un sort
-/// inestable ni de ninguna lista de orden aparte.
+/// The current activity POLICY: who deserves the compact view when several features
+/// are active (001 MOD RF-4/RF-12). The most recent EVENT wins and, on a tie (same
+/// instant or no event recorded), the FIRST one in screen order. It is an explicit
+/// tie-break: it does not depend on the order an unstable sort returns, nor on any
+/// separate ordering list.
 /// </summary>
 public static class IslandActivityPick
 {
-    /// <summary>Índice de la ganadora, o -1 si ninguna candidata está activa y usable.</summary>
+    /// <summary>Index of the winner, or -1 if no candidate is active and usable.</summary>
     public static int Winner(IReadOnlyList<IslandActivityCandidate> candidates)
     {
         int best = -1;
@@ -69,8 +70,8 @@ public static class IslandActivityPick
         {
             var candidate = candidates[index];
             if (!candidate.Active || !candidate.Usable) continue;
-            // Estrictamente más reciente: a igualdad de evento se queda la primera, que
-            // es la del orden de pantallas.
+            // Strictly more recent: on an event tie the first one stays, which is the
+            // one in screen order.
             if (best < 0 || candidate.LastEvent > bestWhen)
             {
                 best = index;

@@ -23,19 +23,19 @@ using static WindowsMediaController.MediaManager;
 namespace FluentFlyoutWPF.Windows;
 
 /// <summary>
-/// Detección del puntero sobre el Island: hover vivo (micro-crecimiento),
-/// franja de tolerancia alrededor del borde superior, veto de repliegue
-/// mientras el cursor estorba y los clics de apertura.
+/// Pointer detection over the Island: live hover (micro-growth), a tolerance strip
+/// around the top edge, a fold-back veto while the cursor is in the way, and the
+/// opening clicks.
 ///
-/// <para>El hover SOLO produce el micro-crecimiento: abrir contenido exige un
-/// clic explícito (001 MOD RF-3, RF-10). La tolerancia horizontal/vertical es
-/// configurable (<c>IslandHoverTolerance*</c>) y se mide en DIPs del monitor
-/// principal, escalada por su DPI.</para>
+/// <para>Hover ONLY produces the micro-growth: opening content requires an explicit
+/// click (001 MOD RF-3, RF-10). The horizontal/vertical tolerance is configurable
+/// (<c>IslandHoverTolerance*</c>) and measured in DIPs of the primary monitor,
+/// scaled by its DPI.</para>
 ///
-/// <para>La franja del borde es la PUERTA del Island y su geometría y su estado salen
-/// de un solo sitio —<see cref="IslandLine"/> y <c>UpdateLine</c>—: la franja sigue a
-/// la línea que el usuario ve, y sin nada visible deja de existir salvo que pida una
-/// puerta invisible (<c>IslandHiddenAccess</c>).</para>
+/// <para>The edge strip is the Island's DOOR, and both its geometry and its state
+/// come from a single place - <see cref="IslandLine"/> and <c>UpdateLine</c> -: the
+/// strip follows the line the user sees, and with nothing visible it stops existing
+/// unless an invisible door is requested (<c>IslandHiddenAccess</c>).</para>
 /// </summary>
 public partial class IslandWindow
 {
@@ -43,58 +43,58 @@ public partial class IslandWindow
     private int HoverTolV => Math.Clamp(SettingsManager.Current.IslandHoverToleranceVertical < 0 ? 4 : SettingsManager.Current.IslandHoverToleranceVertical, 0, 40);
 
     /// <summary>
-    /// Tolerancia al abandonar el Island expandido (001 MOD RF-4): segundos de
-    /// espera a que el puntero vuelva antes de replegarse. Un roce al cambiar de
-    /// contenido o pasar de camino a otra ventana no debe cerrar la tarjeta.
+    /// Grace when leaving the expanded Island (001 MOD RF-4): seconds to wait for the
+    /// pointer to come back before folding away. A brush while content changes, or
+    /// passing on the way to another window, must not close the card.
     /// </summary>
     private const int HoverLeaveGraceMs = 2000;
 
     private void Box_MouseEnter(object sender, MouseEventArgs e) => HoverDetected();
 
     /// <summary>
-    /// Detección de puntero (001 MOD RF-3, RF-10): el hover SOLO produce el
-    /// micro-crecimiento vivo; abrir contenido exige un clic explícito
-    /// (HandleIslandClick). La zona de detección se mantiene, pero por sí sola
-    /// nunca despliega contenido. T2: hover sobre inactivo no redespliega hasta
-    /// nuevo activo o clic (001 MOD RF-4, 002 MOD RF-7). La dispara la
-    /// notificación nativa de entrada a la franja (o su fallback de 250 ms).
+    /// Pointer detection (001 MOD RF-3, RF-10): hover ONLY produces the live
+    /// micro-growth; opening content requires an explicit click (HandleIslandClick).
+    /// The detection zone is kept, but on its own it never expands content. T2:
+    /// hover over inactive does not re-expand until a new active item or a click
+    /// (001 MOD RF-4, 002 MOD RF-7). Fired by the native strip-entry notification
+    /// (or its 250 ms fallback).
     /// </summary>
     private void HoverDetected()
     {
-        // El puntero volvió: se descarta la espera del repliegue en curso. Va
-        // antes de cualquier salida temprana porque el gesto del usuario es el
-        // mismo aunque el Island esté a punto de replegarse (001 MOD RF-4).
+        // The pointer came back: the pending fold-back wait is discarded. It goes
+        // before any early exit because the user's gesture is the same even when the
+        // Island is about to fold away (001 MOD RF-4).
         CancelHoverLeave();
         if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
-        // Sin puerta viva la franja no existe: ni micro-crecimiento ni re-despliegue
-        // (el hook ya filtra, pero la caja también entra por aquí).
+        // Without a live door the strip does not exist: neither micro-growth nor
+        // re-expansion (the hook already filters, but the box also comes through here).
         if (!AccessZoneActive()) return;
-        // El dictado manda (RF-10): con una sesión en marcha la franja tampoco agranda ni
-        // saca al Island de su tarjeta. La franja es geometría —el hook nativo y el sondeo
-        // la detectan sin hit-test—, así que el veto tiene que estar aquí.
+        // Dictation wins (RF-10): with a session in progress the strip neither grows nor
+        // pulls the Island out of its card. The strip is geometry - the native hook
+        // and the poll detect it without hit-testing - so the veto has to live here.
         if (DictationActive()) return;
         if (_expanded || _drag || _reelDragging) return;
-        // Ultra compacto con el Island oculto del todo: no hay pieza ni cápsula a la que
-        // apuntar, así que la franja de arriba —de la línea de actividad al borde— lo
-        // trae de vuelta EXPANDIDO. Es la única puerta que queda; sin ella el Island
-        // solo asomaría con el próximo evento. El veto de reapertura sigue valiendo
-        // (no se resucita solo justo después de cerrarlo el usuario).
+        // Ultra compact with the Island fully hidden: there is no piece or capsule
+        // to point at, so the top strip - from the activity line to the edge - brings
+        // it back EXPANDED. It is the only door left; without it the Island would only
+        // peek out on the next event. The reopen veto still applies (it does not
+        // resurrect itself right after the user closed it).
         if (UltraCompactPullsFromTop)
         {
             if (DateTime.UtcNow < _hoverSnoozeUntil) return;
             if (ExpandLastUsable()) return;
         }
-        // T2: si ya estamos en reposo inactivo/nada por falta de activa vigente
-        // en Visible mientras activo, el hover NO redespliega compacto.
+        // T2: if we are already at inactive rest/nothing for lack of a current active item
+        // in Visible-while-active, hover does NOT re-expand the compact view.
         if (_inactiveShown) { /* solo micro-crecimiento, ya lo hace abajo */ }
         else if (SettingsManager.Current.IslandVisibilityMode == 0 && ResolveActiveVigenteForVisible() == null)
         {
-            // Sin activa vigente en Visible: no re-desplegar por hover.
-            // Se permite solo micro-crecimiento si ya hay caja visible.
+            // No current active item in Visible mode: do not re-expand on hover.
+            // Only micro-growth is allowed if a box is already visible.
             if (!IsBoxShown) return;
         }
-        // Anti-reapertura: el usuario acaba de ocultar la caja con el cursor
-        // encima; la detección no debe devolverle contenido de inmediato.
+        // Anti-reopen: the user just hid the box with the cursor on top of it; detection
+        // must not immediately give content back.
         if (DateTime.UtcNow < _hoverSnoozeUntil) return;
         if (!_inactiveHot)
         {
@@ -105,15 +105,14 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// ¿El puntero está dentro de la franja de detección? Prueba de rectángulo
-    /// contra la geometría cacheada (001 MOD RF-12): sin enumerar monitores, sin
-    /// consultar multimedia y sin despertar nada. La usa el hook nativo y el
-    /// fallback de 250 ms (001 MOD RF-3).
+    /// Is the pointer inside the detection strip? A rectangle test against the cached
+    /// geometry (001 MOD RF-12): no monitor enumeration, no media queries and nothing
+    /// woken up. The native hook and the 250 ms fallback use it (001 MOD RF-3).
     /// </summary>
     private bool FringeContains(int x, int y)
     {
         if (_disposed || !SettingsManager.Current.IslandEnabled || Suppressed()) return false;
-        // Sin puerta viva el puntero ni entra aquí: ni el hook ni el fallback.
+        // Without a live door the pointer does not even get here: neither hook nor fallback.
         if (!AccessZoneActive()) return false;
         var primary = PrimaryMonitor();
         if (!FringeBounds(primary, out double left, out double top, out double right, out double bottom)) return false;
@@ -121,11 +120,11 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// La banda de la franja en píxeles FÍSICOS del monitor: de dónde a dónde el puntero
-    /// pertenece a la manija. Es la ÚNICA geometría de la franja —la usan la detección
-    /// nativa, el fallback de 250 ms y el veto de repliegue— y su offset sale de la MISMA
-    /// regla que pinta la línea (<see cref="IslandLine.TopDip"/>), así que la zona no puede
-    /// quedar por encima ni por debajo de la raya que el usuario ve.
+    /// The strip's band in PHYSICAL monitor pixels: from where to where the pointer
+    /// belongs to the handle. It is the strip's ONLY geometry - used by the native
+    /// detection, the 250 ms fallback and the fold-back veto - and its offset comes
+    /// from the SAME rule that paints the line (<see cref="IslandLine.TopDip"/>), so
+    /// the zone cannot end up above or below the stripe the user sees.
     /// </summary>
     private bool FringeBounds(MonitorUtil.MonitorInfo primary,
         out double left, out double top, out double right, out double bottom)
@@ -136,9 +135,9 @@ public partial class IslandWindow
         double tolV = HoverTolV * primary.dpiY / 96.0;
         double half = IslandLine.BarWidth * 0.5 * primary.dpiX / 96.0 + tolH;
         double cx = primary.workArea.Left + primary.workArea.Width / 2.0;
-        // La ventana arranca en el borde del área de trabajo (PositionTopCenter): la
-        // franja no puede empezar más arriba que el propio Island, o el puntero cruzaría
-        // la barra de tareas para despertarlo.
+        // The window starts at the work-area edge (PositionTopCenter): the strip cannot
+        // start higher than the Island itself, or the pointer would have to cross the
+        // taskbar to wake it.
         top = primary.workArea.Top;
         bottom = top + (_lineTopDip + IslandLine.BarHeight) * primary.dpiY / 96.0 + tolV;
         left = cx - half;
@@ -147,10 +146,10 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// El puntero salió de la franja: solo se apaga el micro-crecimiento; el
-    /// repliegue real lo decide la reconciliación, que re-comprueba si el puntero
-    /// sigue sobre la caja o su franja (sin falsos cierres al pasar de la franja
-    /// a la caja).
+    /// The pointer left the strip: only the micro-growth is turned off; the actual
+    /// fold-back is decided by reconciliation, which re-checks whether the pointer is
+    /// still over the box or its strip (no false closes when moving from the strip
+    /// to the box).
     /// </summary>
     private void PointerLeftFringe()
     {
@@ -164,9 +163,9 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Fallback acotado de la franja (001 MOD RF-3): solo corre si el hook nativo
-    /// no está disponible; detecta cruces cada 250 ms y NUNCA consulta el gestor
-    /// multimedia. El clic abre igual, porque la franja sigue siendo hit-testeable.
+    /// Bounded strip fallback (001 MOD RF-3): it only runs when the native hook is
+    /// unavailable; it detects crossings every 250 ms and NEVER queries the media
+    /// manager. Clicking still opens, because the strip remains hit-testable.
     /// </summary>
     private void PollFringeFallback()
     {
@@ -194,16 +193,16 @@ public partial class IslandWindow
     }
 
     // ------------------------------------------------------------------
-    // Tolerancia al abandonar el expandido (001 MOD RF-4)
+    // Grace when leaving the expanded view (001 MOD RF-4)
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Espera del repliegue por puntero: al salir del expandido NO se repliega de
-    /// inmediato. Se espera <see cref="HoverLeaveGraceMs"/> a que el puntero vuelva
-    /// —mover el ratón a otra ventana, pasar por encima de camino a otro sitio o
-    /// un roce al cambiar de contenido no deben cerrar la tarjeta— y solo si no
-    /// vuelve se resuelve el repliegue. La espera se arma UNA vez: mientras está
-    /// pendiente, los avisos de la reconciliación no la prolongan ni la reinician.
+    /// Pointer fold-back wait: leaving the expanded view does NOT fold immediately.
+    /// It waits <see cref="HoverLeaveGraceMs"/> for the pointer to come back - moving
+    /// the mouse to another window, passing over on the way somewhere else, or a
+    /// brush while content changes must not close the card - and only if it does not
+    /// come back is the fold-back resolved. The wait is armed ONCE: while it is
+    /// pending, reconciliation notices neither extend nor restart it.
     /// </summary>
     private void ArmHoverLeave()
     {
@@ -215,8 +214,8 @@ public partial class IslandWindow
         {
             if (_disposed || version != _hoverLeaveVersion) return;
             _hoverLeavePending = false;
-            // El puntero está otra vez sobre el Island (o hay una interacción en
-            // curso): la tarjeta se queda como estaba.
+            // The pointer is over the Island again (or an interaction is in progress): the
+            // card stays as it was.
             if (!_expanded || _drag || _reelDragging || IsMouseOverBoxOrStrip()) return;
             if (Suppressed()) { HidePerMode(); return; }
             CollapseFromHover();
@@ -224,8 +223,8 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Cancela la espera vigente (el puntero volvió). El contador de versión
-    /// invalida el disparo programado, así que no queda ninguna cadena viva.
+    /// Cancels the pending wait (the pointer came back). The version counter
+    /// invalidates the scheduled trigger, so no live chain is left behind.
     /// </summary>
     private void CancelHoverLeave()
     {
@@ -235,14 +234,14 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Entrada del repliegue por puntero con tolerancia: arma la espera en vez de
-    /// replegar. La usan la salida del ratón, la rueda hacia arriba y la
-    /// reconciliación cuando el puntero ya no está encima.
+    /// Pointer fold-back entry with grace: it arms the wait instead of folding. Mouse
+    /// leave, the wheel up and reconciliation when the pointer is no longer on top
+    /// all use it.
     /// </summary>
     private void LeaveHover() => ArmHoverLeave();
 
-    // Cursor saliendo por arriba hacia el borde (hueco entre borde e isla): no colapsar,
-    // si no la notificación de entrada a la franja lo re-expande y se ve encoger-crecer.
+    // Cursor leaving upwards towards the edge (the gap between edge and island): do not
+    // collapse, otherwise the strip-entry notification re-expands it and you see it shrink-grow.
     private bool IsLeavingTowardTopEdge()
     {
         try
@@ -262,9 +261,9 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// ¿El cursor está sobre la caja, la franja o la zona de tolerancia vigente?
-    /// Se usa como veto de repliegue: mientras el puntero estorbe, el aviso
-    /// temporal no se cierra ni el hover se rearma a medias.
+    /// Is the cursor over the box, the strip or the current tolerance zone? It is
+    /// used as a fold-back veto: while the pointer is in the way, the temporary notice
+    /// does not close and hover does not re-arm halfway.
     /// </summary>
     private bool IsMouseOverBoxOrStrip()
     {
@@ -278,7 +277,7 @@ public partial class IslandWindow
             double tolH = HoverTolH * primary.dpiX / 96.0;
             double tolV = HoverTolV * primary.dpiY / 96.0;
             double cx = primary.workArea.Left + primary.workArea.Width / 2;
-            // Expandido: la zona es la caja abierta, con su alto real medido.
+            // Expanded: the zone is the open box, with its real measured height.
             if (_expanded || _p > 0.2)
             {
                 double expandedHalf = ContentExpandedWidth * 0.5 * primary.dpiX / 96.0 + tolH;
@@ -288,8 +287,8 @@ public partial class IslandWindow
                 double bottom = top + (_hexp + 8) * primary.dpiY / 96.0 + islandOff + tolV;
                 return p.Y >= top - 2 && p.Y <= bottom;
             }
-            // En reposo la zona es la franja de la manija: misma geometría que la
-            // detección nativa, y sin puerta no está «encima» de nada.
+            // At rest the zone is the handle's strip: the same geometry as the native
+            // detection, and with no door it is not "over" anything.
             if (!AccessZoneActive()) return false;
             if (!FringeBounds(primary, out double fringeLeft, out double fringeTop, out double fringeRight, out double fringeBottom)) return false;
             return p.X >= fringeLeft && p.X <= fringeRight && p.Y >= fringeTop && p.Y <= fringeBottom;
@@ -297,24 +296,24 @@ public partial class IslandWindow
         catch { return false; }
     }
 
-    // --- clics de apertura ---
+    // --- opening clicks ---
 
-    // --- pieza inactiva (001 MOD RF-16): hover micro-crece, clic abre la usable ---
+    // --- inactive piece (001 MOD RF-16): hover micro-grows, click opens the usable one ---
     private void InactiveZone_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
-        // Con la puerta cerrada la franja no existe: el clic no hace nada.
+        // With the door closed the strip does not exist: the click does nothing.
         if (!AccessZoneActive()) return;
-        // El clic completa el crecimiento y abre la última usable; sin usable
-        // no abre vista vacía (001 MOD RF-3, RF-9, RF-16).
+        // The click completes the growth and opens the last usable one; with none usable
+        // it does not open an empty view (001 MOD RF-3, RF-9, RF-16).
         if (!ExpandLastUsable())
             _hoverSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
     }
 
     /// <summary>
-    /// Clic en cualquier zona del island que no sea un control específico:
-    /// expande la última usable (001 MOD RF-3). Título, álbum, ecualizador y
-    /// reels tienen sus propios manejadores.
+    /// Click anywhere on the island that is not a specific control: it expands the
+    /// last usable one (001 MOD RF-3). Title, album, equalizer and reels have their
+    /// own handlers.
     /// </summary>
     private void HandleIslandClick(object sender, MouseButtonEventArgs e)
     {
@@ -323,8 +322,9 @@ public partial class IslandWindow
         ExpandLastUsable();
     }
 
-    // Clic en el título del compacto: abre el expandido de la última usable
-    // (001 MOD RF-3); el burbujeo lo resolvería igual, pero se marca a mano.
+    // Click on the compact view's title: it opens the expanded view of the last
+    // usable one (001 MOD RF-3); bubbling would resolve it the same way, but it is
+    // marked by hand.
     private void CompactMiddle_Click(object sender, MouseButtonEventArgs e)
     {
         if (_expanded) return;
@@ -334,24 +334,24 @@ public partial class IslandWindow
 
     private void IslandBox_Wheel(object sender, MouseWheelEventArgs e)
     {
-        // El hit-test ya está apagado durante el dictado (RF-10); esto cierra la puerta del
-        // todo por si el evento llegara por otra vía.
+        // Hit-testing is already off during dictation (RF-10); this closes the door for
+        // good in case the event arrives another way.
         if (DictationActive()) return;
-        // Rueda en expandido: pasa a la siguiente PANTALLA con algo usable (002 MOD
-        // RF-3/RF-9; change island-pantallas RF-4: la unidad es la pantalla); hacia
-        // arriba compacta sin cambiar de pantalla.
+        // Wheel while expanded: it moves to the next SCREEN with something usable
+        // (002 MOD RF-3/RF-9; change island-pantallas RF-4: the unit is the screen);
+        // up it compacts without changing screen.
         if (_expanded && UsableScreenCount() > 1)
         {
             if (e.OriginalSource is DependencyObject wheelSrc && (Seekbar.IsAncestorOf(wheelSrc) || TimerPresetList.IsAncestorOf(wheelSrc) || TimerConfigGrid.IsAncestorOf(wheelSrc))) return;
             if (e.Delta < 0) CycleMode();
-            // Gesto explícito: la rueda repliega ya, sin la tolerancia del puntero.
+            // Explicit gesture: the wheel folds right away, without the pointer grace.
             else if (e.Delta > 0) CollapseFromHover();
             e.Handled = true;
             return;
         }
         if (_expanded) return;
-        // En compacto, la rueda hacia abajo es selección explícita de contenido
-        // (equivale al clic, 001 MOD RF-3); hacia arriba ya está compacto.
+        // In compact, the wheel down is an explicit content selection (equivalent to a
+        // click, 001 MOD RF-3); up it is already compact.
         if (Math.Clamp(SettingsManager.Current.IslandExpandTrigger, 0, 2) is not (1 or 2)) return;
         if (e.OriginalSource is DependencyObject src && Seekbar.IsAncestorOf(src)) return;
         if (e.Delta < 0)

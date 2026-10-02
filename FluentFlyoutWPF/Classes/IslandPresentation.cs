@@ -3,26 +3,26 @@
 
 namespace FluentFlyoutWPF.Classes;
 
-/// <summary>Vista que el contenedor debe mostrar AHORA (change island-lista-de-activos).</summary>
+/// <summary>View the container must show RIGHT NOW (change island-lista-de-activos).</summary>
 public enum IslandDesiredView
 {
-    /// <summary>Nada: ni pieza ni caja (supresión, o reposo sin pieza).</summary>
+    /// <summary>Nothing: neither piece nor box (suppressed, or rest without piece).</summary>
     Hidden,
 
-    /// <summary>La pieza inactiva (cuadrado oscuro estrecho).</summary>
+    /// <summary>The inactive piece (narrow dark square).</summary>
     Inactive,
 
-    /// <summary>El compacto de una funcionalidad (lo activo, en el mismo turno).</summary>
+    /// <summary>A feature's compact view (the active item, in the same turn).</summary>
     Compact,
 
-    /// <summary>El expandido de una funcionalidad o de su pantalla.</summary>
+    /// <summary>The expanded view of a feature or of its screen.</summary>
     Expanded,
 }
 
 /// <summary>
-/// Todo lo que la política necesita saber para decidir la vista. Es un snapshot: la
-/// política no consulta nada por su cuenta (ni ajustes, ni el sistema multimedia, ni
-/// Windows), así que es pura y comprobable.
+/// Everything the policy needs to know to decide the view. It is a snapshot: the
+/// policy queries nothing on its own (no settings, no media system, no Windows), so it
+/// is pure and testable.
 /// </summary>
 public readonly record struct IslandPresentationInput(
     bool Suppressed,
@@ -33,14 +33,15 @@ public readonly record struct IslandPresentationInput(
     string? PresentedNoticeId,
     DateTime PresentedNoticeStarted,
     IReadOnlyList<string> ScreenOrderedIds,
-    /// <summary>Funcionalidades que TIENEN expandido propio: las de una pantalla. Una exclusiva
-    /// sin expandido (el dictado) vive en el compacto, así que no se despliega.</summary>
+    /// <summary>Features that HAVE their own expanded view: the ones of a screen. An
+    /// exclusive without expanded view (dictation) lives in the compact view, so it is
+    /// not expanded.</summary>
     IReadOnlyList<string> ExpandableIds,
     IReadOnlyList<string> UsableIds,
     IslandActivityRegistry Activity,
     DateTime Now);
 
-/// <summary>Vista deseada, con la funcionalidad que la sostiene y el plazo del aviso.</summary>
+/// <summary>Desired view, with the feature holding it and the notice deadline.</summary>
 public readonly record struct IslandPresentationResult(
     IslandDesiredView View,
     string? FeatureId,
@@ -48,35 +49,35 @@ public readonly record struct IslandPresentationResult(
     bool AlwaysTemporal);
 
 /// <summary>
-/// POLÍTICA de presentación del Island (change island-lista-de-activos): traduce la LISTA
-/// DE EVENTOS ACTIVOS a UNA vista deseada, en un solo sitio y sin ramas por modo
-/// repartidas por medio contenedor.
+/// The Island presentation POLICY (change island-lista-de-activos): it translates the
+/// LIST OF ACTIVE EVENTS into ONE desired view, in a single place and without per-mode
+/// branches scattered through half the container.
 ///
-/// <para>Reglas, en este orden:</para>
+/// <para>Rules, in this order:</para>
 /// <list type="number">
-/// <item>Acceso exclusivo vigente → su vista expandida; manda sobre todo y atraviesa la
-/// supresión (001 RF-8/14, 002 RF-2, spec 006 RF-9).</item>
-/// <item>Supresión contextual → nada (001 MOD RF-14).</item>
-/// <item>El expandido que el usuario tiene abierto → se respeta: un evento ordinario no le
-/// quita la vista que él decidió abrir (001 RF-24).</item>
-/// <item>Actividad viva → el COMPACTO de la ganadora: la del evento más reciente y, a
-/// igualdad, la primera del orden de las pantallas (001 MOD RF-4/RF-12). Un aviso nuevo
-/// estrena su plazo; re-presentar el mismo no lo reinicia (001 RF-2).</item>
-/// <item>Sin actividad → reposo: la pieza inactiva si el ajuste la pide y hay algo usable
-/// que abrir; si no, nada (001 MOD RF-2).</item>
+/// <item>Live exclusive access -> its expanded view; it overrides everything and goes
+/// through suppression (001 RF-8/14, 002 RF-2, spec 006 RF-9).</item>
+/// <item>Contextual suppression -> nothing (001 MOD RF-14).</item>
+/// <item>The expanded view the user has open -> respected: an ordinary event does not
+/// take away the view they decided to open (001 RF-24).</item>
+/// <item>Live activity -> the COMPACT view of the winner: the most recent event and, on
+/// a tie, the first in screen order (001 MOD RF-4/RF-12). A new notice premieres its
+/// deadline; re-presenting the same one does not restart it (001 RF-2).</item>
+/// <item>No activity -> rest: the inactive piece if the setting asks for it and there is
+/// something usable to open; otherwise nothing (001 MOD RF-2).</item>
 /// </list>
 ///
-/// <para>Antes estas reglas estaban escritas seis veces —en la actividad orientada a
-/// eventos, en los replegues, en el aviso y en los ajustes—, cada una con sus guardas: de
-/// ahí salían los compactos que tardaban en aparecer y los que no aparecían nunca.</para>
+/// <para>These rules used to be written six times - in the event-driven activity, in the
+/// fold-backs, in the notice and in the settings - each with its own guards: from that
+/// came the compact views that took long to appear and the ones that never appeared.</para>
 /// </summary>
 public static class IslandPresentation
 {
-    /// <summary>Vista que toca mostrar con el estado dado.</summary>
+    /// <summary>View to show given this state.</summary>
     public static IslandPresentationResult Resolve(IslandPresentationInput input)
     {
-        // 1. La exclusiva manda: la alerta del temporizador (tiene expandido) y el dictado
-        // en marcha (su tarjeta vive en el compacto, fuera de las pantallas).
+        // 1. The exclusive wins: the timer alert (it has an expanded view) and dictation
+        // in progress (its card lives in the compact view, outside the screens).
         if (input.Activity.ExclusiveId(input.Now) is { } exclusive && IsUsable(input, exclusive))
         {
             bool expandable = input.ExpandableIds.Contains(exclusive);
@@ -85,14 +86,14 @@ public static class IslandPresentation
                 exclusive, RestartNotice: !expandable, AlwaysTemporal: !expandable);
         }
 
-        // 2. Suprimido (juego a pantalla completa, presentación, equipo bloqueado): nada.
+        // 2. Suppressed (fullscreen game, presentation, locked machine): nothing.
         if (input.Suppressed) return new IslandPresentationResult(IslandDesiredView.Hidden, null, false, false);
 
-        // 3. El expandido que el usuario abrió se respeta mientras nada exclusivo lo tome.
+        // 3. The expanded view the user opened is respected while nothing exclusive takes it.
         if (input.UserExpanded)
             return new IslandPresentationResult(IslandDesiredView.Expanded, input.UserExpandedFeatureId, false, false);
 
-        // 4. La lista de activos: gana la del evento más reciente, empate por pantallas.
+        // 4. The active list: the most recent event wins, ties broken by screen order.
         var winner = Winner(input);
         if (winner is { } entry)
         {
@@ -103,15 +104,15 @@ public static class IslandPresentation
                 notice && entry.AlwaysTemporal);
         }
 
-        // 5. Reposo: la pieza inactiva o nada.
+        // 5. Rest: the inactive piece or nothing.
         bool piece = input.ReturnToInactive && input.AnyScreenUsable;
         return new IslandPresentationResult(piece ? IslandDesiredView.Inactive : IslandDesiredView.Hidden, null, false, false);
     }
 
     /// <summary>
-    /// Entrada ganadora: la más reciente de las que están vivas Y son usables, con las
-    /// candidatas en ORDEN DE PANTALLAS —que es el desempate— y la elección en la política
-    /// pura de siempre (<see cref="IslandActivityPick"/>).
+    /// Winning entry: the most recent of those that are alive AND usable, with the
+    /// candidates in SCREEN ORDER - which is the tie-break - and the choice made in the
+    /// usual pure policy (<see cref="IslandActivityPick"/>).
     /// </summary>
     private static IslandActivityEntry? Winner(IslandPresentationInput input)
     {
@@ -129,6 +130,6 @@ public static class IslandPresentation
         return index < 0 ? null : entries[index];
     }
 
-    /// <summary>¿Esta funcionalidad puede abrirse ahora mismo? (habilitada y disponible).</summary>
+    /// <summary>Can this feature be opened right now? (enabled and available).</summary>
     private static bool IsUsable(IslandPresentationInput input, string id) => input.UsableIds.Contains(id);
 }

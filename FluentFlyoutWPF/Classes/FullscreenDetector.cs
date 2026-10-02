@@ -24,17 +24,17 @@ internal class FullscreenDetector
     }
 
     /// <summary>
-    /// ¿El shell está en un estado de pantalla completa (o de equipo ausente)?
+    /// Is the shell in a fullscreen (or absent machine) state?
     ///
-    /// <para>A diferencia de <see cref="IsFullscreenApplicationRunning"/> —que solo
-    /// reconoce el D3D EXCLUSIVO y depende del ajuste del Media Flyout—, este
-    /// reconoce también <c>QUNS_BUSY</c> (el estado que reportan los juegos y los
-    /// vídeos a pantalla completa SIN bordes, que no son D3D exclusivos) y
-    /// <c>QUNS_PRESENTATION_MODE</c> (presentaciones), además del equipo bloqueado
-    /// (<c>QUNS_NOT_PRESENT</c>). El Island se aparta con él: quedarse encima de un
-    /// juego era justo el caso que no se detectaba (001 RF-8/14).</para>
+    /// <para>Unlike <see cref="IsFullscreenApplicationRunning"/> - which only recognizes
+    /// EXCLUSIVE D3D and depends on the Media Flyout setting - this one also recognizes
+    /// <c>QUNS_BUSY</c> (the state reported by games and borderless fullscreen video,
+    /// which are not exclusive D3D) and <c>QUNS_PRESENTATION_MODE</c> (presentations),
+    /// plus the locked machine (<c>QUNS_NOT_PRESENT</c>). The Island steps aside with
+    /// it: staying on top of a game was exactly the case that went undetected
+    /// (001 RF-8/14).</para>
     ///
-    /// <para>No mira ningún ajuste: quien llama decide (el Island tiene el suyo).</para>
+    /// <para>It looks at no setting: the caller decides (the Island has its own).</para>
     /// </summary>
     public static bool IsFullscreenOrAwayState()
     {
@@ -49,8 +49,8 @@ internal class FullscreenDetector
     }
 
     /// <summary>
-    /// Estado de notificaciones del shell, o null si la consulta falla (nunca
-    /// lanza: la detección de pantalla completa no puede tumbar al contenedor).
+    /// The shell's UI settings state, or null if the query fails (it never throws:
+    /// fullscreen detection must not be able to take the container down).
     /// </summary>
     private static QUERY_USER_NOTIFICATION_STATE? QueryState()
     {
