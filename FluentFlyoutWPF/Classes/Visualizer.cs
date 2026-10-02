@@ -6,6 +6,7 @@ using FluentFlyout.Classes.Utils;
 using FluentFlyout.Controls.TaskbarWidget;
 using Microsoft.Win32;
 using NAudio.CoreAudioApi;
+using NAudio.CoreAudioApi.Interfaces;
 using NAudio.Dsp;
 using NAudio.Wave;
 using System.Diagnostics;
@@ -398,22 +399,32 @@ namespace FluentFlyoutWPF.Classes
 
                 // Dead-capture watchdog: ticks every second and only restarts
                 // capture — it never touches visuals (bars rest at zero through
-                // the data-stall fallback in RenderFrame). Published via
-                // Interlocked.Exchange so a concurrent StopCapture can never
-                // miss it (the old callback-then-assign race leaked a running
-                // timer that kept restarting a stopped capture).
+                // the data-stall fallback in RenderFrame) — and it only does so
+                // while the endpoint is really rendering (EndpointRendering),
+                // never on a quiet device. Published via Interlocked.Exchange so
+                // a concurrent StopCapture can never miss it (the old
+                // callback-then-assign race leaked a running timer that kept
+                // restarting a stopped capture).
                 var watchdog = new System.Timers.Timer(1000)
                 {
                     AutoReset = true
                 };
                 watchdog.Elapsed += (_, _) =>
                 {
-                    if (_isRunning && !_disposed
-                        && _opts.Enabled()
-                        && DateTime.UtcNow - _lastDataAvailableUtc > TimeSpan.FromSeconds(2))
-                    {
-                        RequestRestart("no capture callbacks for over 2s");
-                    }
+                    if (!_isRunning || _disposed || !_opts.Enabled())
+                        return;
+                    if (DateTime.UtcNow - _lastDataAvailableUtc <= TimeSpan.FromSeconds(2))
+                        return;
+
+                    // El loopback solo reparte paquetes mientras algo renderiza en el
+                    // endpoint: sin sesiones activas la falta de callbacks es el reposo
+                    // normal (el visualizador vive armado sin música), no una captura
+                    // muerta. Sin este filtro, cada tramo de silencio recreaba el cliente
+                    // WASAPI cada pocos segundos, indefinidamente.
+                    if (!EndpointRendering())
+                        return;
+
+                    RequestRestart("endpoint rendering with no capture callbacks for over 2s");
                 };
                 watchdog.Start();
                 var previousWatchdog = Interlocked.Exchange(ref _captureWatchdog, watchdog);
@@ -474,6 +485,42 @@ namespace FluentFlyoutWPF.Classes
             {
                 watchdog.Stop();
                 watchdog.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// ¿Hay algún flujo renderizando en el endpoint capturado? El loopback de WASAPI
+        /// solo entrega paquetes mientras algo reproduce: sin sesiones activas, el
+        /// silencio de callbacks es el reposo normal del endpoint (el visualizador vive
+        /// armado sin música), no una captura muerta. Con una sesión activa, en cambio, sí
+        /// delata un flujo roto y justifica el reinicio. La colección de sesiones es una
+        /// foto del momento en que nació el gestor, así que se refresca antes de cada
+        /// veredicto para no perder las sesiones nuevas.
+        /// </summary>
+        private bool EndpointRendering()
+        {
+            try
+            {
+                var device = _renderDevice;
+                if (device == null)
+                    return false;
+
+                var manager = device.AudioSessionManager;
+                manager.RefreshSessions();
+                var sessions = manager.Sessions;
+                for (int i = 0; i < sessions.Count; i++)
+                {
+                    using var session = sessions[i];
+                    if (session.State == AudioSessionState.AudioSessionStateActive)
+                        return true;
+                }
+                return false;
+            }
+            catch
+            {
+                // Endpoint en reconfiguración o ya liberado: el veredicto se aplaza al
+                // siguiente latido en vez de arriesgar un falso reinicio.
+                return false;
             }
         }
 
