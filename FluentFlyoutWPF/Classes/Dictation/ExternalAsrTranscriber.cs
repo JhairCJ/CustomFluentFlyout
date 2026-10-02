@@ -14,9 +14,9 @@ using System.Text.Json;
 namespace FluentFlyoutWPF.Classes.Dictation;
 
 /// <summary>
-/// Puente para modelos que no son Whisper GGML. Qwen usa el paquete oficial qwen-asr y
-/// Los modelos NVIDIA usan el servidor HTTP local de NeMo-Speech.cpp cuando está disponible;
-/// ambos workers se cargan y liberan mediante la misma interfaz.
+/// Bridge for models that are not Whisper GGML. Qwen uses the official qwen-asr package
+/// and NVIDIA models use the local NeMo-Speech.cpp HTTP server when it is available; both
+/// workers are loaded and released through the same interface.
 /// </summary>
 public sealed class ExternalAsrTranscriber : IDisposable
 {
@@ -52,7 +52,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
     public bool UsingGpu => (_qwenProcess is { HasExited: false } && _qwenUseGpu)
         || (_nemoProcess is { HasExited: false } && _nemoUseGpu);
 
-    /// <summary>Carga el worker externo del modelo, si su backend admite precarga.</summary>
+    /// <summary>Loads the model's external worker, if its backend supports preloading.</summary>
     public async Task EnsureLoadedAsync(
         DictationModelInfo model,
         string modelPath,
@@ -112,8 +112,8 @@ public sealed class ExternalAsrTranscriber : IDisposable
     }
 
     /// <summary>
-    /// Libera todos los workers externos para no mantener sus pesos en RAM o VRAM mientras
-    /// el dictado está inactivo.
+    /// Releases every external worker so their weights do not sit in RAM or VRAM while
+    /// dictation is idle.
     /// </summary>
     public async Task ReleaseLoadedResourcesAsync()
     {
@@ -189,8 +189,8 @@ public sealed class ExternalAsrTranscriber : IDisposable
             }
             catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {
-                // Un fallo del CLI no demuestra que el servidor sea incompatible;
-                // vuelve a probarlo en la siguiente sesión por si el fallo fue transitorio.
+                // A CLI failure does not prove the server is incompatible;
+                // try it again next session in case the failure was transient.
                 _nemoServerUnavailable = false;
                 _nemoUnavailableModelPath = null;
                 Logger.Warn(
@@ -289,8 +289,8 @@ public sealed class ExternalAsrTranscriber : IDisposable
         startInfo.ArgumentList.Add(modelPath);
         startInfo.ArgumentList.Add("--gpu");
         startInfo.ArgumentList.Add(useGpu ? "0" : "-1");
-        // La app serializa los dictados; el batching de serve no aporta nada y
-        // puede llevar a una ruta de asignación GGML inestable en este runtime.
+        // The app serializes dictations; serve batching gains nothing and can lead to an
+        // unstable GGML allocation path in this runtime.
         startInfo.ArgumentList.Add("--asr.batching.enabled=false");
 
         Process process;
@@ -356,11 +356,11 @@ public sealed class ExternalAsrTranscriber : IDisposable
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                // El servidor aún no ha abierto el listener.
+                // The server has not opened the listener yet.
             }
             catch (HttpRequestException)
             {
-                // El servidor aún está cargando el modelo.
+                // The server is still loading the model.
             }
 
             await Task.Delay(NemoPollInterval, cancellationToken);
@@ -485,11 +485,11 @@ public sealed class ExternalAsrTranscriber : IDisposable
         }
         catch (ObjectDisposedException)
         {
-            // El proceso se cerró al liberar el worker.
+            // The process was closed when the worker was released.
         }
         catch (IOException)
         {
-            // El proceso pudo cerrar el pipe durante la cancelación.
+            // The process may have closed the pipe during cancellation.
         }
     }
 
@@ -521,8 +521,8 @@ public sealed class ExternalAsrTranscriber : IDisposable
             }
             catch
             {
-                // Si se cancela o se rompe el protocolo, se descarta el worker para que la
-                // siguiente sesión no lea una respuesta vieja.
+                // If it is cancelled or the protocol breaks, the worker is discarded so the next
+                // session cannot read a stale response.
                 StopQwenProcess();
                 throw;
             }
@@ -670,35 +670,57 @@ public sealed class ExternalAsrTranscriber : IDisposable
         _ => null,
     };
 
+    /// <summary>
+    /// Writes the captured audio as a 16 kHz mono PCM16 WAV file.
+    ///
+    /// <para>The payload is encoded straight into one byte buffer and handed to the file
+    /// in a single write. Going sample by sample through a BinaryWriter meant one call
+    /// per sample - a few hundred thousand of them for a normal phrase - and sat right
+    /// between the hotkey coming back and the recognizer getting the file.</para>
+    /// </summary>
     private static void WriteWaveFile(string path, float[] samples)
     {
         const short channels = 1;
         const short bitsPerSample = 16;
         const int sampleRate = 16_000;
+        const int headerSize = 44;
         int bytesPerSample = bitsPerSample / 8;
         int dataSize = checked(samples.Length * bytesPerSample);
 
-        using var stream = File.Create(path);
-        using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: false);
-        writer.Write(Encoding.ASCII.GetBytes("RIFF"));
-        writer.Write(36 + dataSize);
-        writer.Write(Encoding.ASCII.GetBytes("WAVE"));
-        writer.Write(Encoding.ASCII.GetBytes("fmt "));
-        writer.Write(16);
-        writer.Write((short)1);
-        writer.Write(channels);
-        writer.Write(sampleRate);
-        writer.Write(sampleRate * channels * bytesPerSample);
-        writer.Write((short)(channels * bytesPerSample));
-        writer.Write(bitsPerSample);
-        writer.Write(Encoding.ASCII.GetBytes("data"));
-        writer.Write(dataSize);
+        byte[] buffer = new byte[headerSize + dataSize];
+        Span<byte> span = buffer;
 
-        foreach (float sample in samples)
+        // RIFF / WAVE / fmt  / data, little endian, with a 16-byte PCM fmt chunk.
+        "RIFF"u8.CopyTo(span);
+        BitConverter.TryWriteBytes(span[4..], 36 + dataSize);
+        "WAVE"u8.CopyTo(span[8..]);
+        "fmt "u8.CopyTo(span[12..]);
+        BitConverter.TryWriteBytes(span[16..], 16);
+        BitConverter.TryWriteBytes(span[20..], (short)1);
+        BitConverter.TryWriteBytes(span[22..], channels);
+        BitConverter.TryWriteBytes(span[24..], sampleRate);
+        BitConverter.TryWriteBytes(span[28..], sampleRate * channels * bytesPerSample);
+        BitConverter.TryWriteBytes(span[32..], (short)(channels * bytesPerSample));
+        BitConverter.TryWriteBytes(span[34..], bitsPerSample);
+        "data"u8.CopyTo(span[36..]);
+        BitConverter.TryWriteBytes(span[40..], dataSize);
+
+        Span<byte> payload = span[headerSize..];
+        for (int i = 0; i < samples.Length; i++)
         {
+            float sample = samples[i];
             float safeSample = float.IsFinite(sample) ? Math.Clamp(sample, -1f, 1f) : 0f;
-            writer.Write((short)Math.Round(safeSample * short.MaxValue));
+            BitConverter.TryWriteBytes(payload[(i * 2)..], (short)MathF.Round(safeSample * short.MaxValue));
         }
+
+        using FileStream stream = new(
+            path,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            headerSize + dataSize,
+            FileOptions.SequentialScan);
+        stream.Write(buffer);
     }
 
     private void StopQwenProcess()
@@ -745,7 +767,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
         }
         catch (IOException)
         {
-            // El audio temporal no debe ocultar el resultado de la transcripción.
+            // The temporary audio must not hide the transcription result.
         }
     }
 

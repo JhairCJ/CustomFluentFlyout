@@ -6,20 +6,20 @@ using System.IO;
 namespace FluentFlyoutWPF.Classes.Dictation;
 
 /// <summary>
-/// Interruptor de seguridad del motor CUDA del dictado.
+/// Safety switch for the dictation CUDA engine.
 ///
-/// <para>Cargar CUDA dentro del proceso es la maniobra más frágil de toda la app: la
-/// avería típica —un controlador NVIDIA instalado a medias— revienta (c0000005) o se
-/// cuelga DENTRO de la DLL nativa, sin excepción gestionada que contener: ningún
-/// try/catch la intercepta. Cuando eso pasa, el proceso muere con el flyout abierto
-/// y sin nadie que devuelva al shell lo que se le hubiera tomado prestado.</para>
+/// <para>Loading CUDA inside the process is the most fragile maneuver in the whole
+/// app: the typical failure - a half-installed NVIDIA driver - crashes (c0000005) or
+/// hangs INSIDE the native DLL, with no managed exception to contain: no try/catch
+/// catches it. When that happens the process dies with the flyout open and nobody to
+/// give the shell back what it had borrowed.</para>
 ///
-/// <para>Como el fallo no se puede contener, la única defensa es no repetirlo: antes
-/// de cargar CUDA se deja un aviso en disco y solo se borra cuando la carga termina
-/// bien y la primera inferencia sale adelante (o cuando la app cierra ordenadamente).
-/// Si el proceso muere de forma sucia con el aviso puesto, el siguiente arranque lo
-/// lee, apaga la aceleración y dicta en CPU: el usuario puede volver a activarla
-/// cuando arregle el controlador.</para>
+/// <para>Since the failure cannot be contained, the only defense is not repeating it:
+/// before loading CUDA a notice is left on disk and it is only deleted when the load
+/// finishes well and the first inference gets through (or when the app shuts down
+/// cleanly). If the process dies dirty with the notice in place, the next startup
+/// reads it, turns acceleration off and dictates on CPU: the user can turn it back on
+/// once the driver is fixed.</para>
 /// </summary>
 internal static class DictationGpuSafety
 {
@@ -30,15 +30,15 @@ internal static class DictationGpuSafety
     private static bool _previousCrash;
     private static bool _armed;
 
-    /// <summary>Aviso que deja la sesión viva para la siguiente (junto a los ajustes).</summary>
+    /// <summary>Notice a live session leaves for the next one (next to the settings).</summary>
     private static string MarkerPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "FluentFlyout",
         "dictation-gpu.pending");
 
     /// <summary>
-    /// ¿El arranque anterior murió con una carga de CUDA a medias? Se lee una sola vez
-    /// en toda la sesión y consume el aviso: la respuesta ya no cambia.
+    /// Did the previous startup die with a CUDA load half done? Read once per session and
+    /// it consumes the notice: the answer does not change afterwards.
     /// </summary>
     public static bool PreviousLoadCrashed
     {
@@ -71,10 +71,10 @@ internal static class DictationGpuSafety
     }
 
     /// <summary>
-    /// Deja el aviso en disco antes de tocar el runtime nativo. Se escribe en un
-    /// archivo aparte y no dentro de los ajustes a propósito: si el proceso muere a
-    /// mitad de la carga, el disco tiene que contar lo que pasó sin depender de que
-    /// nadie llegue a guardar nada más.
+    /// Leaves the notice on disk before touching the native runtime. It is written to a
+    /// separate file and not into the settings on purpose: if the process dies halfway
+    /// through the load, disk has to tell what happened without depending on anyone
+    /// getting to save anything else.
     /// </summary>
     public static void Arm()
     {
@@ -98,8 +98,8 @@ internal static class DictationGpuSafety
     }
 
     /// <summary>
-    /// Retira el aviso: la carga terminó bien y el motor ya está en marcha (o la app
-    /// cierra ordenadamente, que no es un fallo).
+    /// Withdraws the notice: the load finished well and the engine is running (or the
+    /// app is closing cleanly, which is not a failure).
     /// </summary>
     public static void Disarm()
     {

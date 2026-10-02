@@ -23,66 +23,65 @@ using static WindowsMediaController.MediaManager;
 namespace FluentFlyoutWPF.Windows;
 
 /// <summary>
-/// Contenido musical del Island: seguimiento de sesiones multimedia, snapshot
-/// de la sesión presentada, presentación (título, autor, carátula, capacidades
+/// Island music content: media session tracking, snapshot of the presented
+/// session, presentation (title, artist, artwork, capabilities
 /// y seek) y controles.
 ///
-/// <para>El Island NO depende del pipeline de media para existir: su estado
-/// musical vive SOLO en el snapshot (<see cref="IslandMediaSnapshot"/>),
-/// actualizado por los eventos de sesión. El reposo, la franja de hover, el
-/// punto de estado y el motor de animación jamás consultan el gestor
-/// multimedia; sin sesiones el Island solo tiene el temporizador como
-/// contenido disponible (001 MOD RF-11, RF-13).</para>
+/// <para>The Island does NOT depend on the media pipeline to exist: its music
+/// state lives ONLY in the snapshot (<see cref="IslandMediaSnapshot"/>), updated
+/// by session events. Rest, the hover strip, the status dot and the animation
+/// engine never query the media manager; without sessions the Island only has
+/// the timer as available content (001 MOD RF-11, RF-13).</para>
 /// </summary>
 public partial class IslandWindow
 {
     // ------------------------------------------------------------------
-    // Desacoplamiento del control multimedia (change island-contenedor-refactor)
+    // Media control decoupling (change island-contenedor-refactor)
     // ------------------------------------------------------------------
     private sealed record IslandMediaSnapshot(
         string Id,
         GlobalSystemMediaTransportControlsSessionPlaybackStatus Status);
 
     private IslandMediaSnapshot? _music;
-    // ¿El último cambio de media trajo metadata nueva (título/portada)? Se
-    // consume en la reconciliación para decidir el activador de cambio de pista
-    // sin inspeccionar eventos ya coalescidos (001 MOD RF-1).
+    // Did the last media change bring new metadata (title/artwork)? It is consumed
+    // during reconciliation to decide the track-change trigger without inspecting
+    // events that are already coalesced (001 MOD RF-1).
     private bool _mediaMetadataChanged;
-    // Identidad de la pista presentada (título + autor): un cambio aquí ES un cambio de
-    // canción, con independencia del estado de reproducción que reporte el reproductor
-    // —algunos no emiten metadata y solo anuncian la pista nueva por el estado, y otros
-    // transicionan por None/Opened y un cambio que llegaba en ese estado no mostraba
-    // nada—. Las reglas del detector viven en MediaTrackIdentity (puro y comprobado).
+    // Identity of the presented track (title + artist): a change here IS a
+    // song change, regardless of the playback state the player reports - some emit no
+    // metadata and only announce the new track through the state, and others pass
+    // through None/Opened, where a change arriving in that state showed nothing. The
+    // detector rules live in MediaTrackIdentity (pure and tested).
     private readonly MediaTrackIdentity _trackIdentity = new();
-    // ¿El último evento de media trajo una canción DISTINTA (nombre o autor)?
+    // Did the last media event bring a DIFFERENT song (name or artist)?
     private bool _pendingTrackChange;
     private GlobalSystemMediaTransportControlsSessionPlaybackStatus? _lastStatus;
 
     // --- memos de lectura de SMTC ---
-    // Todo lo que el Island pregunta al sistema multimedia son cruces de proceso:
-    // estado de reproducción de cada sesión, propiedades (título/autor/carátula) y
-    // capacidades. Antes cada repintado volvía a pedirlas —con una llamada BLOQUEANTE
-    // en el hilo de UI— y una sola reconciliación las pedía varias veces (activa
-    // vigente, ecualizador, botón del ecualizador, capacidades). Así se leen una vez y
-    // se reutilizan hasta que algo pueda haber cambiado:
-    // - el estado vive lo que dura la PASADA (una reconciliación o un evento);
-    // - las propiedades las entrega el propio evento de metadata, que ya las trae.
-    // Ninguno de los dos alarga la vida de un dato más allá del evento siguiente, así
-    // que una reproducción que no emita evento sigue detectándose igual que antes.
+    // Everything the Island asks the media system is a cross-process call: each
+    // session's playback state, its properties (title/artist/artwork) and its
+    // capabilities. Every repaint used to ask for them again - with a BLOCKING call
+    // on the UI thread - and a single reconciliation asked several times (current
+    // active item, equalizer, equalizer button, capabilities). Now they are read once
+    // and reused until something could have changed them:
+    // - the state lives as long as the PASS (one reconciliation or one event);
+    // - the properties come from the metadata event itself, which already carries them.
+    // Neither of the two extends a datum's life past the next event, so playback that
+    // emits no event is still detected exactly as before.
     private readonly Dictionary<string, GlobalSystemMediaTransportControlsSessionPlaybackStatus?> _statusMemo = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IslandMediaProps> _propsMemo = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Propiedades de una sesión ya listas para pintar: título, autor, carátula y el
-    /// hash que detecta el cambio de carátula.
+    /// A session's properties, already ready to draw: title, artist, artwork and the
+    /// hash that detects an artwork change.
     /// </summary>
     private sealed record IslandMediaProps(string Title, string Artist, BitmapImage? Artwork, int ArtworkHash);
 
     private bool MusicAvailable() => _music != null;
 
     /// <summary>
-    /// Invalida los memos de lectura: se llama al empezar una pasada de reconciliación y
-    /// al recibir un evento del sistema, que es cuando el estado puede haber cambiado.
+    /// Invalidates the read memos: called at the start of a reconciliation pass and on
+    /// receiving a system event, which is when the state may have changed.
     /// </summary>
     private void InvalidateMediaReads(bool props = false)
     {
@@ -91,9 +90,9 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Engancha/desengancha los eventos del control multimedia del Island.
-    /// El Island SIEMPRE sigue las sesiones (es su propio contenido); el
-    /// parámetro existe para desenganchar limpiamente al cerrar.
+    /// Hooks/unhooks the Island media control events.
+    /// The Island ALWAYS follows sessions (they are its own content); the
+    /// parameter exists to unhook cleanly on close.
     /// </summary>
     private void HookMediaEvents(bool on)
     {
@@ -119,18 +118,18 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Reengancha el seguimiento de sesiones según pueda usarse o no: sin contenido
-    /// musical disponible (Island apagado o «Control multimedia» apagado) no se escucha
-    /// nada del sistema —ni eventos, ni memos, ni carátulas—. Para quien solo quiere
-    /// avisos temporales (Bluetooth, dictado) el gestor multimedia deja de despertar al
-    /// Island por completo.
+    /// Re-hooks session tracking depending on whether it can be used: with no music
+    /// content available (Island off or "Media control" off) nothing from the system
+    /// is listened to - no events, no memos, no artwork. For someone who only wants
+    /// temporary notices (Bluetooth, dictation) the media manager stops waking the
+    /// Island altogether.
     /// </summary>
     private void SyncMediaHooks() => HookMediaEvents(MediaContentAvailable());
 
     /// <summary>
-    /// Cambio del ajuste «Control multimedia» del Island: con el contenido
-    /// apagado se libera el snapshot (sin vista musical vacía) y la vista
-    /// vuelve al temporizador o se oculta; con él encendido se reconcilia.
+    /// Change of the Island "Media control" setting: with content off the snapshot is
+    /// released (no empty music view) and the view goes back to the timer or hides;
+    /// with it on, it reconciles.
     /// </summary>
     public void RefreshMediaContent() => Dispatcher.Invoke(() =>
     {
@@ -146,13 +145,13 @@ public partial class IslandWindow
         }
         UpdateMediaStatusDot();
         RefreshAppearance();
-        // El buzón reconcilia el estado final una sola vez (001 MOD RF-1).
+        // The mailbox reconciles the final state exactly once (001 MOD RF-1).
         PostActivity(IslandActivityReason.Settings);
     });
 
     /// <summary>
-    /// El contenido musical del Island se puede deshabilitar de forma
-    /// independiente (igual que el temporizador con IslandTimerEnabled).
+    /// The Island's music content can be disabled independently (just like the timer
+    /// with IslandTimerEnabled).
     /// </summary>
     private bool MediaContentAvailable() =>
         SettingsManager.Current.IslandEnabled && SettingsManager.Current.IslandMediaEnabled;
@@ -183,9 +182,8 @@ public partial class IslandWindow
 
     private MediaSession? Current()
     {
-        // La sesión de control debe ser exactamente la que está dibujada. El
-        // pin cubre el caso en que Windows mueve el foco a otra app al pausar,
-        // reproducir o saltar una pista.
+        // The control session must be exactly the one on screen. The pin covers the
+        // case where Windows moves focus to another app on pause, play or track skip.
         var id = DisplayedMediaId;
         if (id == null) return null;
         foreach (var s in _main.mediaManager.CurrentMediaSessions.Values)
@@ -208,8 +206,8 @@ public partial class IslandWindow
         if (s == null)
         {
             _currentId = null;
-            // Sin sesión: cero datos musicales residuales, la vista la decide
-            // el contenedor (timer disponible u oculto), nunca música vacía.
+            // Without a session: zero leftover music data, the view is decided by the
+            // container (timer available or hidden), never empty music.
             if (existed) ClearMusicResidue();
             return;
         }
@@ -217,15 +215,15 @@ public partial class IslandWindow
         PaintGlyph();
     }
 
-    // El gestor multimedia arranca antes que el Island, así que la primera
-    // reproducción puede no emitir un evento que el Island alcance a ver.
+    // The media manager starts before the Island, so the first playback may not emit
+    // an event the Island gets to see.
     private void SyncExistingMediaState()
     {
         if (!MediaContentAvailable() || Suppressed()) return;
         var before = _music?.Id;
         SyncMediaSnapshotFromSessions();
-        // Adoptar una reproducción en curso sin evento: solo entonces se presenta
-        // por la ruta normal de la actividad (001 MOD RF-4/RF-28).
+        // Adopting playback in progress with no event: only then is it presented through
+        // the normal activity route (001 MOD RF-4/RF-28).
         if (_music != null && _music.Id != before
             && _music.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
         {
@@ -236,17 +234,17 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Concilia el snapshot musical con las sesiones actuales SIN presentar: la
-    /// sesión presentada que siga viva conserva su identidad (aunque esté
-    /// pausada); si desapareció se libera, y sin snapshot se adopta la que esté
-    /// reproduciendo AHORA (evento de arranque perdido). Es la base de la
-    /// reconciliación, así que no toca la vista (001 MOD RF-1/RF-11/RF-13).
+    /// Reconciles the music snapshot with the current sessions WITHOUT presenting: a
+    /// presented session that is still alive keeps its identity (even if paused); if
+    /// it is gone the snapshot is released, and with no snapshot the one playing NOW
+    /// is adopted (a lost startup event). It is the base of reconciliation, so it
+    /// does not touch the view (001 MOD RF-1/RF-11/RF-13).
     /// </summary>
     private void SyncMediaSnapshotFromSessions()
     {
         if (_music != null)
         {
-            // La sesión presentada sigue viva y permitida: conservarla tal cual
+            // The presented session is still alive and allowed: keep it as is
             // (el punto de estado ya refleja play/pausa). NADA de revocarla por
             // no estar reproduciendo ahora mismo.
             var held = Current();
@@ -270,14 +268,14 @@ public partial class IslandWindow
                 }
                 return;
             }
-            // Ya no existe (o no está permitida): liberar y limpiar residuos.
+            // It no longer exists (or is not allowed): release it and clear the residue.
             OnMusicUnavailable();
         }
-        // Sin snapshot: adoptar algo que se esté reproduciendo AHORA (evento de arranque
-        // perdido). Con «pausa cuenta como activo» también se adopta una sesión EN PAUSA: es
-        // actividad vigente y su compacto necesita datos que pintar (título, carátula). Sin
-        // ese ajuste una pausa NO se adopta sola: no se le roba la vista al temporizador ni
-        // se sorprende al usuario (001 MOD RF-6/RF-7).
+        // Without a snapshot: adopt whatever is playing NOW (a lost startup event). With
+        // "pause counts as active" a PAUSED session is adopted too: it is current
+        // activity and its compact view needs data to draw (title, artwork). Without
+        // that setting a pause is NOT adopted on its own: it does not steal the view
+        // from the timer nor surprise the user (001 MOD RF-6/RF-7).
         var adopt = NewestPlaying();
         if (adopt == null && SettingsManager.Current.IslandPauseCountsActive) adopt = PausedAllowed();
         if (adopt != null)
@@ -289,11 +287,10 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Registra la identidad de la canción (título + autor) y marca un cambio de
-    /// pista cuando difiere de la anterior. Es el detector que pide el
-    /// comportamiento de «Aviso temporal»: el cambio de canción se reconoce por
-    /// su nombre o su autor, no por el estado de reproducción. Un evento sin
-    /// título ni autor no marca nada (un reproductor que publique vacío no debe
+    /// Records the song identity (title + artist) and flags a track change when it
+    /// differs from the previous one. It is the detector behind the "Temporary notice"
+    /// behavior: a song change is recognized by its name or its artist, not by the
+    /// playback state. An event with no title and no artist flags nothing (a player
     /// contar como cambio).
     /// </summary>
     private void NoteTrackIdentity(string? title, string? artist)
@@ -302,9 +299,9 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Lee la metadata actual de la sesión para registrar su identidad. Cubre a
-    /// los reproductores que no emiten el evento de metadata: anuncian la pista
-    /// nueva solo con el estado de reproducción.
+    /// Reads the session's current metadata to record its identity. It covers the
+    /// players that do not emit the metadata event: they announce the new track only
+    /// through the playback state.
     /// </summary>
     private void TryNoteTrackIdentity(MediaSession session)
     {
@@ -312,9 +309,9 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Propiedades de la sesión, del memo si ya se conocen. El fallo de memo sí lee del
-    /// sistema (una vez) y lo recuerda: quien pide es un pintado o un detector de cambio
-    /// de canción, y no puede esperar a un evento que quizá no llegue.
+    /// The session's properties, from the memo if they are already known. A memo miss
+    /// does read from the system (once) and remembers it: the asker is a repaint or a
+    /// song-change detector, and it cannot wait for an event that may never come.
     /// </summary>
     private IslandMediaProps? MediaPropsOf(MediaSession session)
     {
@@ -324,7 +321,7 @@ public partial class IslandWindow
         return fetched;
     }
 
-    /// <summary>Lectura del sistema de las propiedades de una sesión (única ruta bloqueante).</summary>
+    /// <summary>System read of a session's properties (the only blocking route).</summary>
     private static IslandMediaProps? FetchMediaProps(MediaSession session)
     {
         try
@@ -336,8 +333,8 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Convierte las propiedades que entrega el sistema (o el evento, que trae las
-    /// mismas) al valor que consume la vista, resolviendo la carátula una sola vez.
+    /// Converts the properties the system delivers (or the event, which carries the
+    /// same ones) into the value the view consumes, resolving the artwork only once.
     /// </summary>
     private static IslandMediaProps FromProperties(GlobalSystemMediaTransportControlsSessionMediaProperties props)
     {
@@ -358,23 +355,22 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Presentación musical reconciliada (001 MOD RF-1): se llama UNA vez por
-    /// ráfaga de eventos de media, con el snapshot ya conciliado. Decide la vista
-    /// con las mismas reglas que los eventos individuales, pero sin repetir el
-    /// trabajo por evento ni perder el estado final.
+    /// Reconciled music presentation (001 MOD RF-1): called ONCE per burst of media
+    /// events, with the snapshot already reconciled. It decides the view by the same
+    /// rules as the individual events, but without repeating the work per event or
+    /// losing the final state.
     ///
-    /// <para>El cambio de CANCIÓN (título o autor distintos) es un evento con
-    /// entidad propia: en «Aviso temporal» muestra el aviso aunque el reproductor
-    /// no reporte reproducción o el activador de play/pausa esté apagado. Antes,
-    /// un cambio de pista cuyo estado no fuera Playing/Paused (algunos
-    /// reproductores pasan por None/Opened al saltar de canción) caía al final y
-    /// no enseñaba nada.</para>
+    /// <para>A SONG change (different title or artist) is an event in its own right: in
+    /// "Temporary notice" it shows the notice even if the player reports no playback
+    /// or the play/pause trigger is off. Before, a track change whose state was not
+    /// Playing/Paused (some players pass through None/Opened when skipping) fell
+    /// through to the end and showed nothing.</para>
     /// </summary>
     /// <param name="recoveryOnly">
-    /// La pasada viene de la red de recuperación (sin evento de media): solo
-    /// reacciona si apareció una sesión reproduciendo que no se estaba mostrando,
-    /// y NUNCA re-despliega lo que el usuario ya ocultó. Sin esto, el aviso
-    /// temporal reaparecía cada 5 s reiniciando su plazo (001 MOD RF-2/RF-28).
+    /// The pass comes from the recovery net (no media event): it only reacts if a
+    /// playing session appeared that was not being shown, and it NEVER re-expands
+    /// what the user already hid. Without this the temporary notice came back every
+    /// 5 s, restarting its deadline (001 MOD RF-2/RF-28).
     /// </param>
     private void ReconcileMediaState(bool recoveryOnly = false)
     {
@@ -383,14 +379,14 @@ public partial class IslandWindow
         _mediaMetadataChanged = false;
         _pendingTrackChange = false;
         if (_disposed) return;
-        // La alerta del temporizador es exclusiva: los eventos de música esperan.
+        // The timer alert is exclusive: music events wait.
         if (_timer.State == IslandTimerState.Alerting) return;
-        // La supresión la resuelve ReconcileCore (ya se llamó con el motivo Context).
+        // Suppression is resolved by ReconcileCore (it was already called with the Context reason).
         if (Suppressed() && !HasExclusive()) return;
         if (!MediaContentAvailable())
         {
-            // Contenido musical deshabilitado: el snapshot se vacía y la vista
-            // queda para el temporizador (o nada).
+            // Music content disabled: the snapshot is emptied and the view is left to the
+            // timer (or to nothing).
             if (_music != null) OnMusicUnavailable();
             return;
         }
@@ -402,17 +398,17 @@ public partial class IslandWindow
         var snap = _music;
         if (snap == null)
         {
-            // Sin actividad musical no hay vista musical que presentar. Solo se
-            // toca la vista si era la música la que estaba delante (una caja
-            // musical vacía no vale, RF-13); el resto de funcionalidades mandan
+            // Without music activity there is no music view to present. The view is only
+            // touched if music was what was in front (an empty music box does not
+            // count, RF-13); every other feature takes precedence
             // sobre su propia vista y su aviso.
             if (MediaOwnsView()) DropMediaView();
             return;
         }
 
-        // Pasada de recuperación sin cambio de sesión: no hay nada nuevo que
-        // mostrar. Re-desplegar aquí reiniciaría el plazo del aviso cada 5 s
-        // (001 MOD RF-2/RF-28); solo se refresca lo que ya está a la vista.
+        // Recovery pass with no session change: there is nothing new to show.
+        // Re-expanding here would restart the notice deadline every 5 s
+        // (001 MOD RF-2/RF-28); only what is already on screen is refreshed.
         if (recoveryOnly && !sessionChanged)
         {
             RefreshVisibleMediaIfShown(metadata);
@@ -425,9 +421,9 @@ public partial class IslandWindow
         bool knownStatus = status is GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
             or GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
 
-        // Cambio de canción (nombre o autor): el aviso temporal se muestra por sí
-        // mismo, sin depender del estado que reporte el reproductor (algunos no
-        // emiten metadata y solo anuncian la pista por el estado).
+        // Song change (name or artist): the temporary notice shows on its own,
+        // regardless of the state the player reports (some emit no metadata and
+        // only announce the track through the state).
         if (trackChanged && !mode0 && SettingsManager.Current.IslandShowOnTrackChange)
         {
             PresentMediaSnapshot(knownStatus ? status : null, trackChanged: true);
@@ -438,8 +434,8 @@ public partial class IslandWindow
         {
             if (!mode0 && !SettingsManager.Current.IslandShowOnPlayPause)
             {
-                // Activador apagado: no se interrumpe la vista vigente, pero si la
-                // vista musical ya estaba delante se re-pinta su metadata nueva.
+                // Trigger off: the current view is not interrupted, but if the
+                // music view was already in front its new metadata is repainted.
                 RefreshVisibleMediaIfShown(metadata);
                 return;
             }
@@ -449,8 +445,8 @@ public partial class IslandWindow
 
         if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
         {
-            // Pausa desde el expandido (botón o visualizador): se queda expandido
-            // mostrando el estado de pausa con sus controles.
+            // Pause from the expanded view (button or visualizer): it stays expanded,
+            // showing the paused state with its controls.
             if (_expanded)
             {
                 if (Current() is { } expandedSession) RefreshUi(expandedSession, status);
@@ -458,13 +454,14 @@ public partial class IslandWindow
             }
             bool show = SettingsManager.Current.IslandShowOnPause || (pauseCounts && mode0)
                 || (trackChanged && SettingsManager.Current.IslandShowOnTrackChange);
-            // Con «pausa cuenta como activo» la pausa es un ESTADO y sostiene la vista sola; si
-            // el ajuste está apagado y la pausa se enseña por «mostrar al pausar», su vista es
-            // un aviso más y necesita su plazo en LOS DOS modos: sin forzarlo, el contenedor
-            // re-resolvía y la escondía en el mismo turno (change island-lista-de-activos).
+            // With "pause counts as active" a pause is a STATE and holds the view on its
+            // own; if the setting is off and the pause is shown through "show on
+            // pause", its view is one more notice and needs its deadline in BOTH
+            // modes: without forcing it, the container re-resolved and hid it in the
+            // same turn (change island-lista-de-activos).
             if (show) { PresentMediaSnapshot(status, forceNotice: !pauseCounts); return; }
-            // Pausa que no cuenta como activa: no sostiene una vista compacta, en
-            // los DOS modos (001 MOD RF-4/RF-7).
+            // A pause that does not count as active: it holds no compact view, in
+            // BOTH modes (001 MOD RF-4/RF-7).
             if (MediaOwnsView())
             {
                 bool forceHideFromCompact = !pauseCounts && !SettingsManager.Current.IslandShowOnPause;
@@ -474,28 +471,27 @@ public partial class IslandWindow
             return;
         }
 
-        // Detenida o desconocida sin cambio de pista: no hay actividad musical
-        // nueva que sostenga la vista (en «Visible mientras activo» el estado real
-        // manda y la siguiente reproducción la presenta; en «Aviso temporal» el
-        // cambio de canción ya se atendió arriba para cualquier estado). Solo se
-        // repliega la propia vista musical; una vista de otra funcionalidad
-        // (temporizador, cajón, estante, calendario) no se toca.
+        // Stopped or unknown with no track change: there is no new music activity to
+        // hold the view (in "Visible while active" the real state wins and the next
+        // playback presents it; in "Temporary notice" the song change was already
+        // handled above for any state). Only the music view itself folds back; the
+        // view of another feature (timer, tray, shelf, calendar) is left alone.
         if (MediaOwnsView() && !_expanded) DropMediaView();
     }
 
     /// <summary>
-    /// ¿La vista vigente es la música? Vale con su vista rica delante y también cuando
-    /// la música vive dentro de una PANTALLA que la contiene (change island-pantallas):
-    /// en los dos casos un evento de música la afecta a ella y no a otra vista.
+    /// Is the current view the music? It holds with its rich view in front and also
+    /// when the music lives inside a SCREEN that contains it (change island-pantallas):
+    /// in both cases a music event affects it and not some other view.
     /// </summary>
     private bool MediaOwnsView() =>
         _contentMode == IslandContentMode.Media || ScreenOwnsMediaView();
 
     /// <summary>
-    /// La música dejó de sostener la vista: se repliega a lo que corresponda. Con el
-    /// EXPANDIDO de una pantalla delante, la vista la sostiene la pantalla entera, así
-    /// que se queda si alguna otra de sus funcionalidades sigue sosteniéndola (el
-    /// temporizador contando, un aviso vivo) y, si no, se repliega igual que su vista
+    /// The music stopped holding the view: it folds back to whatever applies. With the
+    /// EXPANDED view of a screen in front, that whole screen holds the view, so it
+    /// stays if any other of its features is still holding it (the timer counting, a
+    /// live notice) and, if not, it folds back just like its view
     /// rica.
     /// </summary>
     private void DropMediaView()
@@ -515,10 +511,10 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Con la vista musical ya delante, un cambio de metadata re-pinta su
-    /// título/portada sin re-desplegar nada ni tocar el plazo del aviso
-    /// (001 MOD RF-1/RF-2). Con la música dentro de una pantalla, repinta su ficha y
-    /// su panel sin tocar la composición.
+    /// With the music view already in front, a metadata change repaints its
+    /// title/artwork without re-expanding anything or touching the notice deadline
+    /// (001 MOD RF-1/RF-2). With the music inside a screen, it repaints its card and
+    /// its panel without touching the composition.
     /// </summary>
     private void RefreshVisibleMediaIfShown(bool metadataChanged)
     {
@@ -528,11 +524,11 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Presenta la vista musical vigente (compacto o expandido) de la sesión
-    /// actual, adoptándola si el snapshot no la tenía (001 MOD RF-4/RF-11/RF-13).
-    /// Con <paramref name="status"/> en null se deja que la tarjeta lea el estado
-    /// real de la sesión: es el caso del cambio de canción que llega con un estado
-    /// intermedio que no debe pintarse.
+    /// Presents the current music view (compact or expanded) of the active session,
+    /// adopting it if the snapshot did not have it (001 MOD RF-4/RF-11/RF-13). With
+    /// <paramref name="status"/> null the card is left to read the session's real
+    /// state: that is the case of a song change arriving with an intermediate state
+    /// that must not be painted.
     /// </summary>
     private void PresentMediaSnapshot(GlobalSystemMediaTransportControlsSessionPlaybackStatus? status,
         bool trackChanged = false, bool forceNotice = false)
@@ -545,18 +541,18 @@ public partial class IslandWindow
             RefreshUi(session, status);
             return;
         }
-        // El aviso de Bluetooth está delante con su plazo vivo: la media no se lo
-        // lleva por delante con un evento ordinario (play/pausa o metadata), porque
-        // ese aviso es una notificación más reciente y corta. Un cambio de canción
-        // sí es un evento nuevo y toma la vista (change island-bluetooth-conectado
+        // The Bluetooth notice is in front with its deadline alive: media does not take
+        // it over with an ordinary event (play/pause or metadata), because that
+        // notice is a more recent, shorter notification. A song change IS a new event
+        // and takes the view (change island-bluetooth-conectado
         // RF-1).
         if (!trackChanged && IsBoxShown && _contentMode == IslandContentMode.Bluetooth
             && _noticeUntil > DateTime.UtcNow)
             return;
-        // Ya a la vista con su aviso vigente: un evento repetido del reproductor no
-        // debe reiniciar el plazo ni hacer REAPARECER el aviso cada pocos segundos
-        // (001 MOD RF-2). Un cambio de canción sí estrena aviso. Con la música dentro de
-        // una pantalla vale lo mismo: su vista ya está delante.
+        // Already on screen with its notice in force: a repeated player event must not
+        // restart the deadline or make the notice REAPPEAR every few seconds
+        // (001 MOD RF-2). A song change does premiere a new notice. With the music
+        // inside a screen it is the same: its view is already in front.
         if (IsBoxShown && MediaOwnsView()
             && _noticeUntil > DateTime.UtcNow && !trackChanged)
         {
@@ -567,10 +563,10 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Cambio de estado de reproducción (001 MOD RF-1): solo actualiza la
-    /// identidad ligera (fijación explícita y último-play) y publica el motivo de
-    /// actividad. La presentación la resuelve UNA reconciliación con el último
-    /// estado, así una ráfaga no repinta por evento ni pierde el estado final.
+    /// Playback state change (001 MOD RF-1): only updates the light identity (explicit
+    /// pin and last-play) and publishes the activity reason. Presentation is resolved
+    /// by ONE reconciliation with the latest state, so a burst neither repaints per
+    /// event nor loses the final state.
     /// </summary>
     private void OnPlayState(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackInfo? info)
     {
@@ -578,26 +574,25 @@ public partial class IslandWindow
         {
             if (_disposed) return;
             if (!_main.IsSessionAllowed(session)) return;
-            // Un evento es el único aviso fiable de que algo cambió: los memos se tiran
-            // enteros (también las propiedades, porque el reproductor puede haber
-            // anunciado la pista nueva solo por el estado: 001 MOD RF-1).
+            // An event is the only reliable notice that something changed: the memos are
+            // dropped whole (properties too, because the player may have announced
+            // the new track only through the state: 001 MOD RF-1).
             InvalidateMediaReads(props: true);
             var status = info?.PlaybackStatus ?? SafeStatus(session);
             if (status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
             {
-                // Una reproducción nueva sí suelta la sesión fijada, pero el foco
-                // que Windows mueve al pausar, reanudar o saltar no debe romper
-                // una selección explícita.
+                // New playback does release the pinned session, but the focus Windows moves
+                // on pause, resume or skip must not break an explicit selection.
                 if (_mediaPinnedSessionId != null && _mediaPinnedSessionId != session.Id)
                     _mediaPinnedSessionId = null;
                 NotePlay(session.Id);
-                // Una reproducción nueva PASA a ser la sesión mostrada: sin adoptar
-                // el snapshot, el Island seguiría enseñando el medio anterior
+                // New playback BECOMES the shown session: without adopting the snapshot, the
+                // Island would keep showing the previous media
                 // (001 MOD RF-4/RF-11).
                 ApplyMediaSnapshot(new IslandMediaSnapshot(session.Id,
                     GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing));
-                // Algunos reproductores no emiten cambio de metadata y solo
-                // anuncian la pista nueva por el estado: comparar aquí la
+                // Some players emit no metadata change and only announce the new
+                // track through the state: comparing here the
                 // identidad cubre ese caso (001 MOD RF-1).
                 TryNoteTrackIdentity(session);
             }
@@ -606,11 +601,11 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Cambio de metadata (título, artista, portada): registra la identidad de la
-    /// pista —de la que sale el detector de cambio de canción— y publica
-    /// actividad; el snapshot y la presentación los resuelve la reconciliación con
-    /// la metadata MÁS RECIENTE (001 MOD RF-1). Así una ráfaga del reproductor
-    /// (título primero, miniatura después) pinta una vez y con el estado final.
+    /// Metadata change (title, artist, artwork): records the track identity - which is
+    /// where the song-change detector comes from - and publishes activity; the snapshot
+    /// and the presentation are resolved by reconciliation with the LATEST metadata
+    /// (001 MOD RF-1). That way a burst from the player (title first, thumbnail
+    /// later) paints once and with the final state.
     /// </summary>
     private void OnMediaProp(MediaSession session, GlobalSystemMediaTransportControlsSessionMediaProperties props)
     {
@@ -618,15 +613,15 @@ public partial class IslandWindow
         {
             if (_disposed) return;
             if (!_main.IsSessionAllowed(session)) return;
-            // El evento YA trae las propiedades nuevas: se guardan sin preguntar nada
-            // al sistema, y el repintado que viene detrás las encuentra listas.
+            // The event ALREADY carries the new properties: they are stored without
+            // asking the system anything, and the repaint behind finds them ready.
             if (props != null) _propsMemo[session.Id] = FromProperties(props);
             _statusMemo.Remove(session.Id);
-            // Eventos de sesiones ajenas no pueden secuestrar una selección fijada.
+            // Events from foreign sessions cannot hijack an explicit selection.
             var sessionStatus = SafeStatus(session);
             bool playingNow = sessionStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-            // Una reproducción nueva suelta la selección fijada; el simple cambio de
-            // metadata de una sesión ajena no puede secuestrarla.
+            // New playback releases the explicit selection; a plain metadata change from a
+            // foreign session cannot hijack it.
             if (_mediaPinnedSessionId != null && !IsDisplayedSession(session))
             {
                 if (!playingNow) return;
@@ -634,10 +629,10 @@ public partial class IslandWindow
             }
             NoteTrackIdentity(props?.Title, props?.Artist);
             _mediaMetadataChanged = true;
-            // La sesión que anuncia la pista es la actividad vigente: adoptarla como
-            // snapshot para que el aviso muestre el medio NUEVO y no el anterior,
-            // aunque este reproductor no emita el estado de reproducción
-            // (001 MOD RF-4/RF-11/RF-13). Con OTRA sesión reproduciendo manda esa.
+            // The session announcing the track is the current activity: adopt it as the
+            // snapshot so the notice shows the NEW media and not the previous one,
+            // even if this player emits no playback state
+            // (001 MOD RF-4/RF-11/RF-13). With ANOTHER session playing, that one wins.
             if (playingNow || (_music?.Status != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
                 && NewestPlaying() == null))
             {
@@ -650,9 +645,9 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Cierre de sesión: suelta la identidad ligera y publica actividad para que
-    /// la reconciliación resuelva la vista siguiente (otra reproducción, el
-    /// temporizador o el reposo) una sola vez (001 MOD RF-1/RF-24).
+    /// Session closed: releases the light identity and publishes activity so
+    /// reconciliation resolves the next view (other playback, the timer or rest) in
+    /// a single pass (001 MOD RF-1/RF-24).
     /// </summary>
     private void OnClosed(MediaSession session)
     {
@@ -668,19 +663,19 @@ public partial class IslandWindow
         }));
     }
 
-    // La música desapareció (cierre de la última sesión o candidata inválida):
-    // sin compacto musical vacío ni datos muertos. El temporizador disponible
-    // puede recuperar la vista inmediatamente (001 MOD RF-24, 002 MOD RF-14).
+    // The music is gone (last session closed or invalid candidate): no empty
+    // music compact and no dead data. An available timer can recover the view
+    // immediately (001 MOD RF-24, 002 MOD RF-14).
     private void OnMusicUnavailable()
     {
         _mediaPinnedSessionId = null;
         _currentId = null;
-        // Lo que se sabía de las sesiones ya no vale (pueden haber cambiado sin
-        // evento): los memos se tiran con el snapshot.
+        // What was known about the sessions no longer holds (they may have changed with
+        // no event): the memos are dropped along with the snapshot.
         InvalidateMediaReads(props: true);
         ApplyMediaSnapshot(null);
-        // El poll de la franja dispara ExpandFromHover cada 150 ms; sin esta
-        // pausa re-abriría la caja que acabamos de cerrar bajo el cursor.
+        // The strip poll fires ExpandFromHover every 150 ms; without this pause it
+        // would re-open the box we just closed under the cursor.
         _hoverSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
         ClearClosedMediaView();
     }
@@ -689,8 +684,8 @@ public partial class IslandWindow
     {
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
         _expanded = false;
-        // Al cerrar la última sesión no deben quedar restos musicales:
-        // carátula, fondo, título ni estado de reproducción obsoleto
+        // When the last session closes no music residue must be left:
+        // artwork, background, title or stale playback state
         // (001 MOD RF-24, 002 MOD RF-14).
         _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();
@@ -700,18 +695,17 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Retira carátula, fondo difuminado, títulos y estado de reproducción
-    /// obsoletos para que la vista musical sin sesión no deje controles ni
+    /// Removes artwork, blurred background, titles and stale playback state so
+    /// the music view without a session leaves no controls or
     /// fondos residuales (001 MOD RF-24).
     /// </summary>
     private void ClearMusicResidue()
     {
         _lastStatus = null;
-        // OJO: _lastTrackKey NO se limpia aquí a propósito. Es la identidad de la
-        // última canción PRESENTADA, no un dato de la vista: limpiarlo hacía que
-        // la misma canción, al volver del reposo inactivo, se leyera como cambio
-        // de pista y la carátula se volteara sola (001 RF-22: el volteo es solo
-        // en cambio de canción).
+        // NOTE: _lastTrackKey is deliberately NOT cleared here. It is the identity of
+        // the last PRESENTED song, not view data: clearing it made the same song,
+        // returning from inactive rest, read as a track change and flip the artwork
+        // on its own (001 RF-22: the flip only happens on a song change).
         _displayedAlbumArt = null;
         _hasAlbumCover = false;
         PaintGlyph();
@@ -726,10 +720,10 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Actividad musical REAL (001 MOD RF-4, RF-11): cuenta la sesión del
-    /// snapshot reproduciendo, cualquier sesión permitida reproduciendo ahora
-    /// mismo —aunque el snapshot apunte a otra pausada o a ninguna— y la pausa
-    /// solo si el ajuste «pausa cuenta como activo» lo dice.
+    /// REAL music activity (001 MOD RF-4, RF-11): counts the snapshot's session if
+    /// it is playing, any allowed session playing right now - even if the snapshot
+    /// points at another paused one or at none - and a pause only if the
+    /// "pause counts as active" setting says so.
     /// </summary>
     private bool IsMediaActiveForContract()
     {
@@ -738,25 +732,25 @@ public partial class IslandWindow
         if (_music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) return true;
         if (NewestPlaying() != null) return true;
         if (!SettingsManager.Current.IslandPauseCountsActive) return false;
-        // La pausa cuenta como activo: vale la del snapshot y la de CUALQUIER sesión
-        // permitida. Mirar solo el snapshot dejaba fuera el caso corriente de una música
-        // pausada antes de arrancar el Island (todavía sin snapshot): el contenedor caía al
-        // reposo y, con «volver a inactivo» apagado, el Island desaparecía del todo.
+        // Pause counts as active: the snapshot's pause counts, and so does ANY allowed
+        // session's. Looking only at the snapshot left out the common case of music
+        // paused before the Island started (still no snapshot): the container fell to
+        // rest and, with "return to inactive" off, the Island disappeared entirely.
         if (_music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused) return true;
         return PausedAllowed() != null;
     }
 
     /// <summary>
-    /// ¿La música está EN PAUSA ahora mismo? Vale el snapshot y cualquier sesión permitida
-    /// (una música pausada antes de arrancar el Island no tiene snapshot todavía). Es lo que
-    /// consulta la lista de activos para decidir si la pausa es un ESTADO que sostiene la
+    /// Is the music PAUSED right now? The snapshot counts, and so does any allowed session
+    /// (music paused before the Island started has no snapshot yet). It is what the
+    /// active-items list queries to decide if the pause is a STATE that holds the
     /// vista (change island-lista-de-activos).
     /// </summary>
     private bool MediaPausedNow() =>
         _music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused
         || PausedAllowed() != null;
 
-    /// <summary>Sesión permitida que está en pausa ahora mismo («pausa cuenta como activo»).</summary>
+    /// <summary>Allowed session paused right now ("pause counts as active").</summary>
     private MediaSession? PausedAllowed()
     {
         foreach (var s in _main.mediaManager.CurrentMediaSessions.Values)
@@ -768,11 +762,11 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Sesión que representa la actividad musical vigente (001 MOD RF-4, RF-11):
-    /// la del snapshot si reproduce; si no, la que reproduce AHORA —adoptándola
-    /// como snapshot— para que el compacto muestre lo que de verdad está activo
-    /// y no una pausa obsoleta; si no hay nada reproduciendo, la del snapshot (o
-    /// la primera permitida) sostiene su propia vista.
+    /// Session representing the current music activity (001 MOD RF-4, RF-11): the
+    /// snapshot's if it is playing; if not, the one playing NOW - adopting it as the
+    /// snapshot - so the compact view shows what is actually active and not a stale
+    /// pause; if nothing is playing, the snapshot's (or the first allowed) holds its
+    /// own view.
     /// </summary>
     private MediaSession? ActiveMediaSession()
     {
@@ -780,29 +774,29 @@ public partial class IslandWindow
         if (_mediaPinnedSessionId != null)
         {
             if (snap != null) return snap;
-            // La sesión fijada desapareció: solo entonces se permite recuperar
-            // la sesión que esté reproduciendo más recientemente.
+            // The pinned session disappeared: only then is it allowed to recover the
+            // most recently playing session.
             _mediaPinnedSessionId = null;
         }
         if (snap != null && SafeStatus(snap) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
             return snap;
-        // Algo reproduce ahora mismo (aunque no sea la del snapshot): esa es la
-        // actividad vigente y se adopta como vista musical (001 MOD RF-4, RF-11).
+        // Something is playing right now (even if it is not the snapshot's): that is the
+        // current activity and it is adopted as the music view (001 MOD RF-4, RF-11).
         var playing = NewestPlaying();
         if (playing != null)
         {
             if (snap == null || playing.Id != snap.Id) AdoptKnownSession();
             return playing;
         }
-        // Nada reproduciendo: el snapshot (pausa que cuenta como activo) sostiene
-        // su vista o, sin él, una sesión permitida conocida (RF-13).
+        // Nothing playing: the snapshot (a pause that counts as active) holds its view
+        // or, without it, a known allowed session does (RF-13).
         return snap ?? AdoptKnownSession();
     }
 
     /// <summary>
-    /// Sesión permitida sin snapshot: se adopta como vista musical —la que
-    /// reproduce ahora o, si ninguna, la primera permitida— dejando el snapshot
-    /// coherente, para no abrir nunca una vista musical sin datos
+    /// Allowed session with no snapshot: it is adopted as the music view - the one
+    /// playing now, or the first allowed one if none is - leaving the snapshot
+    /// consistent, so a music view without data is never opened
     /// (001 MOD RF-11, RF-13).
     /// </summary>
     private MediaSession? AdoptKnownSession()
@@ -817,10 +811,10 @@ public partial class IslandWindow
 
     internal bool ShowMediaExpandedFromContract()
     {
-        // La vista musical expandida muestra la sesión del snapshot (la selección
-        // vigente del usuario, 001 MOD RF-5); sin snapshot se adopta una sesión
-        // permitida conocida para que el clic abra sus controles en vez de una
-        // vista musical vacía (001 MOD RF-11, RF-13).
+        // The expanded music view shows the snapshot's session (the user's current
+        // selection, 001 MOD RF-5); with no snapshot a known allowed session is
+        // adopted so the click opens its controls instead of an empty music view
+        // (001 MOD RF-11, RF-13).
         var session = Current();
         if (session == null && MediaContentAvailable()) session = AdoptKnownSession();
         if (session == null) return false;
@@ -830,9 +824,9 @@ public partial class IslandWindow
 
     internal bool ShowMediaCompactFromContract()
     {
-        // La sesión que muestra el compacto es la de la actividad vigente
-        // (adoptando la que reproduce si el snapshot no la tenía), nunca una
-        // vista musical sin datos (001 MOD RF-4, RF-11, RF-13).
+        // The session the compact view shows is the current activity's (adopting the
+        // one playing if the snapshot did not have it), never a music view without
+        // data (001 MOD RF-4, RF-11, RF-13).
         var session = ActiveMediaSession();
         if (session == null) return false;
         ShowMusicCompact(session);
@@ -853,24 +847,23 @@ public partial class IslandWindow
         if (HasExclusive()) return;
         if (!MusicAvailable()) return; // sin snapshot musical no hay vista musical (RF-13)
         _currentId = session.Id;
-        // guard: la exclusiva se re-comprueba tras cancelar el reposo inactivo —
-        // una alerta de temporizador que llegara en ese mismo turno manda (002 RF-2).
+        // guard: exclusivity is re-checked after cancelling inactive rest - a timer
+        // alert arriving in that same turn wins (002 RF-2).
         ShowExpandedView(IslandContentMode.Media, MediaFeature, () => RefreshUi(session),
             guard: () => !HasExclusive());
     }
 
-    // --- presentación ---
+    // --- presentation ---
 
     private void RefreshUi(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null, bool forceAlbumFlip = false)
     {
-        // Alerta modal del timer: los eventos de música esperan a X o reinicio.
+        // Modal timer alert: music events wait for X or restart.
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
-        // Con el EXPANDIDO de una pantalla que contiene la música delante, la
-        // composición la manda la pantalla: la música solo repinta su columna. Si no, el
-        // evento multimedia adopta el contenido más reciente (spec 001 RF-24) dentro de
-        // SU pantalla: expandido y con pantalla combinada, la composición de sus
-        // columnas; en cualquier otro caso, su vista rica de siempre (una sola, que es
-        // lo que cabe en el compacto).
+        // With a screen's EXPANDED view that contains the music in front, the screen
+        // owns the composition: the music only repaints its column. Otherwise the media
+        // event adopts the most recent content (spec 001 RF-24) inside ITS screen:
+        // expanded and with a combined screen, the composition of its columns; in any
+        // other case, its usual rich view (a single one, which is what fits compact).
         if (!ScreenOwnsMediaView())
         {
             if (_expanded && MediaFeature is { } mediaFeature && ScreenOfFeatureIsCombined(mediaFeature))
@@ -888,8 +881,8 @@ public partial class IslandWindow
         var status = knownStatus ?? SafeStatus(session) ?? _lastStatus;
         if (status != null) _lastStatus = status;
         PaintGlyph();
-        // Las propiedades salen del memo (o de una lectura única si aún no se conocen):
-        // el repintado deja de cruzar al sistema multimedia en cada evento (001 MOD RF-1).
+        // The properties come from the memo (or from a single read if not known yet):
+        // the repaint stops crossing to the media system on every event (001 MOD RF-1).
         var mediaProps = MediaPropsOf(session);
         BitmapImage? art = mediaProps?.Artwork;
         int thumbHash = mediaProps?.ArtworkHash ?? 0;
@@ -909,12 +902,12 @@ public partial class IslandWindow
         string trackKey = title + "\n" + artist + "\n" + thumbHash;
         bool trackChanged = _lastTrackKey != "" && trackKey != _lastTrackKey;
         _lastTrackKey = trackKey;
-        // El volteo es EXCLUSIVO del cambio de canción (001 RF-22) y de un cambio
-        // de medio explícito (forceAlbumFlip). Antes también disparaba cuando la
-        // carátula mostrada no coincidía con la entrante, y como el reposo
-        // inactivo limpia la carátula del estado, la MISMA canción se volteaba
-        // sola al volver a mostrarse. No se voltea por re-pintar, ni por llegar
-        // tarde la miniatura (eso ya cambia la clave), ni en el primer pintado.
+        // The flip is EXCLUSIVE to a song change (001 RF-22) and to an explicit media
+        // change (forceAlbumFlip). It used to also fire when the shown artwork did
+        // not match the incoming one, and since inactive rest clears the state's
+        // artwork the SAME song flipped by itself when shown again. It does not flip
+        // for a repaint, nor for a late thumbnail (that already changes the key), nor
+        // on the first paint.
         if (trackChanged || forceAlbumFlip)
             StartAlbumFlip(art);
         else if (!_albumFlipRunning)
@@ -929,9 +922,9 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Pinta la carátula (o su placeholder de nota musical) en compacto y
-    /// expandido sin animación. Es el intercambio que ocurre en el punto ciego
-    /// del volteo y también el camino de la primera portada o sin animaciones.
+    /// Paints the artwork (or its music-note placeholder) in compact and expanded
+    /// without animation. It is the swap that happens at the flip's blind spot and
+    /// also the path for the first artwork or with animations off.
     /// </summary>
     private void ApplyAlbumArt(BitmapImage? art)
     {
@@ -951,11 +944,11 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Volteo de carátula en cambio de canción o de medio (001 RF-22): la
-    /// carátula saliente se estrecha hasta desaparecer, se intercambia en el
-    /// punto ciego y la entrante se abre. Manda la ÚLTIMA portada pedida, así
-    /// una ráfaga del reproductor (título primero, miniatura después) no
-    /// reinicia el volteo a medias ni deja pasar una carátula obsoleta.
+    /// Artwork flip on a song or media change (001 RF-22): the outgoing artwork
+    /// narrows until it disappears, it is swapped at the blind spot and the incoming
+    /// one opens. The LAST requested artwork wins, so a burst from the player (title
+    /// first, thumbnail later) neither restarts the flip midway nor lets a stale
+    /// artwork through.
     /// </summary>
     private void StartAlbumFlip(BitmapImage? art)
     {
@@ -974,8 +967,8 @@ public partial class IslandWindow
         _hasAlbumCover = _displayedAlbumArt != null;
         UpdateAlbumArtOverlay();
 
-        // Cada fase dura una fracción de la duración global de animaciones: el
-        // volteo se siente de la familia del resto del Island sin volverse lento.
+        // Each phase lasts a fraction of the global animation duration: the flip feels
+        // part of the Island's family without becoming slow.
         double halfMs = Math.Clamp(MainWindow.getDuration() * 0.35, 90, 200);
         var outgoing = new DoubleAnimation
         {
@@ -1003,7 +996,7 @@ public partial class IslandWindow
                 CompactArtFlipScale.ScaleX = ExpandedArtFlipScale.ScaleX = 1;
                 CompactArtFlipScale.ScaleY = ExpandedArtFlipScale.ScaleY = 1;
                 UpdateAlbumArtOverlay();
-                // Llegó otra canción mientras girábamos: otro volteo, ya limpio.
+                // Another song arrived while we were flipping: another flip, now clean.
                 if (!ReferenceEquals(_albumFlipArt, _displayedAlbumArt)) StartAlbumFlip(_albumFlipArt);
             };
             CompactArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, incoming);
@@ -1056,9 +1049,9 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Estado de reproducción de una sesión, del memo de la pasada si ya se leyó: una
-    /// misma reconciliación pregunta muchas veces por él (activa vigente, ecualizador,
-    /// ecualizador de la tarjeta, capacidades) y cada pregunta era un cruce de proceso.
+    /// A session's playback state, from the pass memo if it was already read: a single
+    /// reconciliation asks for it many times (current active item, equalizer, card
+    /// equalizer, capabilities) and each ask used to be a cross-process call.
     /// </summary>
     private GlobalSystemMediaTransportControlsSessionPlaybackStatus? SafeStatus(MediaSession session)
     {

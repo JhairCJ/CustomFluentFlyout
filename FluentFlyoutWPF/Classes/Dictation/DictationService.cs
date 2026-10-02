@@ -7,6 +7,7 @@ using FluentFlyoutWPF.Models;
 using NAudio.Wave;
 using System.Diagnostics;
 using System.IO;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
 using Whisper.net;
@@ -14,32 +15,33 @@ using Whisper.net.LibraryLoader;
 
 namespace FluentFlyoutWPF.Classes.Dictation;
 
-/// <summary>Estado del dictado: es lo que el Island dibuja (spec 006 RF-1/RF-6).</summary>
+/// <summary>Dictation state: what the Island draws (spec 006 RF-1/RF-6).</summary>
 public enum DictationPhase
 {
-    /// <summary>En reposo: ni micrófono ni transcripción.</summary>
+    /// <summary>Idle: neither microphone nor transcription.</summary>
     Idle,
 
-    /// <summary>Grabando: el Island enseña el micro y las ondas.</summary>
+    /// <summary>Recording: the Island shows the mic and the waves.</summary>
     Listening,
 
-    /// <summary>Grabación cerrada, transcribiendo.</summary>
+    /// <summary>Recording closed, transcribing.</summary>
     Transcribing,
 
-    /// <summary>Algo falló (sin micrófono, sin modelo): el Island lo dice unos segundos.</summary>
+    /// <summary>Something failed (no microphone, no model): the Island says so for a few seconds.</summary>
     Error,
 }
 
 /// <summary>
-/// Dictado por voz LOCAL (spec 006): mantén el atajo, habla, suelta, y el texto aparece
-/// donde esté el cursor.
-/// <para>El motor es whisper.cpp (Whisper.net) con un modelo ggml del disco: la
-/// inferencia no sale del equipo —la red solo se usa para descargar los modelos—. La
-/// captura va por <see cref="WaveIn"/> a 16 kHz mono, que es el formato nativo de Whisper,
-/// y el texto se inyecta con <c>SendInput</c> Unicode (sin tocar el portapapeles).</para>
+/// LOCAL voice dictation (spec 006): hold the hotkey, speak, release, and the text
+/// appears wherever the cursor is.
+/// <para>The engine is whisper.cpp (Whisper.net) with a ggml model from disk: inference
+/// never leaves the machine - the network is only used to download the models. Capture
+/// goes through <see cref="WaveIn"/> at 16 kHz mono, Whisper's native format, and the
+/// text is injected with Unicode <c>SendInput</c> (without touching the clipboard).</para>
 ///
-/// <para>Este objeto no conoce el Island: expone fase, nivel y mensaje, y quien lo pinta
-/// (IslandWindow.Dictation.cs) se suscribe a <see cref="Changed"/>.</para>
+/// <para>This object knows nothing about the Island: it exposes phase, level and
+/// message, and whoever draws it (IslandWindow.Dictation.cs) subscribes to
+/// <see cref="Changed"/>.</para>
 /// </summary>
 public sealed class DictationService : IDisposable
 {
@@ -73,67 +75,66 @@ public sealed class DictationService : IDisposable
 
     public DictationPhase Phase { get; private set; } = DictationPhase.Idle;
 
-    /// <summary>¿Está el dictado en marcha (grabando o transcribiendo)?</summary>
+    /// <summary>Is dictation running (recording or transcribing)?</summary>
     public bool Active => Phase is DictationPhase.Listening or DictationPhase.Transcribing;
 
     /// <summary>
-    /// El usuario está definiendo el atajo en Ajustes: las teclas que pulse en esa caja no
-    /// son dictado, así que no abren el micrófono ni cancelan nada. Lo pone la página del
-    /// dictado mientras su caja de captura tiene el foco.
+    /// The user is defining the hotkey in Settings: the keys pressed in that box are not
+    /// dictation, so they open no microphone and cancel nothing. The dictation page sets
+    /// this while its capture box has focus.
     /// </summary>
     public bool HotkeyCaptureActive { get; set; }
 
-    /// <summary>Nivel del micrófono ahora mismo (0..1), para el visualizador de ondas.</summary>
+    /// <summary>Microphone level right now (0..1), for the wave visualizer.</summary>
     public float Level => _capture.Level;
 
-    /// <summary>Clave de localización del mensaje vigente (error o aviso); null si no hay.</summary>
+    /// <summary>Localization key of the current message (error or notice); null if none.</summary>
     public string? MessageKey { get; private set; }
 
-    /// <summary>Texto de respaldo en inglés del mensaje vigente.</summary>
+    /// <summary>English fallback text of the current message.</summary>
     public string? MessageFallback { get; private set; }
 
-    /// <summary>Indica si Whisper ya cargó un runtime nativo.</summary>
+    /// <summary>Whether Whisper has already loaded a native runtime.</summary>
     public bool RuntimeLoaded => _runtimeLoaded;
 
-    /// <summary>Indica si el runtime nativo cargado es CUDA.</summary>
+    /// <summary>Whether the loaded native runtime is CUDA.</summary>
     public bool UsingGpuRuntime => RuntimeOptions.LoadedLibrary is RuntimeLibrary.Cuda or RuntimeLibrary.Cuda12;
 
-    /// <summary>Información del runtime nativo que Whisper.NET está usando.</summary>
+    /// <summary>Information about the native runtime Whisper.NET is using.</summary>
     public string RuntimeInfo => _runtimeInfo;
 
     /// <summary>
-    /// El runtime nativo es global para el proceso: cambiar CPU/CUDA después de cargarlo
-    /// no es seguro y requiere reiniciar la aplicación.
+    /// The native runtime is global to the process: switching CPU/CUDA after it is loaded
+    /// is not safe and requires restarting the application.
     /// </summary>
     public bool AccelerationRestartRequired =>
         _runtimeLoaded && _runtimeUseGpu != SettingsManager.Current.DictationUseGpu;
 
-    /// <summary>Se dispara con cualquier cambio de fase, nivel de mensaje o fin del dictado.</summary>
+    /// <summary>Raised on any phase change, message level change, or end of dictation.</summary>
     public event Action? Changed;
 
     // ------------------------------------------------------------------
-    // Atajo (lo llama el gancho de teclado de MainWindow)
+    // Hotkey (driven by MainWindow's keyboard hook)
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Una tecla del gancho global. Mantiene el conjunto de teclas pulsadas —el gancho ve
-    /// TODAS, la aplicación tenga el foco o no— y decide con la lógica pura del atajo:
-    /// completarlo arranca, soltar cualquiera de sus teclas cierra y solo Escape cancela
-    /// (RF-1/RF-3/RF-4); cualquier otra tecla ajena se ignora, así un roce con la mano no
-    /// descarta la frase que se está dictando.
+    /// A key from the global hook. It keeps the set of held keys - the hook sees ALL of
+    /// them, whether the app has focus or not - and decides with the pure hotkey logic:
+    /// completing it starts, releasing any of its keys ends it, and only Escape cancels
+    /// (RF-1/RF-3/RF-4). Any other foreign key is ignored, so brushing the desk with
+    /// your hand never discards the phrase being dictated.
     /// </summary>
     public void HandleKey(int virtualKey, bool down, bool injected = false)
     {
-        // Un evento inyectado (el texto que escribimos nosotros mismos, un teclado en
-        // pantalla, una macro) no es una tecla del usuario: el dictado no debe verlo. Sin
-        // esto, un Enter inyectado —el salto de línea de una transcripción— cancelaba la
-        // sesión que lo estaba escribiendo. Además, las teclas Unicode no traen código
-        // virtual, así que tampoco cuentan para el atajo.
+        // An injected event (the text we type ourselves, an on-screen keyboard, a macro) is
+        // not a key from the user and dictation must not see it. Without this an injected
+        // Enter - the line break of a transcription - cancelled the very session writing
+        // it. Unicode keys also carry no virtual code, so they never count for the hotkey.
         if (_disposed || injected || virtualKey == 0) return;
-        // Definir el atajo en Ajustes no es dictar: esas teclas no arrancan ni cortan nada.
+        // Defining the hotkey in Settings is not dictating: those keys start and cut nothing.
         if (HotkeyCaptureActive) return;
-        // El gancho entrega el modificador físico (0xA2 para Ctrl izquierdo); el atajo
-        // guardado dice «Ctrl»: se unifican antes de comparar nada.
+        // The hook delivers the physical modifier (0xA2 for left Ctrl) while the saved
+        // hotkey says "Ctrl": they are unified before anything is compared.
         virtualKey = DictationHotkey.Normalize(virtualKey);
 
         var hotkey = DictationHotkey.Parse(SettingsManager.Current.DictationHotkey);
@@ -155,10 +156,10 @@ public sealed class DictationService : IDisposable
     }
 
     // ------------------------------------------------------------------
-    // Ciclo del dictado
+    // Dictation lifecycle
     // ------------------------------------------------------------------
 
-    /// <summary>Abre el micrófono y presenta la tarjeta del Island (RF-1).</summary>
+    /// <summary>Opens the microphone and presents the Island card (RF-1).</summary>
     public void Start()
     {
         if (_disposed || Active) return;
@@ -176,10 +177,10 @@ public sealed class DictationService : IDisposable
             _resourceSessionStarting = true;
         }
 
-        // El micrófono se abre AQUÍ y no en un hilo aparte a propósito: el gancho de
-        // teclado tiene un plazo de ~300 ms y abrir el dispositivo son unas decenas de
-        // ms, mientras que diferirlo abriría la puerta a que la tecla se suelte antes de
-        // que exista la grabación. La transcripción, que sí tarda, va a otro hilo.
+        // The microphone is opened HERE and not on a separate thread on purpose: the
+        // keyboard hook has a ~300 ms deadline and opening the device takes a few tens of
+        // ms, while deferring it would open the door to the key being released before the
+        // recording exists. Transcription, which is the slow part, runs on its own thread.
         try
         {
             _capture.Start();
@@ -200,9 +201,21 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Adelanta la carga del motor mientras el usuario habla (en CUDA son segundos):
-    /// al soltar ya está caliente y el icono se retira antes. No toca fase ni micro;
-    /// si falla o se cancela, la transcripción lo carga igual que antes.
+    /// Budget for the background warm-up started when dictation begins. It only has to
+    /// be larger than the slowest thing it does — a CUDA model load, or an external
+    /// worker booting its HTTP server — otherwise the prefetch would be cancelled while
+    /// it is still worth waiting for and the next dictation would pay for it again.
+    /// </summary>
+    private static readonly TimeSpan PrefetchBudget = TimeSpan.FromMinutes(3);
+
+    /// <summary>
+    /// Loads the engine while the user is still speaking: with CUDA that is seconds, so
+    /// by the time the hotkey comes back everything is warm and the icon leaves early.
+    /// Touches neither the phase nor the mic. It also warms the engine with one silent
+    /// inference (some backends only allocate their contexts and buffers on the first
+    /// real pass) and makes sure the Silero VAD model is on disk, so neither the network
+    /// nor that first-pass allocation ever lands on the hot path. Failures and
+    /// cancellations are not fatal: the transcription loads whatever is missing itself.
     /// </summary>
     private async Task PrefetchEngineAsync()
     {
@@ -213,7 +226,7 @@ public sealed class DictationService : IDisposable
             if (path == null) return;
             DictationModelInfo? model = DictationModelStore.Find(Path.GetFileName(path));
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
-            cts.CancelAfter(TimeSpan.FromSeconds(30));
+            cts.CancelAfter(PrefetchBudget);
             if (model is { Backend: not DictationModelBackend.Whisper })
             {
                 await DictationModelStore.ValidateIntegrityAsync(path, cts.Token);
@@ -222,20 +235,26 @@ public sealed class DictationService : IDisposable
             }
             else
             {
-                await EnsureFactoryAsync(cts.Token);
+                WhisperFactory factory = await EnsureFactoryAsync(cts.Token);
+                await WarmUpAsync(factory, cts.Token);
             }
+
+            // The gate skips the neural VAD unless the level is ambiguous, but when it
+            // does need it the model has to be there: fetching it here keeps the network
+            // off the hot path instead of stalling the first dictation of the session.
+            await EnsureVadFactoryAsync(cts.Token);
         }
         catch (OperationCanceledException)
         {
-            // La sesión terminó antes de que el motor se templara: la transcripción lo carga.
+            // The session ended before the engine was warm: the transcription loads it.
         }
         catch (Exception ex)
         {
-            Logger.Debug(ex, "Precarga del motor de dictado fallida; se cargará al transcribir");
+            Logger.Debug(ex, "Dictation engine prefetch failed; it will be loaded on transcription");
         }
     }
 
-    /// <summary>Cierra el micrófono, descarta el audio y no escribe nada (RF-4).</summary>
+    /// <summary>Closes the microphone, drops the audio and writes nothing (RF-4).</summary>
     public void Cancel()
     {
         if (Phase == DictationPhase.Listening)
@@ -252,7 +271,7 @@ public sealed class DictationService : IDisposable
         }
     }
 
-    /// <summary>Cierra el micrófono y transcribe lo grabado, si hay voz (RF-3/RF-5).</summary>
+    /// <summary>Closes the microphone and transcribes what was captured, if there is voice (RF-3/RF-5).</summary>
     public void Stop()
     {
         if (Phase != DictationPhase.Listening) return;
@@ -280,8 +299,8 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Aplica la política actual de carga. Se conserva como punto de compatibilidad para el
-    /// arranque y para los cambios de configuración.
+    /// Applies the current loading policy. Kept as a compatibility point for startup
+    /// and for configuration changes.
     /// </summary>
     public void Preload()
     {
@@ -289,8 +308,9 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Reaplica el modo de carga y el modelo seleccionado. En automático libera primero lo
-    /// que hubiera quedado cargado; en permanente deja la carga preparada en segundo plano.
+    /// Reapplies the loading mode and the selected model. In automatic mode it first
+    /// releases whatever stayed loaded; in keep-loaded mode it prepares the load in the
+    /// background.
     /// </summary>
     public void RefreshResourcePolicy()
     {
@@ -315,7 +335,7 @@ public sealed class DictationService : IDisposable
         _ = Task.Run(() => ApplyResourcePolicyAsync(work));
     }
 
-    /// <summary>Reinicia el temporizador con el nuevo valor del deslizador.</summary>
+    /// <summary>Restarts the release timer with the new slider value.</summary>
     public void RefreshResourceTimeout()
     {
         if (_disposed) return;
@@ -332,7 +352,7 @@ public sealed class DictationService : IDisposable
         if (schedule) ScheduleResourceRelease();
     }
 
-    /// <summary>Ajuste en caliente: si el dictado dejó de estar activado, se corta en seco.</summary>
+    /// <summary>Hot setting change: if dictation is no longer enabled, it is cut on the spot.</summary>
     public void RefreshSettings()
     {
         if (!SettingsManager.Current.DictationEnabled && Active)
@@ -350,8 +370,8 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Notifica a la interfaz si el toggle de aceleración ya no coincide con el runtime
-    /// cargado. La selección efectiva se hace antes de crear el primer factory.
+    /// Tells the UI whether the acceleration toggle no longer matches the loaded runtime.
+    /// The effective choice is made before the first factory is created.
     /// </summary>
     public void RefreshAccelerationSettings()
     {
@@ -360,8 +380,8 @@ public sealed class DictationService : IDisposable
 
         if (!_runtimeLoaded)
         {
-            // Todavía no se ha creado el runtime nativo; se puede cambiar el orden antes
-            // de la primera transcripción.
+            // The native runtime has not been created yet; the order can still change before
+            // the first transcription.
             _runtimeUseGpu = SettingsManager.Current.DictationUseGpu;
             ApplyRuntimeLibraryOrder(_runtimeUseGpu);
             return;
@@ -393,7 +413,7 @@ public sealed class DictationService : IDisposable
         _factory?.Dispose();
         _factory = null;
         _lifetimeCts.Dispose();
-        // Cierre ordenado con CUDA cargada: no es un fallo, el aviso se retira.
+        // Clean shutdown with CUDA loaded: that is not a failure, the notice is withdrawn.
         DictationGpuSafety.Disarm();
     }
 
@@ -417,7 +437,7 @@ public sealed class DictationService : IDisposable
         }
         catch (ObjectDisposedException)
         {
-            // El temporizador terminó justo antes de que se cancelara.
+            // The timer finished right before it could be cancelled.
         }
     }
 
@@ -431,7 +451,7 @@ public sealed class DictationService : IDisposable
         }
         catch (ObjectDisposedException)
         {
-            // La transición terminó justo antes de que se cancelara.
+            // The transition finished right before it could be cancelled.
         }
     }
 
@@ -488,7 +508,7 @@ public sealed class DictationService : IDisposable
         }
         catch (OperationCanceledException) when (work.IsCancellationRequested || _disposed)
         {
-            // Un cambio de modelo o de política invalida esta transición.
+            // A model or policy change invalidates this transition.
         }
         catch (Exception ex)
         {
@@ -613,7 +633,7 @@ public sealed class DictationService : IDisposable
         }
         catch (OperationCanceledException) when (timer.IsCancellationRequested || _disposed)
         {
-            // Se canceló al empezar otro dictado o al cambiar la política.
+            // Cancelled because another dictation started or the policy changed.
         }
         finally
         {
@@ -627,26 +647,26 @@ public sealed class DictationService : IDisposable
     }
 
     // ------------------------------------------------------------------
-    // Motor local (whisper.cpp)
+    // Local engine (whisper.cpp)
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Configura el orden del cargador antes de que Whisper cree cualquier factory.
-    /// CUDA se intenta solo cuando el usuario lo activa; siempre queda CPU como respaldo.
+    /// Configures the loader order before Whisper creates any factory. CUDA is only tried
+    /// when the user enables it; CPU always stays available as a fallback.
     /// </summary>
     private void ConfigureRuntimeIfNeeded()
     {
         if (_runtimeConfigured) return;
 
         bool requested = SettingsManager.Current.DictationUseGpu;
-        // El aviso se lee SIEMPRE (y se consume), aunque la GPU esté apagada: si no,
-        // un aviso viejo se quedaría en disco y saltaría al activar CUDA meses después.
+        // The notice is ALWAYS read (and consumed), even with the GPU off: otherwise an old
+        // notice would stay on disk and fire months later when CUDA is turned on.
         bool previousCrash = DictationGpuSafety.PreviousLoadCrashed;
 
         if (requested && previousCrash)
         {
-            // Aquí no hay nada que contener: el fallo fue nativo. Se dicta en CPU y se
-            // apaga el ajuste para que el próximo arranque no lo vuelva a intentar.
+            // There is nothing to contain here: the failure was native. Dictation continues on
+            // CPU and the setting is turned off so the next start does not try again.
             Logger.Warn("Dictado: la sesión anterior murió cargando CUDA; se arranca en CPU");
             requested = false;
             DisableGpuPreference();
@@ -661,8 +681,8 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Apaga el ajuste de aceleración y lo guarda: la GPU que ha tumbado el proceso no
-    /// vuelve a intentarse sola, ni en esta sesión ni en la siguiente.
+    /// Turns the acceleration setting off and saves it: the GPU that brought the process
+    /// down never tries again on its own, neither in this session nor in the next.
     /// </summary>
     private static void DisableGpuPreference()
     {
@@ -732,10 +752,10 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Crea el motor con el runtime ya elegido. Con CUDA delante, un controlador NVIDIA
-    /// roto hace que la carga reviente o se cuelgue sin excepción gestionada, así que
-    /// aquí está la única red posible: dejar el aviso en disco antes de tocar la DLL
-    /// nativa y, si aun así falla de forma gestionada, seguir la sesión en CPU.
+    /// Creates the engine with the runtime already chosen. With CUDA first, a broken
+    /// NVIDIA driver makes the load crash or hang without a managed exception, so this
+    /// is the only safety net available: leave the notice on disk before touching the
+    /// native DLL and, if it still fails in a managed way, continue the session on CPU.
     /// </summary>
     private WhisperFactory LoadFactory(string path)
     {
@@ -757,9 +777,9 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Deja la sesión en CPU: se corrige el orden del cargador (no se vuelve a pedir
-    /// CUDA), se apaga el ajuste y se retira el aviso de disco para que el próximo
-    /// arranque no lo interprete como una muerte sucia.
+    /// Leaves the session on CPU: the loader order is corrected (CUDA is not requested
+    /// again), the setting is turned off, and the disk notice is removed so the next
+    /// start does not read it as a dirty crash.
     /// </summary>
     private void FallBackToCpu()
     {
@@ -770,22 +790,22 @@ public sealed class DictationService : IDisposable
         Changed?.Invoke();
     }
 
-    /// <summary>Frecuencia de muestreo del dictado (y del formato nativo de Whisper): 16 kHz.</summary>
+    /// <summary>Dictation sample rate (also Whisper's native format): 16 kHz.</summary>
     private const int SampleRateHz = 16_000;
 
-    /// <summary>Hilos del motor: los núcleos disponibles menos uno, acotado para no ahogar la interfaz.</summary>
+    /// <summary>Engine threads: available cores minus one, clamped so the UI does not starve.</summary>
     private static int TranscriptionThreads => Math.Clamp(Environment.ProcessorCount - 1, 2, 8);
 
-    /// <summary>Duración de lo capturado, en texto, para los avisos del registro.</summary>
+    /// <summary>Length of what was captured, as text, for the log notices.</summary>
     private static string AudioSeconds(float[] samples) => $"{samples.Length / (double)SampleRateHz:F1} s";
 
-    /// <summary>Aviso de micrófono para el registro: solo aparece si hubo que reabrirlo.</summary>
+    /// <summary>Microphone note for the log: only shown when it had to be reopened.</summary>
     private string MicNote() => _capture.Revives > 0 ? $" | micrófono reabierto {_capture.Revives}×" : "";
 
     /// <summary>
-    /// Procesador de una transcripción: hilos e idioma, con los defaults del motor
-    /// (contexto completo, condicionamiento entre segmentos y fallback de temperatura
-    /// con sus thresholds: es lo que evita los bucles con audio pobre).
+    /// Processor for one transcription: threads and language, with the engine defaults
+    /// (full context, conditioning between segments and temperature fallback with its
+    /// thresholds: that is what keeps poor audio from looping).
     /// </summary>
     private static WhisperProcessor BuildProcessor(WhisperFactory factory, string language) =>
         factory.CreateBuilder()
@@ -794,9 +814,9 @@ public sealed class DictationService : IDisposable
             .Build();
 
     /// <summary>
-    /// La primera pasada reserva el contexto y los buffers que algunos backends solo crean
-    /// al inferir. Solo se usa en modo permanente; en automático la primera frase conserva
-    /// el comportamiento bajo demanda y evita trabajo extra si el dictado no se utiliza.
+    /// Reserves the context and the buffers that some backends only create on the first
+    /// inference. It runs twice: once when the resources are preloaded, and once in the
+    /// background while the user is speaking, so the first phrase never pays for it.
     /// </summary>
     private async Task WarmUpAsync(WhisperFactory factory, CancellationToken cancellationToken)
     {
@@ -814,23 +834,23 @@ public sealed class DictationService : IDisposable
             {
                 _ = segment;
             }
-            // La primera inferencia con CUDA también puede reventar en la DLL nativa: el
-            // aviso sigue puesto hasta que una pasa de verdad.
+            // The first CUDA inference can crash in the native DLL too: the notice stays until
+            // one really goes through.
             DictationGpuSafety.Disarm();
             Logger.Info($"Dictado: motor templado en {clock.ElapsedMilliseconds} ms ({_runtimeInfo})");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || _disposed)
         {
-            // Cambiar de modelo, apagar el dictado o cerrar la aplicación cancela el templado.
+            // Switching model, turning dictation off or closing the app cancels the warm-up.
         }
         catch (Exception ex)
         {
-            // Un templado que falla no rompe nada: el fallo real se verá al dictar.
+            // A warm-up that fails breaks nothing: the real failure shows up while dictating.
             Logger.Warn(ex, "No se pudo templar el motor de dictado");
         }
     }
 
-    /// <summary>Idioma efectivo: un modelo «.en» solo entiende inglés (RF-7).</summary>
+    /// <summary>Effective language: a ".en" model only understands English (RF-7).</summary>
     private static string EffectiveLanguage(string language, string? activePath)
     {
         if (activePath != null && DictationModelStore.IsEnglishOnly(activePath)) return "en";
@@ -838,9 +858,9 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Escribe la transcripción donde esté el cursor, si la sesión sigue vigente y no
-    /// se ha cancelado (RF-3/RF-4). Es el mismo candado que usa la cancelación: texto y
-    /// cancelación no se cruzan a mitad.
+    /// Writes the transcription at the cursor, if the session is still current and has
+    /// not been cancelled (RF-3/RF-4). It is the same lock cancellation uses: text and
+    /// cancellation never cross halfway.
     /// </summary>
     private void WriteDictatedText(string text, CancellationToken token, CancellationTokenSource sessionCts)
     {
@@ -869,22 +889,40 @@ public sealed class DictationService : IDisposable
             CancellationToken token = linkedCts.Token;
 
             long mark = clock.ElapsedMilliseconds;
-            var voiced = await DetectVoiceAsync(samples, token);
-            if (voiced.Count == 0)
+            VoiceWindow window = LocateVoice(samples);
+            if (window.Length == 0)
             {
-                // Conserva la protección contra transcribir silencio puro. El umbral del
-                // VAD es más bajo para que también detecte voces suaves.
-                Logger.Info($"Dictado: {AudioSeconds(samples)} de audio sin voz (VAD {clock.ElapsedMilliseconds - mark} ms)"
+                Logger.Info($"Dictation: {AudioSeconds(samples)} of audio with no voice"
+                    + $" (gate {clock.ElapsedMilliseconds - mark} ms)"
                     + MicNote());
                 return;
             }
-            // El VAD puede subestimar una voz suave. Se conserva el audio completo; el VAD
-            // solo distingue silencio total y no decide qué partes se envían al motor.
-            float[] useful = samples;
-            vadMs = clock.ElapsedMilliseconds - mark;
 
+            // Ambiguous level: background noise, or a voice too quiet to separate from
+            // the floor. The neural VAD gets the last word there so a stray trigger does
+            // not invent text. A VAD that is missing or failing only downgrades to
+            // "assume voice": transcribing is always better than staying mute.
+            if (!window.Confident)
+            {
+                bool? hasVoice = await DetectVoiceAsync(window.Slice(samples), token);
+                vadMs = clock.ElapsedMilliseconds - mark;
+                if (hasVoice == false)
+                {
+                    Logger.Info($"Dictation: {AudioSeconds(samples)} of audio with no voice"
+                        + $" (gate {vadMs} ms)"
+                        + MicNote());
+                    return;
+                }
+            }
+            else
+            {
+                vadMs = clock.ElapsedMilliseconds - mark;
+            }
+
+            float[] useful = window.Slice(samples);
+            string vadNote = window.Confident ? $"{vadMs} ms (gate)" : $"{vadMs} ms (gate+VAD)";
             string activePath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel)
-                ?? throw new FileNotFoundException("No hay modelo de dictado activo");
+                ?? throw new FileNotFoundException("There is no active dictation model");
             DictationModelInfo? activeModel = DictationModelStore.Find(Path.GetFileName(activePath));
             if (activeModel is { Backend: not DictationModelBackend.Whisper })
             {
@@ -906,9 +944,9 @@ public sealed class DictationService : IDisposable
                     WriteDictatedText(text, token, sessionCts);
                 }
                 decodeMs = clock.ElapsedMilliseconds - mark;
-                Logger.Info($"Dictado: {AudioSeconds(samples)}→{AudioSeconds(useful)} de audio | VAD {vadMs} ms ({voiced.Count} tramo(s)) | motor {engineMs} ms | "
-                    + $"decodificación {decodeMs} ms | {segments} segmento(s), "
-                    + $"{characters} caracteres | modelo {activeModel.Name}{MicNote()}");
+                Logger.Info($"Dictation: {AudioSeconds(samples)}→{AudioSeconds(useful)} of audio | VAD {vadNote} | engine {engineMs} ms | "
+                    + $"decode {decodeMs} ms | {segments} segment(s), "
+                    + $"{characters} characters | model {activeModel.Name}{MicNote()}");
                 return;
             }
 
@@ -918,8 +956,8 @@ public sealed class DictationService : IDisposable
 
             using var processor = BuildProcessor(factory, EffectiveLanguage(language, activePath));
 
-            // Whisper puede devolver varios segmentos para una sola sesión. Se acumulan y se
-            // inyectan juntos: una sesión de dictado produce una sola escritura en destino.
+            // Whisper can return several segments for a single session. They are accumulated
+            // and injected together: one dictation session is one write at the target.
             var transcript = new StringBuilder();
             mark = clock.ElapsedMilliseconds;
             await foreach (var segment in processor.ProcessAsync(useful, token))
@@ -932,23 +970,23 @@ public sealed class DictationService : IDisposable
             characters = whisperText.Length;
             if (whisperText.Length > 0)
                 WriteDictatedText(whisperText, token, sessionCts);
-            // CUDA ya cargó y ya infirió: el aviso de seguridad sobra hasta la próxima carga.
+            // CUDA has loaded and has inferred: the safety notice is redundant until the next load.
             DictationGpuSafety.Disarm();
 
-            Logger.Info($"Dictado: {AudioSeconds(samples)}→{AudioSeconds(useful)} de audio | VAD {vadMs} ms ({voiced.Count} tramo(s)) | motor {engineMs} ms | "
-                + $"decodificación {decodeMs} ms | {segments} segmento(s), "
-                + $"{characters} caracteres "
+            Logger.Info($"Dictation: {AudioSeconds(samples)}→{AudioSeconds(useful)} of audio | VAD {vadNote} | engine {engineMs} ms | "
+                + $"decode {decodeMs} ms | {segments} segment(s), "
+                + $"{characters} characters "
                 + $"| {(_factoryPath == null ? "?" : Path.GetFileName(_factoryPath))}"
                 + MicNote());
         }
         catch (OperationCanceledException) when (
             sessionCts.IsCancellationRequested || _lifetimeCts.IsCancellationRequested)
         {
-            Logger.Info("Transcripción de dictado cancelada");
+            Logger.Info("Dictation transcription cancelled");
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Falló la transcripción del dictado");
+            Logger.Error(ex, "Dictation transcription failed");
             if (!_disposed && IsCurrentTranscription(sessionCts))
                 Fail("IslandDictationFailed", "Could not transcribe the audio");
         }
@@ -1013,21 +1051,167 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Tramos con voz según Silero. Se usan para filtrar silencio total, pero no para
-    /// recortar el audio: las muestras completas se envían al reconocedor.
+    /// Silero verdict on a window that the energy gate could not classify. Returns null
+    /// when the VAD is unavailable or fails: the caller then assumes voice, because a
+    /// failed check must not turn a working microphone into a mute one.
     /// </summary>
-    private async Task<IReadOnlyList<VadSegmentData>> DetectVoiceAsync(float[] samples, CancellationToken cancellationToken)
+    private async Task<bool?> DetectVoiceAsync(float[] samples, CancellationToken cancellationToken)
     {
-        WhisperVadFactory vadFactory = await EnsureVadFactoryAsync(cancellationToken);
-        using var vad = vadFactory.CreateBuilder()
-            .WithThreads(Math.Clamp(Environment.ProcessorCount - 1, 1, 4))
-            .WithThreshold(0.3f)
-            .WithMinSpeechDuration(TimeSpan.FromMilliseconds(100))
-            .WithMinSilenceDuration(TimeSpan.FromMilliseconds(250))
-            .WithSpeechPadding(TimeSpan.FromMilliseconds(150))
-            .Build();
+        try
+        {
+            WhisperVadFactory vadFactory = await EnsureVadFactoryAsync(cancellationToken);
+            using var vad = vadFactory.CreateBuilder()
+                .WithThreads(Math.Clamp(Environment.ProcessorCount - 1, 1, 4))
+                .WithThreshold(0.3f)
+                .WithMinSpeechDuration(TimeSpan.FromMilliseconds(100))
+                .WithMinSilenceDuration(TimeSpan.FromMilliseconds(250))
+                .WithSpeechPadding(TimeSpan.FromMilliseconds(150))
+                .Build();
 
-        return await vad.DetectSpeechAsync(samples, cancellationToken);
+            var voiced = await vad.DetectSpeechAsync(samples, cancellationToken);
+            return voiced.Count > 0;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug(ex, "The Silero VAD could not classify the dictation audio; assuming voice");
+            return null;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Voice gate: the cheap pass that replaces a neural one on the hot path
+    // ------------------------------------------------------------------
+
+    /// <summary>Frame hop of the voice gate: 20 ms at 16 kHz.</summary>
+    private const int GateHopSamples = 320;
+
+    /// <summary>
+    /// Peak frame RMS below which a buffer is silence without asking anybody
+    /// (about -70 dBFS). True silence is an exact zero stream, so this cut is
+    /// unambiguous and never fires on speech.
+    /// </summary>
+    private const float GateAbsoluteSilence = 3e-4f;
+
+    /// <summary>
+    /// How far a frame has to stand above the room's own noise floor to count as
+    /// voice. A ratio, not an absolute level, so it holds up in a quiet office and
+    /// next to a fan: a fixed cut either mutes soft speech or lets the noise in.
+    /// </summary>
+    private const float GateSpeechRatio = 3.0f;
+
+    /// <summary>Margin added to the floor for when the room really is silent.</summary>
+    private const float GateSpeechMargin = 1.5e-3f;
+
+    /// <summary>
+    /// Samples kept before the first voiced frame and after the last one. Generous on
+    /// purpose: a syllable's attack and a word's tail are quieter than its middle, and
+    /// cutting them is worse than decoding a few hundred extra milliseconds.
+    /// </summary>
+    private const int GateHeadPadSamples = 6_400;
+    private const int GateTailPadSamples = 9_600;
+
+    /// <summary>
+    /// The window of the captured buffer worth decoding.
+    /// </summary>
+    /// <param name="Start">First sample of the window.</param>
+    /// <param name="Length">Window length; 0 means "no voice at all".</param>
+    /// <param name="Confident">
+    /// True when the level alone settled it, so the neural VAD can be skipped.
+    /// </param>
+    private readonly record struct VoiceWindow(int Start, int Length, bool Confident)
+    {
+        /// <summary>The window as its own array, or the original when it covers all of it.</summary>
+        public float[] Slice(float[] samples) =>
+            Start == 0 && Length == samples.Length ? samples : samples[Start..(Start + Length)];
+    }
+
+    /// <summary>
+    /// Finds the voice in the captured buffer with one arithmetic pass: per-frame RMS,
+    /// the room's noise floor as the 20th percentile, and the frames that clearly stand
+    /// above it.
+    ///
+    /// <para>It answers in microseconds where the neural VAD needed a model load, a
+    /// context and a full extra pass, and it trims the leading and trailing silence the
+    /// recognizer would otherwise decode. For a user who holds the hotkey while thinking
+    /// that trim is most of the work; for everybody it is the difference between a
+    /// transcript that starts instantly and one that waits on the VAD first.</para>
+    ///
+    /// <para>The result is marked <see cref="VoiceWindow.Confident"/> only when speech
+    /// actually cleared the floor. When nothing does, the caller asks the neural VAD:
+    /// that is the ambiguous band — a stray trigger on a noisy desk — where guessing
+    /// "no voice" would swallow a real phrase and guessing "voice" would invent one.</para>
+    /// </summary>
+    private static VoiceWindow LocateVoice(float[] samples)
+    {
+        int hop = GateHopSamples;
+        int frames = samples.Length / hop;
+        if (frames <= 0)
+            return new VoiceWindow(0, 0, false);
+
+        var rms = new float[frames];
+        float peak = 0;
+        for (int f = 0; f < frames; f++)
+        {
+            int offset = f * hop;
+            float sum = 0;
+            // Vectorized: the gate is the first thing every dictation pays for, and a
+            // two-minute buffer is almost two million multiply-accumulates.
+            var window = samples.AsSpan(offset, hop);
+            int i = 0;
+            for (; i <= window.Length - Vector<float>.Count; i += Vector<float>.Count)
+            {
+                sum += Vector.Dot(new Vector<float>(window.Slice(i, Vector<float>.Count)),
+                    new Vector<float>(window.Slice(i, Vector<float>.Count)));
+            }
+
+            for (; i < window.Length; i++)
+            {
+                float sample = window[i];
+                sum += sample * sample;
+            }
+
+            float value = MathF.Sqrt(sum * (1f / hop));
+            rms[f] = value;
+            if (value > peak) peak = value;
+        }
+
+        if (peak < GateAbsoluteSilence) return new VoiceWindow(0, 0, true);
+
+        // The 20th percentile is background hiss, not voice: speech occupies far less
+        // than 80% of a dictated phrase even when the user talks continuously.
+        float[] sorted = (float[])rms.Clone();
+        Array.Sort(sorted);
+        float floor = sorted[sorted.Length / 5];
+        float threshold = MathF.Max(floor * GateSpeechRatio, floor + GateSpeechMargin);
+        if (threshold < GateAbsoluteSilence) threshold = GateAbsoluteSilence;
+
+        int first = -1;
+        int last = -1;
+        for (int f = 0; f < frames; f++)
+        {
+            if (rms[f] < threshold) continue;
+            if (first < 0) first = f;
+            last = f;
+        }
+
+        if (first < 0)
+        {
+            // Nothing cleared the floor. Either the room is loud enough to hide a soft
+            // voice, or the hotkey fired over silence: only the neural VAD can tell, so
+            // the whole buffer goes to it rather than to the recognizer.
+            return new VoiceWindow(0, samples.Length, false);
+        }
+
+        // Everything between the first and the last voiced frame is kept, pauses
+        // included: a breath between words is not a place to cut.
+        int start = Math.Max(0, first * hop - GateHeadPadSamples);
+        int end = Math.Min(samples.Length, (last + 1) * hop + GateTailPadSamples);
+        if (end <= start) return new VoiceWindow(0, 0, true);
+        return new VoiceWindow(start, end - start, true);
     }
 
     private async Task<WhisperVadFactory> EnsureVadFactoryAsync(CancellationToken cancellationToken)
@@ -1086,13 +1270,13 @@ public sealed class DictationService : IDisposable
             }
             catch (ObjectDisposedException)
             {
-                // La transcripción terminó justo antes de observar la cancelación.
+                // The transcription finished right before it could observe the cancellation.
             }
         }
     }
 
     // ------------------------------------------------------------------
-    // Estado
+    // State
     // ------------------------------------------------------------------
 
     private void SetPhase(DictationPhase phase)
@@ -1120,43 +1304,48 @@ public sealed class DictationService : IDisposable
     }
 
     // ------------------------------------------------------------------
-    // Escritura en el punto de inserción
+    // Writing at the insertion point
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Escribe el texto donde esté el cursor con <c>SendInput</c> Unicode: vale para
-    /// cualquier idioma, no toca el portapapeles y respeta la aplicación de delante.
-    /// Límite del sistema: Windows no deja inyectar en ventanas elevadas (UIPI).
+    /// Writes the text at the cursor with Unicode <c>SendInput</c>: it works for any
+    /// language, it does not touch the clipboard, and it respects the app in front.
+    /// System limit: Windows does not allow injecting into elevated windows (UIPI).
     /// </summary>
     private static void SendText(string text)
     {
-        // Algunos motores devuelven letras con tilde como letra + acento combinante.
-        // SendInput entrega unidades UTF-16 individuales y varias aplicaciones no
-        // recomponen esa secuencia; NFC la convierte en «á», «é», etc. antes de inyectarla.
+        // Some engines return accented letters as a base letter plus a combining
+        // accent. SendInput delivers individual UTF-16 units and plenty of apps do
+        // not recombine that sequence; NFC turns it into "á", "é", etc. before it is
+        // injected.
         text = text.Normalize(NormalizationForm.FormC);
-        var inputs = new List<NativeMethods.INPUT>(text.Length * 2);
+        // Two events per character, written straight into a right-sized array: the
+        // List plus its final copy allocated the whole thing twice, on a phrase that
+        // can be a few thousand inputs long.
+        var inputs = new NativeMethods.INPUT[text.Length * 2];
+        int count = 0;
         foreach (char c in text)
         {
             if (c == '\r') continue;
             if (c == '\n')
             {
-                inputs.Add(KeyInput(0x0D, false));
-                inputs.Add(KeyInput(0x0D, true));
+                inputs[count++] = KeyInput(0x0D, false);
+                inputs[count++] = KeyInput(0x0D, true);
                 continue;
             }
             if (c == '\t')
             {
-                inputs.Add(KeyInput(0x09, false));
-                inputs.Add(KeyInput(0x09, true));
+                inputs[count++] = KeyInput(0x09, false);
+                inputs[count++] = KeyInput(0x09, true);
                 continue;
             }
-            // Unicode: un carácter (una unidad UTF-16) por pulsación y su suelta.
-            inputs.Add(UnicodeInput(c, false));
-            inputs.Add(UnicodeInput(c, true));
+            // Unicode: one character (one UTF-16 unit) per press and its release.
+            inputs[count++] = UnicodeInput(c, false);
+            inputs[count++] = UnicodeInput(c, true);
         }
-        if (inputs.Count == 0) return;
-        uint sent = NativeMethods.SendInput((uint)inputs.Count, [.. inputs], Marshal.SizeOf<NativeMethods.INPUT>());
-        if (sent != inputs.Count) Logger.Warn($"SendInput escribió {sent} de {inputs.Count} eventos de dictado");
+        if (count == 0) return;
+        uint sent = NativeMethods.SendInput((uint)count, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
+        if (sent != count) Logger.Warn($"SendInput wrote {sent} of {count} dictation events");
     }
 
     private static NativeMethods.INPUT KeyInput(ushort virtualKey, bool up) => new()
@@ -1180,35 +1369,46 @@ public sealed class DictationService : IDisposable
     };
 
     // ------------------------------------------------------------------
-    // Micrófono
+    // Microphone
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Captura del micrófono predeterminado a 16 kHz mono PCM16 —el formato nativo de
-    /// Whisper— acumulando las muestras ya normalizadas y midiendo el nivel para las ondas.
+    /// Capture from the default microphone at 16 kHz mono PCM16 - Whisper's native
+    /// format - accumulating the already normalized samples and measuring the level for
+    /// the waves.
     ///
-    /// <para>Vigila que el dispositivo siga entregando audio. Un dictado largo se perdía
-    /// entero porque la captura se moría a mitad —otra aplicación se quedó con el micro, el
-    /// dispositivo predeterminado cambió, el controlador se durmió— y nadie lo notaba hasta
-    /// soltar la tecla, con un audio de tres segundos y sin voz. Ahora el vigía lo detecta y
-    /// reabre la captura sin salir del dictado, conservando lo ya grabado.</para>
+    /// <para>It watches that the device keeps delivering audio. A long dictation used to
+    /// be lost entirely because capture died halfway - another app took the microphone,
+    /// the default device changed, the driver slept - and nobody noticed until the key
+    /// came back, with three seconds of audio and no voice in it. The watchdog now spots
+    /// that and reopens capture without leaving dictation, keeping what was recorded.</para>
     /// </summary>
     private sealed class MicCapture : IDisposable
     {
         private const int SampleRate = 16_000;
-        /// <summary>Tope de un dictado: 2 minutos. Acota la memoria (7,7 MB de muestras).</summary>
+        /// <summary>Top of a dictation: 2 minutes. Caps memory (7.7 MB of samples).</summary>
         private const int MaxSamples = SampleRate * 120;
-        /// <summary>Sin un solo bloque del dispositivo en este tiempo, la captura está muerta (el mismo criterio que el visualizador).</summary>
+        /// <summary>Without a single device buffer in this time, capture is dead (the same criterion the visualizer uses).</summary>
         private const int StallMs = 2000;
+        /// <summary>
+        /// Room reserved on the first block so a typical phrase never has to grow it.
+        /// The buffer doubles from here; the cap above is the only hard limit.
+        /// </summary>
+        private const int InitialCapacity = SampleRate * 15;
 
-        // El dispositivo se abre en Start(), no al construir: en un equipo SIN micrófono
-        // crear el objeto ya lanza, y este servicio nace con la ventana principal (el
-        // dictado apagado no debe poder impedir que la aplicación arranque).
+        // The device is opened in Start(), not in the constructor: on a machine with no
+        // microphone building the object already throws, and this service is born with
+        // the main window (dictation being off must not stop the app from starting).
         private WaveIn? _wave;
-        private readonly List<float> _samples = new(SampleRate * 15);
-        /// <summary>Muestras: las escribe el hilo de audio, las lee el de la transcripción.</summary>
+        /// <summary>
+        /// Plain array with an explicit length, not a List: the audio callback appends to
+        /// it every 100 ms and a List checks its own bounds on every single sample.
+        /// </summary>
+        private float[] _samples = new float[InitialCapacity];
+        private int _count;
+        /// <summary>Samples: the audio thread writes them, the transcription thread reads them.</summary>
         private readonly Lock _lock = new();
-        /// <summary>Dispositivo y grabación: los tocan la interfaz, el vigía y el cierre.</summary>
+        /// <summary>Device and recording: touched by the UI, the watchdog and the teardown.</summary>
         private readonly Lock _deviceLock = new();
         private System.Timers.Timer? _watchdog;
         private volatile float _level;
@@ -1217,17 +1417,17 @@ public sealed class DictationService : IDisposable
         private int _revives;
         private bool _capped;
 
-        /// <summary>Nivel del último bloque (0..1) para el visualizador.</summary>
+        /// <summary>Level of the last buffer (0..1) for the visualizer.</summary>
         public float Level => _level;
 
-        /// <summary>Reaperturas de la captura durante el dictado (0 = el dispositivo se portó bien).</summary>
+        /// <summary>Capture restarts during this dictation (0 = the device behaved).</summary>
         public int Revives => _revives;
 
         public void Start()
         {
             lock (_lock)
             {
-                _samples.Clear();
+                _count = 0;
                 _level = 0;
                 _capped = false;
             }
@@ -1240,10 +1440,10 @@ public sealed class DictationService : IDisposable
             StartWatchdog();
         }
 
-        /// <summary>Cierra el micrófono y devuelve lo capturado.</summary>
+        /// <summary>Closes the microphone and returns what was captured.</summary>
         public float[] Stop()
         {
-            _active = false; // antes del vigía: un tic en vuelo no debe reabrir nada
+            _active = false; // before the watchdog: an in-flight tick must not reopen anything
             StopWatchdog();
             lock (_deviceLock)
             {
@@ -1253,14 +1453,14 @@ public sealed class DictationService : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warn(ex, "Error al cerrar el micrófono");
+                    Logger.Warn(ex, "Failed to close the microphone");
                 }
             }
             _level = 0;
             lock (_lock)
             {
-                float[] copy = [.. _samples];
-                _samples.Clear(); // un segundo Stop sin Start devuelve vacío, no duplica sesión
+                float[] copy = _samples.AsSpan(0, _count).ToArray();
+                _count = 0; // a second Stop without Start returns empty, it does not duplicate a session
                 return copy;
             }
         }
@@ -1277,12 +1477,12 @@ public sealed class DictationService : IDisposable
                 }
                 catch
                 {
-                    // El dispositivo ya podía estar cerrado.
+                    // The device may already have been closed.
                 }
             }
         }
 
-        /// <summary>Abre el dispositivo si hace falta y arranca la grabación.</summary>
+        /// <summary>Opens the device if needed and starts recording.</summary>
         private void OpenAndRecord()
         {
             if (_wave == null)
@@ -1300,7 +1500,7 @@ public sealed class DictationService : IDisposable
             Volatile.Write(ref _lastDataTick, Environment.TickCount64);
         }
 
-        /// <summary>Suelta el dispositivo (para el próximo dictado se abre uno nuevo).</summary>
+        /// <summary>Releases the device (the next dictation opens a fresh one).</summary>
         private void CloseDevice()
         {
             var wave = _wave;
@@ -1316,33 +1516,55 @@ public sealed class DictationService : IDisposable
             Volatile.Write(ref _lastDataTick, Environment.TickCount64);
             int count = e.BytesRecorded / 2;
             if (count <= 0) return;
+            var pcm = e.Buffer.AsSpan(0, count * 2);
             float sum = 0;
             lock (_lock)
             {
-                bool room = _samples.Count < MaxSamples;
-                if (!room && !_capped)
+                int room = MaxSamples - _count;
+                int take = Math.Min(count, room);
+                if (take == 0 && !_capped)
                 {
-                    // Tope del dictado alcanzado: lo que venga después ya no cabe.
+                    // Dictation cap reached: whatever comes next does not fit.
                     _capped = true;
-                    Logger.Warn($"Dictado: la grabación llegó al tope de {MaxSamples / SampleRate} s; lo que siga no se captura");
+                    Logger.Warn($"Dictation: recording hit the {MaxSamples / SampleRate} s cap; "
+                        + "anything after it is not captured");
                 }
-                for (int i = 0; i < count; i++)
+
+                GrowIfNeeded(take);
+                var destination = _samples.AsSpan(_count, take);
+                for (int i = 0; i < take; i++)
                 {
-                    short raw = (short)(e.Buffer[i * 2] | (e.Buffer[i * 2 + 1] << 8));
+                    short raw = (short)(pcm[i * 2] | (pcm[i * 2 + 1] << 8));
                     float sample = raw / 32768f;
-                    if (_samples.Count < MaxSamples) _samples.Add(sample);
+                    destination[i] = sample;
                     sum += sample * sample;
                 }
+                _count += take;
             }
-            // RMS del bloque → nivel del visualizador (el suavizado lo hace el Island).
+
+            // Buffer RMS -> visualizer level (the Island does the smoothing).
             float rms = MathF.Sqrt(sum / count);
             _level = Math.Clamp(rms * 9f, 0f, 1f);
         }
 
-        /// <summary>Muestras guardadas hasta ahora, en segundos (para los avisos del vigía).</summary>
+        /// <summary>
+        /// Doubles the sample buffer until it can hold <paramref name="extra"/> more.
+        /// Only the first blocks of a long dictation ever pay for it.
+        /// </summary>
+        private void GrowIfNeeded(int extra)
+        {
+            int required = _count + extra;
+            if (required <= _samples.Length) return;
+            int capacity = Math.Max(_samples.Length, InitialCapacity);
+            while (capacity < required) capacity *= 2;
+            if (capacity > MaxSamples) capacity = MaxSamples;
+            Array.Resize(ref _samples, capacity);
+        }
+
+        /// <summary>Samples stored so far, in seconds (for the watchdog notices).</summary>
         private double CapturedSeconds()
         {
-            lock (_lock) return _samples.Count / (double)SampleRate;
+            lock (_lock) return _count / (double)SampleRate;
         }
 
         private void StartWatchdog()
@@ -1369,19 +1591,19 @@ public sealed class DictationService : IDisposable
         }
 
         /// <summary>
-        /// El dispositivo dejó de entregar audio a mitad del dictado: se reabre y se SIGUE
-        /// grabando en la misma sesión, conservando lo capturado. Si parar y arrancar en el
-        /// mismo dispositivo falla, se suelta y se abre uno nuevo (así también recoge un
-        /// cambio de micrófono predeterminado).
+        /// The device stopped delivering audio halfway through the dictation: it is
+        /// reopened and recording CONTINUES in the same session, keeping what was already
+        /// captured. If stopping and starting the same device fails, it is released and a
+        /// new one is opened (which also picks up a change of default microphone).
         /// </summary>
         private void Revive()
         {
             lock (_deviceLock)
             {
-                if (!_active) return; // la sesión ya cerró: no hay nada que revivir
-                Volatile.Write(ref _lastDataTick, Environment.TickCount64); // una intentona por vez
+                if (!_active) return; // the session already closed: nothing to revive
+                Volatile.Write(ref _lastDataTick, Environment.TickCount64); // one attempt at a time
                 _revives++;
-                bool first = _revives <= 3 || _revives % 10 == 0; // sin llenar el registro
+                bool first = _revives <= 3 || _revives % 10 == 0; // without flooding the log
                 double captured = CapturedSeconds();
                 var wave = _wave;
                 if (wave != null)
@@ -1391,19 +1613,20 @@ public sealed class DictationService : IDisposable
                         wave.StopRecording();
                         wave.StartRecording();
                         if (first)
-                            Logger.Warn($"Dictado: el micrófono dejó de entregar audio; se reanuda la captura con {captured:F1} s ya guardados");
+                            Logger.Warn($"Dictation: the microphone stopped delivering audio; "
+                                + $"capture resumes with {captured:F1} s already stored");
                         return;
                     }
                     catch (Exception ex)
                     {
-                        Logger.Warn(ex, "Dictado: no se pudo reanudar la captura en el mismo dispositivo; se abre otro");
+                        Logger.Warn(ex, "Dictation: could not resume capture on the same device; opening another one");
                         try
                         {
                             CloseDevice();
                         }
                         catch
                         {
-                            // El dispositivo ya no estaba.
+                            // The device was already gone.
                         }
                     }
                 }
@@ -1415,8 +1638,8 @@ public sealed class DictationService : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    // Sin micrófono: lo que queda del dictado no se puede capturar, pero el
-                    // vigía sigue intentándolo y lo capturado no se pierde.
+                    // Without a microphone: the rest of the dictation cannot be captured, but the
+                    // watchdog keeps trying and what was captured is not lost.
                     if (first) Logger.Error(ex, "Dictado: el micrófono no volvió a abrirse");
                 }
             }

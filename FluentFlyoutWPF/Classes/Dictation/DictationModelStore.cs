@@ -9,7 +9,7 @@ using System.Security.Cryptography;
 
 namespace FluentFlyoutWPF.Classes.Dictation;
 
-/// <summary>Motor que entiende el formato de un modelo del catálogo.</summary>
+/// <summary>Engine that understands the format of a catalog model.</summary>
 public enum DictationModelBackend
 {
     Whisper,
@@ -17,7 +17,7 @@ public enum DictationModelBackend
     QwenAsr,
 }
 
-/// <summary>Un archivo que forma parte de un modelo descargable.</summary>
+/// <summary>A file that is part of a downloadable model.</summary>
 public sealed record DictationModelArtifact(
     string RemotePath,
     string LocalPath,
@@ -25,14 +25,14 @@ public sealed record DictationModelArtifact(
     string? Sha256 = null);
 
 /// <summary>
-/// Un modelo de dictado del catálogo: lo que la aplicación ofrece descargar. Whisper,
-/// Parakeet y Nemotron usan un archivo; Qwen usa una carpeta con sus pesos y metadatos.
+/// A dictation model from the catalog: what the application offers to download. Whisper,
+/// Parakeet and Nemotron use a single file; Qwen uses a folder with its weights and metadata.
 /// </summary>
-/// <param name="FileName">Nombre del archivo o carpeta en modelos (la clave estable).</param>
+/// <param name="FileName">File or folder name inside models (the stable key).</param>
 /// <param name="Name">Nombre visible.</param>
-/// <param name="Size">Tamaño del modelo, en texto.</param>
-/// <param name="Language">Idiomas que entiende.</param>
-/// <param name="Recommended">¿Es el que la aplicación recomienda?</param>
+/// <param name="Size">Model size, as text.</param>
+/// <param name="Language">Languages it understands.</param>
+/// <param name="Recommended">Is this the one the application recommends?</param>
 public sealed record DictationModelInfo(
     string FileName,
     string Name,
@@ -40,42 +40,42 @@ public sealed record DictationModelInfo(
     string Language,
     bool Recommended = false)
 {
-    /// <summary>Backend local que debe usarse para este modelo.</summary>
+    /// <summary>Local backend that must be used for this model.</summary>
     public DictationModelBackend Backend { get; init; } = DictationModelBackend.Whisper;
 
-    /// <summary>Requisito visible del runtime externo, si el modelo lo necesita.</summary>
+    /// <summary>Visible requirement of the external runtime, if the model needs one.</summary>
     public string Runtime { get; init; } = "";
 
     /// <summary>Repositorio inmutable de modelos de Hugging Face.</summary>
     public string Repository { get; init; } = "ggerganov/whisper.cpp";
 
-    /// <summary>Revisión inmutable del repositorio de modelos de Hugging Face.</summary>
+    /// <summary>Immutable revision of the Hugging Face model repository.</summary>
     public string Revision { get; init; } = "main";
 
-    /// <summary>Nombre del archivo remoto cuando difiere del nombre local.</summary>
+    /// <summary>Remote file name when it differs from the local name.</summary>
     public string RemoteFileName { get; init; } = "";
 
-    /// <summary>SHA-256 esperado; null solo para modelos locales que no son del catálogo.</summary>
+    /// <summary>Expected SHA-256; null only for local models that are not in the catalog.</summary>
     public string? Sha256 { get; init; }
 
-    /// <summary>Este modelo espera códigos de idioma regionales, como «es-ES».</summary>
+    /// <summary>This model expects regional language codes, such as "es-ES".</summary>
     public bool UsesLocaleLanguageCodes { get; init; }
 
-    /// <summary>Archivos adicionales para un modelo que ocupa una carpeta.</summary>
+    /// <summary>Extra files for a model that occupies a folder.</summary>
     public IReadOnlyList<DictationModelArtifact> Artifacts { get; init; } = [];
 
-    /// <summary>Dirección de descarga del archivo del modelo en Hugging Face.</summary>
+    /// <summary>Download URL of the model file on Hugging Face.</summary>
     public string Url =>
         UrlFor(string.IsNullOrWhiteSpace(RemoteFileName) ? FileName : RemoteFileName);
 
-    /// <summary>Construye la URL de un archivo concreto del repositorio fijado.</summary>
+    /// <summary>Builds the URL of a specific file of the pinned repository.</summary>
     public string UrlFor(string remotePath) =>
         $"https://huggingface.co/{Repository}/resolve/{Revision}/{remotePath}";
 
-    /// <summary>¿Solo entiende inglés? (nombre terminado en «.en»)</summary>
+    /// <summary>Does it only understand English? (name ending in ".en")</summary>
     public bool EnglishOnly => FileName.Contains(".en");
 
-    /// <summary>Archivos que hay que descargar para dejar listo este modelo.</summary>
+    /// <summary>Files that must be downloaded to make this model ready.</summary>
     public IReadOnlyList<DictationModelArtifact> DownloadArtifacts => Artifacts.Count > 0
         ? Artifacts
         : [new(
@@ -84,7 +84,7 @@ public sealed record DictationModelInfo(
             EstimateSingleFile(FileName),
             Sha256)];
 
-    /// <summary>Tamaño aproximado total en bytes, para la barra de progreso.</summary>
+    /// <summary>Approximate total size in bytes, for the progress bar.</summary>
     public long EstimatedBytes => DownloadArtifacts.Sum(artifact => artifact.EstimatedBytes);
 
     private static long EstimateSingleFile(string fileName) => fileName switch
@@ -106,9 +106,9 @@ public sealed record DictationModelInfo(
 }
 
 /// <summary>
-/// Carpeta y catálogo de modelos del dictado (spec 006 RF-8). Whisper, Parakeet y
-/// Nemotron usan archivos locales; Qwen usa una carpeta local con todos sus pesos y
-/// metadatos. La inferencia no toca la red nunca.
+/// Dictation model folder and catalog (spec 006 RF-8). Whisper, Parakeet and Nemotron
+/// use local files; Qwen uses a local folder with all its weights and metadata.
+/// Inference never touches the network.
 /// </summary>
 public static class DictationModelStore
 {
@@ -121,14 +121,14 @@ public static class DictationModelStore
     private static readonly ConcurrentDictionary<string, byte> ActiveDownloads = new(
         StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Señala a la página que una descarga empezó o dejó de estar activa.</summary>
+    /// <summary>Tells the page that a download started or stopped being active.</summary>
     public static event Action<string>? DownloadStateChanged;
 
     /// <summary>
-    /// Integridad ya comprobada en esta sesión: ruta → tamaño y fecha del archivo. Sin esto,
-    /// cargar un modelo volvía a leer y hashear el archivo entero —574 MB un «large», 1,5 GB
-    /// un «medium»— en el primer dictado de cada arranque. Si el archivo cambia de tamaño o de
-    /// fecha, se vuelve a comprobar.
+    /// Integrity already checked in this session: path -> file size and timestamp. Without
+    /// this, loading a model re-read and re-hashed the whole file - 574 MB for a "large",
+    /// 1.5 GB for a "medium" - on the first dictation of every startup. If the file changes
+    /// size or date, it is checked again.
     /// </summary>
     private static readonly ConcurrentDictionary<string, (long Length, DateTime LastWrite)> VerifiedModels =
         new(StringComparer.OrdinalIgnoreCase);
@@ -140,7 +140,7 @@ public static class DictationModelStore
     private const string VadUrl =
         $"https://huggingface.co/sandrohanea/whisper.net/resolve/{VadRevision}/vad/{VadFileName}";
 
-    /// <summary>Los modelos viven junto a los ajustes, en la carpeta del usuario.</summary>
+    /// <summary>Models live next to the settings, in the user's folder.</summary>
     public static string ModelsFolder => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "FluentFlyout",
@@ -148,14 +148,14 @@ public static class DictationModelStore
 
     public static bool IsDownloading(string fileName) => ActiveDownloads.ContainsKey(fileName);
 
-    /// <summary>El VAD se guarda separado para que nunca aparezca como modelo Whisper elegible.</summary>
+    /// <summary>The VAD is stored apart so it never shows up as a selectable Whisper model.</summary>
     public static string VadModelPath => Path.Combine(ModelsFolder, "vad", VadFileName);
 
-    /// <summary>Catálogo: pesos fijados a revisiones concretas de Hugging Face.</summary>
+    /// <summary>Catalog: weights pinned to concrete Hugging Face revisions.</summary>
     public static IReadOnlyList<DictationModelInfo> Catalog { get; } =
     [
-        // Deliberadamente descendente por peso del archivo: los modelos cuantizados
-        // pueden tener más parámetros que otro archivo que aparece debajo.
+        // Deliberately descending by file size: quantized models can have more parameters
+        // than another file listed below them.
         new("qwen3-asr-0.6b", "Qwen3-ASR 0.6B", "1,8 GB",
             "Inglés, español y 28 idiomas más")
         {
@@ -197,8 +197,8 @@ public static class DictationModelStore
             Revision = "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
             Sha256 = "e3880d0aaaaf2c308ea2c35016b2b895c423eb3fda924c1b463d1c19b7f4d32e",
         },
-        // Esta variante destilada multilingüe publica el ggml directamente en el
-        // repositorio del autor; el nombre local evita depender de «ggml-model.bin».
+        // This multilingual distilled variant publishes the ggml directly in the author's
+        // repository; the local name avoids depending on "ggml-model.bin".
         new("ggml-distil-large-v3-multi4.bin", "Whisper Large v3 destilado (4 idiomas)", "1,5 GB",
             "Inglés, español, francés y alemán")
         {
@@ -264,7 +264,7 @@ public static class DictationModelStore
         },
     ];
 
-    /// <summary>Ruta completa de un modelo del catálogo o de un archivo suelto de la carpeta.</summary>
+    /// <summary>Full path of a catalog model or of a loose file in the folder.</summary>
     public static string PathOf(string fileName) => Path.Combine(ModelsFolder, fileName);
 
     public static bool IsInstalled(string fileName)
@@ -283,9 +283,9 @@ public static class DictationModelStore
     }
 
     /// <summary>
-    /// Ruta del modelo ACTIVO, ya resuelta: vale tanto un archivo del catálogo como un
-    /// modelo añadido a mano (una ruta absoluta guardada en los ajustes). Devuelve null
-    /// si el ajuste está vacío o el archivo ya no está, y el dictado avisa con eso.
+    /// Path of the ACTIVE model, already resolved: it covers both a catalog file and a
+    /// hand-added model (an absolute path saved in the settings). Returns null when the
+    /// setting is empty or the file is gone, and dictation reports that.
     /// </summary>
     public static string? ResolveActivePath(string? configured)
     {
@@ -296,11 +296,11 @@ public static class DictationModelStore
         return File.Exists(path) || Directory.Exists(path) ? path : null;
     }
 
-    /// <summary>¿Es un modelo solo-inglés? (el nombre del archivo manda, venga de donde venga)</summary>
+    /// <summary>Is it an English-only model? (the file name decides, wherever it came from)</summary>
     public static bool IsEnglishOnly(string path) =>
         Path.GetFileName(path).Contains(".en", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Los modelos de archivo que hay en la carpeta (añadidos a mano).</summary>
+    /// <summary>The file models present in the folder (hand-added).</summary>
     public static IReadOnlyList<string> InstalledFiles()
     {
         try
@@ -324,7 +324,7 @@ public static class DictationModelStore
     public static DictationModelInfo? Find(string fileName) =>
         Catalog.FirstOrDefault(model => string.Equals(model.FileName, fileName, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Verifica los artefactos de un modelo catalogado antes de cargarlo.</summary>
+    /// <summary>Verifies the artifacts of a cataloged model before loading it.</summary>
     public static async Task ValidateIntegrityAsync(string path, CancellationToken cancellationToken = default)
     {
         DictationModelInfo? model = Find(Path.GetFileName(path));
@@ -353,7 +353,7 @@ public static class DictationModelStore
         }
         catch (Exception ex)
         {
-            // Sin tamaño ni fecha no se puede saltar la comprobación: se hace entera.
+            // Without size or timestamp the check cannot be skipped: it runs in full.
             Logger.Warn(ex, $"No se pudo leer el estado del modelo {path}; se verificará completo");
             stamp = default;
         }
@@ -366,8 +366,10 @@ public static class DictationModelStore
     }
 
     /// <summary>
-    /// Garantiza que el modelo Silero VAD esté disponible y sea exactamente el archivo
-    /// fijado por la aplicación. Se descarga solo la primera vez que se activa el dictado.
+    /// Guarantees that the Silero VAD model is available and is exactly the file pinned
+    /// by the application. It is downloaded only the first time dictation runs, and the
+    /// hash is only recomputed when the file itself changes (same length, same write
+    /// time), so a dictation session never re-reads it.
     /// </summary>
     public static async Task<string> EnsureVadModelAsync(CancellationToken cancellationToken = default)
     {
@@ -379,13 +381,12 @@ public static class DictationModelStore
             {
                 try
                 {
-                    string actualHash = await ComputeSha256Async(path, cancellationToken);
-                    EnsureExpectedHash(path, VadSha256, actualHash);
+                    await ValidateFileIntegrityAsync(path, VadSha256, cancellationToken);
                     return path;
                 }
                 catch (InvalidDataException ex)
                 {
-                    Logger.Warn(ex, "El modelo Silero VAD no coincide con el SHA-256 esperado; se volverá a descargar");
+                    Logger.Warn(ex, "The Silero VAD model does not match the expected SHA-256; it will be downloaded again");
                     TryDelete(path);
                 }
             }
@@ -406,9 +407,9 @@ public static class DictationModelStore
     }
 
     /// <summary>
-    /// Descarga el modelo con progreso (0..1) y lo deja en la carpeta. Se escribe primero
-    /// un <c>.part</c> y se renombra al terminar: una descarga cortada nunca deja un
-    /// archivo a medias que whisper intente cargar.
+    /// Downloads the model with progress (0..1) and leaves it in the folder. It writes a
+    /// <c>.part</c> first and renames it at the end: an interrupted download never leaves
+    /// a half file for whisper to try loading.
     /// </summary>
     public static async Task DownloadAsync(DictationModelInfo model, IProgress<double>? progress,
         CancellationToken cancellationToken = default)
@@ -431,8 +432,8 @@ public static class DictationModelStore
                     ? Path.Combine(modelRoot, artifact.LocalPath)
                     : modelRoot;
 
-                // Los artefactos ya terminados no se vuelven a descargar al reintentar un
-                // modelo compuesto. El archivo .part indica que ese artefacto todavía necesita
+                // Finished artifacts are not downloaded again when retrying a composite model. The
+                // .part file means that artifact still needs
                 // continuar o reiniciarse.
                 if (File.Exists(finalPath) && !File.Exists(finalPath + ".part"))
                 {
@@ -498,7 +499,7 @@ public static class DictationModelStore
         }
     }
 
-    /// <summary>Borra un modelo descargado (nunca toca un archivo añadido a mano fuera de la carpeta).</summary>
+    /// <summary>Deletes a downloaded model (never touches a hand-added file outside the folder).</summary>
     public static void Delete(string fileName)
     {
         string path = PathOf(fileName);
@@ -513,7 +514,7 @@ public static class DictationModelStore
         }
     }
 
-    /// <summary>Copia un modelo elegido por el usuario a la carpeta de modelos y devuelve su ruta.</summary>
+    /// <summary>Copies a user-chosen model into the models folder and returns its path.</summary>
     public static async Task<string> AddLocalAsync(string sourcePath, CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(ModelsFolder);
@@ -530,7 +531,7 @@ public static class DictationModelStore
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
-        // Hugging Face agradece un agente identificable y no exige clave para estos archivos.
+        // Hugging Face appreciates an identifiable agent and needs no key for these files.
         client.DefaultRequestHeaders.UserAgent.ParseAdd("FluentFlyout/1.0 (+https://github.com/JhairCJ/CustomFluentFlyout)");
         return client;
     }
@@ -563,8 +564,8 @@ public static class DictationModelStore
             }
             catch (InvalidDataException)
             {
-                // Un archivo que llegó completo pero no coincide no se puede reanudar con
-                // seguridad: se elimina para que el próximo intento empiece limpio.
+                // A file that arrived complete but does not match cannot be safely resumed: it is
+                // deleted so the next attempt starts clean.
                 TryDelete(partPath);
                 throw;
             }
@@ -595,9 +596,9 @@ public static class DictationModelStore
         if (existingLength > 0)
             request.Headers.Range = new RangeHeaderValue(existingLength, null);
 
-        // HttpClient.Timeout es infinito porque los modelos pueden pesar gigabytes. El
-        // token se reinicia después de cada bloque: limita solo el tiempo sin recibir datos,
-        // que es el caso que antes dejaba la fila bloqueada indefinidamente.
+        // HttpClient.Timeout is infinite because models can weigh gigabytes. The token is
+        // reset after every block: it only limits the time without receiving data, which
+        // is the case that used to leave the row stuck forever.
         using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         attemptCts.CancelAfter(DownloadIdleTimeout);
         using var response = await Http.SendAsync(
@@ -608,9 +609,9 @@ public static class DictationModelStore
         if (existingLength > 0
             && response.StatusCode == System.Net.HttpStatusCode.RequestedRangeNotSatisfiable)
         {
-            // Un 416 también aparece si el parcial ya está completo: Range comienza justo
-            // después del último byte. Compruébalo localmente antes de borrar y reiniciar
-            // una descarga grande que ya terminó.
+            // A 416 also shows up when the partial is already complete: Range starts right after
+            // the last byte. Check it locally before deleting and restarting a large
+            // download that has already finished.
             if (!string.IsNullOrWhiteSpace(expectedHash))
             {
                 string partialHash = await ComputeSha256Async(partPath, cancellationToken);
@@ -637,8 +638,8 @@ public static class DictationModelStore
             throw new HttpRequestException("El servidor devolvió un rango distinto al solicitado");
         }
 
-        // Si el servidor ignora Range y devuelve 200, se reinicia el archivo parcial de
-        // forma segura en vez de concatenar dos copias del contenido.
+        // If the server ignores Range and answers 200, the partial file is safely restarted
+        // instead of concatenating two copies of the content.
         long contentLength = response.Content.Headers.ContentLength ?? 0;
         long total = response.Content.Headers.ContentRange?.Length
             ?? (contentLength > 0 && append ? existingLength + contentLength : contentLength);

@@ -22,15 +22,14 @@ public class SettingsManager
     );
 
     private static UserSettings? _current;
-    private static XmlSerializer? _exportSerializer;
+    // One serializer for the whole process. Building an XmlSerializer is reflection
+    // plus a cache lookup, and SaveSettings is called on every settings change.
+    private static XmlSerializer? _serializer;
 
-    private static XmlSerializer GetExportSerializer()
+    private static XmlSerializer GetSerializer()
     {
-        if (_exportSerializer == null)
-        {
-            _exportSerializer = new XmlSerializer(typeof(UserSettings));
-        }
-        return _exportSerializer;
+        _serializer ??= new XmlSerializer(typeof(UserSettings));
+        return _serializer;
     }
 
     private static bool DeserializeSettings(string filePath, out UserSettings? settings)
@@ -41,8 +40,7 @@ public class SettingsManager
             return false;
 
         using StreamReader reader = new(filePath);
-        XmlSerializer xmlSerializer = new(typeof(UserSettings));
-        settings = (UserSettings?)xmlSerializer.Deserialize(reader);
+        settings = (UserSettings?)GetSerializer().Deserialize(reader);
         return settings != null;
     }
 
@@ -118,7 +116,6 @@ public class SettingsManager
     /// </summary>
     public static void SaveSettings(string? filePath = null)
     {
-        bool isExport = filePath != null;
         filePath ??= SettingsFilePath;
         string tempPath = filePath + ".tmp";
         string backupPath = filePath + ".bak";
@@ -137,16 +134,7 @@ public class SettingsManager
 
                 using (var writer = new StreamWriter(tempPath, false))
                 {
-                    XmlSerializer xmlSerializer;
-                    if (isExport)
-                    {
-                        xmlSerializer = GetExportSerializer();
-                    }
-                    else
-                    {
-                        xmlSerializer = new XmlSerializer(typeof(UserSettings));
-                    }
-                    xmlSerializer.Serialize(writer, _current);
+                    GetSerializer().Serialize(writer, _current);
                 }
 
                 if (File.Exists(filePath))

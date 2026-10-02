@@ -73,6 +73,9 @@ public partial class MainWindow : MicaWindow
     private LockWindow? lockWindow;
     private DateTime _lastSelfUpdateTimestamp = DateTime.MinValue;
 
+    /// <summary>Arguments handed from the keyboard hook thread to the thread pool.</summary>
+    private readonly record struct GlobalKeyWork(int VkCode, int Message, bool Media, bool Volume);
+
     internal TaskbarWindow? taskbarWindow;
 
     internal IslandWindow? islandWindow;
@@ -908,17 +911,29 @@ public partial class MainWindow : MicaWindow
 
         if (GetActiveMediaSession() is not { } session || session.Id != mediaSession.Id) return;
 
-        if (_seekBarEnabled)
-        {
-            Dispatcher.Invoke(() =>
-            {
-                if (!IsActive || _isDragging) return;
-
-                UpdateSeekbarCurrentDuration(session.ControlSession.GetTimelineProperties().Position);
-                HandlePlayBackState(session.ControlSession.GetPlaybackInfo().PlaybackStatus);
-            });
-        }
+        if (_seekBarEnabled) QueueSeekbarRefresh(session, timelineProperties.Position);
     }
+
+    /// <summary>
+    /// Coalesces a seekbar refresh onto the UI thread. The timeline event fires several
+    /// times a second and used to block its own thread on a synchronous
+    /// <see cref="Dispatcher.Invoke"/> for every single tick; one pending flag collapses
+    /// a burst into one update, and the position comes from the event payload instead of
+    /// asking the session for it again. Playback state has its own event, so it is not
+    /// re-read here.
+    /// </summary>
+    private void QueueSeekbarRefresh(MediaSession session, TimeSpan position)
+    {
+        if (Interlocked.Exchange(ref _seekbarRefreshPending, 1) == 1) return;
+        Dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
+        {
+            Interlocked.Exchange(ref _seekbarRefreshPending, 0);
+            if (!IsActive || _isDragging || GetActiveMediaSession()?.Id != session.Id) return;
+            UpdateSeekbarCurrentDuration(position);
+        });
+    }
+
+    private int _seekbarRefreshPending;
 
     private void MediaManager_OnAnySessionClosed(MediaSession mediaSession)
     {
@@ -980,25 +995,52 @@ public partial class MainWindow : MicaWindow
             int vkCode = Marshal.ReadInt32(lParam);
             bool keyDown = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
 
-            // Dictado (spec 006): el gancho solo AVISA del estado de la tecla —completar el
-            // atajo abre el micrófono, soltarlo lo cierra y una tecla ajena cancela—. La
-            // tecla sigue su camino a la aplicación de delante: el atajo nunca se consume.
-            // Los eventos inyectados (el texto que escribe el propio dictado, un teclado en
-            // pantalla, una macro) no son del usuario: el dictado no debe verlos. Un Enter
-            // inyectado cancelaba la sesión que lo estaba escribiendo.
+            // Dictation (spec 006): the hook only REPORTS the key state - completing the
+            // hotkey opens the microphone, releasing it closes it, and a foreign key
+            // cancels. The key still travels to the app in front: the hotkey is never
+            // swallowed. Injected events (the text dictation itself types, an on-screen
+            // keyboard, a macro) are not the user and must not be seen as such; an
+            // injected Enter used to cancel the session that was typing it.
             if (SettingsManager.Current.DictationEnabled)
                 Dictation.HandleKey(vkCode, down: keyDown,
                     injected: (Marshal.ReadInt32(lParam, 8) & LLKHF_INJECTED) != 0);
 
             bool mediaKeysPressed = vkCode == 0xB3 || vkCode == 0xB0 || vkCode == 0xB1 || vkCode == 0xB2; // Play/Pause, next, previous, stop
             bool volumeKeysPressed = vkCode == 0xAD || vkCode == 0xAE || vkCode == 0xAF; // Mute, Volume Down, Volume Up
+            bool lockKeyPressed = wParam == WM_KEYUP && SettingsManager.Current.LockKeysEnabled
+                && (vkCode == 0x14 || vkCode == 0x90 || vkCode == 0x91 || vkCode == 0x2D);
 
-            // MainWindow.WndProc() also handles media and volume keys
+            // Everything past the dictation hotkey runs on the thread pool. This callback
+            // sits in the system's global keyboard chain: building a WPF window, talking
+            // to the media session manager or querying the foreground app on it stalls
+            // keystrokes for every application and gets the hook dropped outright once it
+            // passes LowLevelHooksTimeout. All of that work marshals to the UI anyway.
+            if (mediaKeysPressed || volumeKeysPressed || lockKeyPressed)
+            {
+                // Allocated per keystroke on purpose: the tuple is what keeps the four
+                // values alive and correctly paired for the pool thread, and a queued
+                // item is rare enough that recycling it would only add shared state.
+                ThreadPool.UnsafeQueueUserWorkItem(
+                    state => HandleGlobalKey(((GlobalKeyWork)state!).VkCode, ((GlobalKeyWork)state!).Message,
+                        ((GlobalKeyWork)state!).Media, ((GlobalKeyWork)state!).Volume),
+                    new GlobalKeyWork(vkCode, (int)wParam, mediaKeysPressed, volumeKeysPressed));
+            }
+        }
+        return CallNextHookEx(_hookId, nCode, wParam, lParam);
+    }
+
+    /// <summary>
+    /// Media, volume and lock keys, off the keyboard hook. MainWindow.WndProc() also
+    /// handles media and volume keys.
+    /// </summary>
+    private void HandleGlobalKey(int vkCode, int message, bool mediaKeysPressed, bool volumeKeysPressed)
+    {
+        try
+        {
             if (mediaKeysPressed || volumeKeysPressed)
             {
-                bool result = false;
                 if (mediaKeysPressed || (!SettingsManager.Current.MediaFlyoutVolumeKeysExcluded && volumeKeysPressed))
-                    result = TryShowMediaFlyoutDebounced();
+                    TryShowMediaFlyoutDebounced();
 
                 if (SettingsManager.Current.VolumeControlEnabled)
                 {
@@ -1009,40 +1051,38 @@ public partial class MainWindow : MicaWindow
                     volumeMixerWindow?.ViewModel.SyncMasterFromDevice();
                     volumeMixerWindow?.ShowFlyout();
                 }
-
-                if (!result)
-                {
-                    return CallNextHookEx(_hookId, nCode, wParam, lParam);
-                }
             }
 
-            if (SettingsManager.Current.LockKeysEnabled
-                && !FullscreenDetector.IsFullscreenApplicationRunning()
-                && wParam == WM_KEYUP)
+            if (message != WM_KEYUP
+                || !SettingsManager.Current.LockKeysEnabled
+                || FullscreenDetector.IsFullscreenApplicationRunning())
+                return;
+
+            if (vkCode == 0x14 && SettingsManager.Current.LockKeysCapsEnabled) // Caps Lock
             {
-                if (vkCode == 0x14 && SettingsManager.Current.LockKeysCapsEnabled) // Caps Lock
-                {
-                    lockWindow ??= new LockWindow();
-                    lockWindow.ShowLockFlyout(FindResource("LockWindow_CapsLock").ToString(), Keyboard.IsKeyToggled(Key.CapsLock));
-                }
-                else if (vkCode == 0x90 && SettingsManager.Current.LockKeysNumEnabled) // Num Lock
-                {
-                    lockWindow ??= new LockWindow();
-                    lockWindow.ShowLockFlyout(FindResource("LockWindow_NumLock").ToString(), Keyboard.IsKeyToggled(Key.NumLock));
-                }
-                else if (vkCode == 0x91 && SettingsManager.Current.LockKeysScrollEnabled) // Scroll Lock
-                {
-                    lockWindow ??= new LockWindow();
-                    lockWindow.ShowLockFlyout(FindResource("LockWindow_ScrollLock").ToString(), Keyboard.IsKeyToggled(Key.Scroll));
-                }
-                else if (vkCode == 0x2D && SettingsManager.Current.LockKeysInsertEnabled) // Insert
-                {
-                    lockWindow ??= new LockWindow();
-                    lockWindow.ShowLockFlyout("Insert", Keyboard.IsKeyToggled(Key.Insert));
-                }
+                lockWindow ??= new LockWindow();
+                lockWindow.ShowLockFlyout(FindResource("LockWindow_CapsLock").ToString(), Keyboard.IsKeyToggled(Key.CapsLock));
+            }
+            else if (vkCode == 0x90 && SettingsManager.Current.LockKeysNumEnabled) // Num Lock
+            {
+                lockWindow ??= new LockWindow();
+                lockWindow.ShowLockFlyout(FindResource("LockWindow_NumLock").ToString(), Keyboard.IsKeyToggled(Key.NumLock));
+            }
+            else if (vkCode == 0x91 && SettingsManager.Current.LockKeysScrollEnabled) // Scroll Lock
+            {
+                lockWindow ??= new LockWindow();
+                lockWindow.ShowLockFlyout(FindResource("LockWindow_ScrollLock").ToString(), Keyboard.IsKeyToggled(Key.Scroll));
+            }
+            else if (vkCode == 0x2D && SettingsManager.Current.LockKeysInsertEnabled) // Insert
+            {
+                lockWindow ??= new LockWindow();
+                lockWindow.ShowLockFlyout("Insert", Keyboard.IsKeyToggled(Key.Insert));
             }
         }
-        return CallNextHookEx(_hookId, nCode, wParam, lParam);
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to handle a global media/volume/lock key");
+        }
     }
 
     // show the media flyout with debounce
@@ -1560,11 +1600,23 @@ public partial class MainWindow : MicaWindow
 
     private void UpdateSeekbarCurrentDuration(TimeSpan pos)
     {
-        Dispatcher.Invoke(() =>
+        double seconds = pos.TotalSeconds;
+        string text = pos.ToString(pos.Hours > 0 ? @"hh\:mm\:ss" : @"mm\:ss");
+        // Runs from a UI callback already; the fallback keeps the startup call (which
+        // happens while the dispatcher is busy) working without a deadlock.
+        if (!Dispatcher.CheckAccess())
         {
-            Seekbar.Value = pos.TotalSeconds;
-            SeekbarCurrentDuration.Text = pos.ToString(pos.Hours > 0 ? @"hh\:mm\:ss" : @"mm\:ss");
-        });
+            Dispatcher.BeginInvoke(() => ApplySeekbarPosition(seconds, text));
+            return;
+        }
+
+        ApplySeekbarPosition(seconds, text);
+    }
+
+    private void ApplySeekbarPosition(double seconds, string text)
+    {
+        if (Math.Abs(Seekbar.Value - seconds) > 0.01) Seekbar.Value = seconds;
+        if (SeekbarCurrentDuration.Text != text) SeekbarCurrentDuration.Text = text;
     }
 
     private void HandlePlayBackState(GlobalSystemMediaTransportControlsSessionPlaybackStatus? status)

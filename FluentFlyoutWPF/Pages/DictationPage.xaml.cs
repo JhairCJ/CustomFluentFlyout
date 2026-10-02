@@ -16,12 +16,12 @@ using System.Windows.Input;
 namespace FluentFlyoutWPF.Pages;
 
 /// <summary>
-/// Ajustes del dictado por voz (spec 006): encenderlo, su atajo —una tecla o una
-/// combinación—, el idioma y los modelos locales.
+/// Voice dictation settings (spec 006): turning it on, its hotkey - one key or a
+/// combination -, the language and the local models.
 ///
-/// <para>Los modelos se descargan una vez; el dictado corre después en el equipo, sin
-/// red (RF-8). La lista mezcla el catálogo descargable con los archivos locales, para
-/// que un modelo añadido a mano (o copiado desde otro equipo) aparezca igual.</para>
+/// <para>Models are downloaded once; dictation then runs on the machine, with no
+/// network (RF-8). The list mixes the downloadable catalog with local files, so a
+/// hand-added model (or one copied from another machine) shows up the same way.</para>
 /// </summary>
 public partial class DictationPage : Page
 {
@@ -64,8 +64,8 @@ public partial class DictationPage : Page
 
     private void DictationPage_Unloaded(object sender, RoutedEventArgs e)
     {
-        // Se cierra la página (o la ventana de ajustes) con la caja quizá enfocada: el dictado
-        // tiene que volver a escuchar sí o sí.
+        // The page (or the settings window) is closed with the box maybe still focused: dictation
+        // has to start listening again no matter what.
         EndHotkeyCapture();
         if (Application.Current.MainWindow is MainWindow mainWindow)
             mainWindow.Dictation.Changed -= Dictation_Changed;
@@ -184,20 +184,20 @@ public partial class DictationPage : Page
     // Atajo
     // ------------------------------------------------------------------
 
-    /// <summary>Teclas del atajo que el usuario mantiene ahora mismo en la caja.</summary>
+    /// <summary>Hotkey keys the user is holding right now in the box.</summary>
     private readonly HashSet<int> _capturedKeys = [];
     private bool _hotkeyCapturing;
 
-    /// <summary>Servicio del dictado (vive en la ventana principal), para avisarle de la captura.</summary>
+    /// <summary>Dictation service (it lives in the main window), to tell it about the capture.</summary>
     private static DictationService? Dictation =>
         Application.Current.MainWindow is MainWindow mainWindow ? mainWindow.Dictation : null;
 
     /// <summary>
-    /// Captura del atajo: mientras la caja tiene el foco, cada tecla que baja se ACUMULA con
-    /// las que ya estaban pulsadas y el ajuste guarda la combinación completa («Ctrl»,
-    /// «Ctrl+Shift+M»…). Antes la combinación dependía de lo que dijera el estado del teclado
-    /// de WPF en ese instante: si no reportaba los modificadores, cada tecla reemplazaba a la
-    /// anterior y el atajo se quedaba en una sola tecla.
+    /// Hotkey capture: while the box has focus, every key going down is ACCUMULATED with
+    /// the ones already held and the setting saves the whole combination ("Ctrl",
+    /// "Ctrl+Shift+M"...). The combination used to depend on whatever WPF's keyboard
+    /// state reported at that instant: if it did not report modifiers, every key replaced
+    /// the previous one and the hotkey stayed a single key.
     /// </summary>
     private void HotkeyBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
@@ -210,9 +210,9 @@ public partial class DictationPage : Page
     }
 
     /// <summary>
-    /// Soltar una tecla no cambia el ajuste: se queda la última combinación completa, que es
-    /// la que el usuario mantendrá para dictar. Solo deja de contar para lo que se pulse
-    /// después (Ctrl + M y luego N acaba en «Ctrl+N», no en «Ctrl+M+N»).
+    /// Releasing a key does not change the setting: it stays at the last whole combination,
+    /// which is the one the user will hold to dictate. It only stops counting for whatever
+    /// is pressed afterwards (Ctrl + M then N ends up as "Ctrl+N", not "Ctrl+M+N").
     /// </summary>
     private void HotkeyBox_PreviewKeyUp(object sender, KeyEventArgs e)
     {
@@ -223,14 +223,14 @@ public partial class DictationPage : Page
     private static int VirtualKeyOf(KeyEventArgs e) =>
         KeyInterop.VirtualKeyFromKey(e.Key == Key.System ? e.SystemKey : e.Key);
 
-    /// <summary>Con el foco en la caja ya se puede definir el atajo: se para el dictado entero.</summary>
+    /// <summary>With the box focused the hotkey can already be defined: the whole dictation service is stopped.</summary>
     private void HotkeyBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) => BeginHotkeyCapture();
 
     private void HotkeyBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) => EndHotkeyCapture();
 
     /// <summary>
-    /// Mientras se define el atajo el dictado no escucha: pulsar Ctrl en la caja no debe abrir
-    /// el micrófono, ni arrancar nada, ni cortar un dictado en marcha.
+    /// While the hotkey is being defined dictation does not listen: pressing Ctrl in the box
+    /// must not open the microphone, start anything, or cut a dictation in progress.
     /// </summary>
     private void BeginHotkeyCapture()
     {
@@ -249,8 +249,8 @@ public partial class DictationPage : Page
     }
 
     /// <summary>
-    /// Guarda el atajo con lo que el usuario mantiene AHORA (la caja enseña el ajuste, así que
-    /// se ve al instante). Un ajuste ilegible no se guarda: se queda el que hubiera.
+    /// Saves the hotkey with what the user is holding RIGHT NOW (the box shows the setting,
+    /// so it is visible immediately). An unreadable setting is not saved: the previous one stays.
     /// </summary>
     private void ApplyCapturedHotkey()
     {
@@ -278,9 +278,9 @@ public partial class DictationPage : Page
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Reconstruye la lista: catálogo (descargado o no) más los archivos sueltos de la
-    /// carpeta. El modelo activo se marca con «En uso», y solo se ofrece descargar lo que
-    /// falta y borrar lo que está.
+    /// Rebuilds the list: catalog (downloaded or not) plus the loose files in the folder.
+    /// The active model is marked "In use", and only download what is missing and delete
+    /// what is present are offered.
     /// </summary>
     private void RefreshModels()
     {
@@ -321,8 +321,8 @@ public partial class DictationPage : Page
     }
 
     /// <summary>
-    /// ¿Es el modelo activo? Vale el nombre del archivo y también su ruta completa: un
-    /// modelo añadido a mano se guarda por ruta, no por nombre.
+    /// Is it the active model? The file name counts and so does its full path: a
+    /// hand-added model is saved by path, not by name.
     /// </summary>
     private static bool IsActive(string configured, string? activePath, string fileName) =>
         string.Equals(configured, fileName, StringComparison.OrdinalIgnoreCase)
@@ -366,7 +366,7 @@ public partial class DictationPage : Page
             row.Busy = false;
             row.Installed = true;
             ModelsStatus.Text = IslandStrings.Get("DictationModelReady", "Model ready");
-            // El primero que se descarga pasa a ser el activo: sin modelo no hay dictado.
+            // The first one downloaded becomes the active one: without a model there is no dictation.
             if (string.IsNullOrWhiteSpace(SettingsManager.Current.DictationModel))
                 SettingsManager.Current.DictationModel = row.FileName;
             RefreshModels();
@@ -390,8 +390,8 @@ public partial class DictationPage : Page
     }
 
     /// <summary>
-    /// Añadir un modelo del disco: se copia a la carpeta de modelos (ahí es donde el
-    /// dictado los busca) y queda activo, que es lo que el usuario espera al elegirlo.
+    /// Add a model from disk: it is copied into the models folder (that is where dictation
+    /// looks for them) and becomes active, which is what the user expects when picking one.
     /// </summary>
     private async void AddLocalModel_Click(object sender, RoutedEventArgs e)
     {
@@ -433,7 +433,7 @@ public partial class DictationPage : Page
         }
     }
 
-    /// <summary>Fila de la lista de modelos: es lo que la plantilla del XAML pinta.</summary>
+    /// <summary>A row of the model list: what the XAML template draws.</summary>
     public partial class DictationModelRow : ObservableObject
     {
         public DictationModelRow(string FileName, string Name, string Subtitle, bool FromCatalog,
@@ -463,7 +463,7 @@ public partial class DictationPage : Page
         [ObservableProperty]
         public partial bool Busy { get; set; }
 
-        /// <summary>Progreso de la descarga (0-100).</summary>
+        /// <summary>Download progress (0-100).</summary>
         [ObservableProperty]
         public partial double Progress { get; set; }
 

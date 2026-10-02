@@ -4,39 +4,41 @@
 namespace FluentFlyoutWPF.Models;
 
 /// <summary>
-/// Atajo del dictado (spec 006): una tecla O una combinación, guardada como texto
-/// («Ctrl», «Ctrl+Shift+M») y decidida aquí como lógica PURA —parseo, formato y las
-/// tres reglas que usa el gancho de teclado—, para poder comprobarla sin abrir la
-/// ventana ni simular teclas (va compilada en <c>.selfcheck</c>).
+/// Dictation hotkey (spec 006): one key OR a combination, saved as text
+/// ("Ctrl", "Ctrl+Shift+M") and decided here as PURE logic - parsing, formatting and the
+/// three rules the keyboard hook uses - so it can be checked without opening the
+/// window or simulating keys (it is compiled into <c>.selfcheck</c>).
 ///
-/// <para>Reglas:</para>
+/// <para>Rules:</para>
 /// <list type="bullet">
-/// <item><b>Dispara</b> cuando la tecla que baja es parte del atajo y todas las del
-/// atajo están pulsadas: da igual el orden en que se pulse la combinación.</item>
-/// <item><b>Termina</b> cuando se suelta cualquier tecla del atajo: soltar Ctrl en
-/// «Ctrl+Shift+M» cierra el dictado igual que soltar la M.</item>
-/// <item><b>Cancela</b> solo con Escape: una tecla ajena al atajo que se pulse mientras se
-/// graba se IGNORA —mantener el atajo y rozar otra tecla no puede llevarse por delante la
-/// frase que se está dictando—. Escape sí es una decisión: descarta el audio a propósito.</item>
+/// <item><b>Triggers</b> when the key going down is part of the hotkey and all of the
+/// hotkey's keys are already held: the order in which the combination is pressed does not
+/// matter.</item>
+/// <item><b>Ends</b> when any key of the hotkey is released: releasing Ctrl in
+/// "Ctrl+Shift+M" ends dictation exactly like releasing M does.</item>
+/// <item><b>Cancels</b> only on Escape: a key outside the hotkey pressed while
+/// recording is IGNORED - holding the hotkey and brushing another key must not take the
+/// phrase being dictated down with it. Escape IS a decision: it drops the audio on
+/// purpose.</item>
 /// </list>
 /// </summary>
 public static class DictationHotkey
 {
-    /// <summary>Atajo por defecto: Ctrl a secas (la tecla más cómoda de mantener sin escribir).</summary>
+    /// <summary>Default hotkey: plain Ctrl (the easiest key to hold without typing).</summary>
     public const string Default = "Ctrl";
 
     public const int VkShift = 0x10;
     public const int VkCtrl = 0x11;
     public const int VkAlt = 0x12;
     public const int VkWin = 0x5B;
-    /// <summary>VK_ESCAPE: la única tecla que aborta el dictado a propósito.</summary>
+    /// <summary>VK_ESCAPE: the only key that aborts dictation on purpose.</summary>
     public const int VkEscape = 0x1B;
 
     /// <summary>
-    /// Une las dos formas en que Windows nombra a un modificador: el gancho de teclado
-    /// de bajo nivel y WPF entregan el lado físico (VK_LCONTROL 0xA2, VK_RALT 0xA5…) y el
-    /// atajo guardado dice «Ctrl». Sin esto, un atajo de Ctrl no dispararía NUNCA, porque
-    /// la tecla que llega del gancho no es la que está escrita en los ajustes.
+    /// Unifies the two ways Windows names a modifier: the low-level keyboard hook and WPF
+    /// deliver the physical side (VK_LCONTROL 0xA2, VK_RALT 0xA5...) while the saved
+    /// hotkey says "Ctrl". Without this a Ctrl hotkey would NEVER trigger, because the key
+    /// arriving from the hook is not the one written in the settings.
     /// </summary>
     public static int Normalize(int vk) => vk switch
     {
@@ -48,8 +50,8 @@ public static class DictationHotkey
     };
 
     /// <summary>
-    /// Lee un atajo guardado y devuelve sus códigos de tecla, sin repetidos y con los
-    /// modificadores primero. Un ajuste viejo o vacío no rompe nada: sin códigos, el
+    /// Reads a saved hotkey and returns its key codes, without duplicates and with the
+    /// modifiers first. An old or empty setting breaks nothing: without codes the
     /// dictado simplemente no dispara.
     /// </summary>
     public static IReadOnlyList<int> Parse(string? text)
@@ -64,16 +66,16 @@ public static class DictationHotkey
         return Sort(keys);
     }
 
-    /// <summary>Escribe un atajo para guardarlo y enseñarlo («Ctrl+Shift+M»).</summary>
+    /// <summary>Writes a hotkey to save and show it ("Ctrl+Shift+M").</summary>
     public static string Format(IEnumerable<int> virtualKeys) =>
         string.Join('+', Sort(virtualKeys).Select(Name));
 
-    /// <summary>¿El texto guardado forma un atajo usable (al menos una tecla)?</summary>
+    /// <summary>Does the saved text form a usable hotkey (at least one key)?</summary>
     public static bool IsValid(string? text) => Parse(text).Count > 0;
 
     /// <summary>
-    /// ¿Esta tecla, al bajar, COMPLETA el atajo? Solo entonces empieza a grabarse: pulsar
-    /// un modificador de la combinación antes de tiempo no arranca nada.
+    /// Does this key, going down, COMPLETE the hotkey? Only then does recording start:
+    /// pressing a combination modifier early starts nothing.
     /// </summary>
     public static bool Triggers(IReadOnlyList<int> hotkey, int vk, IReadOnlyCollection<int> pressed)
     {
@@ -85,18 +87,18 @@ public static class DictationHotkey
         return true;
     }
 
-    /// <summary>¿Soltar esta tecla cierra el dictado? (cualquier tecla del atajo)</summary>
+    /// <summary>Does releasing this key end dictation? (any key of the hotkey)</summary>
     public static bool Ends(IReadOnlyList<int> hotkey, int vk) => hotkey.Contains(vk);
 
     /// <summary>
-    /// ¿Bajar esta tecla mientras se graba cancela el dictado? Solo Escape. Cualquier otra
-    /// tecla ajena al atajo se ignora en silencio (RF-4 MODIFIED): mantener el atajo y rozar
-    /// otra tecla no puede descartar lo que se está dictando, y el atajo de delante sigue
-    /// funcionando igual (un Ctrl+C sigue copiando, nunca se convierte en texto).
+    /// Does pressing this key while recording cancel dictation? Only Escape. Any other
+    /// key outside the hotkey is silently ignored (RF-4 MODIFIED): holding the hotkey and
+    /// brushing another key must not discard what is being dictated, and the hotkey in
+    /// front keeps working the same (Ctrl+C still copies, it never turns into text).
     /// </summary>
     public static bool Cancels(int vk) => vk == VkEscape;
 
-    /// <summary>Nombre visible de un código de tecla (el que se guarda en los ajustes).</summary>
+    /// <summary>Display name of a key code (the one saved in the settings).</summary>
     public static string Name(int vk) => vk switch
     {
         VkCtrl => "Ctrl",
@@ -131,7 +133,7 @@ public static class DictationHotkey
         _ => $"0x{vk:X2}",
     };
 
-    /// <summary>¿El nombre escrito por el usuario es una tecla conocida?</summary>
+    /// <summary>Is the name typed by the user a known key?</summary>
     public static bool TryNameToVirtualKey(string? name, out int vk)
     {
         vk = 0;
@@ -179,7 +181,7 @@ public static class DictationHotkey
         return false;
     }
 
-    /// <summary>Modificadores primero (Ctrl, Shift, Alt, Win) y lo demás en su orden de pulsación.</summary>
+    /// <summary>Modifiers first (Ctrl, Shift, Alt, Win) and the rest in their press order.</summary>
     private static List<int> Sort(IEnumerable<int> virtualKeys)
     {
         var modifiers = new List<int>();
