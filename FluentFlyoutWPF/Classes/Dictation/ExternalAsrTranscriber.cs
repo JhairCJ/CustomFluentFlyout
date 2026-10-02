@@ -15,8 +15,8 @@ namespace FluentFlyoutWPF.Classes.Dictation;
 
 /// <summary>
 /// Puente para modelos que no son Whisper GGML. Qwen usa el paquete oficial qwen-asr y
-/// Parakeet usa el servidor HTTP local de NeMo-Speech.cpp cuando está disponible; ambos
-/// workers se cargan y liberan mediante la misma interfaz.
+/// Los modelos NVIDIA usan el servidor HTTP local de NeMo-Speech.cpp cuando está disponible;
+/// ambos workers se cargan y liberan mediante la misma interfaz.
 /// </summary>
 public sealed class ExternalAsrTranscriber : IDisposable
 {
@@ -98,7 +98,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
             return model.Backend switch
             {
                 DictationModelBackend.NemoSpeech => await TranscribeWithNemoAsync(
-                    modelPath, wavPath, language, useGpu, cancellationToken),
+                    modelPath, wavPath, language, model.UsesLocaleLanguageCodes, useGpu, cancellationToken),
                 DictationModelBackend.QwenAsr => await TranscribeWithQwenAsync(
                     modelPath, wavPath, language, useGpu, cancellationToken),
                 _ => throw new InvalidOperationException(
@@ -148,9 +148,19 @@ public sealed class ExternalAsrTranscriber : IDisposable
         string modelPath,
         string wavPath,
         string language,
+        bool usesLocaleLanguageCodes,
         bool useGpu,
         CancellationToken cancellationToken)
     {
+        string nemoLanguage = usesLocaleLanguageCodes
+            ? language.Trim().ToLowerInvariant() switch
+            {
+                "es" => "es-ES",
+                "en" => "en-US",
+                _ => language,
+            }
+            : language;
+
         await _externalLock.WaitAsync(cancellationToken);
         try
         {
@@ -160,7 +170,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
                 {
                     await EnsureNemoServerCoreAsync(modelPath, useGpu, cancellationToken);
                     return await TranscribeWithNemoServerCoreAsync(
-                        wavPath, language, cancellationToken);
+                        wavPath, nemoLanguage, cancellationToken);
                 }
                 catch (NemoServerUnavailableException ex)
                 {
@@ -172,8 +182,22 @@ public sealed class ExternalAsrTranscriber : IDisposable
                 }
             }
 
-            return await TranscribeWithNemoOneShotAsync(
-                modelPath, wavPath, useGpu, cancellationToken);
+            try
+            {
+                return await TranscribeWithNemoOneShotAsync(
+                    modelPath, wavPath, nemoLanguage, useGpu, cancellationToken);
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Un fallo del CLI no demuestra que el servidor sea incompatible;
+                // vuelve a probarlo en la siguiente sesión por si el fallo fue transitorio.
+                _nemoServerUnavailable = false;
+                _nemoUnavailableModelPath = null;
+                Logger.Warn(
+                    "Falló la transcripción CLI de NeMo-Speech.cpp; " +
+                    "se volverá a probar el servidor en el siguiente dictado");
+                throw;
+            }
         }
         finally
         {
@@ -184,6 +208,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
     private static async Task<string> TranscribeWithNemoOneShotAsync(
         string modelPath,
         string wavPath,
+        string language,
         bool useGpu,
         CancellationToken cancellationToken)
     {
@@ -204,6 +229,11 @@ public sealed class ExternalAsrTranscriber : IDisposable
         startInfo.ArgumentList.Add(modelPath);
         startInfo.ArgumentList.Add("--device");
         startInfo.ArgumentList.Add(useGpu ? "cuda:0" : "cpu");
+        if (!string.IsNullOrWhiteSpace(language))
+        {
+            startInfo.ArgumentList.Add("--language");
+            startInfo.ArgumentList.Add(language);
+        }
 
         using Process process = StartProcess(startInfo, "NeMo-Speech.cpp");
         return await ReadProcessOutputAsync(process, cancellationToken);
@@ -250,6 +280,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
         startInfo.Environment["NO_COLOR"] = "1";
         startInfo.ArgumentList.Add("serve");
         startInfo.ArgumentList.Add("--no-ui");
+        startInfo.ArgumentList.Add("--no-warmup");
         startInfo.ArgumentList.Add("--host");
         startInfo.ArgumentList.Add("127.0.0.1");
         startInfo.ArgumentList.Add("--port");
@@ -258,6 +289,9 @@ public sealed class ExternalAsrTranscriber : IDisposable
         startInfo.ArgumentList.Add(modelPath);
         startInfo.ArgumentList.Add("--gpu");
         startInfo.ArgumentList.Add(useGpu ? "0" : "-1");
+        // La app serializa los dictados; el batching de serve no aporta nada y
+        // puede llevar a una ruta de asignación GGML inestable en este runtime.
+        startInfo.ArgumentList.Add("--asr.batching.enabled=false");
 
         Process process;
         try
@@ -357,11 +391,68 @@ public sealed class ExternalAsrTranscriber : IDisposable
         using HttpResponseMessage response = await NemoHttp.PostAsync(endpoint, form, cancellationToken);
         string body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
+        {
+            if (body.Contains("out of device memory", StringComparison.OrdinalIgnoreCase)
+                || body.Contains("cudaMalloc failed", StringComparison.OrdinalIgnoreCase))
+            {
+                await LogCudaMemorySnapshotAsync();
+            }
+
             throw new InvalidOperationException(
                 $"NeMo-Speech.cpp devolvió {(int)response.StatusCode}: {body.Trim()}");
+        }
 
         NemoResponse? result = JsonSerializer.Deserialize<NemoResponse>(body, JsonOptions);
         return result?.Text?.Trim() ?? "";
+    }
+
+    private static async Task LogCudaMemorySnapshotAsync()
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "nvidia-smi",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+        startInfo.ArgumentList.Add("--query-gpu=name,memory.total,memory.used,memory.free");
+        startInfo.ArgumentList.Add("--format=csv,noheader");
+
+        Process? process = null;
+        try
+        {
+            process = Process.Start(startInfo);
+            if (process == null) return;
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync(timeout.Token);
+            Task<string> errorTask = process.StandardError.ReadToEndAsync(timeout.Token);
+            await process.WaitForExitAsync(timeout.Token);
+            string output = await outputTask;
+            string error = await errorTask;
+            Logger.Warn(process.ExitCode == 0
+                ? $"VRAM tras el fallo de asignación CUDA: {output.Trim()}"
+                : $"nvidia-smi terminó con código {process.ExitCode}: {error.Trim()}");
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException
+            or OperationCanceledException or IOException)
+        {
+            if (process is { HasExited: false })
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { }
+                catch (Win32Exception) { }
+            }
+
+            Logger.Warn(ex, "No se pudo obtener el estado de VRAM después del fallo de NeMo-Speech.cpp");
+        }
+        finally
+        {
+            process?.Dispose();
+        }
     }
 
     private static int FindAvailableLoopbackPort()
@@ -379,7 +470,17 @@ public sealed class ExternalAsrTranscriber : IDisposable
         {
             while (await reader.ReadLineAsync() is { } line)
             {
-                if (!string.IsNullOrWhiteSpace(line)) Logger.Debug($"{source}: {line}");
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                bool diagnostic = line.Contains("error", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("failed", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("assert", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("abort", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("out of memory", StringComparison.OrdinalIgnoreCase);
+                if (source.EndsWith("stderr", StringComparison.OrdinalIgnoreCase) && diagnostic)
+                    Logger.Warn($"{source}: {line}");
+                else
+                    Logger.Debug($"{source}: {line}");
             }
         }
         catch (ObjectDisposedException)

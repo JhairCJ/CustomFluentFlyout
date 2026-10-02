@@ -25,8 +25,8 @@ public sealed record DictationModelArtifact(
     string? Sha256 = null);
 
 /// <summary>
-/// Un modelo de dictado del catálogo: lo que la aplicación ofrece descargar. Whisper y
-/// Parakeet usan un archivo; Qwen usa una carpeta con sus pesos y metadatos.
+/// Un modelo de dictado del catálogo: lo que la aplicación ofrece descargar. Whisper,
+/// Parakeet y Nemotron usan un archivo; Qwen usa una carpeta con sus pesos y metadatos.
 /// </summary>
 /// <param name="FileName">Nombre del archivo o carpeta en modelos (la clave estable).</param>
 /// <param name="Name">Nombre visible.</param>
@@ -57,6 +57,9 @@ public sealed record DictationModelInfo(
 
     /// <summary>SHA-256 esperado; null solo para modelos locales que no son del catálogo.</summary>
     public string? Sha256 { get; init; }
+
+    /// <summary>Este modelo espera códigos de idioma regionales, como «es-ES».</summary>
+    public bool UsesLocaleLanguageCodes { get; init; }
 
     /// <summary>Archivos adicionales para un modelo que ocupa una carpeta.</summary>
     public IReadOnlyList<DictationModelArtifact> Artifacts { get; init; } = [];
@@ -95,6 +98,7 @@ public sealed record DictationModelInfo(
         "ggml-large-v3-turbo-q5_0.bin" => 574_000_000,
         "ggml-distil-large-v3-multi4.bin" => 1_519_521_155,
         "parakeet-tdt-0.6b-v3.q8_0.gguf" => 713_975_456,
+        "nemotron-3.5-asr-streaming-0.6b.q8_0.gguf" => 742_090_464,
         "ggml-medium-q5_0.bin" => 539_212_467,
         "ggml-medium.bin" => 1_530_000_000,
         _ => 150_000_000,
@@ -102,9 +106,9 @@ public sealed record DictationModelInfo(
 }
 
 /// <summary>
-/// Carpeta y catálogo de modelos del dictado (spec 006 RF-8). Whisper y Parakeet usan
-/// archivos locales; Qwen usa una carpeta local con todos sus pesos y metadatos. La
-/// inferencia no toca la red nunca.
+/// Carpeta y catálogo de modelos del dictado (spec 006 RF-8). Whisper, Parakeet y
+/// Nemotron usan archivos locales; Qwen usa una carpeta local con todos sus pesos y
+/// metadatos. La inferencia no toca la red nunca.
 /// </summary>
 public static class DictationModelStore
 {
@@ -171,6 +175,17 @@ public static class DictationModelStore
                 new("model.safetensors", "model.safetensors", 1_876_091_704,
                     "79d6cbd4c98c7bbffe9db2edac07f56cd6637d0d5944b27f6c2b8353840323ea"),
             ],
+        },
+        new("nemotron-3.5-asr-streaming-0.6b.q8_0.gguf", "NVIDIA Nemotron 3.5 ASR 0.6B (GGUF)", "708 MB",
+            "Español, inglés y otros idiomas")
+        {
+            Backend = DictationModelBackend.NemoSpeech,
+            Runtime = "Requiere NeMo-Speech.cpp",
+            Repository = "nvidia/nemotron-3.5-asr-streaming-0.6b",
+            RemoteFileName = "nemotron-3.5-asr-streaming-0.6b.q8_0.gguf",
+            Revision = "ea30d66debe3740a08b573244286791d423d6b3e",
+            Sha256 = "3fc991d3badad7277c11030a7519832cddaf2057aafed6d4b25147e953a070b1",
+            UsesLocaleLanguageCodes = true,
         },
         new("parakeet-tdt-0.6b-v3.q8_0.gguf", "NVIDIA Parakeet TDT v3 (GGUF)", "681 MB",
             "Inglés, español y 23 idiomas más")
@@ -593,6 +608,20 @@ public static class DictationModelStore
         if (existingLength > 0
             && response.StatusCode == System.Net.HttpStatusCode.RequestedRangeNotSatisfiable)
         {
+            // Un 416 también aparece si el parcial ya está completo: Range comienza justo
+            // después del último byte. Compruébalo localmente antes de borrar y reiniciar
+            // una descarga grande que ya terminó.
+            if (!string.IsNullOrWhiteSpace(expectedHash))
+            {
+                string partialHash = await ComputeSha256Async(partPath, cancellationToken);
+                if (string.Equals(partialHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Move(partPath, finalPath, overwrite: true);
+                    progress?.Report(1);
+                    return;
+                }
+            }
+
             TryDelete(partPath);
             throw new HttpRequestException("El servidor rechazó continuar el archivo parcial");
         }
@@ -636,26 +665,28 @@ public static class DictationModelStore
         }
 
         progress?.Report(total > 0 ? Math.Clamp((double)done / total, 0, 1) : 0);
-        await using var file = new FileStream(
+        await using (var file = new FileStream(
             partPath,
             append ? FileMode.Append : FileMode.Create,
             FileAccess.Write,
             FileShare.None,
             81_920,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        await using var source = await response.Content.ReadAsStreamAsync(attemptCts.Token);
-        byte[] buffer = new byte[81_920];
-        int read;
-        while (true)
+            FileOptions.Asynchronous | FileOptions.SequentialScan))
         {
-            attemptCts.CancelAfter(DownloadIdleTimeout);
-            read = await source.ReadAsync(buffer.AsMemory(), attemptCts.Token);
-            if (read <= 0) break;
+            await using var source = await response.Content.ReadAsStreamAsync(attemptCts.Token);
+            byte[] buffer = new byte[81_920];
+            int read;
+            while (true)
+            {
+                attemptCts.CancelAfter(DownloadIdleTimeout);
+                read = await source.ReadAsync(buffer.AsMemory(), attemptCts.Token);
+                if (read <= 0) break;
 
-            hash.AppendData(buffer, 0, read);
-            await file.WriteAsync(buffer.AsMemory(0, read), attemptCts.Token);
-            done += read;
-            progress?.Report(total > 0 ? Math.Clamp((double)done / total, 0, 1) : 0);
+                hash.AppendData(buffer, 0, read);
+                await file.WriteAsync(buffer.AsMemory(0, read), attemptCts.Token);
+                done += read;
+                progress?.Report(total > 0 ? Math.Clamp((double)done / total, 0, 1) : 0);
+            }
         }
 
         string actualHash = Convert.ToHexString(hash.GetHashAndReset());

@@ -870,14 +870,17 @@ public sealed class DictationService : IDisposable
 
             long mark = clock.ElapsedMilliseconds;
             var voiced = await DetectVoiceAsync(samples, token);
-            float[] useful = TrimSilence(samples, voiced);
-            if (useful.Length == 0)
+            if (voiced.Count == 0)
             {
-                // RF-5: silencio = ni transcripción ni texto (y ninguna alucinación).
+                // Conserva la protección contra transcribir silencio puro. El umbral del
+                // VAD es más bajo para que también detecte voces suaves.
                 Logger.Info($"Dictado: {AudioSeconds(samples)} de audio sin voz (VAD {clock.ElapsedMilliseconds - mark} ms)"
                     + MicNote());
                 return;
             }
+            // El VAD puede subestimar una voz suave. Se conserva el audio completo; el VAD
+            // solo distingue silencio total y no decide qué partes se envían al motor.
+            float[] useful = samples;
             vadMs = clock.ElapsedMilliseconds - mark;
 
             string activePath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel)
@@ -1009,41 +1012,22 @@ public sealed class DictationService : IDisposable
         }
     }
 
-    /// <summary>Padding extra al recortar por VAD: no cortar el ataque ni la cola de palabra.</summary>
-    private static readonly TimeSpan VadTrimPadding = TimeSpan.FromMilliseconds(200);
-
     /// <summary>
-    /// Tramos con voz según Silero (RF-5). El builder ya añade 150 ms de padding por
-    /// tramo; aquí solo se usan sus marcas para recortar el audio antes de inferir.
+    /// Tramos con voz según Silero. Se usan para filtrar silencio total, pero no para
+    /// recortar el audio: las muestras completas se envían al reconocedor.
     /// </summary>
     private async Task<IReadOnlyList<VadSegmentData>> DetectVoiceAsync(float[] samples, CancellationToken cancellationToken)
     {
         WhisperVadFactory vadFactory = await EnsureVadFactoryAsync(cancellationToken);
         using var vad = vadFactory.CreateBuilder()
             .WithThreads(Math.Clamp(Environment.ProcessorCount - 1, 1, 4))
-            .WithThreshold(0.5f)
+            .WithThreshold(0.3f)
             .WithMinSpeechDuration(TimeSpan.FromMilliseconds(100))
             .WithMinSilenceDuration(TimeSpan.FromMilliseconds(250))
             .WithSpeechPadding(TimeSpan.FromMilliseconds(150))
             .Build();
 
         return await vad.DetectSpeechAsync(samples, cancellationToken);
-    }
-
-    /// <summary>
-    /// Recorta silencio inicial/final entre el primer y el último tramo con voz. Al motor
-    /// le llega audio útil en vez del buffer crudo con silencios: eso evita bucles,
-    /// parciales e inventos con habla lenta. Sin voz → vacío (RF-5).
-    /// </summary>
-    private static float[] TrimSilence(float[] samples, IReadOnlyList<VadSegmentData> voiced)
-    {
-        if (voiced.Count == 0) return [];
-        int start = Math.Max(0, (int)((voiced[0].Start - VadTrimPadding).TotalSeconds * SampleRateHz));
-        int end = Math.Min(
-            samples.Length,
-            (int)Math.Ceiling((voiced[voiced.Count - 1].End + VadTrimPadding).TotalSeconds * SampleRateHz));
-        if (end <= start) return [];
-        return samples[start..end];
     }
 
     private async Task<WhisperVadFactory> EnsureVadFactoryAsync(CancellationToken cancellationToken)
