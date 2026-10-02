@@ -783,13 +783,13 @@ public partial class UserSettings : ObservableObject
     public partial bool IslandEnabled { get; set; }
 
     /// <summary>
-    /// Fluent Island: muestra el borde blanco translúcido de la isla.
+    /// Fluent Island: shows the island's translucent white border.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandBorderEnabled { get; set; }
 
     /// <summary>
-    /// Radio de las esquinas del Fluent Island en píxeles.
+    /// Fluent Island corner radius in pixels.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IslandBorderRadiusText))]
@@ -809,8 +809,8 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Radio de las esquinas del Island en estado compacto (píxeles, 0-40).
-    /// Valor -1 = sin migrar: se hereda de <see cref="IslandBorderRadius"/> al cargar.
+    /// Island corner radius in the compact state (pixels, 0-40).
+    /// Value -1 = not migrated: it inherits <see cref="IslandBorderRadius"/> on load.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IslandCompactBorderRadiusText))]
@@ -830,8 +830,8 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Radio de las esquinas del Island en estado expandido (píxeles, 0-40).
-    /// Valor -1 = sin migrar: se hereda de <see cref="IslandBorderRadius"/> al cargar.
+    /// Island corner radius in the expanded state (pixels, 0-40).
+    /// Value -1 = not migrated: it inherits <see cref="IslandBorderRadius"/> on load.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IslandExpandedBorderRadiusText))]
@@ -851,8 +851,8 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Curva de empalme al borde en modo notch, estado compacto (píxeles, 0-20).
-    /// Valor -1 = sin migrar: se usa 6 al cargar.
+    /// Edge blend curve in notch mode, compact state (pixels, 0-20).
+    /// Value -1 = not migrated: 6 is used on load.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IslandNotchFilletCompactText))]
@@ -872,8 +872,8 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Curva de empalme al borde en modo notch, estado expandido (píxeles, 0-20).
-    /// Valor -1 = sin migrar: se usa 10 al cargar.
+    /// Edge blend curve in notch mode, expanded state (pixels, 0-20).
+    /// Value -1 = not migrated: 10 is used on load.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IslandNotchFilletExpandedText))]
@@ -893,7 +893,7 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Radio de las esquinas de la carátula y de su overlay de cambio de medio.
+    /// Corner radius of the artwork and of its media change overlay.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IslandAlbumArtRadiusText))]
@@ -913,7 +913,7 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Ancho en píxeles del Island expandido.
+    /// Expanded Island width in pixels.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IslandExpandedWidthText))]
@@ -933,7 +933,7 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Alto en píxeles del Island expandido cuando usa el estilo de isla flotante.
+    /// Expanded Island height in pixels when it uses the floating island style.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IslandExpandedHeightText))]
@@ -953,7 +953,7 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Fluent Island: activa el fondo desenfocado basado en la carátula.
+    /// Fluent Island: enables the artwork-based blurred background.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IslandBackgroundBlurIntensityEnabled))]
@@ -968,7 +968,7 @@ public partial class UserSettings : ObservableObject
     public partial int IslandBackgroundBlurRadius { get; set; }
 
     /// <summary>
-    /// Fluent Island: gira continuamente el fondo desenfocado.
+    /// Fluent Island: rotates the blurred background continuously.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IslandBackgroundRotateEnabled))]
@@ -1007,23 +1007,23 @@ public partial class UserSettings : ObservableObject
     public bool IslandBackgroundRotateEnabled => IslandBackgroundBlur;
 
     /// <summary>
-    /// Fluent Island (001 MOD RF-2): 0 = «Visible mientras activo» (se muestra
-    /// mientras alguna funcionalidad habilitada esté activa),
-    /// 1 = «Aviso temporal» (muestra el contenido del evento 1–10 s y vuelve al
-    /// reposo). El modo «Siempre en su lugar» se retiró (001 REMOVED).
+    /// Fluent Island (001 MOD RF-2): 0 = "Visible while active" (shown while any
+    /// enabled feature is active),
+    /// 1 = "Temporary notice" (shows the event's content for 1-10 s and goes back to
+    /// rest). The "Always in place" mode was removed (001 REMOVED).
     /// </summary>
     [ObservableProperty]
     public partial int IslandVisibilityMode { get; set; }
 
     /// <summary>
-    /// Fluent Island: cómo se expande en "siempre en su lugar".
-    /// 0 = clic en el medio, 1 = rueda abajo, 2 = ambos.
+    /// Fluent Island: how it expands in "always in place".
+    /// 0 = click in the middle, 1 = wheel down, 2 = both.
     /// </summary>
     [ObservableProperty]
     public partial int IslandExpandTrigger { get; set; }
 
     /// <summary>
-    /// Fluent Island: duración del aviso temporal en ms (1000..10000).
+    /// Fluent Island: temporary notice duration in ms (1000..10000).
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IslandVisibilityDurationText))]
@@ -1081,84 +1081,84 @@ public partial class UserSettings : ObservableObject
     public partial bool IslandShowOnTrackChange { get; set; }
 
     /// <summary>
-    /// Fluent Island (001 MOD RF-2): toggle «volver a inactivo» del reposo.
-    /// Activado (por defecto): al vencer el aviso o caer sin actividad queda la
-    /// pieza inactiva (negra estrecha) visible. Desactivado: el island se oculta
-    /// por completo (nada). Persistente entre reinicios.
+    /// Fluent Island (001 MOD RF-2): "return to inactive" toggle for rest.
+    /// Enabled (default): when the notice expires or activity drops, the inactive
+    /// piece (narrow black one) stays visible. Disabled: the island hides
+    /// completely (nothing). Persists across restarts.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandReturnToInactive { get; set; }
 
     /// <summary>
-    /// Fluent Island (change island-ultra-compacto): modo ULTRA COMPACTO. Con la
-    /// cápsula replegada solo se ven sus dos EXTREMOS —lo de la izquierda y lo de la
-    /// derecha—: en el control de medios quedan la carátula y el ecualizador, sin el
-    /// título ni el artista. La presencia de reposo es mínima a propósito, pensado para
-    /// usarse con «volver a inactivo» APAGADO: el Island solo aparece cuando algo hay
-    /// que enseñar y, como no hay pieza a la que apuntar, la franja de arriba (de la
-    /// línea de actividad al borde) es la que lo trae de vuelta expandido.
+    /// Fluent Island (change island-ultra-compacto): ULTRA COMPACT mode. With the
+    /// capsule folded back only its two EXTREMES are seen - the left one and the right
+    /// one -: in the media controls that leaves the artwork and the equalizer, with no
+    /// title or artist. The resting presence is minimal on purpose, meant to be used
+    /// with "return to inactive" OFF: the Island only appears when there is something
+    /// to show and, since there is no piece to point at, the top strip (from the
+    /// activity line to the edge) is what brings it back expanded.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandUltraCompact { get; set; }
 
     /// <summary>
-    /// Fluent Island (001 MOD RF-6): ajuste «pausa de media cuenta como activo».
-    /// Activado (por defecto): una sesión pausada sostiene la visibilidad en
-    /// «Visible mientras activo» y muestra sus controles. Desactivado: la pausa
-    /// no cuenta como actividad, aunque se conserva acceso por clic.
+    /// Fluent Island (001 MOD RF-6): "media pause counts as active" setting.
+    /// Enabled (default): a paused session keeps visibility in "Visible while
+    /// active" and shows its controls. Disabled: the pause does not count as
+    /// activity, although click access is kept.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandPauseCountsActive { get; set; }
 
     /// <summary>
-    /// Fluent Island: línea gris que indica que el Island está activo.
+    /// Fluent Island: grey line indicating that the Island is active.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandActivityLine { get; set; }
 
     /// <summary>
-    /// Fluent Island: mantener la puerta del puntero con el Island OCULTO. Apagado (por
-    /// defecto) la franja del borde existe solo donde hay algo visible —la caja o su
-    /// línea gris—: sin ninguna de las dos, el puntero no hace nada ahí, que era justo el
-    /// disparador invisible molesto. Encendido, la franja del borde sigue abriendo el
-    /// Island aunque no se dibuje nada (una puerta invisible a propósito).
+    /// Fluent Island: keep the pointer door with the Island HIDDEN. Off (default) the
+    /// edge strip only exists where something is visible - the box or its grey line -
+    ///: with neither, the pointer does nothing there, which was exactly the annoying
+    /// invisible trigger. On, the edge strip keeps opening the Island even when
+    /// nothing is drawn (a deliberately invisible door).
     /// </summary>
     [ObservableProperty]
     public partial bool IslandHiddenAccess { get; set; }
 
     /// <summary>
-    /// Fluent Island: 0 = isla flotante, 1 = notch superior (sale del borde de arriba).
+    /// Fluent Island: 0 = floating island, 1 = top notch (it hangs from the top edge).
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IslandFloatingStyleEnabled))]
     public partial int IslandStyle { get; set; }
 
     /// <summary>
-    /// Fluent Island: alto en px de la franja invisible que detecta el ratón (4-30).
+    /// Fluent Island: height in px of the invisible strip that detects the mouse (4-30).
     /// </summary>
     [ObservableProperty]
     public partial int IslandHoverTolerance { get; set; }
 
     /// <summary>
-    /// Fluent Island flotante: px desde el borde superior hasta la línea gris (0-60).
+    /// Floating Fluent Island: px from the top edge down to the grey line (0-60).
     /// </summary>
     [ObservableProperty]
     public partial int IslandLineTopOffset { get; set; }
 
     /// <summary>
-    /// Fluent Island flotante: px desde el borde superior hasta la isla (0-80), estilo iPhone.
+    /// Floating Fluent Island: px from the top edge down to the island (0-80), iPhone style.
     /// </summary>
     [ObservableProperty]
     public partial int IslandTopOffset { get; set; }
 
     /// <summary>
-    /// Fluent Island: px invisibles a cada lado de la línea que siguen detectando (0-80). 0 = solo la línea (120px).
+    /// Fluent Island: invisible px on each side of the line that keep detecting (0-80). 0 = line only (120px).
     /// </summary>
     [ObservableProperty]
     public partial int IslandHoverToleranceHorizontal { get; set; }
 
     /// <summary>
-    /// Fluent Island: px invisibles hacia abajo desde la línea que siguen detectando (0-40). 0 = solo sobre la línea.
+    /// Fluent Island: invisible px downwards from the line that keep detecting (0-40). 0 = above the line only.
     /// </summary>
     [ObservableProperty]
     public partial int IslandHoverToleranceVertical { get; set; }
@@ -1167,7 +1167,7 @@ public partial class UserSettings : ObservableObject
     public bool IslandFloatingStyleEnabled => IslandEnabled && IslandStyle == 0;
 
     /// <summary>
-    /// Fluent Island: ecualizador funcional (audio real).
+    /// Fluent Island: functional equalizer (real audio).
     /// </summary>
     [ObservableProperty]
     public partial bool IslandEqEnabled { get; set; }
@@ -1179,370 +1179,370 @@ public partial class UserSettings : ObservableObject
     public partial bool IslandEqCenteredBars { get; set; }
 
     /// <summary>
-    /// Fluent Island: número de barras del ecualizador (1-10).
+    /// Fluent Island: equalizer bar count (1-10).
     /// </summary>
     [ObservableProperty]
     public partial int IslandEqBarCount { get; set; }
 
     /// <summary>
-    /// Fluent Island: sensibilidad del ecualizador (1-3).
+    /// Fluent Island: equalizer sensitivity (1-3).
     /// </summary>
     [ObservableProperty]
     public partial int IslandEqSensitivity { get; set; }
 
     /// <summary>
-    /// Fluent Island: suavizado del ecualizador (0-100).
+    /// Fluent Island: equalizer smoothing (0-100).
     /// </summary>
     [ObservableProperty]
     public partial int IslandEqSmoothing { get; set; }
 
     /// <summary>
-    /// Fluent Island: animaciones (aparición y morph).
+    /// Fluent Island: animations (appearance and morph).
     /// </summary>
     [ObservableProperty]
     public partial bool IslandAnimated { get; set; }
 
     /// <summary>
-    /// Fluent Island: familia tipográfica compartida por los 3 textos
-    /// (canción compacta, canción expandida, autor expandido).
-    /// Nombres incluidos (Inter, Manrope, …) funcionan en cualquier PC;
-    /// cualquier otro valor se trata como fuente del sistema.
+    /// Fluent Island: typeface family shared by the 3 texts
+    /// (compact song, expanded song, expanded artist).
+    /// The bundled names (Inter, Manrope, ...) work on any PC;
+    /// any other value is treated as a system font.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IslandFontSource))]
     public partial string IslandFontFamily { get; set; }
 
     /// <summary>
-    /// Tipo de letra resuelto para bindings XAML (pack URI para incluidas).
+    /// Resolved typeface for XAML bindings (pack URI for the bundled ones).
     /// </summary>
     [XmlIgnore]
     public FontFamily IslandFontSource => WidgetFonts.Resolve(IslandFontFamily);
 
     /// <summary>
-    /// Fluent Island: preset de estilo de texto (0 Moderno, 1 Clásico, 2 Audaz, 3 Suave).
-    /// Controla grosor, opacidad del autor y cursiva; los tamaños van por separado.
+    /// Fluent Island: text style preset (0 Modern, 1 Classic, 2 Bold, 3 Soft).
+    /// It controls weight, artist opacity and italics; sizes are separate.
     /// </summary>
     [ObservableProperty]
     public partial int IslandTextStyle { get; set; }
 
     /// <summary>
-    /// Fluent Island: tamaño del texto de canción en island compacto (DIPs, 10-24).
+    /// Fluent Island: song text size in the compact island (DIPs, 10-24).
     /// </summary>
     [ObservableProperty]
     public partial int IslandCompactTitleFontSize { get; set; }
 
     /// <summary>
-    /// Fluent Island: tamaño del texto de canción en island expandido (DIPs, 10-24).
+    /// Fluent Island: song text size in the expanded island (DIPs, 10-24).
     /// </summary>
     [ObservableProperty]
     public partial int IslandExpandedTitleFontSize { get; set; }
 
     /// <summary>
-    /// Fluent Island: tamaño del texto de autor en island expandido (DIPs, 10-24).
+    /// Fluent Island: artist text size in the expanded island (DIPs, 10-24).
     /// </summary>
     [ObservableProperty]
     public partial int IslandExpandedArtistFontSize { get; set; }
 
     /// <summary>
-    /// Contenido multimedia del Island: funcionalidad habilitada (independiente
-    /// del toggle de la ventana de Media Flyout).
+    /// Island media content: feature enabled (independent of the Media Flyout
+    /// window's toggle).
     /// </summary>
     [ObservableProperty]
     public partial bool IslandMediaEnabled { get; set; }
 
     /// <summary>
-    /// Temporizador del Island: funcionalidad habilitada.
+    /// Island timer: feature enabled.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandTimerEnabled { get; set; }
 
     /// <summary>
-    /// Temporizador del Island: muestra el progreso en el centro del compacto.
+    /// Island timer: shows the progress at the center of the compact view.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandTimerShowProgress { get; set; }
 
     /// <summary>
-    /// Temporizador del Island: flechas laterales para cambiar de funcionalidad.
+    /// Island timer: side arrows to switch feature.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandTimerShowArrows { get; set; }
 
     /// <summary>
-    /// Temporizador del Island: presets editables (máx. 10). Persisten entre reinicios.
+    /// Island timer: editable presets (max. 10). They persist across restarts.
     /// </summary>
     [ObservableProperty]
     public partial ObservableCollection<TimerPreset> IslandTimerPresets { get; set; }
 
     /// <summary>
-    /// Último mensaje de validación de presets en español. Vacío = sin error.
+    /// Last preset validation message, in Spanish. Empty = no error.
     /// </summary>
     [XmlIgnore]
     [ObservableProperty]
     public partial string TimerPresetsError { get; set; }
 
     /// <summary>
-    /// Cajón de aplicaciones del Island: funcionalidad habilitada (independiente
-    /// de música y temporizador).
+    /// Island app tray: feature enabled (independent
+    /// of the music and timer windows).
     /// </summary>
     [ObservableProperty]
     public partial bool IslandAppsEnabled { get; set; }
 
     /// <summary>
-    /// Cajón de aplicaciones del Island: aplicaciones del cajón (máx. 12) con
-    /// nombre y ruta. Persisten entre reinicios; el icono se lee de la ruta.
+    /// Island app tray: the tray's apps (max. 12) with name and path. They persist
+    /// across restarts; the icon is read from the path.
     /// </summary>
     [ObservableProperty]
     public partial ObservableCollection<IslandApp> IslandApps { get; set; }
 
     /// <summary>
-    /// Último mensaje de validación del cajón en español. Vacío = sin error.
+    /// Last tray validation message, in Spanish. Empty = no error.
     /// </summary>
     [XmlIgnore]
     [ObservableProperty]
     public partial string IslandAppsError { get; set; }
 
     /// <summary>
-    /// Pantallas del Island (change island-pantallas): cada entrada es una pantalla
-    /// con las funcionalidades que se muestran JUNTAS, por su id
-    /// (<see cref="IslandFeatureIds"/>) unidas por '+'. Son la ÚNICA fuente del orden y
-    /// de la composición del Island: el orden de la lista es el de la navegación (rueda
-    /// y flechas), el de dentro de cada pantalla es el de presentación (de izquierda a
-    /// derecha) y una funcionalidad que no esté en ninguna pantalla no se muestra. Cada
-    /// pantalla lleva como máximo <see cref="IslandFeatureIds.MaxFeaturesPerScreen"/>
-    /// funcionalidades. Sin nada configurado rige una pantalla por funcionalidad, que es
-    /// el comportamiento histórico; se autorrepara al cargar: los ids desconocidos o
-    /// repetidos salen, las pantallas vacías se descartan y lo que viniera de más se
+    /// Island screens (change island-pantallas): each entry is a screen with the
+    /// features shown TOGETHER, by their id
+    /// (<see cref="IslandFeatureIds"/>) joined with '+'. They are the ONLY source of
+    /// order and composition for the Island: the list order is the navigation order
+    /// (wheel and arrows), the order inside each screen is the presentation order
+    /// (left to right), and a feature that is in no screen is not shown. Each
+    /// screen carries at most <see cref="IslandFeatureIds.MaxFeaturesPerScreen"/>
+    /// features. With nothing configured one screen per feature applies, which is
+    /// the historical behaviour; it self-repairs on load: unknown or repeated ids
+    /// are dropped, empty screens are discarded and anything left over is
     /// reparte en pantallas nuevas.
     /// </summary>
     [ObservableProperty]
     public partial ObservableCollection<string> IslandScreens { get; set; }
 
     /// <summary>
-    /// Estante de archivos del Island: funcionalidad habilitada. Por defecto sí: el
-    /// estante vacío es su estado natural (invita a soltar algo encima).
+    /// Island file shelf: feature enabled. On by default: the empty shelf is its
+    /// natural state (it invites you to drop something on it).
     /// </summary>
     [ObservableProperty]
     public partial bool IslandShelfEnabled { get; set; }
 
     /// <summary>
-    /// Estante de archivos del Island: archivos y carpetas aparcados. Persisten entre
-    /// reinicios y NO caducan: solo salen cuando el usuario los arrastra fuera o los
-    /// quita (y quitarlos los devuelve a su carpeta original).
+    /// Island file shelf: the parked files and folders. They persist across restarts
+    /// and do NOT expire: they only leave when the user drags them out or removes
+    /// them (and removing them sends them back to their original folder).
     /// </summary>
     [ObservableProperty]
     public partial ObservableCollection<IslandShelfItem> IslandShelfItems { get; set; }
 
     /// <summary>
-    /// Último mensaje del estante en español. Vacío = sin error.
+    /// Last shelf message, in Spanish. Empty = no error.
     /// </summary>
     [XmlIgnore]
     [ObservableProperty]
     public partial string IslandShelfError { get; set; }
 
     /// <summary>
-    /// ¿El Island se aparta cuando hay algo a pantalla completa (juego, vídeo sin
-    /// bordes, presentación o equipo bloqueado)? Por defecto sí: quedarse encima de
-    /// un juego es justo lo que no debe pasar. El ajuste es del Island, así que
-    /// apagar «ocultar si hay pantalla completa» en el sistema no se lo lleva por
-    /// delante (ese sigue mandando como acompañante).
+    /// Should the Island step aside when something is fullscreen (game, borderless
+    /// video, presentation or locked machine)? Yes by default: staying on top of a
+    /// game is exactly what must not happen. The setting belongs to the Island, so
+    /// turning off the system's "hide if fullscreen" does not override it (that one
+    /// still wins as its companion).
     /// </summary>
     [ObservableProperty]
     public partial bool IslandHideOnFullscreen { get; set; }
 
     /// <summary>
     /// Recordatorios de Google Calendar: funcionalidad habilitada. Con ella apagada no
-    /// se lee el calendario (ni red ni token) y el Island no la ofrece.
+    /// the calendar is read (no network, no token) and the Island does not offer it.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandCalendarEnabled { get; set; }
 
     /// <summary>
-    /// Dispositivos Bluetooth conectados: funcionalidad habilitada. Con ella apagada el
-    /// vigía se para y el Island no la ofrece (ni avisos ni consumo). El aviso de una
-    /// conexión es SIEMPRE temporal, con la duración configurada del aviso.
+    /// Connected Bluetooth devices: feature enabled. With it off the watchdog stops
+    /// and the Island does not offer it (no notices, no consumption). The notice for
+    /// a connection is ALWAYS temporary, using the configured notice duration.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandBluetoothEnabled { get; set; }
 
     /// <summary>
-    /// Portapapeles (texto e imágenes): funcionalidad habilitada. Con ella apagada el
-    /// Island no escucha el portapapeles (ni copia nada a su lista) y no la ofrece.
-    /// Copiar de nuevo desde la lista del Island SÍ es cosa del usuario y sigue
-    /// funcionando aunque la escucha esté apagada.
+    /// Clipboard (text and images): feature enabled. With it off the Island does not
+    /// listen to the clipboard (it copies nothing into its list) and does not offer
+    /// it. Copying again from the Island's list IS the user's business and keeps
+    /// working even with listening off.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandClipboardEnabled { get; set; }
 
     /// <summary>
-    /// Portapapeles: cuántos elementos guarda la lista (1-100). Al bajarlo se
-    /// descartan los más viejos; nada de lo guardado toca al usuario hasta que
+    /// Clipboard: how many items the list keeps (1-100). Lowering it drops the
+    /// oldest ones; nothing stored touches the user until
     /// pulsa un elemento.
     /// </summary>
     [ObservableProperty]
     public partial int IslandClipboardMaxItems { get; set; }
 
     /// <summary>
-    /// Clima: funcionalidad habilitada. Con ella apagada no se consulta nada a la red
-    /// (ni el buscador de lugares) y el Island no la ofrece.
+    /// Weather: feature enabled. With it off nothing is queried over the network
+    /// (not even the place lookup) and the Island does not offer it.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandWeatherEnabled { get; set; }
 
-    /// <summary>Clima: lugar elegido, tal y como se enseña («Vigo, Galicia, España»).</summary>
+    /// <summary>Weather: the chosen place, exactly as shown ("Vigo, Galicia, Spain").</summary>
     [ObservableProperty]
     public partial string IslandWeatherPlace { get; set; } = "";
 
-    /// <summary>Clima: latitud del lugar elegido (0 = sin lugar).</summary>
+    /// <summary>Weather: latitude of the chosen place (0 = no place).</summary>
     [ObservableProperty]
     public partial double IslandWeatherLatitude { get; set; }
 
-    /// <summary>Clima: longitud del lugar elegido.</summary>
+    /// <summary>Weather: longitude of the chosen place.</summary>
     [ObservableProperty]
     public partial double IslandWeatherLongitude { get; set; }
 
-    /// <summary>Clima: estado del buscador/refresco, para la página de ajustes.</summary>
+    /// <summary>Weather: state of the lookup/refresh, for the settings page.</summary>
     [ObservableProperty]
     public partial string IslandWeatherStatus { get; set; } = "";
 
-    /// <summary>Clima: motivo del último fallo (vacío si todo fue bien).</summary>
+    /// <summary>Weather: reason for the last failure (empty if all went well).</summary>
     [ObservableProperty]
     public partial string IslandWeatherError { get; set; } = "";
 
     /// <summary>
-    /// Cargador: avisa en el Island cuando el equipo se enchufa a la corriente y
-    /// cuando se queda a batería. Con ella apagada no se observa el estado de energía.
+    /// Charger: it notifies on the Island when the machine is plugged in and when it
+    /// drops to battery. With it off the power state is not observed.
     /// </summary>
     [ObservableProperty]
     public partial bool IslandPowerEnabled { get; set; }
 
     /// <summary>
-    /// Dictado por voz local (spec 006): mantén la tecla o combinación configurada,
-    /// habla y suelta; el texto se escribe donde esté el cursor. El modelo corre en el
-    /// equipo: aquí no hay ningún servicio en la nube.
+    /// Local voice dictation (spec 006): hold the configured key or combination, speak
+    /// and release; the text is written wherever the cursor is. The model runs on
+    /// the machine: there is no cloud service here.
     /// </summary>
     [ObservableProperty]
     public partial bool DictationEnabled { get; set; }
 
     /// <summary>
-    /// Atajo del dictado: una sola tecla («Ctrl») o una combinación («Ctrl+Shift+M»).
-    /// Se mantiene pulsado mientras se habla.
+    /// Dictation hotkey: a single key ("Ctrl") or a combination ("Ctrl+Shift+M").
+    /// It is held down while you speak.
     /// </summary>
     [ObservableProperty]
     public partial string DictationHotkey { get; set; } = Models.DictationHotkey.Default;
 
     /// <summary>
-    /// Modelo de dictado activo: el nombre de un archivo de la carpeta de modelos o la
-    /// ruta completa de uno añadido a mano. Vacío = todavía no hay ninguno descargado.
+    /// Active dictation model: the file name of a model in the models folder, or the
+    /// full path of a hand-added one. Empty = none downloaded yet.
     /// </summary>
     [ObservableProperty]
     public partial string DictationModel { get; set; } = "";
 
-    /// <summary>Idioma del dictado: «auto» (lo detecta el modelo), «es» o «en».</summary>
+    /// <summary>Dictation language: "auto" (the model detects it), "es" or "en".</summary>
     [ObservableProperty]
     public partial string DictationLanguage { get; set; } = "auto";
 
     /// <summary>
-    /// Intenta usar CUDA para Whisper cuando el runtime está disponible. Si se apaga,
-    /// la selección queda fijada a CPU hasta el siguiente arranque.
+    /// Tries to use CUDA for Whisper when the runtime is available. If it is turned
+    /// off, the choice stays pinned to CPU until the next startup.
     /// </summary>
     [ObservableProperty]
     public partial bool DictationUseGpu { get; set; }
 
     /// <summary>
-    /// Mantiene los pesos del modelo cargados entre dictados para evitar pagar la carga
-    /// inicial cuando se dictan varias frases seguidas.
+    /// Keeps the model weights loaded between dictations to avoid paying the initial
+    /// load when several phrases are dictated in a row.
     /// </summary>
     [NotifyPropertyChangedFor(nameof(DictationAutoReleaseEnabled))]
     [ObservableProperty]
     public partial bool DictationKeepModelLoaded { get; set; }
 
-    /// <summary>Segundos de inactividad antes de liberar los recursos del dictado (15-600).</summary>
+    /// <summary>Idle seconds before releasing the dictation resources (15-600).</summary>
     [NotifyPropertyChangedFor(nameof(DictationUnloadDelayText))]
     [ObservableProperty]
     public partial int DictationUnloadDelaySeconds { get; set; }
 
-    /// <summary>Indica si el tiempo de liberación automática está activo.</summary>
+    /// <summary>Whether automatic release timing is active.</summary>
     [XmlIgnore]
     public bool DictationAutoReleaseEnabled => !DictationKeepModelLoaded;
 
-    /// <summary>Texto corto para mostrar el tiempo elegido junto al deslizador.</summary>
+    /// <summary>Short text showing the chosen time next to the slider.</summary>
     [XmlIgnore]
     public string DictationUnloadDelayText => $"{DictationUnloadDelaySeconds} s";
 
     /// <summary>
-    /// Google Calendar: minutos de antelación del recordatorio (1-60). El aviso sigue
-    /// vivo hasta dos minutos después del comienzo.
+    /// Google Calendar: reminder lead time in minutes (1-60). The notice stays alive
+    /// until two minutes after the start.
     /// </summary>
     [ObservableProperty]
     public partial int GoogleCalendarReminderMinutes { get; set; }
 
-    /// <summary>Google Calendar: cada cuántos minutos se relee el calendario (1-60).</summary>
+    /// <summary>Google Calendar: how often the calendar is re-read, in minutes (1-60).</summary>
     [ObservableProperty]
     public partial int GoogleCalendarRefreshMinutes { get; set; }
 
-    /// <summary>Google Calendar: cuántos días hacia delante se leen (1-14).</summary>
+    /// <summary>Google Calendar: how many days ahead are read (1-14).</summary>
     [ObservableProperty]
     public partial int GoogleCalendarDaysAhead { get; set; }
 
     /// <summary>
-    /// Id del cliente OAuth del usuario (tipo «Aplicación de escritorio»): es el
-    /// proyecto de Google que autoriza la app, no una credencial de la app.
+    /// The user's OAuth client id ("Desktop app" type): it is the Google project
+    /// that authorizes the app, not an app credential.
     /// </summary>
     [ObservableProperty]
     public partial string GoogleCalendarClientId { get; set; }
 
     /// <summary>
-    /// Secreto del cliente OAuth. Google lo exige también en apps de escritorio y no
-    /// es confidencial (viaja en el binario de cualquier app instalada), pero se
-    /// guarda con los ajustes como el resto.
+    /// OAuth client secret. Google requires it for desktop apps too and it is not
+    /// confidential (it travels in the binary of any installed app), but it is
+    /// stored with the settings like everything else.
     /// </summary>
     [ObservableProperty]
     public partial string GoogleCalendarClientSecret { get; set; }
 
-    /// <summary>Token de acceso vigente (se renueva solo con el de refresco).</summary>
+    /// <summary>Current access token (renewed only with the refresh token).</summary>
     [ObservableProperty]
     public partial string GoogleCalendarAccessToken { get; set; }
 
     /// <summary>
-    /// Token de refresco: es la sesión. Su presencia es lo que define «sesión
-    /// iniciada»; se borra al cerrar sesión, que es lo que revoca el acceso local.
+    /// Refresh token: it is the session. Its presence is what defines "signed in";
+    /// it is cleared on sign-out, which is what revokes the local access.
     /// </summary>
     [ObservableProperty]
     public partial string GoogleCalendarRefreshToken { get; set; }
 
-    /// <summary>Caducidad del token de acceso, en UTC.</summary>
+    /// <summary>Access token expiry, in UTC.</summary>
     [ObservableProperty]
     public partial DateTime GoogleCalendarTokenExpiresUtc { get; set; }
 
-    /// <summary>Cuenta conectada (correo del calendario principal). Vacío = sin sesión.</summary>
+    /// <summary>Signed-in account (the main calendar's email). Empty = not signed in.</summary>
     [ObservableProperty]
     public partial string GoogleCalendarAccount { get; set; }
 
     /// <summary>
-    /// Último error del calendario en español. Vacío = sin error. Se pinta en ajustes:
-    /// los fallos de red o de permiso no deben morir en el registro.
+    /// Last calendar error, in Spanish. Empty = no error. It is shown in settings:
+    /// network or permission failures must not die in the log.
     /// </summary>
     [XmlIgnore]
     [ObservableProperty]
     public partial string GoogleCalendarError { get; set; }
 
     /// <summary>
-    /// Mensaje de estado del calendario en español: «Conectando con Google…», «Sesión
-    /// iniciada». No persiste (es del momento) y se pinta en ajustes.
+    /// Calendar status message, in Spanish: "Connecting to Google...", "Signed
+    /// in". It does not persist (it is of the moment) and it is shown in settings.
     /// </summary>
     [XmlIgnore]
     [ObservableProperty]
     public partial string GoogleCalendarStatus { get; set; }
 
-    /// <summary>¿Hay sesión de Google iniciada? (no persiste: se deduce del token)</summary>
+    /// <summary>Is there a Google session signed in? (not persisted: deduced from the token)</summary>
     [XmlIgnore]
     public bool GoogleCalendarSignedIn => GoogleCalendarRefreshToken.Length > 0;
 
     partial void OnGoogleCalendarRefreshTokenChanged(string oldValue, string newValue)
     {
-        // El resto de la app se pregunta por GoogleCalendarSignedIn: al cambiar la
-        // sesión hay que avisar también de esa propiedad.
+        // The rest of the app asks about GoogleCalendarSignedIn: when the session
+        // changes that property has to be notified too.
         OnPropertyChanged(nameof(GoogleCalendarSignedIn));
         if (!_initializing) SettingsManager.SaveSettings();
     }
@@ -1851,44 +1851,45 @@ public partial class UserSettings : ObservableObject
         IslandTimerEnabled = true;
         IslandTimerShowProgress = true;
         IslandTimerShowArrows = false;
-        // Vacía a propósito: el deserializador RELLENA la colección existente con
-        // los presets guardados (no la reemplaza), así que sembrarla aquí los
-        // duplicaba en cada arranque. Los de fábrica los aplica
-        // CompleteInitialization solo cuando el archivo no trae ninguno.
+        // Emptied on purpose: the deserializer FILLS the existing collection with the
+        // saved presets (it does not replace it), so seeding it here duplicated them
+        // on every startup. CompleteInitialization applies the factory ones only
+        // when the file brings none.
         IslandTimerPresets = [];
         TimerPresetsError = "";
         IslandAppsEnabled = true;
-        // Vacía a propósito, igual que los presets: el deserializador XML RELLENA
-        // la colección existente, sembrarla aquí duplicaría las aplicaciones.
+        // Emptied on purpose, like the presets: the XML deserializer FILLS the
+        // existing collection, seeding it here would duplicate the apps.
         IslandApps = [];
         IslandAppsError = "";
         IslandShelfEnabled = true;
-        // Vacía a propósito, igual que el cajón: el deserializador XML RELLENA la
-        // colección existente.
+        // Emptied on purpose, like the tray: the XML deserializer FILLS the
+        // existing collection.
         IslandShelfItems = [];
         IslandShelfError = "";
         IslandHideOnFullscreen = true;
-        // Activado como en los ajustes guardados; sin sesión no se consulta ni muestra nada.
+        // Enabled as in the saved settings; without a session nothing is queried or shown.
         IslandCalendarEnabled = true;
-        // Sí por defecto: un aviso al conectar (que además usa el plazo del aviso
-        // temporal) es justo lo que se espera de la funcionalidad, y no toca nada
-        // del sistema: solo observa conexiones.
+        // Yes by default: a notice on connecting (which also uses the temporary
+        // notice deadline) is exactly what is expected of the feature, and it touches
+        // nothing in the system: it only observes connections.
         IslandBluetoothEnabled = true;
-        // Sí por defecto: guardar lo que se copia no cambia lo que el usuario copia
-        // (el original se conserva intacto) y es justo lo que se espera de la
-        // funcionalidad; apagarla desde ajustes para la escucha en el acto.
+        // Yes by default: storing what you copy does not change what the user copies
+        // (the original stays intact) and it is exactly what is expected of the
+        // feature; turn it off from settings to stop listening on the spot.
         IslandClipboardEnabled = true;
         IslandClipboardMaxItems = 25;
-        // El lugar es propio de cada usuario y empieza vacío; mientras no se elija,
-        // el clima no consulta la red aunque el ajuste quede activado.
+        // The place belongs to each user and starts empty; until one is chosen,
+        // weather queries no network even with the setting enabled.
         IslandWeatherEnabled = true;
         IslandWeatherPlace = "";
         IslandWeatherLatitude = 0;
         IslandWeatherLongitude = 0;
         IslandWeatherStatus = "";
         IslandWeatherError = "";
-        // Sí por defecto: enterarse de que el cargador se soltó (o de que empezó a
-        // cargar) es justo lo que se espera, y solo observa el estado que ya conoce
+        // Yes by default: finding out the charger was unplugged (or that it started
+        // charging) is exactly what is expected, and it only observes the state it
+        // already knows
         // Windows.
         IslandPowerEnabled = true;
         DictationEnabled = false;
@@ -1909,12 +1910,12 @@ public partial class UserSettings : ObservableObject
         GoogleCalendarError = "";
         GoogleCalendarStatus = "";
 
-        // Vacía a propósito, igual que los presets, el cajón y el estante: el
-        // deserializador XML RELLENA la colección existente en vez de reemplazarla,
-        // así que sembrar aquí las pantallas por defecto las añadía a las del usuario
-        // en CADA arranque (el usuario veía sus pantallas más las de fábrica, y el
-        // guardado las escribía todas). Las de fábrica las aplica
-        // CompleteInitialization solo cuando el archivo no trae ninguna.
+        // Emptied on purpose, like the presets, the tray and the shelf: the XML
+        // deserializer FILLS the existing collection instead of replacing it, so
+        // seeding the default screens here added them on top of the user's on
+        // EVERY startup (the user saw their screens plus the factory ones, and the
+        // save wrote them all). CompleteInitialization applies the factory ones
+        // only when the file brings none.
         IslandScreens = [];
         AppFilteringEnabled = false;
         AppFilteringMode = 0;
@@ -1946,13 +1947,13 @@ public partial class UserSettings : ObservableObject
     }
 
     // ------------------------------------------------------------------
-    // Ajustes que cambian el Island (change island-fichas)
+    // Settings that change the Island (change island-fichas)
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// El contenedor del Island, si su ventana ya existe (al cargar los ajustes todavía
-    /// no está). Una sola vez para toda la tabla: antes cada método de ajuste repetía la
-    /// búsqueda de la ventana por su cuenta.
+    /// The Island container, if its window already exists (while loading the settings
+    /// it does not yet). Resolved once for the whole table: before, every setting
+    /// method repeated the window lookup on its own.
     /// </summary>
     private static IslandWindow? Island
     {
@@ -1964,19 +1965,19 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Tabla de ajustes que cambian la vista del contenedor: ajuste → qué hay que rehacer.
-    /// Antes eran cuarenta y ocho métodos parciales, uno por ajuste, cada uno con su
-    /// llamada a la ventana; añadir un ajuste eran dos ediciones repartidas por todo el
-    /// archivo y olvidar una dejaba el ajuste sin efecto en caliente. Ahora es una línea
-    /// aquí, y el nombre del ajuste lo escribe el compilador (<c>nameof</c>), así que un
+    /// Table of the settings that change the container's view: setting → what to redo.
+    /// Before there were forty-eight partial methods, one per setting, each with its
+    /// its own call to the window; adding a setting meant two edits spread across the
+    /// whole file and forgetting one left the setting with no live effect. Now it is
+    /// one line here, and the compiler writes the setting's name (<c>nameof</c>), so a
     /// nombre mal escrito no compila.
     /// </summary>
     private static readonly Dictionary<string, Action<IslandWindow>> IslandSettingHandlers = new(StringComparer.Ordinal)
     {
-        // Encender el contenedor: se repliega o vuelve según el ajuste.
+        // Turning the container on: it folds back or returns, depending on the setting.
         [nameof(IslandEnabled)] = island => island.RefreshEnabledState(),
 
-        // Apariencia: forma, radios, tipografía y relleno del compacto y del expandido.
+        // Appearance: shape, radii, typography and padding of the compact and expanded views.
         [nameof(IslandBorderEnabled)] = island => island.RefreshAppearance(),
         [nameof(IslandBorderRadius)] = island => island.RefreshAppearance(),
         [nameof(IslandCompactBorderRadius)] = island => island.RefreshAppearance(),
@@ -1988,9 +1989,9 @@ public partial class UserSettings : ObservableObject
         [nameof(IslandExpandedHeight)] = island => island.RefreshAppearance(),
         [nameof(IslandActivityLine)] = island => island.RefreshAppearance(),
         [nameof(IslandHiddenAccess)] = island => island.RefreshAppearance(),
-        // Reposo (pieza o nada): es cuándo se asoma, no cómo se ve, así que re-resuelve
-        // la vista en vez de limitarse a repintarla (el interruptor surtía efecto recién
-        // en la siguiente reconciliación).
+        // Rest (piece or nothing): it is about WHEN it peeks out, not how it looks, so it
+        // re-resolves the view instead of just repainting it (the switch only took
+        // effect on the next reconciliation).
         [nameof(IslandReturnToInactive)] = island => island.RefreshVisibilityState(),
         [nameof(IslandStyle)] = island => island.RefreshAppearance(),
         [nameof(IslandLineTopOffset)] = island => island.RefreshAppearance(),
@@ -2002,24 +2003,24 @@ public partial class UserSettings : ObservableObject
         [nameof(IslandExpandedArtistFontSize)] = island => island.RefreshAppearance(),
         [nameof(IslandTimerShowProgress)] = island => island.RefreshAppearance(),
         [nameof(IslandTimerShowArrows)] = island => island.RefreshAppearance(),
-        // Ecualizador: su presencia y su arranque/parada los decide el CONTENEDOR (no el
-        // visualizador, que lee el resto de parámetros en vivo): sin esto el interruptor
-        // solo surtía efecto en la siguiente reconciliación —podía tardar hasta el
-        // próximo evento de media—.
+        // Equalizer: its presence and its start/stop are decided by the CONTAINER (not the
+        // visualizer, which reads the rest of the parameters live): without this the
+        // switch only took effect on the next reconciliation - it could take until
+        // the next media event.
         [nameof(IslandEqEnabled)] = island => island.RefreshEqContent(),
         [nameof(IslandEqBarCount)] = island => island.RefreshEqContent(),
-        // Franja del ratón: el hook lee la tolerancia en vivo, pero la franja pulsable y
-        // el veto de repliegue miden con la geometría aplicada; hay que repintar.
+        // Mouse strip: the hook reads the tolerance live, but the clickable strip and the
+        // fold-back veto measure with the applied geometry; it has to be repainted.
         [nameof(IslandHoverToleranceHorizontal)] = island => island.RefreshAppearance(),
         [nameof(IslandHoverToleranceVertical)] = island => island.RefreshAppearance(),
 
-        // Cuándo y cómo se asoma: el contrato de visibilidad se recalcula en el acto.
+        // When and how it peeks out: the visibility contract is recomputed on the spot.
         [nameof(IslandShowOnPlayPause)] = island => island.RefreshVisibilityState(),
         [nameof(IslandShowOnPause)] = island => island.RefreshVisibilityState(),
         [nameof(IslandVisibilityMode)] = island => island.RefreshVisibilityState(),
         [nameof(IslandPauseCountsActive)] = island => island.RefreshVisibilityState(),
 
-        // Fondo: modo (desenfoque, giro o color), giro y ritmo del giro.
+        // Background: mode (blur, rotation or color), spin and spin speed.
         [nameof(IslandBackgroundBlur)] = island => island.UpdateBackgroundMode(),
         [nameof(IslandBackgroundBlurIntensity)] = island => island.UpdateBackgroundMode(),
         [nameof(IslandBackgroundBlurRadius)] = island => island.UpdateBackgroundMode(),
@@ -2030,14 +2031,14 @@ public partial class UserSettings : ObservableObject
         [nameof(IslandBackgroundRotateSize)] = island => island.UpdateBackgroundMode(),
         [nameof(IslandBackgroundRotateHighRefreshRate)] = island => island.RefreshBackgroundRotationFrameRate(),
 
-        // Modo ultra: aparta el medio del compacto y re-mide la cápsula.
+        // Ultra mode: it moves the middle out of the compact view and re-measures the capsule.
         [nameof(IslandUltraCompact)] = island => island.RefreshUltraCompact(),
 
         // A pantalla completa, apartarse.
         [nameof(IslandHideOnFullscreen)] = island => island.RefreshSuppressionState(),
 
-        // Encender o apagar una funcionalidad: el contenedor reengancha sus vistas y el
-        // servicio arranca o para (apagado no se observa ni se sale a la red).
+        // Turning a feature on or off: the container re-hooks its views and the service
+        // starts or stops (off means nothing is observed and nothing goes to the network).
         [nameof(IslandMediaEnabled)] = island => island.RefreshMediaContent(),
         [nameof(IslandTimerEnabled)] = island => island.RefreshTimerEnabled(),
         [nameof(IslandAppsEnabled)] = island => island.RefreshAppsContent(),
@@ -2053,9 +2054,9 @@ public partial class UserSettings : ObservableObject
     };
 
     /// <summary>
-    /// Aplica en caliente el ajuste que acaba de cambiar, si su vista depende de él. Un
-    /// ajuste que además se SANEA (acotar o redondear el valor) tiene su propio método
-    /// parcial, que llama a la ventana después de sanear.
+    /// Applies live the setting that just changed, if the view depends on it. A
+    /// setting that is also SANITIZED (clamped or rounded) has its own partial
+    /// method, which calls the window after sanitizing.
     /// </summary>
     private void OnIslandSettingChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -2118,8 +2119,8 @@ public partial class UserSettings : ObservableObject
     /// </summary>
     internal void CompleteInitialization()
     {
-        // Migración del radio único heredado: los XML antiguos no traen los nuevos
-        // radios (-1), así que heredan el valor que el usuario ya tenía.
+        // Migration of the legacy single radius: old XML files do not bring the new
+        // radii (-1), so they inherit the value the user already had.
         if (IslandCompactBorderRadius < 0)
             IslandCompactBorderRadius = Math.Clamp(IslandBorderRadius, 0, 40);
         if (IslandExpandedBorderRadius < 0)
@@ -2135,27 +2136,26 @@ public partial class UserSettings : ObservableObject
         // defaults sensatos si viene de 0 legacy mal migrado
         if (IslandHoverToleranceHorizontal < 0) IslandHoverToleranceHorizontal = 12;
         if (IslandHoverToleranceVertical < 0) IslandHoverToleranceVertical = 4;
-        // Migración de presets: XML antiguos sin la colección, con presets
-        // duplicados (arranques previos) o con datos inválidos.
+        // Preset migration: old XML without the collection, with duplicated presets
+        // (previous startups) or with invalid data.
         IslandTimerPresets ??= [];
         SanitizeTimerPresets();
-        // Migración del cajón: XML antiguos sin la colección o con entradas
-        // repetidas, sin nombre o por encima del máximo.
+        // Tray migration: old XML without the collection, or with repeated entries,
+        // without a name, or above the maximum.
         IslandApps ??= [];
         SanitizeIslandApps();
-        // Migración del estante: XML antiguos sin la colección (o con elementos cuya
-        // ruta ya no existe: se sacaron con la aplicación cerrada) arrancan limpios.
+        /// Shelf migration: old XML without the collection (or with elements whose
+        // path no longer exists: they were taken out with the app closed) start clean.
         IslandShelfItems ??= [];
         SanitizeIslandShelf();
-        // Migración de las pantallas: XML antiguos sin el ajuste arrancan con una
-        // pantalla por funcionalidad (el comportamiento de siempre) y cualquier
-        // pantalla vacía, con ids desconocidos o con más funcionalidades de las que
-        // caben se sanea.
+        // Screen migration: old XML without the setting starts with one screen per feature
+        // (the usual behaviour) and any empty screen, with unknown ids, or with more
+        // features than fit is sanitized.
         IslandScreens ??= [.. IslandFeatureIds.DefaultScreens];
         SanitizeIslandScreens();
-        // Migración del calendario: XML antiguos sin estos ajustes arrancan con la
-        // funcionalidad apagada (nadie concede acceso a su calendario por sorpresa) y
-        // con las ventanas por defecto. Las cadenas nunca son null tras el XML.
+        // Calendar migration: old XML without these settings starts with the feature off
+        // (nobody grants access to their calendar by surprise) and with the default
+        // values. Strings are never null after the XML.
         GoogleCalendarClientId ??= "";
         GoogleCalendarClientSecret ??= "";
         GoogleCalendarAccessToken ??= "";
@@ -2179,10 +2179,9 @@ public partial class UserSettings : ObservableObject
 
     private void SanitizeTimerPresets()
     {
-        // Autorreparación de duplicados exactos: los archivos guardados por las
-        // versiones que sembraban la colección en el constructor traen la lista
-        // repetida (4+4+2…). Se conserva la primera aparición de cada par
-        // nombre+duración y el resto se descarta.
+        // Self-repair of exact duplicates: files saved by the versions that seeded the
+        // collection in the constructor carry the list repeated (4+4+2...). The first
+        // occurrence of each name+duration pair is kept and the rest discarded.
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var preset in IslandTimerPresets.ToList())
         {
@@ -2233,7 +2232,7 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Crea un preset (máx. <see cref="IslandTimer.MaxPresets"/>). Usado por IslandPage.
+    /// Creates a preset (max. <see cref="IslandTimer.MaxPresets"/>). Used by IslandPage.
     /// </summary>
     public bool AddTimerPreset()
     {
@@ -2249,7 +2248,7 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Borra un preset. La cuenta en curso no cambia (spec 002, casos límite).
+    /// Deletes a preset. The running countdown does not change (spec 002, edge cases).
     /// </summary>
     public void RemoveTimerPreset(TimerPreset preset)
     {
@@ -2258,8 +2257,8 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Autorreparación del cajón: fuera rutas vacías o repetidas, nombre tomado
-    /// del ejecutable cuando falta y recorte por encima del máximo.
+    /// Tray self-repair: empty or repeated paths out, name taken from the executable
+    /// when missing, and trimming above the maximum.
     /// </summary>
     private void SanitizeIslandApps()
     {
@@ -2298,8 +2297,8 @@ public partial class UserSettings : ObservableObject
         if (e.NewItems != null)
             foreach (IslandApp item in e.NewItems) item.PropertyChanged += IslandApp_PropertyChanged;
         if (!_initializing) SettingsManager.SaveSettings();
-        // El contenedor necesita saber que el cajón cambió de disponibilidad
-        // (sin aplicaciones no se puede mostrar).
+        // The container needs to know the tray's availability changed
+        // (with no apps there is nothing to show).
         Island?.RefreshAppsContent();
     }
 
@@ -2309,8 +2308,8 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Añade una aplicación al cajón del Island (máx. 12 y sin repetir ruta).
-    /// El nombre sale de la descripción del ejecutable. Usado por IslandPage.
+    /// Adds an app to the Island tray (max. 12, no repeated path).
+    /// The name comes from the executable's description. Used by IslandPage.
     /// </summary>
     public bool AddIslandApp(string path)
     {
@@ -2341,7 +2340,7 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Quita una aplicación del cajón. La app ya abierta no se cierra.
+    /// Removes an app from the tray. The already open app is not closed.
     /// </summary>
     public void RemoveIslandApp(IslandApp app)
     {
@@ -2350,28 +2349,27 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Sanea las pantallas del Island: se retira la cabecera de fábrica que inyectaba el
-    /// bug de arranque, se descartan las repetidas, cada pantalla se reescribe con sus
-    /// funcionalidades conocidas y sin repetir, y las que se quedan sin ninguna se
-    /// descartan. Una pantalla con más funcionalidades de las que caben se REPARTE en
-    /// pantallas de <see cref="IslandFeatureIds.MaxFeaturesPerScreen"/> (nada se pierde
-    /// al cargar un ajuste viejo o editado a mano). Sin ninguna pantalla válida rigen
-    /// las de fábrica (nunca una navegación vacía).
+    /// Sanitizes the Island screens: the factory header injected by the startup bug
+    /// is removed, duplicates are discarded, each screen is rewritten with its known
+    /// features and no repeats, and the ones left with none are discarded. A screen
+    /// with more features than fit is SPLIT across screens of
+    /// <see cref="IslandFeatureIds.MaxFeaturesPerScreen"/> (nothing is lost when
+    /// loading an old or hand-edited setting). With no valid screen the factory ones
+    /// apply (never an empty navigation).
     ///
-    /// <para>Los AVISOS (<see cref="IslandFeatureIds.Notices"/>) salen aquí: no son
-    /// pantalla. Un ajuste viejo que los tenía en una (era la pantalla «Bluetooth y
-    /// cargador» que nadie pidió) se queda sin ella, y sus avisos siguen funcionando
-    /// igual, porque ya no dependen de ninguna pantalla.</para>
+    /// <para>The NOTICES (<see cref="IslandFeatureIds.Notices"/>) leave here: they are
+    /// not screens. An old setting that had them in one (it was the "Bluetooth and
+    /// charger" screen nobody asked for) is left without it, and its notices keep
+    /// working as before, because they no longer depend on any screen.</para>
     /// </summary>
     internal void SanitizeIslandScreens()
     {
-        // Autorreparación del bug de arranque: aquella versión sembraba las pantallas de
-        // fábrica en el constructor y el deserializador XML AÑADE a la colección
-        // existente, así que los archivos de entonces empiezan por la lista de fábrica
-        // ENTERA y EN ORDEN, delante de las pantallas del usuario (una vez por arranque).
-        // Esa cabecera no la eligió nadie: se retira cuando hay algo detrás. Con la lista
-        // de fábrica a solas no se toca: quien nunca editó sus pantallas conserva su
-        // Island tal y como lo tenía.
+        // Self-repair of the startup bug: that version seeded the factory screens in the
+        // constructor and the XML deserializer ADDS to the existing collection, so
+        // files from back then start with the WHOLE factory list, IN ORDER, ahead of
+        // the user's screens (once per startup). Nobody chose that header: it is
+        // removed when there is something behind it. With only the factory list it is
+        // left alone: whoever never edited their screens keeps their Island as it was.
         int header = LegacyFactoryScreensHeaderLength();
         if (header > 0 && header < IslandScreens.Count)
         {
@@ -2379,15 +2377,14 @@ public partial class UserSettings : ObservableObject
         }
         var cleaned = new List<string>();
         var assigned = new HashSet<string>(StringComparer.Ordinal);
-        // Una pantalla repetida EXACTA no es una decisión del usuario: nadie quiere la
-        // misma vista dos veces en el recorrido, y era justo lo que dejaba el bug.
+        // An EXACT repeated screen is not a user decision: nobody wants the same view
+        // twice in a row, and that was exactly what the bug left behind.
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var screen in IslandScreens.ToList())
         {
-            // Una funcionalidad solo puede pertenecer a una pantalla. Se conserva la
-            // primera aparición para mantener el orden que el usuario ya tenía y se
-            // retiran las apariciones posteriores, incluso si la cadena de pantalla
-            // completa no era idéntica.
+            // A feature can only belong to one screen. The first occurrence is kept to
+            // preserve the order the user already had, and later occurrences are
+            // removed, even if the full screen string was not identical.
             var ids = IslandFeatureIds.ParseScreen(screen)
                 .Where(assigned.Add)
                 .ToList();
@@ -2407,11 +2404,11 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Cuántas entradas INICIALES son exactamente la lista de fábrica ANTIGUA (una
-    /// pantalla por funcionalidad, en el orden de <see cref="IslandFeatureIds.All"/>), en
-    /// orden: 0 si el archivo no empieza por ellas. Reconoce la cabecera que dejaba el bug
-    /// de arranque, repetida tantas veces como arranques sufriera el archivo. Es una
-    /// huella exacta: una pantalla por funcionalidad, todas, y en ese orden.
+    /// How many INITIAL entries are exactly the OLD factory list (one screen per
+    /// feature, in <see cref="IslandFeatureIds.All"/> order), in order: 0 if the file
+    /// does not start with them. It recognizes the header the startup bug left,
+    /// repeated as many times as the file went through startups. It is an exact
+    /// fingerprint: one screen per feature, all of them, and in that order.
     /// </summary>
     private int LegacyFactoryScreensHeaderLength()
     {
@@ -2429,8 +2426,8 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Alta/baja de las pantallas: al reemplazarse la colección se reengancha el
-    /// guardado y el contenedor.
+    /// Screens added/removed: when the collection is replaced, the save and the
+    /// container are re-hooked.
     /// </summary>
     partial void OnIslandScreensChanged(ObservableCollection<string> oldValue, ObservableCollection<string> newValue)
     {
@@ -2441,15 +2438,15 @@ public partial class UserSettings : ObservableObject
     private void IslandScreens_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
         if (!_initializing) SettingsManager.SaveSettings();
-        // El contenedor navega por estas pantallas: se releen en el acto y, si el
-        // Island está a la vista, se vuelve a presentar la pantalla vigente con la
-        // composición nueva, sin reiniciar la aplicación (change island-pantallas RF-2).
+        // The container navigates these screens: they are re-read on the spot and, if the
+        // Island is on screen, the current screen is presented again with the new
+        // composition, without restarting the app (change island-pantallas RF-2).
         Island?.RefreshScreensContent();
     }
 
-    // --- pantallas del Island (change island-pantallas) ---
+    // --- Island screens (change island-pantallas) ---
 
-    /// <summary>Mueve una pantalla en la lista (orden de navegación del contenedor).</summary>
+    /// <summary>Moves a screen in the list (container navigation order).</summary>
     internal void MoveIslandScreen(string screen, int delta)
     {
         int from = IslandScreens.IndexOf(screen);
@@ -2459,12 +2456,12 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Añade una funcionalidad al FINAL de una pantalla. El orden de dentro de la
-    /// pantalla es el orden en el que sus funcionalidades se presentan (de izquierda a
-    /// derecha: las columnas del expandido, y el turno del compacto), así que la nueva
-    /// entra al final y el usuario la coloca con <see cref="MoveIslandScreenFeature"/>. Una
-    /// pantalla llena (<see cref="IslandFeatureIds.MaxFeaturesPerScreen"/>) no acepta
-    /// más: es el máximo que cabe en una sola pantalla del Island.
+    /// Adds a feature to the END of a screen. The order inside a screen is the order
+    /// its features are presented in (left to right: the expanded columns, and the
+    /// compact's turn), so the new one enters at the end and the user places it with
+    /// <see cref="MoveIslandScreenFeature"/>. A full screen
+    /// (<see cref="IslandFeatureIds.MaxFeaturesPerScreen"/>) takes no more: that is the
+    /// maximum that fits in a single Island screen.
     /// </summary>
     internal bool AddIslandScreenFeature(string screen, string featureId)
     {
@@ -2485,7 +2482,7 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Mueve una funcionalidad dentro de su pantalla (el orden de presentación).
+    /// Moves a feature within its screen (presentation order).
     /// </summary>
     internal bool MoveIslandScreenFeature(string screen, string featureId, int delta)
     {
@@ -2501,8 +2498,8 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Saca una funcionalidad de su pantalla. La última no se puede sacar: una pantalla
-    /// sin funciones no tendría nada que enseñar (no existe).
+    /// Removes a feature from its screen. The last one cannot be removed: a screen
+    /// with no features would have nothing to show (it does not exist).
     /// </summary>
     internal bool RemoveIslandScreenFeature(string screen, string featureId)
     {
@@ -2515,8 +2512,8 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Añade una pantalla nueva. Nace con la primera funcionalidad que no esté en
-    /// ninguna pantalla; si ya están todas repartidas no crea una pantalla duplicada.
+    /// Adds a new screen. It is born with the first feature that is in no screen; if
+    /// they are all already spread out it does not create a duplicate screen.
     /// </summary>
     internal bool AddIslandScreen()
     {
@@ -2528,26 +2525,27 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Indica si todavía puede crearse una pantalla sin duplicar una funcionalidad.
-    /// Los avisos no cuentan: no son pantalla (si contaran, el botón «Nueva pantalla»
-    /// ofrecería crear una para Bluetooth o el cargador, que no tienen nada que abrir).
+    /// Whether a screen can still be created without duplicating a feature.
+    /// The notices do not count: they are not screens (if they did, the "New screen"
+    /// button would offer to create one for Bluetooth or the charger, which have
+    /// nothing to open).
     /// </summary>
     internal bool HasUnassignedIslandFeature() => IslandFeatureIds.Screenable.Any(candidate =>
         !IslandScreens.Any(screen => IslandFeatureIds.ParseScreen(screen).Contains(candidate)));
 
-    /// <summary>Quita una pantalla; la última no se puede quitar (navegación vacía).</summary>
+    /// <summary>Removes a screen; the last one cannot be removed (empty navigation).</summary>
     internal void RemoveIslandScreen(string screen)
     {
         if (IslandScreens.Count <= 1) return;
         IslandScreens.Remove(screen);
     }
 
-    // --- estante de archivos del Island ---
+    // --- Island file shelf ---
 
     /// <summary>
-    /// Carpeta propia del estante: aquí se MUEVEN los archivos y carpetas que se sueltan
-    /// sobre el Island. Vive junto a los ajustes, en %APPDATA%\FluentFlyout\IslandShelf,
-    /// y es la carpeta que abre el botón «Abrir carpeta» de ajustes.
+    /// The shelf's own folder: files and folders dropped on the Island are MOVED
+    /// here. It lives next to the settings, in %APPDATA%\FluentFlyout\IslandShelf,
+    /// and it is the folder the settings' "Open folder" button opens.
     /// </summary>
     public static string IslandShelfFolder => System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -2555,9 +2553,9 @@ public partial class UserSettings : ObservableObject
         "IslandShelf");
 
     /// <summary>
-    /// Autorreparación del estante: fuera los elementos cuya ruta ya no existe (el
-    /// usuario los sacó con la aplicación cerrada) y recorte por encima del máximo.
-    /// Nunca toca el disco: el estante no borra archivos.
+    /// Shelf self-repair: out go the items whose path no longer exists (the user took
+    /// them out with the app closed) and trimming above the maximum.
+    /// It never touches the disk: the shelf does not delete files.
     /// </summary>
     private void SanitizeIslandShelf()
     {
@@ -2579,17 +2577,17 @@ public partial class UserSettings : ObservableObject
     private void IslandShelfItems_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
         if (!_initializing) SettingsManager.SaveSettings();
-        // El contenedor rellena sus listas (y, con el estante a la vista, lo deja al día).
+        // The container fills its lists (and, with the shelf on screen, keeps it up to date).
         Island?.RefreshShelfContent();
     }
 
     // --- Google Calendar ---
 
     /// <summary>
-    /// Cierra la sesión de Google: se borran los tokens y con ellos la capacidad de
-    /// leer el calendario. Los eventos en memoria los suelta el servicio al
-    /// reconfigurarse (nada de un calendario ajeno pintado tras cerrar sesión). Los
-    /// ajustes del cliente OAuth se conservan para no tener que volver a pegarlos.
+    /// Signs out of Google: the tokens are erased and with them the ability to read
+    /// the calendar. The in-memory events are dropped by the service when it
+    /// reconfigures (nothing of someone else's calendar is painted after signing
+    /// out). The OAuth client settings are kept so they do not have to be pasted again.
     /// </summary>
     public void SignOutGoogleCalendar()
     {
@@ -2603,9 +2601,10 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Suelta archivos y carpetas en el estante: cada uno se MUEVE a la carpeta del
-    /// estante —nombre libre si el suyo ya está cogido: aquí no se pisa nada— y se apunta
-    /// de dónde vino, para poder devolverlo al quitarlo. Devuelve cuántos entraron.
+    /// Drops files and folders onto the shelf: each one is MOVED into the shelf folder
+    /// - a free name if theirs is taken: nothing is overwritten here - and where it
+    /// came from is recorded, so it can be returned on removal. Returns how many
+    /// went in.
     /// </summary>
     public int AddIslandShelfPaths(IEnumerable<string> paths)
     {
@@ -2614,7 +2613,7 @@ public partial class UserSettings : ObservableObject
         {
             string source = (raw ?? "").Trim();
             if (source.Length == 0) continue;
-            // Ya está en el estante: no se duplica.
+            // Already on the shelf: it is not duplicated.
             if (IslandShelfItems.Any(i => string.Equals(i.Path, source, StringComparison.OrdinalIgnoreCase))) continue;
             if (IslandShelfItems.Count >= IslandShelfItem.MaxItems)
             {
@@ -2639,10 +2638,10 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Quita un elemento del estante devolviéndolo a su carpeta original: quitarlo no
-    /// puede destruir nada del usuario. Si la carpeta original ya no existe —o el nombre
-    /// está ocupado y no se pudo numerar— el elemento se queda y se explica el motivo.
-    /// Devuelve true si salió del estante.
+    /// Removes an item from the shelf by returning it to its original folder: removing
+    /// it must never destroy anything of the user's. If the original folder no longer
+    /// exists - or the name is taken and could not be numbered - the item stays and
+    /// the reason is explained. Returns true if it left the shelf.
     /// </summary>
     public bool RemoveIslandShelfItem(IslandShelfItem item)
     {
@@ -2687,7 +2686,7 @@ public partial class UserSettings : ObservableObject
         }
     }
 
-    /// <summary>Mueve un archivo o carpeta a la carpeta del estante, sin pisar nada.</summary>
+    /// <summary>Moves a file or folder into the shelf folder, overwriting nothing.</summary>
     private static string? MoveTo(string folder, string source, bool isFolder)
     {
         try
@@ -2705,9 +2704,9 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Primera ruta libre de <paramref name="folder"/> para ese nombre: si ya está cogida
-    /// se numera («nombre (2).ext», «nombre (3).ext»…). Nunca devuelve una ruta ocupada,
-    /// así que ningún movimiento del estante pisa un archivo que ya estuviera ahí.
+    /// First free path in <paramref name="folder"/> for that name: if it is taken it is
+    /// numbered ("name (2).ext", "name (3).ext"...). It never returns a taken path,
+    /// so no shelf move overwrites a file that was already there.
     /// </summary>
     private static string FreeTarget(string folder, string name, bool isFolder)
     {
@@ -3172,8 +3171,8 @@ public partial class UserSettings : ObservableObject
 
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
         mainWindow.RefreshKeyboardHook();
-        // El toggle del Media Flyout solo afecta a la ventana emergente de
-        // música; el Island sigue las sesiones del sistema por sí mismo.
+        // The Media Flyout toggle only affects the music pop-up window; the Island
+        // follows the system sessions on its own.
     }
 
     partial void OnLockKeysEnabledChanged(bool oldValue, bool newValue)
@@ -3185,8 +3184,8 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// Dictado (spec 006): activarlo o desactivarlo instala o retira el gancho de teclado
-    /// —el atajo se escucha desde el gancho global— y actualiza la política de recursos.
+    /// Dictation (spec 006): turning it on or off installs or removes the keyboard hook
+    /// - the hotkey is heard from the global hook - and updates the resource policy.
     /// </summary>
     partial void OnDictationEnabledChanged(bool oldValue, bool newValue)
     {
@@ -3197,7 +3196,7 @@ public partial class UserSettings : ObservableObject
         mainWindow.Dictation.RefreshSettings();
     }
 
-    /// <summary>Cambiar de modelo libera el anterior y aplica la política al nuevo.</summary>
+    /// <summary>Changing model releases the previous one and applies the policy to the new one.</summary>
     partial void OnDictationModelChanged(string oldValue, string newValue)
     {
         if (oldValue == newValue || _initializing) return;
@@ -3207,8 +3206,8 @@ public partial class UserSettings : ObservableObject
     }
 
     /// <summary>
-    /// La selección CPU/CUDA se aplica antes de crear el primer runtime nativo. Si ya
-    /// existe uno, DictationService muestra que hace falta reiniciar la aplicación.
+    /// The CPU/CUDA choice is applied before the first native runtime is created. If one
+    /// already exists, DictationService shows that the application must be restarted.
     /// </summary>
     partial void OnDictationUseGpuChanged(bool oldValue, bool newValue)
     {
@@ -3240,7 +3239,7 @@ public partial class UserSettings : ObservableObject
         mainWindow.Dictation.RefreshResourceTimeout();
     }
 
-    /// <summary>Un atajo ilegible (ajuste editado a mano) no puede dejar el dictado mudo: se devuelve el de fábrica.</summary>
+    /// <summary>An unreadable hotkey (hand-edited setting) must not leave dictation mute: the factory one is restored.</summary>
     partial void OnDictationHotkeyChanged(string oldValue, string newValue)
     {
         if (oldValue == newValue || _initializing) return;
