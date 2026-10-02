@@ -12,22 +12,22 @@ using System.Windows.Media.Animation;
 namespace FluentFlyoutWPF.Windows;
 
 /// <summary>
-/// Temporizador del Fluent Island (spec 002): contenido del contenedor junto a
-/// música y al cajón de aplicaciones. Compacto con icono + restante + progreso
-/// opcional; expandido con tiempo libre + controles a la izquierda y presets a
-/// la derecha; aviso a cero con despliegue forzado; navegación entre
-/// funcionalidades con rueda y flechas.
+/// Timer of the Fluent Island (spec 002): container content alongside the music and
+/// the application drawer. Compact with icon + remaining + optional progress;
+/// expanded with free time + controls on the left and presets on the right; zero
+/// notice with forced deployment; navigation between features with the wheel and the
+/// arrows.
 /// </summary>
 public partial class IslandWindow
 {
     private readonly IslandTimer _timer = new();
-    private IslandContentMode _contentMode; // banda de contenido vigente (IslandWindow.Views.cs)
+    private IslandContentMode _contentMode; // current content band (IslandWindow.Views.cs)
     private bool _pendingTimerAlert;
-    private TimeSpan _staged = TimeSpan.Zero; // valor de los reels, origen personalizado
+    private TimeSpan _staged = TimeSpan.Zero; // value of the reels, custom origin
     private bool _timerInputCustom = true;
-    // Anti-reaparición tras descartar: el ratón sigue encima y el poll re-expandiría.
+    // Anti-reappearance after dismissing: the mouse is still over it and the poll would re-expand it.
     private const int TimerReshowSnoozeSeconds = 2;
-    // Arrastre de reel: píxeles por unidad y estado del gesto.
+    // Reel drag: pixels per unit and gesture state.
     private const double ReelPixelsPerUnit = 24;
     private bool _reelDragging;
     private string _reelDragUnit = "";
@@ -38,19 +38,19 @@ public partial class IslandWindow
         SettingsManager.Current.IslandEnabled && SettingsManager.Current.IslandTimerEnabled;
 
     /// <summary>
-    /// Actividad PROPIA del temporizador (change island-lista-de-activos): con una cuenta
-    /// VIVA —en marcha o PAUSADA— el contenedor la sostiene y su compacto enseña el tiempo
-    /// que queda. Una cuenta pausada sigue siendo una cuenta: antes caía al reposo en
-    /// «Visible mientras activo» (002 MOD RF-7) y el usuario se quedaba sin ver su tiempo. La
-    /// alerta final no entra aquí: es exclusiva y manda por su cuenta (002 MOD RF-2).
+    /// OWN activity of the timer (change island-lista-de-activos): with a LIVE countdown
+    /// —running or PAUSED— the container holds it and its compact shows the time left. A
+    /// paused countdown is still a countdown: it used to fall back to rest in «Visible while
+    /// active» (002 MOD RF-7) and the user was left without seeing their time. The final
+    /// alert does not go in here: it is exclusive and rules on its own (002 MOD RF-2).
     /// </summary>
     private bool IsTimerActiveForCompact() =>
         SettingsManager.Current.IslandEnabled
         && SettingsManager.Current.IslandTimerEnabled
         && _timer.IsCounting;
 
-    // Implementaciones del contrato del contenedor para el temporizador
-    // (001 MOD RF-11, RF-13): cada vista se abre solo si sigue siendo usable.
+    // Implementations of the container contract for the timer
+    // (001 MOD RF-11, RF-13): each view opens only if it is still usable.
     internal bool ShowTimerExpandedFromContract()
     {
         if (!TimerModeAvailable()) return false;
@@ -69,35 +69,32 @@ public partial class IslandWindow
         TimerModeAvailable() && (_timer.IsCounting || _timer.State == IslandTimerState.Alerting || _pendingTimerAlert);
 
     /// <summary>
-    /// ¿El temporizador tiene un aviso que mostrar? Vigente = plazo del aviso
-    /// temporal corriendo; PENDIENTE = una acción de la cuenta (empezar,
-    /// reanudar, reiniciar) hecha dentro del expandido, cuyo plazo arranca
-    /// cuando el compacto se presenta (002 RF-16). Sin esto, replegarse desde el
-    /// expandido iba directo al reposo y el aviso del temporizador no se veía
-    /// nunca en «Aviso temporal».
+    /// Does the timer have a notice to show? Current = the deadline of the temporary
+    /// notice is running; PENDING = a countdown action (start, resume, restart) done inside
+    /// the expanded view, whose deadline starts when the compact is presented (002 RF-16).
+    /// Without this, collapsing from the expanded view went straight to rest and the timer
+    /// notice was never seen in «Temporary notice».
     /// </summary>
     private bool TimerNoticeAlive() => _pendingTimerNotice || NoticeAliveFor(IslandContentMode.Timer);
 
     /// <summary>
-    /// «Aviso temporal» (001 RF-2, 002 RF-16): las acciones que ponen la cuenta
-    /// en marcha —empezar, reanudar, reiniciar— generan el aviso del
-    /// temporizador igual que reproducir genera el de media. El plazo NO corre
-    /// dentro del expandido: queda pendiente y arranca cuando el compacto del
-    /// temporizador se presenta (<see cref="ShowTimerCompact"/>), que es cuando
-    /// el aviso se ve, de modo que el usuario disfruta la duración configurada
-    /// completa. La cuenta no se toca y la alerta final (exclusiva) no admite
-    /// aviso.
+    /// «Temporary notice» (001 RF-2, 002 RF-16): the actions that set the countdown
+    /// running —start, resume, restart— generate the timer notice just as playing generates
+    /// the media one. The deadline does NOT run inside the expanded view: it stays pending and
+    /// starts when the timer compact is presented (<see cref="ShowTimerCompact"/>), which is
+    /// when the notice is seen, so the user enjoys the whole configured duration. The
+    /// countdown itself is left untouched and the final alert (exclusive) takes no notice.
     /// </summary>
     private void ArmTimerNotice()
     {
         if (SettingsManager.Current.IslandVisibilityMode != 1 || !TimerModeAvailable()) return;
         if (HasExclusive()) return;
-        // Con el compacto del temporizador ya a la vista manda su plazo vigente:
-        // la acción de la cuenta no reinicia un aviso que ya estaba corriendo
-        // (001 RF-2). Vale también con el temporizador dentro de una pantalla.
+        // With the timer compact already on screen its current deadline rules: the
+        // countdown action does not restart a notice that was already running
+        // (001 RF-2). It also holds with the timer inside a screen.
         if (!_expanded && IsBoxShown && ViewShowsFeature(IslandFeatureIds.Timer)) return;
-        // El plazo NO corre dentro del expandido: queda PENDIENTE y arranca cuando el
-        // compacto del temporizador se presenta (002 RF-16). Lo consume ArmTemporaryHide.
+        // The deadline does NOT run inside the expanded view: it stays PENDING and starts
+        // when the timer compact is presented (002 RF-16). ArmTemporaryHide consumes it.
         _pendingTimerNotice = true;
         RefreshPresentation();
     }
@@ -105,15 +102,15 @@ public partial class IslandWindow
     private void InitTimer()
     {
         _timer.Finished += OnTimerFinished;
-        // Notificación de cambio de estado (002 MOD RF-2/RF-13): el host rearma su
-        // despertador único de vencimiento y publica la actividad; la cuenta NO
-        // depende de ningún latido.
+        // State change notification (002 MOD RF-2/RF-13): the host re-arms its one-shot
+        // expiry alarm and publishes the activity; the countdown does NOT depend on any
+        // heartbeat.
         _timer.Changed += OnTimerChanged;
         TimerPresetList.ItemsSource = SettingsManager.Current.IslandTimerPresets;
     }
 
     /// <summary>
-    /// Ajuste de habilitación: al apagar con cuenta activa se cancela (RF-10).
+    /// Enable setting: turning it off with a live countdown cancels it (RF-10).
     /// </summary>
     public void RefreshTimerEnabled()
     {
@@ -126,8 +123,8 @@ public partial class IslandWindow
                 _contentMode = IslandContentMode.Media;
                 if (_expanded)
                 {
-                    // Solo vuelve la música si el contenido musical está
-                    // habilitado y el snapshot la tiene disponible.
+                    // The music only comes back if the music content is
+                    // enabled and the snapshot has it available.
                     var session = MusicContentShown() ? Current() : null;
                     if (session != null) RefreshUi(session);
                     else { ClearMusicResidue(); HidePerMode(); }
@@ -144,8 +141,8 @@ public partial class IslandWindow
         UpdateArrows();
         if (!TimerModeAvailable()) return;
         TimerRemaining.Text = IslandTimer.FormatHms(_timer.Remaining);
-        // El progreso se ve solo si su ajuste lo pide y el modo ultra compacto no lo
-        // aparta: en ultra el medio de la cápsula queda vacío a propósito.
+        // The progress is only shown if its setting asks for it and the ultra compact
+        // mode does not remove it: in ultra the middle of the capsule is empty on purpose.
         TimerProgressZone.Visibility = SettingsManager.Current.IslandTimerShowProgress && !UltraCompactOn
             ? Visibility.Visible : Visibility.Collapsed;
         double track = TimerProgressTrack.ActualWidth;
@@ -172,41 +169,38 @@ public partial class IslandWindow
     }
 
     /// <summary>
-    /// Conmuta las capas de contenido y, con el mismo cambio, ajusta las
-    /// cadencias por contenido y el ecualizador: el refresco de vista y el
-    /// visualizador solo corren con su contenido en pantalla (001 MOD RF-14/16;
-    /// 002 MOD RF-15).
+    /// Switches the content layers and, with the same change, adjusts the per-content
+    /// cadences and the equalizer: the view refresh and the visualizer only run while
+    /// their content is on screen (001 MOD RF-14/16; 002 MOD RF-15).
     /// </summary>
     private void ApplyContentVisibility()
     {
         ApplyContentVisibilityCore();
-        // El modo ultra compacto se aplica después de decidir las capas: solo aparta el
-        // MEDIO de la vista que quedó delante (ver IslandWindow.UltraCompact.cs).
+        // The ultra compact mode is applied after deciding the layers: it only removes
+        // the MIDDLE of the view that ended up in front (see IslandWindow.UltraCompact.cs).
         ApplyUltraCompactContent();
         SyncEq();
         UpdateVisibleRefresh();
     }
 
     /// <summary>
-    /// Conmuta las capas de contenido del contenedor (música, temporizador,
-    /// cajón, estante o calendario) en compacto y expandido. Cada capa se muestra
-    /// solo si su funcionalidad sigue siendo usable: sin disponibilidad no hay
-    /// vista vacía (001 MOD RF-9).
+    /// Switches the content layers of the container (music, timer, drawer, shelf or
+    /// calendar) in compact and expanded. Each layer is shown only if its feature is still
+    /// usable: without availability there is no empty view (001 MOD RF-9).
     /// </summary>
     private void ApplyContentVisibilityCore()
     {
-        // La capa compacta recupera su ancho de siempre: el compacto nunca agrupa
-        // (change island-pantallas), así que mide lo que una sola funcionalidad —o lo
-        // que miden sus dos extremos, con el modo ultra compacto puesto—.
+        // The compact layer recovers its usual width: the compact never groups
+        // (change island-pantallas), so it measures what a single feature takes —or what
+        // its two ends measure, with the ultra compact mode on—.
         CompactLayer.Width = RestCompactWidth(SingleCompactLayerWidth);
         if (_contentMode == IslandContentMode.Screen)
         {
-            // El modo PANTALLA es la composición del EXPANDIDO (sus columnas, de
-            // izquierda a derecha): es lo que abre el clic. El pintado no puede llamar
-            // a ExpandCurrentScreen/ShowCurrentScreenCompact porque esas rutas vuelven
-            // a entrar aquí y mezclan estados. Si la disponibilidad dejó una sola
-            // funcionalidad, se cambia el modo y se deja que el pintado normal la
-            // presente como vista rica.
+            // The SCREEN mode is the composition of the EXPANDED view (its columns, from
+            // left to right): it is what a click opens. The painting cannot call
+            // ExpandCurrentScreen/ShowCurrentScreenCompact because those routes come back
+            // in here and mix states. If availability left a single feature, the mode is
+            // changed and the normal painting presents it as a rich view.
             var members = CurrentScreenFeatures();
             if (_expanded && members.Count > 1 && CurrentScreenColumnCount() > 0)
             {
@@ -223,8 +217,8 @@ public partial class IslandWindow
             }
             else if (_expanded && owner is { })
             {
-                // Miembro sin columna propia (una funcionalidad de solo compacto): no
-                // se deja el contenedor expandido con una pantalla sin nada que enseñar.
+                // Member with no column of its own (a compact-only feature): the
+                // container is not left expanded with a screen with nothing to show.
                 _expanded = false;
                 _contentMode = ModeForFeature(owner.Id);
                 SelectFeature(owner.Id);
@@ -235,41 +229,40 @@ public partial class IslandWindow
                 return;
             }
         }
-        // Fuera de una pantalla combinada los paneles del expandido viven en su sitio
-        // de siempre (no-op si no se había movido ninguno a una columna).
+        // Outside a combined screen the expanded panels live in their usual place
+        // (a no-op if none of them had been moved to a column).
         RestoreExpandedHomes();
-        // La CARA que se ve es la de la funcionalidad del modo vigente —su ficha sabe
-        // qué tarjeta compacta enciende y qué paneles—: una sola decisión, sin cadena
-        // de ramas que puedan dejar puesta la capa de la vista anterior.
+        // The FACE that is seen is the one of the feature of the current mode —its card
+        // knows which compact tile to light up and which panels—: a single decision, with no
+        // chain of branches that could leave the previous view layer on.
         //
-        // Si su modo no es presentable ahora mismo (funcionalidad apagada, temporizador
-        // sin cuenta, una pantalla sin composición…), la caja se queda con la cara de
-        // música, que es el contenido por defecto del contenedor. Eso es lo que hace
-        // que una caja vacía no enseñe nunca nada más raro que el reproductor en
-        // blanco (001 MOD RF-9).
+        // If its mode is not presentable right now (feature turned off, timer with no
+        // countdown, a screen with no composition…), the box keeps the music face, which is
+        // the default content of the container. That is what keeps an empty box from ever
+        // showing anything stranger than the player on blank (001 MOD RF-9).
         var card = FeatureCardOfMode(_contentMode);
         if (card == null || !card.ModeAvailable()) card = FeatureCard(IslandFeatureIds.Media);
         if (card != null) ShowContentFace(card);
         UpdateArrows();
     }
 
-    // Solo fundido de entrada: el saliente colapsa instantáneo para no medir
-    // dos paneles apilados (eso inflaba la altura).
+    // Entry fade only: the outgoing one collapses instantly so as not to measure two
+    // stacked panels (that inflated the height).
     private void CrossfadeTimerPanels(bool showConfig, bool showRun)
     {
         FadeInPanel(TimerExpanded, showConfig);
         FadeInPanel(TimerRunPanel, showRun);
     }
 
-    // Fundido SOLO en la transición oculto->visible: la opacidad LOCAL del
-    // panel es siempre 1 (el valor final), y la animación solo la conduce
-    // durante los 150 ms del fundido. Así, repetir ApplyContentVisibility
-    // (actualizaciones del contenedor, settings, start/pause) nunca puede
-    // revertir el panel a opacidad 0 y dejar la caja negra (001/002 ADDED RF-1).
+    // Fade ONLY on the hidden->visible transition: the LOCAL opacity of the panel is
+    // always 1 (the final value), and the animation only drives it during the 150 ms of
+    // the fade. That way, repeating ApplyContentVisibility (container updates, settings,
+    // start/pause) can never push the panel back to opacity 0 and leave the box black
+    // (001/002 ADDED RF-1).
     private static void FadeInPanel(UIElement el, bool show)
     {
         el.BeginAnimation(UIElement.OpacityProperty, null);
-        el.Opacity = 1; // valor local = estado final; la animación solo cubre el gesto
+        el.Opacity = 1; // local value = final state; the animation only covers the gesture
         if (!show)
         {
             el.Visibility = Visibility.Collapsed;
@@ -282,31 +275,30 @@ public partial class IslandWindow
         el.BeginAnimation(UIElement.OpacityProperty, fadeIn);
     }
 
-    // Todo cambio de estado del motor re-conmuta paneles + re-mide la altura.
-    // El loop lo garantiza SyncMeasuredHeight si el objetivo cambió.
+    // Every engine state change re-switches the panels and re-measures the height.
+    // The loop guarantees it with SyncMeasuredHeight if the target changed.
     private void RefreshTimerModeView()
     {
-        // Una acción que deja la cuenta en marcha (empezar, reanudar, reiniciar)
-        // genera el aviso del temporizador en «Aviso temporal» (002 RF-16): es el
-        // único punto por el que el motor comunica su estado nuevo, así que el
-        // aviso se arma aquí y no en cada botón.
+        // An action that leaves the countdown running (start, resume, restart)
+        // generates the timer notice in «Temporary notice» (002 RF-16): it is the only
+        // point through which the engine reports its new state, so the notice is armed
+        // here and not on each button.
         if (_timer.State == IslandTimerState.Running) ArmTimerNotice();
-        // La vista la resuelve la LISTA DE ACTIVOS (change island-lista-de-activos): una
-        // cuenta viva —en marcha o pausada— sostiene su compacto, y la cuenta que se cancela
-        // deja paso a otra activa o al reposo. Aquí solo se publica el evento; la regla T2
-        // del 002 MOD RF-7 (una pausa no sostiene nada) queda MODIFICADA: una cuenta pausada
-        // sigue teniendo un tiempo restante que enseñar.
+        // The view is resolved by the ACTIVE LIST (change island-lista-de-activos): a
+        // live countdown —running or paused— holds its compact, and the cancelled countdown
+        // gives way to another active one or to rest. Here only the event is published; the
+        // T2 rule of 002 MOD RF-7 (a pause holds nothing) is MODIFIED: a paused countdown
+        // still has a remaining time to show.
         RefreshPresentation();
         RefreshTimerUI();
         SyncMeasuredHeight();
     }
 
     /// <summary>
-    /// Red de seguridad del 001/002 ADDED RF-1: mientras el temporizador es el
-    /// contenido activo y visible, su panel (compacto o expandido) tiene que
-    /// estar presente. Si una actualización del contenedor dejara la caja sin
-    /// ningún panel de timer (superficie negra), se re-aplica el contenido y
-    /// se registra el incidente para diagnosticarlo.
+    /// Safety net of 001/002 ADDED RF-1: while the timer is the active and visible
+    /// content, its panel (compact or expanded) has to be present. If a container update
+    /// left the box without any timer panel (black surface), the content is applied again
+    /// and the incident is logged so it can be diagnosed.
     /// </summary>
     private void EnsureTimerContentShown()
     {
@@ -318,9 +310,9 @@ public partial class IslandWindow
             || TimerRunPanel.Visibility == Visibility.Visible
             || TimerAlert.Visibility == Visibility.Visible;
         if (_expanded ? expandedOk : compactOk) return;
-        Logger.Warn("Island: contenido del temporizador ausente con caja visible " +
+        Logger.Warn("Island: timer content missing with the box visible " +
             "(expanded={Expanded}, timerState={State}, compact={Compact}, " +
-            "config={Config}, run={Run}, alert={Alert}); re-aplicando contenido",
+            "config={Config}, run={Run}, alert={Alert}); re-applying content",
             _expanded, _timer.State,
             TimerCompactGrid.Visibility, TimerExpanded.Visibility,
             TimerRunPanel.Visibility, TimerAlert.Visibility);
@@ -331,9 +323,9 @@ public partial class IslandWindow
 
     private void UpdateArrows()
     {
-        // Flechas opcionales: solo con más de una PANTALLA con algo usable, sean
-        // cuales sean sus funcionalidades (002 MOD RF-9; change island-pantallas
-        // RF-4: la navegación es por pantallas).
+        // Optional arrows: only with more than one SCREEN with something usable, whatever
+        // their features are (002 MOD RF-9; change island-pantallas RF-4: the navigation
+        // goes by screens).
         bool show = _expanded && SettingsManager.Current.IslandTimerShowArrows && IsBoxShown
             && UsableScreenCount() > 1;
         ModePrevBtn.Visibility = ModeNextBtn.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
@@ -342,20 +334,19 @@ public partial class IslandWindow
     private void ShowTimerCompact()
     {
         if (!TimerModeAvailable()) { SnapHidden(); return; }
-        // «Aviso temporal»: el compacto del timer es un aviso como el de media y también
-        // vence (002 RF-8/RF-16) con la cuenta intacta por detrás. El aviso PENDIENTE —una
-        // acción de la cuenta hecha dentro del expandido— estrena aquí su plazo: lo consume
-        // ArmTemporaryHide, que es donde vive la regla del aviso.
+        // «Temporary notice»: the timer compact is a notice like the media one and it
+        // expires too (002 RF-8/RF-16) with the countdown intact behind it. The PENDING
+        // notice —a countdown action done inside the expanded view— starts its deadline
+        // here: ArmTemporaryHide consumes it, which is where the notice rule lives.
         ShowCompactView(IslandContentMode.Timer, TimerFeature, RefreshTimerUI);
     }
 
     /// <summary>
-    /// Cierre de la cuenta por acción del usuario (X del aviso final o cancelar
-    /// desde el panel de marcha): el Island NO se queda abierto en la
-    /// configuración, se contrae como cualquier otra contracción
-    /// (001 MOD RF-4, 002 RF-6). El veto por puntero encima no aplica aquí —el
-    /// usuario acaba de terminar el temporizador a propósito— y se silencia la
-    /// reapertura por hover para que la caja no vuelva sola a los 150 ms.
+    /// End of the countdown by user action (the X of the final notice or cancel from the
+    /// running panel): the Island does NOT stay open on the configuration, it contracts
+    /// like any other collapse (001 MOD RF-4, 002 RF-6). The veto for the pointer being over
+    /// it does not apply here —the user just finished the timer on purpose— and the hover
+    /// reopening is silenced so that the box does not come back on its own after 150 ms.
     /// </summary>
     private void CompactAfterTimerStopped()
     {
@@ -364,15 +355,15 @@ public partial class IslandWindow
         _hoverSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
         _expanded = false;
         RefreshTimerUI();
-        // El cierre del temporizador es un evento con entidad propia: en «Aviso temporal»,
-        // con música sonando, su compacto vuelve a la vista con su propio plazo (002 RF-6).
+        // The timer closing is an event of its own: in «Temporary notice», with music
+        // playing, its compact returns to the view with its own deadline (002 RF-6).
         if (SettingsManager.Current.IslandVisibilityMode == 1 && ActiveMediaSession() is { } session)
         {
             ShowMusicCompact(session);
             return;
         }
-        // En cualquier otro caso manda la lista de activos: la activa que siga viva o el
-        // reposo, sin residuos y sin abrir una caja vacía (001 MOD RF-4).
+        // In any other case the active list rules: the feature still alive or rest,
+        // with no residue and without opening an empty box (001 MOD RF-4).
         _contentMode = IslandContentMode.Media;
         ApplyContentVisibility();
         ClearMusicResidue();
@@ -388,37 +379,37 @@ public partial class IslandWindow
     private void OnTimerFinished() => Dispatcher.Invoke(ShowTimerAlert);
 
     /// <summary>
-    /// Aviso a cero: fuerza el despliegue aunque estuviera oculto; con acceso
-    /// exclusivo persistente atraviesa supresión (001 RF-8/14, 002 RF-2).
+    /// Zero notice: it forces the deployment even if it was hidden; with persistent
+    /// exclusive access it goes through suppression (001 RF-8/14, 002 RF-2).
     /// </summary>
     private void ShowTimerAlert()
     {
         if (!TimerModeAvailable()) return;
         if (!SettingsManager.Current.IslandEnabled) { _pendingTimerAlert = true; return; }
-        // skipIfExpanded:false — la alerta es exclusiva y debe imponerse sobre la
-        // vista vigente aunque la caja ya estuviera expandida (002 RF-2/RF-6).
+        // skipIfExpanded:false - the alert is exclusive and must prevail over the
+        // current view even if the box was already expanded (002 RF-2/RF-6).
         ShowExpandedView(IslandContentMode.Timer, TimerFeature, RefreshTimerUI, skipIfExpanded: false);
     }
 
     /// <summary>
-    /// Cambia de PANTALLA (rueda o flechas, 002 MOD RF-3/RF-9): recorre las pantallas
-    /// con algo usable en el orden de la lista de pantallas, con vuelta, en el sentido
-    /// indicado. Con el expandido delante cada pantalla abre su composición de columnas
-    /// —o la vista rica de su única funcionalidad— y, con el compacto, la vista rica de
-    /// la funcionalidad que la sostiene (el compacto nunca agrupa), así que sin
-    /// disponibilidad no se aterriza en una vista vacía (001 MOD RF-9).
+    /// Switches SCREEN (wheel or arrows, 002 MOD RF-3/RF-9): it walks through the screens
+    /// with something usable in the order of the screen list, wrapping around, in the given
+    /// direction. With the expanded view in front each screen opens its column composition
+    /// —or the rich view of its single feature— and, with the compact, the rich view of the
+    /// feature holding it (the compact never groups), so without availability it never lands
+    /// on an empty view (001 MOD RF-9).
     ///
-    /// <para>Nunca se toca el motor de cuenta ni el snapshot: cambiar de vista no
-    /// cancela ni reinicia la cuenta del temporizador (002 MOD RF-9, RF-13).</para>
+    /// <para>The countdown engine and the snapshot are never touched: changing view does not
+    /// cancel nor restart the timer countdown (002 MOD RF-9, RF-13).</para>
     /// </summary>
     private void CycleMode(int direction = 1)
     {
-        // Alerta modal: hasta X o reinicio no se sale al resto de modos.
+        // Modal alert: until stop or restart there is no way out to the other modes.
         if (_timer.State == IslandTimerState.Alerting) return;
-        // Navegación por PANTALLAS (change island-pantallas RF-4): cada paso busca
-        // la siguiente pantalla con algo usable, con vuelta, y la presenta en el
-        // estado en el que esté el contenedor (sus columnas si está expandido, la
-        // vista rica de una de sus funcionalidades si está en compacto).
+        // Navigation by SCREENS (change island-pantallas RF-4): each step looks for the
+        // next screen with something usable, wrapping around, and presents it in the state
+        // the container is in (its columns if it is expanded, the rich view of one of its
+      // features if it is compact).
         if (_screens.Count == 0) return;
         for (int step = 1; step <= _screens.Count; step++)
         {
@@ -431,7 +422,7 @@ public partial class IslandWindow
         }
     }
 
-    // --- controles del expandido ---
+    // --- expanded view controls ---
 
     private void TimerCompact_Click(object sender, MouseButtonEventArgs e) => ExpandTimer();
 
@@ -479,7 +470,7 @@ public partial class IslandWindow
     private void Reel_Move(object sender, MouseEventArgs e)
     {
         if (!_reelDragging || sender is not FrameworkElement el || !el.IsMouseCaptured) return;
-        // Arriba aumenta, abajo reduce; el valor envuelve (reel infinito).
+        // Up increases, down decreases; the value wraps (endless reel).
         int steps = (int)((_reelDragStartY - e.GetPosition(this).Y) / ReelPixelsPerUnit);
         SplitStaged(out int h, out int m, out int s);
         int current = _reelDragUnit switch { "H" => h, "M" => m, _ => s };
@@ -506,7 +497,7 @@ public partial class IslandWindow
         RefreshTimerUI();
     }
 
-    // Rueda sobre un dígito: arriba reduce, abajo aumenta (criterio del dueño).
+    // Wheel on a digit: up decreases, down increases (the owner's criterion).
     private void Reel_Wheel(object sender, MouseWheelEventArgs e)
     {
         if ((e.OriginalSource as FrameworkElement)?.Tag is not string unit) return;
@@ -566,8 +557,8 @@ public partial class IslandWindow
 
     private void TimerCancel_Click(object sender, RoutedEventArgs e)
     {
-        // Cancelar es un cierre deliberado: el Island se contrae, no se queda
-        // abierto en la configuración (001 MOD RF-4).
+        // Cancelling is a deliberate end: the Island contracts, it does not stay
+        // open on the configuration (001 MOD RF-4).
         _timer.Cancel();
         CompactAfterTimerStopped();
     }
@@ -581,9 +572,9 @@ public partial class IslandWindow
 
     private void TimerAlertDismiss_Click(object sender, RoutedEventArgs e)
     {
-        // X del aviso final (002 RF-6): cancela la cuenta y contrae el Island
-        // (a media si hay sesión, si no a inactivo/nada según toggle), sin
-        // quedarse mostrando el aviso descolgado (001 MOD RF-4).
+        // X of the final notice (002 RF-6): it cancels the countdown and contracts the
+        // Island (to media if there is a session, otherwise to inactive/nothing depending on
+        // the toggle), without staying showing the dangling notice (001 MOD RF-4).
         _timer.Cancel();
         SelectFeature("media");
         CompactAfterTimerStopped();
