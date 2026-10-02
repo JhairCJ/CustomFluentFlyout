@@ -61,6 +61,10 @@ public partial class IslandWindow
     /// <summary>Is a dictation session in progress? It is what holds the view and grants exclusive access.</summary>
     private bool DictationActive() => _dictation?.Active == true;
 
+    /// <summary>Dictation feedback remains visible over fullscreen applications.</summary>
+    private bool DictationFeedbackAvailable() => DictationModeAvailable()
+        && (DictationActive() || _dictation?.Phase == DictationPhase.Error);
+
     /// <summary>
     /// Does another feature have exclusive access right now (the timer alert)? It is
     /// asked WITHOUT counting dictation: the dictation card is exclusive while the

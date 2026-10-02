@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Xml.Serialization;
 using FluentFlyout.Classes.Settings;
 using FluentFlyoutWPF.Classes.Dictation;
 using FluentFlyoutWPF.ViewModels;
@@ -9,6 +10,11 @@ using NAudio.Wave;
 // Integration checks using the installed CrispASR runtime and a local speech fixture.
 // No microphone, text injection, UI, or user settings file is touched.
 // dotnet run --project tools/DictationChecks -c Release -- <model.gguf> <speech.wav>
+if (args is ["--ui"])
+{
+    DictationUiChecks.Run();
+    return;
+}
 if (args.Length != 2) throw new ArgumentException("Expected model.gguf and 16 kHz mono PCM16 speech.wav");
 string modelPath = Path.GetFullPath(args[0]);
 var model = DictationModelStore.Find(Path.GetFileName(modelPath))
@@ -44,6 +50,28 @@ void Check(bool condition, string description)
     Console.WriteLine("PASS: " + description);
     passes++;
 }
+
+const string whisperModel = "ggml-large-v3-turbo-q5_0.bin";
+settings.DictationUseGpu = true;
+Check(settings.GetDictationDevice(modelPath) == DictationDevice.IntegratedGpu
+    && settings.GetDictationDevice(whisperModel) == DictationDevice.DedicatedGpu,
+    "Existing acceleration settings migrate to the GPU type supported by each model");
+settings.SetDictationDevice(modelPath, DictationDevice.Cpu);
+settings.SetDictationDevice(whisperModel, DictationDevice.DedicatedGpu);
+var serializer = new XmlSerializer(typeof(UserSettings));
+using var saved = new StringWriter();
+serializer.Serialize(saved, settings);
+using var input = new StringReader(saved.ToString());
+var restored = (UserSettings)serializer.Deserialize(input)!;
+Check(restored.GetDictationDevice(model.FileName) == DictationDevice.Cpu
+    && restored.GetDictationDevice(whisperModel) == DictationDevice.DedicatedGpu,
+    "Device choices survive XML serialization independently and match model names or paths");
+try
+{
+    settings.SetDictationDevice(modelPath, DictationDevice.DedicatedGpu);
+    throw new InvalidOperationException("Expected unsupported device rejection");
+}
+catch (ArgumentException) { Check(true, "Parakeet Ultra cannot be configured for the CUDA-only dedicated option"); }
 int WorkerPid() => Field<Process>(worker, "_crispProcess")?.Id ?? 0;
 async Task WaitForPolicy()
 {
@@ -111,17 +139,21 @@ Check(!worker.RuntimeLoaded && !ProcessExists(disabledPid), "Disabling dictation
 
 settings.DictationEnabled = true;
 settings.DictationKeepModelLoaded = true;
-settings.DictationUseGpu = true;
+settings.SetDictationDevice(modelPath, DictationDevice.IntegratedGpu);
 service.RefreshAccelerationSettings();
 await WaitForPolicy();
 Check(worker.RuntimeLoaded && service.CrispUsingGpu && worker.MatchesLoadedModel(modelPath, true),
     "Enabling acceleration preloads a persistent Vulkan worker without restarting the app");
 int vulkanPid = WorkerPid();
+var vulkanProcess = Field<Process>(worker, "_crispProcess")!;
+int deviceArgument = vulkanProcess.StartInfo.ArgumentList.IndexOf("--device");
+Check(deviceArgument >= 0 && !string.IsNullOrWhiteSpace(service.LoadedDeviceName),
+    "The Vulkan worker receives an explicit integrated GPU ID and exposes its actual adapter name");
 string vulkanFirst = await worker.TranscribeAsync(model, modelPath, samples, "es", true, CancellationToken.None);
 string vulkanSecond = await worker.TranscribeAsync(model, modelPath, samples, "es", true, CancellationToken.None);
 Check(vulkanFirst.Length > 0 && vulkanSecond.Length > 0 && WorkerPid() == vulkanPid,
     "Vulkan dictations reuse the same loaded process");
-settings.DictationUseGpu = false;
+settings.SetDictationDevice(modelPath, DictationDevice.Cpu);
 service.RefreshAccelerationSettings();
 await WaitForPolicy();
 Check(worker.RuntimeLoaded && !service.CrispUsingGpu && WorkerPid() != vulkanPid && !ProcessExists(vulkanPid),

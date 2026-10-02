@@ -14,20 +14,12 @@ public enum DictationModelBackend
 {
     Whisper,
     NemoSpeech,
-    QwenAsr,
     CrispAsr,
 }
 
-/// <summary>A file that is part of a downloadable model.</summary>
-public sealed record DictationModelArtifact(
-    string RemotePath,
-    string LocalPath,
-    long EstimatedBytes,
-    string? Sha256 = null);
-
 /// <summary>
 /// A dictation model from the catalog: what the application offers to download. Whisper,
-/// Parakeet and Nemotron use a single file; Qwen uses a folder with its weights and metadata.
+/// Parakeet and Nemotron each use a single weights file.
 /// </summary>
 /// <param name="FileName">File or folder name inside models (the stable key).</param>
 /// <param name="Name">Nombre visible.</param>
@@ -62,31 +54,15 @@ public sealed record DictationModelInfo(
     /// <summary>This model expects regional language codes, such as "es-ES".</summary>
     public bool UsesLocaleLanguageCodes { get; init; }
 
-    /// <summary>Extra files for a model that occupies a folder.</summary>
-    public IReadOnlyList<DictationModelArtifact> Artifacts { get; init; } = [];
-
-    /// <summary>Download URL of the model file on Hugging Face.</summary>
+    /// <summary>Download URL of the weights file on Hugging Face.</summary>
     public string Url =>
-        UrlFor(string.IsNullOrWhiteSpace(RemoteFileName) ? FileName : RemoteFileName);
-
-    /// <summary>Builds the URL of a specific file of the pinned repository.</summary>
-    public string UrlFor(string remotePath) =>
-        $"https://huggingface.co/{Repository}/resolve/{Revision}/{remotePath}";
+        $"https://huggingface.co/{Repository}/resolve/{Revision}/{(string.IsNullOrWhiteSpace(RemoteFileName) ? FileName : RemoteFileName)}";
 
     /// <summary>Does it only understand English? (name ending in ".en")</summary>
     public bool EnglishOnly => FileName.Contains(".en");
 
-    /// <summary>Files that must be downloaded to make this model ready.</summary>
-    public IReadOnlyList<DictationModelArtifact> DownloadArtifacts => Artifacts.Count > 0
-        ? Artifacts
-        : [new(
-            string.IsNullOrWhiteSpace(RemoteFileName) ? FileName : RemoteFileName,
-            FileName,
-            EstimateSingleFile(FileName),
-            Sha256)];
-
-    /// <summary>Approximate total size in bytes, for the progress bar.</summary>
-    public long EstimatedBytes => DownloadArtifacts.Sum(artifact => artifact.EstimatedBytes);
+    /// <summary>Approximate file size in bytes, for download progress.</summary>
+    public long EstimatedBytes => EstimateSingleFile(FileName);
 
     private static long EstimateSingleFile(string fileName) => fileName switch
     {
@@ -111,7 +87,7 @@ public sealed record DictationModelInfo(
 
 /// <summary>
 /// Dictation model folder and catalog (spec 006 RF-8). Whisper, Parakeet and Nemotron
-/// use local files; Qwen uses a local folder with all its weights and metadata.
+/// use local weights files.
 /// Inference never touches the network.
 /// </summary>
 public static class DictationModelStore
@@ -160,26 +136,6 @@ public static class DictationModelStore
     [
         // Deliberately descending by file size: quantized models can have more parameters
         // than another file listed below them.
-        new("qwen3-asr-0.6b", "Qwen3-ASR 0.6B", "1,8 GB",
-            "Inglés, español y 28 idiomas más")
-        {
-            Backend = DictationModelBackend.QwenAsr,
-            Runtime = "Requiere Python 3.12 + qwen-asr",
-            Repository = "Qwen/Qwen3-ASR-0.6B",
-            Revision = "5eb144179a02acc5e5ba31e748d22b0cf3e303b0",
-            Artifacts =
-            [
-                new("config.json", "config.json", 6_193),
-                new("generation_config.json", "generation_config.json", 142),
-                new("preprocessor_config.json", "preprocessor_config.json", 330),
-                new("tokenizer_config.json", "tokenizer_config.json", 12_487),
-                new("chat_template.json", "chat_template.json", 1_161),
-                new("merges.txt", "merges.txt", 1_671_853),
-                new("vocab.json", "vocab.json", 2_776_833),
-                new("model.safetensors", "model.safetensors", 1_876_091_704,
-                    "79d6cbd4c98c7bbffe9db2edac07f56cd6637d0d5944b27f6c2b8353840323ea"),
-            ],
-        },
         new("nemotron-3.5-asr-streaming-0.6b.q8_0.gguf", "NVIDIA Nemotron 3.5 ASR 0.6B (Q8_0)", "708 MB",
             "Español, inglés y otros idiomas")
         {
@@ -315,16 +271,6 @@ public static class DictationModelStore
 
     public static bool IsInstalled(string fileName)
     {
-        DictationModelInfo? model = Find(fileName);
-        if (model != null)
-        {
-            string root = PathOf(model.FileName);
-            return model.Artifacts.Count > 0
-                ? Directory.Exists(root) && model.DownloadArtifacts.All(artifact =>
-                    File.Exists(Path.Combine(root, artifact.LocalPath)))
-                : File.Exists(root);
-        }
-
         return File.Exists(PathOf(fileName));
     }
 
@@ -337,9 +283,7 @@ public static class DictationModelStore
     {
         if (string.IsNullOrWhiteSpace(configured)) return null;
         string path = Path.IsPathRooted(configured) ? configured : PathOf(configured);
-        DictationModelInfo? catalogModel = Find(Path.GetFileName(path));
-        if (catalogModel?.Artifacts.Count > 0 && !IsInstalled(catalogModel.FileName)) return null;
-        return File.Exists(path) || Directory.Exists(path) ? path : null;
+        return File.Exists(path) ? path : null;
     }
 
     /// <summary>Is it an English-only model? (the file name decides, wherever it came from)</summary>
@@ -376,14 +320,8 @@ public static class DictationModelStore
         DictationModelInfo? model = Find(Path.GetFileName(path));
         if (model == null) return;
 
-        foreach (DictationModelArtifact artifact in model.DownloadArtifacts)
-        {
-            if (string.IsNullOrWhiteSpace(artifact.Sha256)) continue;
-            string artifactPath = model.Artifacts.Count > 0
-                ? Path.Combine(path, artifact.LocalPath)
-                : path;
-            await ValidateFileIntegrityAsync(artifactPath, artifact.Sha256, cancellationToken);
-        }
+        if (!string.IsNullOrWhiteSpace(model.Sha256))
+            await ValidateFileIntegrityAsync(path, model.Sha256, cancellationToken);
     }
 
     private static async Task ValidateFileIntegrityAsync(
@@ -466,62 +404,22 @@ public static class DictationModelStore
         try
         {
             Logger.Info($"Descargando modelo de dictado {model.FileName}");
-            IReadOnlyList<DictationModelArtifact> artifacts = model.DownloadArtifacts;
-            long totalEstimatedBytes = Math.Max(1, model.EstimatedBytes);
-            long completedEstimatedBytes = 0;
             string modelRoot = PathOf(model.FileName);
-            if (model.Artifacts.Count > 0) Directory.CreateDirectory(modelRoot);
-
-            foreach (DictationModelArtifact artifact in artifacts)
+            if (File.Exists(modelRoot) && !File.Exists(modelRoot + ".part"))
             {
-                string finalPath = model.Artifacts.Count > 0
-                    ? Path.Combine(modelRoot, artifact.LocalPath)
-                    : modelRoot;
-
-                // Finished artifacts are not downloaded again when retrying a composite model. The
-                // .part file means that artifact still needs
-                // continuar o reiniciarse.
-                if (File.Exists(finalPath) && !File.Exists(finalPath + ".part"))
+                try
                 {
-                    try
-                    {
-                        if (!string.IsNullOrWhiteSpace(artifact.Sha256))
-                            await ValidateFileIntegrityAsync(finalPath, artifact.Sha256, cancellationToken);
-                    }
-                    catch (InvalidDataException ex)
-                    {
-                        Logger.Warn(ex, $"El artefacto local {finalPath} no coincide; se volverá a descargar");
-                        TryDelete(finalPath);
-                    }
-
-                    if (File.Exists(finalPath))
-                    {
-                        completedEstimatedBytes += artifact.EstimatedBytes;
-                        progress?.Report(Math.Clamp(
-                            completedEstimatedBytes / (double)totalEstimatedBytes,
-                            0,
-                            1));
-                        continue;
-                    }
+                    await ValidateIntegrityAsync(modelRoot, cancellationToken);
                 }
-
-                var artifactProgress = progress == null
-                    ? null
-                    : new Progress<double>(value => progress.Report(Math.Clamp(
-                        (completedEstimatedBytes + (long)(value * artifact.EstimatedBytes))
-                            / (double)totalEstimatedBytes,
-                        0,
-                        1)));
-
-                await DownloadFileAsync(
-                    model.UrlFor(artifact.RemotePath),
-                    finalPath,
-                    artifact.EstimatedBytes,
-                    artifact.Sha256,
-                    artifactProgress,
-                    cancellationToken);
-                completedEstimatedBytes += artifact.EstimatedBytes;
+                catch (InvalidDataException ex)
+                {
+                    Logger.Warn(ex, $"El modelo local {modelRoot} no coincide; se volverá a descargar");
+                    TryDelete(modelRoot);
+                }
             }
+            if (!File.Exists(modelRoot) || File.Exists(modelRoot + ".part"))
+                await DownloadFileAsync(model.Url, modelRoot, model.EstimatedBytes, model.Sha256,
+                    progress, cancellationToken);
 
             progress?.Report(1);
             Logger.Info($"Modelo de dictado listo: {modelRoot}");
@@ -552,7 +450,6 @@ public static class DictationModelStore
         try
         {
             if (File.Exists(path)) File.Delete(path);
-            else if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
         }
         catch (Exception ex)
         {

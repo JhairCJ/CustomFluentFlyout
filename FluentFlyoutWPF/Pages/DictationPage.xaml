@@ -28,22 +28,6 @@
             <ui:ToggleSwitch IsChecked="{Binding DictationEnabled, Mode=TwoWay}" />
         </ui:CardControl>
 
-        <ui:CardControl x:Name="DictationGpuCard" Tag="Indexable" Margin="0,0,0,12">
-            <ui:CardControl.Header>
-                <StackPanel Orientation="Vertical">
-                    <TextBlock Text="{DynamicResource DictationGpuTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                    <TextBlock Text="{DynamicResource DictationGpuDescription}" FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="520" />
-                </StackPanel>
-            </ui:CardControl.Header>
-            <StackPanel>
-                <ui:ToggleSwitch IsChecked="{Binding DictationUseGpu, Mode=TwoWay}" />
-                <TextBlock x:Name="GpuRuntimeStatus" FontSize="12" Opacity="0.7" Margin="0,6,0,0" TextWrapping="Wrap" />
-                <Button x:Name="CudaDriverButton" Content="{DynamicResource DictationGpuDownloadDrivers}"
-                        Padding="12,4" Margin="0,8,0,0" HorizontalAlignment="Left"
-                        Visibility="Collapsed" Click="DownloadCudaDrivers_Click" />
-            </StackPanel>
-        </ui:CardControl>
-
         <ui:CardControl x:Name="DictationResourceCard" Tag="Indexable" Margin="0,0,0,12">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">
@@ -105,25 +89,36 @@
             </ComboBox>
         </ui:CardControl>
 
-        <ui:CardControl x:Name="DictationModelsCard" Tag="Indexable" Icon="{ui:SymbolIcon ArrowDownload24}" Margin="0,0,0,12">
-            <ui:CardControl.Header>
-                <StackPanel Orientation="Vertical">
-                    <TextBlock Text="{DynamicResource DictationModelsTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                    <TextBlock Text="{DynamicResource DictationModelsDescription}" FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="520" />
-                </StackPanel>
-            </ui:CardControl.Header>
+        <ui:Card x:Name="DictationModelsCard" Tag="Indexable" Margin="0,0,0,12"
+                 Padding="20" HorizontalContentAlignment="Stretch"
+                 Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                 BorderBrush="{DynamicResource CardStrokeColorDefaultSolidBrush}">
             <!-- La lista la rellena el código (DictationPage.xaml.cs): mezcla el catálogo
                  descargable con los archivos que ya haya en la carpeta de modelos. -->
-            <StackPanel Width="560">
-                <StackPanel Margin="0,0,0,12">
+            <StackPanel>
+                <StackPanel Margin="0,0,0,20">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="ArrowDownload24" FontSize="20" Margin="0,0,12,0" />
+                        <TextBlock Text="{DynamicResource DictationModelsTitle}" FontSize="16" FontWeight="SemiBold" />
+                    </StackPanel>
+                    <TextBlock Text="{DynamicResource DictationModelsDescription}" FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="0,6,0,0" />
+                    <TextBlock Text="{DynamicResource DictationDeviceHint}" FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="0,6,0,0" />
+                    <TextBlock x:Name="GpuRuntimeStatus" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0" />
+                    <Button x:Name="CudaDriverButton" Content="{DynamicResource DictationGpuDownloadDrivers}"
+                            Padding="12,4" Margin="0,8,0,0" HorizontalAlignment="Left"
+                            Visibility="Collapsed" Click="DownloadCudaDrivers_Click" />
+                </StackPanel>
+                <StackPanel Margin="0,0,0,20">
                     <TextBlock Text="{DynamicResource DictationRuntimeTitle}" FontSize="13" FontWeight="SemiBold" />
                     <TextBlock Text="{DynamicResource DictationRuntimeDescription}" FontSize="11" Opacity="0.6"
                                TextWrapping="Wrap" Margin="0,2,0,6" />
                     <WrapPanel>
                         <Button Content="{DynamicResource DictationRuntimeNemo}" Padding="12,4"
                                 Click="InstallNemoRuntime_Click" />
-                        <Button Content="{DynamicResource DictationRuntimeQwen}" Padding="12,4" Margin="8,0,0,0"
-                                Click="InstallQwenRuntime_Click" />
                         <Button x:Name="CrispAsrRuntimeButton" Padding="12,4" Margin="8,0,0,0"
                                 Content="{DynamicResource DictationRuntimeCrispAsr}"
                                 Click="DownloadCrispAsrRuntime_Click" />
@@ -142,6 +137,9 @@
                                 <StackPanel Grid.Column="0" Margin="0,0,12,0">
                                     <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="{Binding NameWeight}" TextTrimming="CharacterEllipsis" />
                                     <TextBlock Text="{Binding Subtitle}" FontSize="11" Opacity="0.6" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding DeviceText}" FontSize="12" Margin="0,4,0,0"
+                                               Foreground="{DynamicResource SystemAccentColorPrimaryBrush}" TextWrapping="Wrap"
+                                               Visibility="{Binding Active, Converter={StaticResource BoolToVisibleCollapsedConverter}}" />
                                     <ProgressBar Value="{Binding Progress}" Maximum="100" Height="4" Margin="0,4,0,0"
                                                  Visibility="{Binding Busy, Converter={StaticResource BoolToVisibleCollapsedConverter}}" />
                                 </StackPanel>
@@ -150,6 +148,13 @@
                                                Foreground="{DynamicResource SystemAccentColorPrimaryBrush}"
                                                VerticalAlignment="Center"
                                                Visibility="{Binding Active, Converter={StaticResource BoolToVisibleCollapsedConverter}}" />
+                                    <ui:Button Padding="8" Margin="8,0,0,0" MinWidth="36" MinHeight="36"
+                                            ToolTip="{DynamicResource DictationDeviceSettings}"
+                                            AutomationProperties.Name="{DynamicResource DictationDeviceSettings}"
+                                            Click="ModelSettings_Click"
+                                            Visibility="{Binding Active, Converter={StaticResource BoolToVisibleCollapsedConverter}}">
+                                        <ui:SymbolIcon Symbol="Settings24" FontSize="16" />
+                                    </ui:Button>
                                     <Button Content="{DynamicResource DictationModelUse}" Padding="12,4" Margin="8,0,0,0"
                                             Click="UseModel_Click"
                                             Visibility="{Binding CanUse, Converter={StaticResource BoolToVisibleCollapsedConverter}}" />
@@ -164,13 +169,13 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                <WrapPanel Margin="0,4,0,0">
                     <Button Content="{DynamicResource DictationModelAddLocal}" Padding="12,4" Click="AddLocalModel_Click" />
                     <Button Content="{DynamicResource DictationModelOpenFolder}" Padding="12,4" Margin="8,0,0,0" Click="OpenFolder_Click" />
                     <TextBlock x:Name="ModelsStatus" FontSize="12" Opacity="0.7" VerticalAlignment="Center"
                                Margin="12,0,0,0" TextTrimming="CharacterEllipsis" />
-                </StackPanel>
+                </WrapPanel>
             </StackPanel>
-        </ui:CardControl>
+        </ui:Card>
     </StackPanel>
 </Page>

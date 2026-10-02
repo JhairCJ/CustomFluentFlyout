@@ -59,6 +59,7 @@ public sealed class DictationService : IDisposable
 
     private WhisperFactory? _factory;
     private string? _factoryPath;
+    private bool _factoryUseGpu;
     private WhisperVadFactory? _vadFactory;
     private string? _vadFactoryPath;
     private CancellationTokenSource? _transcriptionCts;
@@ -108,12 +109,33 @@ public sealed class DictationService : IDisposable
 
     public bool CrispUsingGpu => CrispModelLoaded && _externalTranscriber.UsingGpu;
 
+    public DictationDevice RequestedDevice =>
+        SettingsManager.Current.GetDictationDevice(SettingsManager.Current.DictationModel);
+
+    private bool RequestedUseGpu => RequestedDevice != DictationDevice.Cpu;
+    private bool EffectiveWhisperUseGpu => RequestedDevice == DictationDevice.DedicatedGpu
+        && (!_runtimeLoaded || UsingGpuRuntime);
+
+    public bool ModelLoaded
+    {
+        get
+        {
+            string? path = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel);
+            return path != null && ((_factory != null && string.Equals(path, _factoryPath, StringComparison.OrdinalIgnoreCase))
+                || string.Equals(path, _externalTranscriber.LoadedModelPath, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+    public bool ModelUsingGpu => ModelLoaded && (_factory != null ? _factoryUseGpu : _externalTranscriber.UsingGpu);
+    public string? LoadedDeviceName => ModelLoaded ? _externalTranscriber.LoadedDeviceName : null;
+
     /// <summary>
-    /// The native runtime is global to the process: switching CPU/CUDA after it is loaded
-    /// is not safe and requires restarting the application.
+    /// The native library is global to the process. A loaded CPU-only library needs
+    /// a restart to enable CUDA; a CUDA library can create either CPU or GPU contexts.
     /// </summary>
     public bool AccelerationRestartRequired =>
-        _runtimeLoaded && _runtimeUseGpu != SettingsManager.Current.DictationUseGpu;
+        _runtimeLoaded && !UsingGpuRuntime && RequestedDevice == DictationDevice.DedicatedGpu
+        && (DictationModelStore.Find(DictationDevices.ModelKey(SettingsManager.Current.DictationModel))?.Backend
+            ?? DictationModelBackend.Whisper) == DictationModelBackend.Whisper;
 
     /// <summary>Raised on any phase change, message level change, or end of dictation.</summary>
     public event Action? Changed;
@@ -239,7 +261,7 @@ public sealed class DictationService : IDisposable
             {
                 await DictationModelStore.ValidateIntegrityAsync(path, cts.Token);
                 await _externalTranscriber.EnsureLoadedAsync(
-                    model, path, SettingsManager.Current.DictationUseGpu, cts.Token);
+                    model, path, RequestedUseGpu, cts.Token);
             }
             else
             {
@@ -382,32 +404,19 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Tells the UI whether the acceleration toggle no longer matches the loaded runtime.
-    /// The effective choice is made before the first factory is created.
+    /// Applies the selected model's device and refreshes the UI's effective runtime status.
     /// </summary>
     public void RefreshAccelerationSettings()
     {
-        string? activePath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel);
-        if (!_disposed && activePath != null
-            && DictationModelStore.Find(Path.GetFileName(activePath))?.Backend == DictationModelBackend.CrispAsr)
+        if (_disposed) return;
+        if (_runtimeConfigured && !_runtimeLoaded)
         {
-            RefreshResourcePolicy();
-            Changed?.Invoke();
-            return;
-        }
-        if (_disposed || !_runtimeConfigured || _runtimeUseGpu == SettingsManager.Current.DictationUseGpu)
-            return;
-
-        if (!_runtimeLoaded)
-        {
-            // The native runtime has not been created yet; the order can still change before
-            // the first transcription.
-            _runtimeUseGpu = SettingsManager.Current.DictationUseGpu;
+            _runtimeUseGpu = RequestedDevice == DictationDevice.DedicatedGpu;
             ApplyRuntimeLibraryOrder(_runtimeUseGpu);
-            return;
         }
-
-        Logger.Info("El cambio de aceleración del dictado requiere reiniciar la aplicación");
+        // Reload the model context, not the native DLL. CUDA can also run CPU contexts;
+        // a CPU-only library needs a restart before it can offer CUDA.
+        RefreshResourcePolicy();
         Changed?.Invoke();
     }
 
@@ -508,8 +517,9 @@ public sealed class DictationService : IDisposable
 
             string? activePath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel);
             if (SettingsManager.Current.DictationEnabled && activePath != null
-                && (string.Equals(_factoryPath, activePath, StringComparison.OrdinalIgnoreCase)
-                    || _externalTranscriber.MatchesLoadedModel(activePath, SettingsManager.Current.DictationUseGpu)))
+                && ((string.Equals(_factoryPath, activePath, StringComparison.OrdinalIgnoreCase)
+                        && _factoryUseGpu == EffectiveWhisperUseGpu)
+                    || _externalTranscriber.MatchesLoadedModel(activePath, RequestedUseGpu)))
             {
                 // Toggling Keep Model Loaded must not unload/reload the same weights.
                 if (!SettingsManager.Current.DictationKeepModelLoaded) ScheduleResourceRelease();
@@ -568,7 +578,7 @@ public sealed class DictationService : IDisposable
             await _externalTranscriber.EnsureLoadedAsync(
                 model,
                 modelPath,
-                SettingsManager.Current.DictationUseGpu,
+                RequestedUseGpu,
                 cancellationToken);
         }
         else
@@ -690,7 +700,7 @@ public sealed class DictationService : IDisposable
     {
         if (_runtimeConfigured) return;
 
-        bool requested = SettingsManager.Current.DictationUseGpu;
+        bool requested = RequestedDevice == DictationDevice.DedicatedGpu;
         // The notice is ALWAYS read (and consumed), even with the GPU off: otherwise an old
         // notice would stay on disk and fire months later when CUDA is turned on.
         bool previousCrash = DictationGpuSafety.PreviousLoadCrashed;
@@ -713,15 +723,15 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Turns the acceleration setting off and saves it: the GPU that brought the process
-    /// down never tries again on its own, neither in this session nor in the next.
+    /// Pins the active model to CPU after a CUDA failure and saves that preference.
     /// </summary>
     private static void DisableGpuPreference()
     {
         try
         {
-            if (!SettingsManager.Current.DictationUseGpu) return;
-            SettingsManager.Current.DictationUseGpu = false;
+            var settings = SettingsManager.Current;
+            if (settings.GetDictationDevice(settings.DictationModel) == DictationDevice.Cpu) return;
+            settings.SetDictationDevice(settings.DictationModel, DictationDevice.Cpu);
             SettingsManager.SaveSettings();
         }
         catch (Exception ex)
@@ -768,12 +778,14 @@ public sealed class DictationService : IDisposable
         await _engineLock.WaitAsync(cancellationToken);
         try
         {
-            if (_factory != null && _factoryPath == path) return _factory;
+            if (_factory != null && _factoryPath == path && _factoryUseGpu == EffectiveWhisperUseGpu)
+                return _factory;
             await DictationModelStore.ValidateIntegrityAsync(path, cancellationToken);
             _factory?.Dispose();
             _factory = LoadFactory(path);
             _factoryPath = path;
             UpdateRuntimeState();
+            _factoryUseGpu &= UsingGpuRuntime;
             Logger.Info($"Modelo de dictado cargado: {Path.GetFileName(path)} ({_runtimeInfo})");
             return _factory;
         }
@@ -791,7 +803,8 @@ public sealed class DictationService : IDisposable
     /// </summary>
     private WhisperFactory LoadFactory(string path)
     {
-        if (!_runtimeUseGpu)
+        _factoryUseGpu = EffectiveWhisperUseGpu;
+        if (!_factoryUseGpu)
             return WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = false, GpuDevice = 0 });
 
         DictationGpuSafety.Arm();
@@ -805,6 +818,7 @@ public sealed class DictationService : IDisposable
             FallBackToCpu();
         }
 
+        _factoryUseGpu = false;
         return WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = false, GpuDevice = 0 });
     }
 
@@ -965,7 +979,7 @@ public sealed class DictationService : IDisposable
                     activePath,
                     useful,
                     EffectiveLanguage(language, activePath),
-                    SettingsManager.Current.DictationUseGpu,
+                    RequestedUseGpu,
                     token);
                 engineMs = clock.ElapsedMilliseconds - mark;
                 text = text.Trim();

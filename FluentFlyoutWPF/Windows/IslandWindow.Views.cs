@@ -94,7 +94,9 @@ public partial class IslandWindow
         // Entering content cancels the inactive rest: without this the compact would be
         // painted over already faded content (001 MOD RF-16).
         SetInactiveRest(false);
-        if (!SettingsManager.Current.IslandEnabled || Suppressed()) { SnapHidden(); return; }
+        if (!SettingsManager.Current.IslandEnabled
+            || (Suppressed() && !(mode == IslandContentMode.Dictation && DictationFeedbackAvailable())))
+        { SnapHidden(); return; }
         // SCREENS: the screen of the feature owns the view, and the compact
         // shows ONE single one of its features (its rich view): grouping belongs to the
         // expanded view, which is what the click opens. Without a screen there is nothing

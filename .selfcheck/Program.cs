@@ -315,6 +315,30 @@ dictating.SetExclusive("dictation", true, now);
 var dictation = IslandPresentation.Resolve(Input(dictating, [.. screens, "dictation"], expandable: screens));
 Check(dictation.View == IslandDesiredView.Compact && dictation.FeatureId == "dictation",
     "una exclusiva sin expandido se queda en compacto");
+var fullscreenDictation = IslandPresentation.Resolve(Input(dictating, [.. screens, "dictation"],
+    suppressed: true, expandable: screens));
+Check(fullscreenDictation.View == IslandDesiredView.Compact && fullscreenDictation.FeatureId == "dictation",
+    "el dictado activo conserva su tarjeta compacta en pantalla completa");
+var dictationError = new IslandActivityRegistry();
+dictationError.Pulse("dictation", at, at.AddSeconds(5), alwaysTemporal: true);
+var fullscreenError = IslandPresentation.Resolve(Input(dictationError, [.. screens, "dictation"],
+    suppressed: true, expandable: screens));
+Check(fullscreenError.View == IslandDesiredView.Compact && fullscreenError.FeatureId == "dictation"
+    && fullscreenError.RestartNotice && fullscreenError.AlwaysTemporal,
+    "el error de dictado se muestra en pantalla completa con su plazo temporal");
+Check(!IslandPresentation.Resolve(Input(dictationError, [.. screens, "dictation"], suppressed: true,
+    presentedNoticeId: "dictation", presentedNoticeStarted: at, expandable: screens)).RestartNotice,
+    "reconciliar el error en pantalla completa no prolonga su aviso");
+Check(IslandPresentation.Resolve(Input(dictationError, [.. screens, "dictation"], suppressed: true,
+    usable: screens)).View == IslandDesiredView.Hidden,
+    "deshabilitar el dictado oculta su aviso también en pantalla completa");
+Check(IslandPresentation.Resolve(Input(dictationError, [.. screens, "dictation"], suppressed: true)
+    with { Now = at.AddSeconds(5) }).View == IslandDesiredView.Hidden,
+    "al vencer el error se vuelve a ocultar en pantalla completa");
+dictationError.SetExclusive("timer", true, at);
+Check(IslandPresentation.Resolve(Input(dictationError, [.. screens, "dictation"], suppressed: true,
+    expandable: screens)).FeatureId == "timer",
+    "la alerta del temporizador conserva prioridad sobre el error de dictado");
 // El expandido que el usuario abrió se respeta: un evento ordinario no le quita la vista.
 var expanded = IslandPresentation.Resolve(Input(playing, screens, userExpanded: true, userExpandedFeatureId: "timer"));
 Check(expanded.View == IslandDesiredView.Expanded && expanded.FeatureId == "timer",
@@ -333,6 +357,8 @@ string[] notices = ["bluetooth", "power"];
 var notice = new IslandActivityRegistry();
 notice.Pulse("bluetooth", at, at.AddSeconds(5), alwaysTemporal: true);
 var fresh = IslandPresentation.Resolve(Input(notice, notices));
+Check(IslandPresentation.Resolve(Input(notice, notices, suppressed: true)).View == IslandDesiredView.Hidden,
+    "los avisos ajenos al dictado siguen ocultos en pantalla completa");
 Check(fresh.FeatureId == "bluetooth" && fresh.RestartNotice && fresh.AlwaysTemporal,
     "un aviso nuevo estrena su plazo y conserva su carácter forzado");
 var again = IslandPresentation.Resolve(Input(notice, notices, presentedNoticeId: "bluetooth", presentedNoticeStarted: at));

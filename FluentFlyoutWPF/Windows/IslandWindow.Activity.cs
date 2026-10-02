@@ -242,7 +242,7 @@ public partial class IslandWindow
         }
 
         // Persistent exclusive access (002 RF-2) goes through suppression (001 RF-8/14).
-        if (Suppressed() && !HasExclusive())
+        if (Suppressed() && !HasExclusive() && !DictationFeedbackAvailable())
         {
             if (!_wasSuppressed)
             {
@@ -276,7 +276,7 @@ public partial class IslandWindow
         else if (Suppressed() && HasExclusive() && !IsBoxShown)
         {
             // The exclusive one arrived while suppressed: deploy it even if suppression continues.
-            ShowTimerAlert();
+            RefreshPresentation();
         }
 
         // Timer expiry: recovery of lost events and re-arming of the

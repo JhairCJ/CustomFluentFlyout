@@ -21,7 +21,7 @@ se pueden volver a ejecutar cuando cambie algo.
 | **1** | 6-10 ficheros nuevos de `ggerganov/whisper.cpp` | solo entradas de catálogo | Whisper más grande/meJOR quantizado sin runtime nuevo |
 | **2** | `parakeet-ctc-1.1b` y `nemotron-speech-streaming-en-0.6b` de NVIDIA | solo entradas de catálogo | los dos únicos modelos del índice de NeMo-Speech.cpp que faltan |
 | **3** | `orukeet-v0.1.0-f16.gguf` | una entrada | el mismo modelo OruKeet sin pérdida de Q8 |
-| **4** | **CrispASR** como cuarto backend | ~400 líneas | un solo binario (38 MB Vulkan / 9 MB CPU) y **~60 modelos** desbloqueados, entre ellos Parakeet Ultra, Granite, Canary, GigaAM, Cohere, Voxtral, Qwen3-ASR y Moonshine |
+| **4** | **CrispASR** como cuarto backend | ~400 líneas | un solo binario (38 MB Vulkan / 9 MB CPU) y **~60 modelos** desbloqueados, entre ellos Parakeet Ultra, Granite, Canary, GigaAM, Cohere, Voxtral y Moonshine |
 | **5** | sherpa-onnx como quinto backend | ~500 líneas | Zipformer (70 MB), SenseVoice, Fun-ASR y Parakeet en ONNX |
 
 Las tres primeras no requieren ni una línea de C#.
@@ -39,7 +39,7 @@ diferencia, la mejor relación "modelos desbloqueados / esfuerzo" para el catál
 |---|---|
 | GPU del usuario | RTX 3050 Ti Laptop, **4 GB VRAM**, driver 596.49 (CUDA 13.2) sin cuBLAS instalado |
 | Tamaño máximo cómodo | 700 MB - 1,2 GB (por encima de 2 GB la GPU se queda corta y cae a CPU) |
-| Runtimes actuales | whisper.net 1.9.1 (whisper.cpp embebido, con CUDA), `nemo-speech` (NeMo-Speech.cpp), Python + `qwen-asr` |
+| Runtimes actuales | whisper.net 1.9.1 (whisper.cpp embebido, con CUDA), `nemo-speech` (NeMo-Speech.cpp) |
 | Formato de catálogo | un artefacto por entrada, con `Repository` + `Revision` + `RemoteFileName` + `Sha256` |
 | Idioma del usuario | español (el criterio de selección real es WER en español) |
 
@@ -55,8 +55,6 @@ diferencia, la mejor relación "modelos desbloqueados / esfuerzo" para el catál
 
 **NeMo-Speech.cpp**: `orukeet-v0.1.0-q8.gguf` (714 MB), `parakeet-tdt-0.6b-v3.q8_0.gguf`
 (714 MB), `nemotron-3.5-asr-streaming-0.6b.q8_0.gguf` (742 MB).
-
-**Python**: `qwen3-asr-0.6b` (carpeta).
 
 ---
 
@@ -159,7 +157,6 @@ está en <https://huggingface.co/models?author=nvidia&pipeline_tag=automatic-spe
 | `nvidia/canary-1b-v2` | 6 358 958 080 | 25 UE | topped el leaderboard en 2025 |
 | `nvidia/canary-1b-flash` | ~2 GB | 25 UE | versión rápida |
 | `nvidia/canary-180m-flash` | ~0,4 GB | **en, de, es, fr** | pequeño y con español |
-| `nvidia/canary-qwen-2.5b` | ~10 GB | en | el #1 del leaderboard, demasiado grande |
 | `nvidia/gigaam-v3` (via `ai-sage/GigaAM-v3`) | 448 928 167 | en | transducer grande de NVIDIA |
 
 ### B.5 Checkpoints pensados específicamente para español
@@ -212,8 +209,6 @@ Q4_K) y también en `handy-computer` (mismas arquitecturas, otro formato de nomb
 | Parakeet TDT+CTC 110M | `cstr/parakeet-tdt_ctc-110m-GGUF@6432cc0f804c91dae1e8d4dacf27c02c3627a7e7` / `parakeet-tdt_ctc-110m-q8_0.gguf` | 126 617 600 | `5f98a5f29a02c8164ff2288a24bf24f98c7cd9ffd1a206747b9360d0193cfc78` | en | el más rápido y pequeño de la familia |
 | Granite Speech 4.1 2B NAR | `cstr/granite-speech-4.1-2b-nar-GGUF@7e8ef538a1a9eac847f670e3831e52fb36730241` / `granite-speech-4.1-2b-nar-q4_k-mini.gguf` | 1 623 632 224 | `4c36f5d45182c2279bcb3d63ae9e25d2172a416e84e92803558238f05685c8c6` | **en, fr, de, es, pt, ja** | no autorregresivo: rapidísimo |
 | Granite Speech 4.1 2B (+plus) | `cstr/granite-speech-4.1-2b-plus-GGUF` | 1,1 GB Q5_K | - | en, fr, de, es, pt | salida puntuada |
-| Qwen3-ASR 0.6B | `cstr/qwen3-asr-0.6b-GGUF@58bd3202f835f46b24b17142cb503b0860c737a5` / `qwen3-asr-0.6b-q4_k.gguf` | 631 026 336 | `f63771c02dfa486d9399d41ab6ab8cd2d8ca24e077cd32130ea1f67f4fd8dade` | 30 + 22 dialectos | **sustituiría el backend Python por GGUF** |
-| Qwen3-ASR 1.7B | `cstr/qwen3-asr-1.7b-GGUF@674df5d44b50a63e7102a18895ed20e3f91de301` / `qwen3-asr-1.7b-q4_k.gguf` | 1 490 915 200 | `ec197cef7ccc589fdcae1becc3f4a3de119d0a41e790b898b519b1a048dad8d4` | 30 + 22 | |
 | Phonon-2 (`FermionResearch/Phonon-2`) | `cstr/phonon2-GGUF@3ed3e6ad6e7ce63affffeede37328ff756efaa2f` / `phonon2-q8_0.gguf` | 674 342 560 | `a8c4a874195b83604ceb5d87c0e9b5ddf641ef1d5ec2d8e1ca2a040d25b2563a` | en | Parakeet TDT v3 con pesos de cinco valores reentrenados |
 | GigaAM v3 (RNNT y CTC) | `cstr/gigaam-v3-GGUF@5df03d88f87f66ab6afc17c615370d20cda93669` / `gigaam-v3-ctc-q8_0.gguf` | 245 137 312 | `71ef12d883230f5f8dc50b4822164a73629f69a1a7e76b9bf937a20f55438c00` | en | transducer de NVIDIA |
 | Moonshine base / tiny | `cstr/moonshine-base-GGUF@ccc6dc6e0fc1fd0fdf3dfb9448e09bb9bd8aa370` / `moonshine-base-q8_0.gguf` | 75 890 784 | `27378245b95f700da66cdffc6222e89e65b7dbc3f21f2f4a25bb167e80e7d83f` | en (+6 idiomas) | 72 MB, para CPU |
@@ -233,7 +228,6 @@ Q4_K) y también en `handy-computer` (mismas arquitecturas, otro formato de nomb
    más rápido que el original según su propia author's card.
 2. **Modelos que NVIDIA no convierte a GGUF**: Canary, Canary-180m-flash (es), GigaAM,
    Granite, Cohere, Voxtral, X-ASR, Dolphin, kyutai, LFM2.5-Audio.
-3. **Qwen3-ASR en GGUF**: permitiría borrar la dependencia de Python para ese modelo.
 4. **Un solo tipo de artefacto**: un GGUF por modelo, mismo formato de descarga y misma
    verificación de integridad que ya tiene el catálogo.
 
@@ -249,8 +243,8 @@ python tools/gguf_header.py "nvidia/parakeet-tdt-0.6b-v3 parakeet-tdt-0.6b-v3.q8
 | `general.architecture` | Runtime |
 |---|---|
 | `asr` (+ claves `asr.head_type`) | NeMo-Speech.cpp |
-| `parakeet`, `canary`, `gigaam`, `granite_speech5_ctc`, `funasr_nano`, `sensevoice`, `moonshine_streaming`, `medasr`, `whisper`, `voxtral`, `qwen3`… | CrispASR / handy-computer |
-| `llama` / `qwen3` con `tokenizer.ggml.*` | llama.cpp |
+| `parakeet`, `canary`, `gigaam`, `granite_speech5_ctc`, `funasr_nano`, `sensevoice`, `moonshine_streaming`, `medasr`, `whisper`, `voxtral`… | CrispASR / handy-computer |
+| `llama` con `tokenizer.ggml.*` | llama.cpp |
 
 Los GGUFs de `handy-computer` y de `cstr` son **el mismo formato** (arquitectura leída de
 los metadatos), solo cambia el nombre del fichero.
@@ -306,15 +300,12 @@ catálogo (un artefacto) necesitaGeneralizarse o duplicarse.
 
 ---
 
-## 7. Grupo E - Python (ya soportado)
+## 7. Grupo E - Checkpoints Python (sin integración en la app)
 
-El backend `QwenAsr` ya usa `pip install qwen-asr`, así que todo lo que se pueda
-instalar con pip entra sin tocar código.
+Estos checkpoints requieren un backend adicional; la app no depende de Python para el dictado.
 
 | Modelo | Repositorio | Tamaño | Idiomas | Nota |
 |---|---|---:|---|---|
-| `Qwen/Qwen3-ASR-0.6B` | ya en el catálogo (carpeta) | ~1,2 GB | 30 + 22 dialectos | incluye español |
-| `Qwen/Qwen3-ASR-1.7B` | `Qwen/Qwen3-ASR-1.7B` | ~3,5 GB | 30 + 22 | más exacto, no cabe en 4 GB |
 | `ibm-granite/granite-speech-5.0-470m-turboctc` | `ibm-granite/granite-speech-5.0-470m-turboctc` @ `286456107c8ba1161f5c22dfe85466402c88333b` | `model.safetensors` 946 180 704 | solo inglés | **5,00 % WER agregado** en los sets públicos del OpenASR Leaderboard, Apache-2.0, 470 M, encoder-only (CTC) |
 | `ibm-granite/granite-speech-5.0-470m-turboctc-nc` | mismo, rev `0eb7b4fe726a294815dc45d342860465b5af68ef` | 946 180 704 | inglés | 4,85 % WER pero licencia CC-BY-NC-SA-4.0 (no comercial) |
 
@@ -326,7 +317,6 @@ OruKeet, OruKeet F16 y todo lo de NVIDIA entra por el Grupo B, que ya funciona.
 
 | Modelo | Por qué no |
 |---|---|
-| `nvidia/canary-qwen-2.5b` | ~10 GB, el #1 del leaderboard |
 | `CohereLabs/cohere-transcribe-03-2026` en Q8 | 2,42 GB; en Q4_K son 1,29 GB y sí entraría (ya está en C.1) |
 | `mistralai/Voxtral-Mini-4B-Realtime-2602` | 2,4 GB en Q4_K, y es un LLM de 3,4 B: lento en CPU |
 | `zai-org/GLM-ASR-Nano-2512` | 1,33 GB en Q4_K pero sin español |
@@ -395,10 +385,8 @@ Velocidad (referencia de cada autor, no comparable entre máquinas):
 2. Descarga del runtime al estilo de la que ya hace la app para el resto (los assets de
    37,9 MB Vulkan / 8,9 MB CPU encajan en el mismo patrón que usa CUDA hoy).
 3. Entradas iniciales: Parakeet Ultra Q8_0 y Q4_K, Parakeet Redux, OruKeet Q5_0,
-   Canary 1B v2 Q5_0/Q4_K, Qwen3-ASR 0.6B Q4_K, Granite 4.1 2B NAR mini, Cohere
+   Canary 1B v2 Q5_0/Q4_K, Granite 4.1 2B NAR mini, Cohere
    Transcribe Q4_K, Zipformer no (eso es sherpa).
-4. Con eso se puede **borrar el backend Python de Qwen3-ASR** si el GGUF da el mismo
-   texto, lo que quitaría la dependencia de `pip install qwen-asr`.
 
 ### Fase 3 - opcional
 
@@ -418,7 +406,7 @@ Velocidad (referencia de cada autor, no comparable entre máquinas):
    - Parakeet / Canary / OruKeet (base): CC-BY-4.0.
    - OruKeet: el repo trae `LICENSE` + `LICENSE-WEIGHTS` (CC-BY-SA-4.0 según CrispASR).
    - Nemotron: NVIDIA Open Model License.
-   - Granite, Qwen3-ASR, Cohere Transcribe, FireRedASR2, Zipformer: Apache-2.0.
+   - Granite, Cohere Transcribe, FireRedASR2, Zipformer: Apache-2.0.
    - `granite-speech-5.0-470m-turboctc-nc` y varios fine-tunes: **no comercial**, fuera.
 4. Idiomas: el texto de la entrada debe decir solo los que el modelo soporta de verdad
    (Fun-ASR-MLT y SenseVoice no tienen español; Dolphin es oriental; los `-en` de NVIDIA
@@ -432,7 +420,7 @@ Velocidad (referencia de cada autor, no comparable entre máquinas):
 
 | Licencia | Modelos |
 |---|---|
-| MIT / Apache-2.0 | Whisper, Qwen3-ASR, Granite (4.x), Cohere Transcribe, FireRedASR2, Zipformer, Moonshine, Dolphin, SenseVoice |
+| MIT / Apache-2.0 | Whisper, Granite (4.x), Cohere Transcribe, FireRedASR2, Zipformer, Moonshine, Dolphin, SenseVoice |
 | CC-BY-4.0 | Parakeet TDT/CTC/RNNT, Canary, Nemotron-3-Diarization, Sortformer, parakeet-ultra, parakeet-redux, Phonon-2 |
 | CC-BY-SA-4.0 | OruKeet (pesos), según la tabla de CrispASR |
 | NVIDIA Open Model License (OpenMDW 1.1) | Nemotron 3.5 ASR, Nemotron Speech Streaming EN |
@@ -445,10 +433,17 @@ sale el modelo.
 ## 13. Integración implementada en la app
 
 Parakeet Ultra Q8_0 y Q4_K usan CrispASR 0.8.40. La app descarga el runtime
-Windows CPU/Vulkan con versión y SHA-256 fijados. El interruptor de aceleración
-selecciona Vulkan cuando está activado y CPU cuando está desactivado; este motor
-no usa NVIDIA CUDA. El dispositivo Vulkan predeterminado depende de la máquina:
-en el equipo de las mediciones anteriores es la Intel UHD integrada.
+Windows CPU/Vulkan con versión y SHA-256 fijados. El engranaje junto a «En uso»
+permite elegir procesador o gráfica integrada (Vulkan, sin NVIDIA CUDA). La app
+consulta los dispositivos al runtime, identifica la integrada y pasa su índice
+explícito; no depende de que la gráfica predeterminada sea la integrada.
+
+Whisper, OruKeet y Parakeet/NeMo permiten procesador o dedicada NVIDIA
+(CUDA). Cada archivo del catálogo, incluidas sus variantes cuantizadas, conserva
+su propia elección en `DictationModelDevices`. El antiguo `DictationUseGpu` sirve
+como valor inicial para modelos sin preferencia; ya no hay interruptor global en
+la interfaz. Una biblioteca Whisper CPU ya cargada necesita reinicio para activar
+CUDA; la biblioteca CUDA admite también contextos CPU sin reiniciar.
 
 La integración actual usa un proceso persistente, no el CLI de un solo uso de las
 mediciones del apartado C.4. Al empezar a grabar, inicia la precarga en una tarea
@@ -461,15 +456,25 @@ Con `Keep Model loaded`, la app precarga al iniciar y conserva el modelo. Sin es
 ajuste, cada dictado reinicia `Release after inactivity` (15–600 segundos).
 Desactivar Keep Model Loaded conserva el modelo actual hasta vencer ese plazo.
 La cancelación detiene la inferencia nativa; el siguiente dictado recrea el worker.
-Cambiar de modelo o de aceleración sustituye el proceso cuando corresponde.
+Cambiar de modelo o de dispositivo sustituye el proceso cuando corresponde.
 
-Las 16 comprobaciones de integración cubren precarga durante la fase Listening,
+Las 20 comprobaciones de integración cubren precarga durante la fase Listening,
 reutilización de procesos, retención, reinicio del contador, liberación por
-inactividad, cancelación, recuperación y cambio entre CPU y Vulkan. Se ejecutan
+inactividad, cancelación, recuperación, cambio entre CPU y Vulkan, persistencia
+XML independiente por modelo e identificación explícita de la integrada. Se ejecutan
 con el runtime instalado y un audio local mono PCM16 a 16 kHz:
 
 ```powershell
 dotnet run --project tools/DictationChecks/DictationChecks.csproj -c Release -p:Platform=x64 -- <modelo.gguf> <audio.wav>
+```
+
+La sección Modelos de voz tiene encabezado superior y lista de ancho completo.
+El modo `--ui` verifica el engranaje y sus menús reales, las elecciones independientes
+y la distribución WPF en inglés/oscuro y español/claro a distintos anchos, sin
+alterar el archivo de ajustes del usuario:
+
+```powershell
+dotnet run --project tools/DictationChecks/DictationChecks.csproj -c Release -p:Platform=x64 -- --ui
 ```
 
 `graphify-out/` contiene resultados regenerables de exploración y se conserva

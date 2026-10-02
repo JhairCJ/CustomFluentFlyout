@@ -2,16 +2,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.IO;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Net.Http;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 
 namespace FluentFlyoutWPF.Classes.Dictation;
 
 /// <summary>
 /// CrispASR runtime (CrispStrobe/CrispASR): the whisper.cpp fork that understands every
 /// GGUF - it reads "general.architecture" and picks the backend on its own (parakeet,
-/// canary, qwen3, granite, cohere...), which is how Parakeet Ultra runs here.
+/// canary, granite, cohere...), which is how Parakeet Ultra runs here.
 ///
 /// <para>The Windows build published for Vulkan is downloaded straight from the GitHub
 /// release (37.9 MB) and unpacked into the user's folder. It is the variant offered
@@ -73,6 +75,59 @@ internal static class CrispAsrRuntime
     }
 
     public static bool IsInstalled => ExecutablePath != null;
+
+    private static readonly object DeviceGate = new();
+    private static Task<CrispGpuDevice?>? _integratedDeviceTask;
+
+    public sealed record CrispGpuDevice(int Index, string Name);
+
+    /// <summary>Uses ggml's own device IDs and igpu classification, never assumes device 0.</summary>
+    public static Task<CrispGpuDevice?> GetIntegratedDeviceAsync(CancellationToken cancellationToken = default)
+    {
+        string? executable = ExecutablePath;
+        if (executable == null) return Task.FromResult<CrispGpuDevice?>(null);
+        lock (DeviceGate)
+        {
+            if (_integratedDeviceTask == null || _integratedDeviceTask.IsFaulted || _integratedDeviceTask.IsCanceled)
+                _integratedDeviceTask = DiscoverIntegratedDeviceAsync(executable);
+            return _integratedDeviceTask.WaitAsync(cancellationToken);
+        }
+    }
+
+    private static async Task<CrispGpuDevice?> DiscoverIntegratedDeviceAsync(string executable)
+    {
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo(executable)
+            {
+                WorkingDirectory = Path.GetDirectoryName(executable)!,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            },
+        };
+        process.StartInfo.ArgumentList.Add("--diagnostics");
+        // Device enumeration must see the same set that the inference worker will see.
+        process.StartInfo.Environment.Remove("GGML_VK_VISIBLE_DEVICES");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        process.Start();
+        try
+        {
+            Task<string> stdout = process.StandardOutput.ReadToEndAsync(timeout.Token);
+            Task<string> stderr = process.StandardError.ReadToEndAsync(timeout.Token);
+            await process.WaitForExitAsync(timeout.Token);
+            string output = await stdout + "\n" + await stderr;
+            if (process.ExitCode != 0) throw new InvalidOperationException("CrispASR could not enumerate Vulkan devices");
+            Match match = Regex.Match(output,
+                @"(?m)^\s*\[\d+\]\s+igpu\s+name=Vulkan(?<id>\d+)\s+desc=(?<name>.*?)\s+mem=");
+            return match.Success ? new(int.Parse(match.Groups["id"].Value), match.Groups["name"].Value) : null;
+        }
+        finally
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+        }
+    }
 
     /// <summary>
     /// Downloads the pinned zip, checks its SHA-256 and unpacks it into

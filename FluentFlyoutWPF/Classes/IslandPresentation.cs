@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FluentFlyoutWPF.Models;
+
 namespace FluentFlyoutWPF.Classes;
 
 /// <summary>View the container must show RIGHT NOW (change island-lista-de-activos).</summary>
@@ -57,7 +59,7 @@ public readonly record struct IslandPresentationResult(
 /// <list type="number">
 /// <item>Live exclusive access -> its expanded view; it overrides everything and goes
 /// through suppression (001 RF-8/14, 002 RF-2, spec 006 RF-9).</item>
-/// <item>Contextual suppression -> nothing (001 MOD RF-14).</item>
+/// <item>Contextual suppression -> only a pending dictation notice, otherwise nothing.</item>
 /// <item>The expanded view the user has open -> respected: an ordinary event does not
 /// take away the view they decided to open (001 RF-24).</item>
 /// <item>Live activity -> the COMPACT view of the winner: the most recent event and, on
@@ -86,8 +88,17 @@ public static class IslandPresentation
                 exclusive, RestartNotice: !expandable, AlwaysTemporal: !expandable);
         }
 
-        // 2. Suppressed (fullscreen game, presentation, locked machine): nothing.
-        if (input.Suppressed) return new IslandPresentationResult(IslandDesiredView.Hidden, null, false, false);
+        // 2. Dictation errors remain visible after the session releases exclusive access.
+        // Other notices and rest still respect contextual suppression.
+        if (input.Suppressed)
+        {
+            var feedback = input.Activity.Live(IslandFeatureIds.Dictation, input.Now);
+            if (feedback is { Kind: IslandActivityKind.Notice } notice && IsUsable(input, notice.Id))
+                return new IslandPresentationResult(IslandDesiredView.Compact, notice.Id,
+                    input.PresentedNoticeId != notice.Id || input.PresentedNoticeStarted != notice.StartedUtc,
+                    notice.AlwaysTemporal);
+            return new IslandPresentationResult(IslandDesiredView.Hidden, null, false, false);
+        }
 
         // 3. The expanded view the user opened is respected while nothing exclusive takes it.
         if (input.UserExpanded)

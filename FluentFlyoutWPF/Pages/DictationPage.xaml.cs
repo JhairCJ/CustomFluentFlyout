@@ -7,6 +7,7 @@ using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Classes.Dictation;
 using FluentFlyoutWPF.Models;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
@@ -28,8 +29,6 @@ public partial class DictationPage : Page
     private const string CudaDownloadsUrl = "https://developer.nvidia.com/cuda-downloads";
     private const string NemoRuntimeGuideUrl = "https://github.com/NVIDIA/NeMo-Speech.cpp#installation";
     private const string NemoRuntimeInstallCommand = "irm https://github.com/NVIDIA/NeMo-Speech.cpp/raw/main/scripts/install.ps1 | iex";
-    private const string QwenRuntimeGuideUrl = "https://github.com/QwenLM/Qwen3-ASR#environment-setup";
-    private const string QwenRuntimeInstallCommand = "python -m pip install -U qwen-asr";
 
     private readonly ObservableCollection<DictationModelRow> _rows = [];
     private bool _loading;
@@ -59,6 +58,8 @@ public partial class DictationPage : Page
         if (Application.Current.MainWindow is MainWindow mainWindow)
             mainWindow.Dictation.Changed += Dictation_Changed;
         DictationModelStore.DownloadStateChanged += DictationDownloadStateChanged;
+        SettingsManager.Current.PropertyChanged += Settings_PropertyChanged;
+        FluentFlyout.Classes.LocalizationManager.LanguageChanged += RefreshLocalizedState;
         UpdateGpuRuntimeStatus();
         UpdateCrispAsrRuntimeStatus();
     }
@@ -71,6 +72,30 @@ public partial class DictationPage : Page
         if (Application.Current.MainWindow is MainWindow mainWindow)
             mainWindow.Dictation.Changed -= Dictation_Changed;
         DictationModelStore.DownloadStateChanged -= DictationDownloadStateChanged;
+        SettingsManager.Current.PropertyChanged -= Settings_PropertyChanged;
+        FluentFlyout.Classes.LocalizationManager.LanguageChanged -= RefreshLocalizedState;
+    }
+
+    private void RefreshLocalizedState()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(RefreshLocalizedState);
+            return;
+        }
+        RefreshModels();
+        UpdateCrispAsrRuntimeStatus();
+    }
+
+    private void Settings_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ViewModels.UserSettings.DictationModel)
+            or nameof(ViewModels.UserSettings.DictationModelDevices)
+            or nameof(ViewModels.UserSettings.DictationUseGpu))
+        {
+            if (Dispatcher.CheckAccess()) RefreshModels();
+            else _ = Dispatcher.BeginInvoke(RefreshModels);
+        }
     }
 
     private void DictationDownloadStateChanged(string fileName)
@@ -97,52 +122,91 @@ public partial class DictationPage : Page
 
     private void UpdateGpuRuntimeStatus()
     {
-        if (Application.Current.MainWindow is not MainWindow mainWindow) return;
-
-        string? activePath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel);
-        if (activePath != null
-            && DictationModelStore.Find(Path.GetFileName(activePath))?.Backend == DictationModelBackend.CrispAsr)
+        var service = Dictation;
+        foreach (var row in _rows)
         {
-            bool loaded = mainWindow.Dictation.CrispModelLoaded;
-            bool useGpu = loaded ? mainWindow.Dictation.CrispUsingGpu : SettingsManager.Current.DictationUseGpu;
-            GpuRuntimeStatus.Text = useGpu
-                ? loaded
-                    ? IslandStrings.Get("DictationGpuStatusCrispVulkanLoaded", "Parakeet Ultra: Vulkan, model loaded (no CUDA)")
-                    : IslandStrings.Get("DictationGpuStatusCrispVulkan", "Parakeet Ultra will use Vulkan (integrated or dedicated GPU, no CUDA)")
-                : loaded
-                    ? IslandStrings.Get("DictationGpuStatusCrispCpuLoaded", "Parakeet Ultra: CPU, model loaded (no CUDA)")
-                    : IslandStrings.Get("DictationGpuStatusCrispCpu", "Parakeet Ultra will use CPU (no CUDA)");
-            CudaDriverButton.Visibility = Visibility.Collapsed;
+            row.DeviceText = DeviceLabel(SettingsManager.Current.GetDictationDevice(row.FileName));
+            if (row.Active && service?.AccelerationRestartRequired == true)
+                row.DeviceText += " · " + IslandStrings.Get("DictationDeviceRestartShort", "Restart to apply");
+        }
+        CudaDriverButton.Visibility = Visibility.Collapsed;
+        if (service == null || string.IsNullOrWhiteSpace(SettingsManager.Current.DictationModel))
+        {
+            GpuRuntimeStatus.Text = "";
             return;
         }
 
-        string key;
-        string fallback;
-        if (mainWindow.Dictation.AccelerationRestartRequired)
+        string selected = DeviceLabel(service.RequestedDevice);
+        if (service.AccelerationRestartRequired)
         {
-            key = "DictationGpuRestartRequired";
-            fallback = "Restart the app to apply the CPU/CUDA change";
+            GpuRuntimeStatus.Text = IslandStrings.Get("DictationDeviceRestartRequired",
+                "CPU runtime already loaded. Restart the app to enable NVIDIA CUDA for this model.");
+            CudaDriverButton.Visibility = Visibility.Visible;
         }
-        else if (!mainWindow.Dictation.RuntimeLoaded)
+        else if (service.ModelLoaded)
         {
-            key = "DictationGpuStatusNotLoaded";
-            fallback = "Runtime: not loaded yet";
-        }
-        else if (mainWindow.Dictation.UsingGpuRuntime)
-        {
-            key = "DictationGpuStatusCuda";
-            fallback = "Runtime: CUDA";
+            string actual = DeviceLabel(service.ModelUsingGpu
+                ? DictationDevices.GpuForModel(SettingsManager.Current.DictationModel) : DictationDevice.Cpu);
+            if (!string.IsNullOrWhiteSpace(service.LoadedDeviceName)) actual += $" · {service.LoadedDeviceName}";
+            GpuRuntimeStatus.Text = IslandStrings.Format("DictationDeviceLoaded",
+                "Selected: {0}. Model loaded: {1}.", selected, actual);
         }
         else
         {
-            key = "DictationGpuStatusCpu";
-            fallback = "Runtime: CPU (CUDA unavailable or disabled)";
+            GpuRuntimeStatus.Text = IslandStrings.Format("DictationDeviceNotLoaded",
+                "Selected: {0}. Model is currently released.", selected);
         }
+    }
 
-        GpuRuntimeStatus.Text = IslandStrings.Get(key, fallback);
-        CudaDriverButton.Visibility = mainWindow.Dictation.RuntimeLoaded
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+    private static string DeviceLabel(DictationDevice device) => device switch
+    {
+        DictationDevice.IntegratedGpu => IslandStrings.Get("DictationDeviceIntegrated", "Integrated GPU (Vulkan)"),
+        DictationDevice.DedicatedGpu => IslandStrings.Get("DictationDeviceDedicated", "Dedicated NVIDIA GPU (CUDA)"),
+        _ => IslandStrings.Get("DictationDeviceCpu", "Processor (CPU)"),
+    };
+
+    private async void ModelSettings_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.DataContext is not DictationModelRow { Active: true } row) return;
+        var selected = SettingsManager.Current.GetDictationDevice(row.FileName);
+        var gpu = DictationDevices.GpuForModel(row.FileName);
+        var menu = new ContextMenu { PlacementTarget = button, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        menu.Items.Add(new MenuItem
+        {
+            Header = IslandStrings.Get("DictationDeviceMenuTitle", "Run this model on"),
+            IsEnabled = false,
+        });
+        menu.Items.Add(new Separator());
+        MenuItem AddDevice(DictationDevice device)
+        {
+            var item = new MenuItem { Header = DeviceLabel(device), IsCheckable = true, IsChecked = device == selected };
+            item.Click += (_, _) =>
+            {
+                SettingsManager.Current.SetDictationDevice(row.FileName, device);
+                ModelsStatus.Text = "";
+            };
+            menu.Items.Add(item);
+            return item;
+        }
+        AddDevice(DictationDevice.Cpu);
+        var gpuItem = AddDevice(gpu);
+        if (gpu == DictationDevice.IntegratedGpu)
+            gpuItem.IsEnabled = false;
+        button.ContextMenu = menu;
+        menu.IsOpen = true;
+
+        if (gpu != DictationDevice.IntegratedGpu) return;
+        try
+        {
+            var integrated = await CrispAsrRuntime.GetIntegratedDeviceAsync();
+            gpuItem.IsEnabled = integrated != null;
+            gpuItem.Header = integrated != null ? $"{DeviceLabel(gpu)} · {integrated.Name}"
+                : IslandStrings.Get("DictationDeviceIntegratedUnavailable", "Integrated GPU unavailable (check the Vulkan runtime and driver)");
+        }
+        catch (Exception)
+        {
+            gpuItem.Header = IslandStrings.Get("DictationDeviceDetectionFailed", "Could not detect the integrated GPU. Reopen this menu to retry.");
+        }
     }
 
     private void DownloadCudaDrivers_Click(object sender, RoutedEventArgs e)
@@ -157,11 +221,6 @@ public partial class DictationPage : Page
     private void InstallNemoRuntime_Click(object sender, RoutedEventArgs e)
     {
         PrepareExternalRuntimeInstall(NemoRuntimeGuideUrl, NemoRuntimeInstallCommand);
-    }
-
-    private void InstallQwenRuntime_Click(object sender, RoutedEventArgs e)
-    {
-        PrepareExternalRuntimeInstall(QwenRuntimeGuideUrl, QwenRuntimeInstallCommand);
     }
 
     /// <summary>
@@ -521,6 +580,9 @@ public partial class DictationPage : Page
 
         [ObservableProperty]
         public partial string Subtitle { get; set; }
+
+        [ObservableProperty]
+        public partial string DeviceText { get; set; } = "";
 
         [ObservableProperty]
         public partial bool Installed { get; set; }

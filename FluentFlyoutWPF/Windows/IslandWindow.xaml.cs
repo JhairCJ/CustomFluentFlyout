@@ -479,7 +479,7 @@ public partial class IslandWindow : Window
             return;
         }
 
-        if (Suppressed())
+        if (Suppressed() && !HasExclusive() && !DictationFeedbackAvailable())
         {
             _wasSuppressed = true;
             SnapHidden();
@@ -513,7 +513,8 @@ public partial class IslandWindow : Window
     /// </summary>
     public void RefreshVisibilityState()
     {
-        if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
+        if (!SettingsManager.Current.IslandEnabled
+            || (Suppressed() && !HasExclusive() && !DictationFeedbackAvailable())) return;
         RefreshPresentation();
         PostActivity(IslandActivityReason.Settings);
     }

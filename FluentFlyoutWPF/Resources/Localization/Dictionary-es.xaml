@@ -328,7 +328,6 @@
     <system:String x:Key="IslandCalendarPageBody">Ya puedes cerrar esta pestaña y volver a FluentFlyout.</system:String>
     <!-- Textos de ventana que estaban escritos en el XAML. -->
     <system:String x:Key="OnboardingTitle">Te damos la bienvenida a FluentFlyout</system:String>
-    <system:String x:Key="OnboardingTitle">Te damos la bienvenida a FluentFlyout</system:String>
     <system:String x:Key="OnboardingGetStarted">Primeros pasos</system:String>
     <system:String x:Key="LoadingText">Cargando...</system:String>
     <system:String x:Key="PlaceholderSongTitle">Título de la canción</system:String>
@@ -724,11 +723,22 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="DictationLanguageSpanish">Español</system:String>
     <system:String x:Key="DictationLanguageEnglish">Inglés</system:String>
     <system:String x:Key="DictationModelsTitle">Modelos de voz</system:String>
-    <system:String x:Key="DictationModelsDescription">Se descargan una vez y después funcionan sin conexión. Incluye Whisper, Parakeet y Qwen3-ASR; los modelos externos indican el runtime que necesitan.</system:String>
+    <system:String x:Key="DictationDeviceHint">Usa el engranaje junto a «En uso» para elegir el dispositivo. Cada modelo recuerda su propia selección.</system:String>
+    <system:String x:Key="DictationDeviceSettings">Elegir el dispositivo para este modelo</system:String>
+    <system:String x:Key="DictationDeviceMenuTitle">Ejecutar este modelo en</system:String>
+    <system:String x:Key="DictationDeviceCpu">Procesador (CPU)</system:String>
+    <system:String x:Key="DictationDeviceIntegrated">Gráfica integrada (Vulkan)</system:String>
+    <system:String x:Key="DictationDeviceDedicated">Gráfica dedicada NVIDIA (CUDA)</system:String>
+    <system:String x:Key="DictationDeviceIntegratedUnavailable">Gráfica integrada no disponible (comprueba el runtime y el controlador Vulkan)</system:String>
+    <system:String x:Key="DictationDeviceDetectionFailed">No se pudo detectar la gráfica integrada. Vuelve a abrir este menú para reintentar.</system:String>
+    <system:String x:Key="DictationDeviceRestartRequired">El motor CPU ya está cargado. Reinicia la aplicación para activar NVIDIA CUDA en este modelo.</system:String>
+    <system:String x:Key="DictationDeviceRestartShort">Reinicia para aplicar</system:String>
+    <system:String x:Key="DictationDeviceLoaded">Seleccionado: {0}. Modelo cargado: {1}.</system:String>
+    <system:String x:Key="DictationDeviceNotLoaded">Seleccionado: {0}. El modelo está liberado actualmente.</system:String>
+    <system:String x:Key="DictationModelsDescription">Se descargan una vez y después funcionan sin conexión. Incluye Whisper, Parakeet y OruKeet; los modelos externos indican el runtime que necesitan.</system:String>
     <system:String x:Key="DictationRuntimeTitle">Instalar runtimes externos</system:String>
-<system:String x:Key="DictationRuntimeDescription">Parakeet necesita NeMo-Speech.cpp y Qwen3-ASR necesita Python 3.12 con qwen-asr. Estos botones abren la guía oficial y copian el comando; revísalo antes de ejecutarlo. Parakeet Ultra usa CrispASR en CPU o Vulkan según el ajuste de aceleración, sin requerir NVIDIA CUDA. Respeta los ajustes de carga y liberación del modelo.</system:String>
+<system:String x:Key="DictationRuntimeDescription">Parakeet y OruKeet necesitan NeMo-Speech.cpp. Estos botones abren la guía oficial y copian el comando; revísalo antes de ejecutarlo. Parakeet Ultra usa CrispASR en el procesador o la gráfica integrada (Vulkan, sin CUDA). Elige su dispositivo desde el engranaje junto a «En uso».</system:String>
 <system:String x:Key="DictationRuntimeNemo">Abrir NeMo + copiar comando</system:String>
-<system:String x:Key="DictationRuntimeQwen">Abrir Qwen + copiar comando</system:String>
 <system:String x:Key="DictationRuntimeCrispAsr">Descargar CrispASR (CPU / Vulkan)</system:String>
 <system:String x:Key="DictationRuntimeCrispAsrReinstall">Reinstalar CrispASR (CPU / Vulkan)</system:String>
 <system:String x:Key="DictationRuntimeCrispAsrMissing">CrispASR no está instalado</system:String>

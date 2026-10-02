@@ -8,6 +8,7 @@ using FluentFlyout.Classes.Utils;
 using FluentFlyout.Controls;
 using FluentFlyout.Controls.TaskbarWidget;
 using FluentFlyoutWPF.Classes;
+using FluentFlyoutWPF.Classes.Dictation;
 using FluentFlyoutWPF.Models;
 using FluentFlyoutWPF.Windows;
 using System.Collections.ObjectModel;
@@ -1443,11 +1444,34 @@ public partial class UserSettings : ObservableObject
     public partial string DictationLanguage { get; set; } = "auto";
 
     /// <summary>
-    /// Tries to use CUDA for Whisper when the runtime is available. If it is turned
-    /// off, the choice stays pinned to CPU until the next startup.
+    /// Legacy default for models that do not yet have a per-model device preference.
     /// </summary>
     [ObservableProperty]
     public partial bool DictationUseGpu { get; set; }
+
+    /// <summary>Per-model devices. The legacy GPU flag is used only until a model is configured.</summary>
+    [ObservableProperty]
+    public partial List<DictationModelDevicePreference> DictationModelDevices { get; set; } = [];
+
+    public DictationDevice GetDictationDevice(string model)
+    {
+        string key = DictationDevices.ModelKey(model);
+        var preference = DictationModelDevices.FirstOrDefault(item =>
+            string.Equals(item.Model, key, StringComparison.OrdinalIgnoreCase));
+        if (preference != null && DictationDevices.Supports(model, preference.Device))
+            return preference.Device;
+        return DictationUseGpu ? DictationDevices.GpuForModel(model) : DictationDevice.Cpu;
+    }
+
+    public void SetDictationDevice(string model, DictationDevice device)
+    {
+        if (!DictationDevices.Supports(model, device))
+            throw new ArgumentException("The model does not support this device", nameof(device));
+        string key = DictationDevices.ModelKey(model);
+        DictationModelDevices = [.. DictationModelDevices.Where(item =>
+            !string.Equals(item.Model, key, StringComparison.OrdinalIgnoreCase)),
+            new DictationModelDevicePreference { Model = key, Device = device }];
+    }
 
     /// <summary>
     /// Keeps the model weights loaded between dictations to avoid paying the initial
@@ -3202,12 +3226,11 @@ public partial class UserSettings : ObservableObject
         if (oldValue == newValue || _initializing) return;
 
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
-        mainWindow.Dictation.RefreshResourcePolicy();
+        mainWindow.Dictation.RefreshAccelerationSettings();
     }
 
     /// <summary>
-    /// The CPU/CUDA choice is applied before the first native runtime is created. If one
-    /// already exists, DictationService shows that the application must be restarted.
+    /// Updates the legacy default; explicit per-model device choices take precedence.
     /// </summary>
     partial void OnDictationUseGpuChanged(bool oldValue, bool newValue)
     {
@@ -3215,6 +3238,13 @@ public partial class UserSettings : ObservableObject
 
         MainWindow mainWindow = (MainWindow)Application.Current.MainWindow;
         mainWindow.Dictation.RefreshAccelerationSettings();
+    }
+
+    partial void OnDictationModelDevicesChanged(List<DictationModelDevicePreference> value)
+    {
+        if (_initializing) return;
+        if (Application.Current?.MainWindow is MainWindow mainWindow)
+            mainWindow.Dictation.RefreshAccelerationSettings();
     }
 
     partial void OnDictationKeepModelLoadedChanged(bool oldValue, bool newValue)
