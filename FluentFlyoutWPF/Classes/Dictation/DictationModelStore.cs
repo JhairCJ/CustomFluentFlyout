@@ -15,6 +15,7 @@ public enum DictationModelBackend
     Whisper,
     NemoSpeech,
     QwenAsr,
+    CrispAsr,
 }
 
 /// <summary>A file that is part of a downloadable model.</summary>
@@ -98,7 +99,10 @@ public sealed record DictationModelInfo(
         "ggml-large-v3-turbo-q5_0.bin" => 574_000_000,
         "ggml-distil-large-v3-multi4.bin" => 1_519_521_155,
         "parakeet-tdt-0.6b-v3.q8_0.gguf" => 713_975_456,
+        "parakeet-ultra-q8_0.gguf" => 674_342_400,
+        "parakeet-ultra-q4_k.gguf" => 402_226_496,
         "nemotron-3.5-asr-streaming-0.6b.q8_0.gguf" => 742_090_464,
+        "orukeet-v0.1.0-q8.gguf" => 714_456_704,
         "ggml-medium-q5_0.bin" => 539_212_467,
         "ggml-medium.bin" => 1_530_000_000,
         _ => 150_000_000,
@@ -176,7 +180,7 @@ public static class DictationModelStore
                     "79d6cbd4c98c7bbffe9db2edac07f56cd6637d0d5944b27f6c2b8353840323ea"),
             ],
         },
-        new("nemotron-3.5-asr-streaming-0.6b.q8_0.gguf", "NVIDIA Nemotron 3.5 ASR 0.6B (GGUF)", "708 MB",
+        new("nemotron-3.5-asr-streaming-0.6b.q8_0.gguf", "NVIDIA Nemotron 3.5 ASR 0.6B (Q8_0)", "708 MB",
             "Español, inglés y otros idiomas")
         {
             Backend = DictationModelBackend.NemoSpeech,
@@ -187,7 +191,24 @@ public static class DictationModelStore
             Sha256 = "3fc991d3badad7277c11030a7519832cddaf2057aafed6d4b25147e953a070b1",
             UsesLocaleLanguageCodes = true,
         },
-        new("parakeet-tdt-0.6b-v3.q8_0.gguf", "NVIDIA Parakeet TDT v3 (GGUF)", "681 MB",
+        // OruKeet is a fine-tune of Parakeet TDT v3 by the author of Handy, trained for
+        // dictation: it already scores better than Parakeet in Q8, so F16 would only
+        // double the VRAM. Its "v0.1.0-*" GGUF is the NeMo-Speech.cpp layout (the sibling
+        // "orukeet-transcribe-cpp-Q8_0.gguf" is for transcribe.cpp, a different runtime),
+        // so it runs on the same backend and the same server as the Parakeet below.
+        new("orukeet-v0.1.0-q8.gguf", "OruKeet v0.1.0 (Q8_0)", "681 MB",
+            "Español, inglés y 23 idiomas más")
+        {
+            Backend = DictationModelBackend.NemoSpeech,
+            Runtime = "Requiere NeMo-Speech.cpp",
+            Repository = "oruk/orukeet",
+            RemoteFileName = "orukeet-v0.1.0-q8.gguf",
+            Revision = "b59c13a733fce5cf193230d0fa317ee7f145a108",
+            Sha256 = "93ce19c6d8244acbfea980eeaf970531d4f216171578ef8e041dcc2d070a45bd",
+        },
+        // The Q8 file is the one the repository documents as the NeMo-Speech.cpp artifact
+        // and the one that fits a laptop GPU: F16 doubles the VRAM for a worse WER.
+        new("parakeet-tdt-0.6b-v3.q8_0.gguf", "NVIDIA Parakeet TDT v3 (Q8_0)", "681 MB",
             "Inglés, español y 23 idiomas más")
         {
             Backend = DictationModelBackend.NemoSpeech,
@@ -196,6 +217,31 @@ public static class DictationModelStore
             RemoteFileName = "parakeet-tdt-0.6b-v3.q8_0.gguf",
             Revision = "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
             Sha256 = "e3880d0aaaaf2c308ea2c35016b2b895c423eb3fda924c1b463d1c19b7f4d32e",
+        },
+        // Parakeet Ultra is the distilled and expanded Parakeet TDT v3: the same
+        // tokenizer and architecture, so the GGUF declares "parakeet" instead of the
+        // "asr" layout NeMo-Speech.cpp uses - these two files are NOT interchangeable
+        // between runtimes. It is the best Spanish score measured (FLEURS 2.72 %) and
+        // covers 25 languages; the Q4_K is the one that fits a 4 GB VRAM.
+        new("parakeet-ultra-q8_0.gguf", "Parakeet Ultra (Q8_0)", "643 MB",
+            "Español, inglés y 23 idiomas más")
+        {
+            Backend = DictationModelBackend.CrispAsr,
+            Runtime = "Requiere CrispASR (CPU / Vulkan; sin CUDA)",
+            Repository = "cstr/parakeet-ultra-GGUF",
+            RemoteFileName = "parakeet-ultra-q8_0.gguf",
+            Revision = "252cd632a21e98ba5edbdeb61c7274d01c54cb73",
+            Sha256 = "ebf1186c3dc7e77f71877a5380a73e39d5c0aaf5cb55e65e56b077b1b2aacef1",
+        },
+        new("parakeet-ultra-q4_k.gguf", "Parakeet Ultra (Q4_K)", "384 MB",
+            "Español, inglés y 23 idiomas más")
+        {
+            Backend = DictationModelBackend.CrispAsr,
+            Runtime = "Requiere CrispASR (CPU / Vulkan; sin CUDA)",
+            Repository = "cstr/parakeet-ultra-GGUF",
+            RemoteFileName = "parakeet-ultra-q4_k.gguf",
+            Revision = "252cd632a21e98ba5edbdeb61c7274d01c54cb73",
+            Sha256 = "09bb4a91da4c14f158ad01829b9bb3d81eedc85156d884e9a9c483dfe09238c6",
         },
         // This multilingual distilled variant publishes the ggml directly in the author's
         // repository; the local name avoids depending on "ggml-model.bin".
@@ -212,17 +258,17 @@ public static class DictationModelStore
             Revision = "80da2d8bfee42b0e836fc3a9890373e5defc00a6",
             Sha256 = "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208",
         },
-        new("ggml-large-v3-q5_0.bin", "Whisper Large v3 (cuantizado)", "1,1 GB", "Español, inglés y 97 idiomas más")
+        new("ggml-large-v3-q5_0.bin", "Whisper Large v3 (Q5_0)", "1,1 GB", "Español, inglés y 97 idiomas más")
         {
             Revision = "362722b3fdcd2300b58a8286933ead1c48619667",
             Sha256 = "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
         },
-        new("ggml-large-v3-turbo-q5_0.bin", "Whisper Large v3 Turbo (cuantizado)", "547 MB", "Español, inglés y 97 idiomas más")
+        new("ggml-large-v3-turbo-q5_0.bin", "Whisper Large v3 Turbo (Q5_0)", "547 MB", "Español, inglés y 97 idiomas más")
         {
             Revision = "98aa99a0a9db05ae2342309f5096248665f7cba3",
             Sha256 = "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
         },
-        new("ggml-medium-q5_0.bin", "Whisper Medium (cuantizado Q5)", "539 MB", "Español, inglés y 97 idiomas más")
+        new("ggml-medium-q5_0.bin", "Whisper Medium (Q5_0)", "539 MB", "Español, inglés y 97 idiomas más")
         {
             Revision = "f281eb45af861ab5e5297d23694b7d46e090c02c",
             Sha256 = "19fea4b380c3a618ec4723c3eef2eb785ffba0d0538cf43f8f235e7b3b34220f",
@@ -232,12 +278,12 @@ public static class DictationModelStore
             Revision = "80da2d8bfee42b0e836fc3a9890373e5defc00a6",
             Sha256 = "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
         },
-        new("ggml-small-q8_0.bin", "Whisper Small (cuantizado Q8)", "264 MB", "Español, inglés y 97 idiomas más")
+        new("ggml-small-q8_0.bin", "Whisper Small (Q8_0)", "264 MB", "Español, inglés y 97 idiomas más")
         {
             Revision = "0b364b566045a405be7225ee1e415a073e04da77",
             Sha256 = "49c8fb02b65e6049d5fa6c04f81f53b867b5ec9540406812c643f177317f779f",
         },
-        new("ggml-small-q5_1.bin", "Whisper Small (cuantizado Q5)", "190 MB", "Español, inglés y 97 idiomas más", Recommended: true)
+        new("ggml-small-q5_1.bin", "Whisper Small (Q5_1)", "190 MB", "Español, inglés y 97 idiomas más", Recommended: true)
         {
             Revision = "f281eb45af861ab5e5297d23694b7d46e090c02c",
             Sha256 = "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",

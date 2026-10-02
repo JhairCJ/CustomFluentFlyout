@@ -1,8 +1,8 @@
 // Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-using System.Diagnostics;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -25,6 +25,10 @@ public sealed class ExternalAsrTranscriber : IDisposable
     {
         Timeout = Timeout.InfiniteTimeSpan,
     };
+    private static readonly HttpClient CrispHttp = new(new HttpClientHandler { UseProxy = false })
+    {
+        Timeout = Timeout.InfiniteTimeSpan,
+    };
     private static readonly TimeSpan NemoReadyTimeout = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan NemoPollInterval = TimeSpan.FromMilliseconds(100);
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -44,13 +48,31 @@ public sealed class ExternalAsrTranscriber : IDisposable
     private bool _nemoServerUnavailable;
     private string? _nemoUnavailableModelPath;
     private bool _nemoUnavailableUseGpu;
+    private Process? _crispProcess;
+    private Uri? _crispBaseUri;
+    private string? _crispModelPath;
+    private string? _crispApiKey;
+    private bool _crispUseGpu;
     private bool _disposed;
 
     public bool RuntimeLoaded => _qwenProcess is { HasExited: false }
-        || _nemoProcess is { HasExited: false };
+        || _nemoProcess is { HasExited: false }
+        || _crispProcess is { HasExited: false };
+
+    public bool CrispRuntimeLoaded => _crispProcess is { HasExited: false };
+
+    public string? LoadedModelPath => _crispProcess is { HasExited: false } ? _crispModelPath
+        : _qwenProcess is { HasExited: false } ? _qwenModelPath
+        : _nemoProcess is { HasExited: false } ? _nemoModelPath
+        : null;
 
     public bool UsingGpu => (_qwenProcess is { HasExited: false } && _qwenUseGpu)
-        || (_nemoProcess is { HasExited: false } && _nemoUseGpu);
+        || (_nemoProcess is { HasExited: false } && _nemoUseGpu)
+        || (_crispProcess is { HasExited: false } && _crispUseGpu);
+
+    public bool MatchesLoadedModel(string modelPath, bool useGpu) =>
+        string.Equals(LoadedModelPath, modelPath, StringComparison.OrdinalIgnoreCase)
+        && UsingGpu == useGpu;
 
     /// <summary>Loads the model's external worker, if its backend supports preloading.</summary>
     public async Task EnsureLoadedAsync(
@@ -59,7 +81,8 @@ public sealed class ExternalAsrTranscriber : IDisposable
         bool useGpu,
         CancellationToken cancellationToken)
     {
-        if (model.Backend is not (DictationModelBackend.NemoSpeech or DictationModelBackend.QwenAsr))
+        if (model.Backend is not (DictationModelBackend.NemoSpeech or DictationModelBackend.QwenAsr
+            or DictationModelBackend.CrispAsr))
             return;
 
         await _externalLock.WaitAsync(cancellationToken);
@@ -68,6 +91,10 @@ public sealed class ExternalAsrTranscriber : IDisposable
             if (model.Backend == DictationModelBackend.QwenAsr)
             {
                 await EnsureQwenProcessCoreAsync(modelPath, useGpu, cancellationToken);
+            }
+            else if (model.Backend == DictationModelBackend.CrispAsr)
+            {
+                await EnsureCrispServerCoreAsync(modelPath, useGpu, cancellationToken);
             }
             else
             {
@@ -101,6 +128,8 @@ public sealed class ExternalAsrTranscriber : IDisposable
                     modelPath, wavPath, language, model.UsesLocaleLanguageCodes, useGpu, cancellationToken),
                 DictationModelBackend.QwenAsr => await TranscribeWithQwenAsync(
                     modelPath, wavPath, language, useGpu, cancellationToken),
+                DictationModelBackend.CrispAsr => await TranscribeWithCrispAsrAsync(
+                    modelPath, wavPath, language, useGpu, cancellationToken),
                 _ => throw new InvalidOperationException(
                     $"El backend externo no admite el modelo {model.FileName}"),
             };
@@ -121,6 +150,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
         {
             StopQwenProcess();
             StopNemoServer();
+            StopCrispServer();
             return;
         }
 
@@ -129,6 +159,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
         {
             StopQwenProcess();
             StopNemoServer();
+            StopCrispServer();
         }
         finally
         {
@@ -142,6 +173,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
         _disposed = true;
         StopQwenProcess();
         StopNemoServer();
+        StopCrispServer();
     }
 
     private async Task<string> TranscribeWithNemoAsync(
@@ -236,7 +268,146 @@ public sealed class ExternalAsrTranscriber : IDisposable
         }
 
         using Process process = StartProcess(startInfo, "NeMo-Speech.cpp");
-        return await ReadProcessOutputAsync(process, cancellationToken);
+        return await ReadProcessOutputAsync(process, "NeMo-Speech.cpp", cancellationToken);
+    }
+
+    /// <summary>
+    /// Reuses the worker until DictationService releases it under the user's policy.
+    /// Acceleration chooses Vulkan; without it the same installed build uses CPU.
+    /// </summary>
+    private async Task<string> TranscribeWithCrispAsrAsync(
+        string modelPath,
+        string wavPath,
+        string language,
+        bool useGpu,
+        CancellationToken cancellationToken)
+    {
+        await _externalLock.WaitAsync(cancellationToken);
+        try
+        {
+            await EnsureCrispServerCoreAsync(modelPath, useGpu, cancellationToken);
+            using var form = new MultipartFormDataContent();
+            await using FileStream audio = File.OpenRead(wavPath);
+            using var file = new StreamContent(audio);
+            file.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
+            form.Add(file, "file", Path.GetFileName(wavPath));
+            form.Add(new StringContent("json"), "response_format");
+            if (!string.IsNullOrWhiteSpace(language) && !language.Equals("auto", StringComparison.OrdinalIgnoreCase))
+                form.Add(new StringContent(language), "language");
+
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post, new Uri(_crispBaseUri!, "v1/audio/transcriptions"))
+            {
+                Content = form,
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _crispApiKey);
+            using HttpResponseMessage response = await CrispHttp.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            string body = await response.Content.ReadAsStringAsync(cancellationToken);
+            string text = JsonSerializer.Deserialize<CrispAsrResponse>(body, JsonOptions)?.Text?.Trim() ?? "";
+            if (text.Length == 0)
+                throw new InvalidOperationException("CrispASR no devolvió texto para este audio");
+            Logger.Info($"CrispASR: {Path.GetFileName(modelPath)} ({(useGpu ? "Vulkan" : "CPU")}, modelo persistente)");
+            return text;
+        }
+        catch
+        {
+            // Cancellation must stop native inference, not just the HTTP wait. A broken
+            // worker is recreated on the next dictation instead of retaining stale work.
+            StopCrispServer();
+            throw;
+        }
+        finally
+        {
+            _externalLock.Release();
+        }
+    }
+
+    private async Task EnsureCrispServerCoreAsync(string modelPath, bool useGpu, CancellationToken cancellationToken)
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(ExternalAsrTranscriber));
+        if (_crispProcess is { HasExited: false }
+            && string.Equals(_crispModelPath, modelPath, StringComparison.OrdinalIgnoreCase)
+            && _crispUseGpu == useGpu)
+            return;
+
+        StopCrispServer();
+        string executable = CrispAsrRuntime.ExecutablePath ?? throw new FileNotFoundException(
+            "No se encontró el runtime CrispASR. Descárgalo en Ajustes > Dictado > Runtimes.");
+        int port = FindAvailableLoopbackPort();
+        Uri baseUri = new($"http://127.0.0.1:{port}/");
+        string apiKey = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executable,
+            WorkingDirectory = Path.GetDirectoryName(executable)!,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+        startInfo.Environment["NO_COLOR"] = "1";
+        startInfo.Environment["CRISPASR_API_KEYS"] = apiKey;
+        startInfo.ArgumentList.Add("--server");
+        startInfo.ArgumentList.Add("--host");
+        startInfo.ArgumentList.Add("127.0.0.1");
+        startInfo.ArgumentList.Add("--port");
+        startInfo.ArgumentList.Add(port.ToString());
+        startInfo.ArgumentList.Add("--no-warmup");
+        if (useGpu)
+        {
+            startInfo.ArgumentList.Add("--gpu-backend");
+            startInfo.ArgumentList.Add("vulkan");
+        }
+        else
+        {
+            startInfo.ArgumentList.Add("-ng");
+        }
+        startInfo.ArgumentList.Add("-m");
+        startInfo.ArgumentList.Add(modelPath);
+
+        Process process = StartProcess(startInfo, "CrispASR");
+        _crispProcess = process;
+        _crispBaseUri = baseUri;
+        _crispModelPath = modelPath;
+        _crispApiKey = apiKey;
+        _crispUseGpu = useGpu;
+        _ = DrainProcessOutputAsync(process.StandardOutput, "CrispASR stdout");
+        _ = DrainProcessOutputAsync(process.StandardError, "CrispASR stderr");
+        try
+        {
+            using var readyCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            readyCts.CancelAfter(NemoReadyTimeout);
+            while (true)
+            {
+                readyCts.Token.ThrowIfCancellationRequested();
+                if (process.HasExited)
+                    throw new InvalidOperationException($"CrispASR terminó antes de cargar el modelo (código {process.ExitCode})");
+                try
+                {
+                    using var pollCts = CancellationTokenSource.CreateLinkedTokenSource(readyCts.Token);
+                    pollCts.CancelAfter(TimeSpan.FromSeconds(1));
+                    using HttpResponseMessage response = await CrispHttp.GetAsync(new Uri(baseUri, "health"), pollCts.Token);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var health = JsonSerializer.Deserialize<CrispAsrHealth>(
+                            await response.Content.ReadAsStringAsync(pollCts.Token), JsonOptions);
+                        if (health?.Status == "ok") break;
+                    }
+                }
+                catch (HttpRequestException) { }
+                catch (OperationCanceledException) when (!readyCts.IsCancellationRequested) { }
+                await Task.Delay(NemoPollInterval, readyCts.Token);
+            }
+            Logger.Info($"CrispASR listo ({(useGpu ? "Vulkan" : "CPU")}, persistente): {Path.GetFileName(modelPath)}");
+        }
+        catch
+        {
+            StopCrispServer();
+            throw;
+        }
     }
 
     private async Task EnsureNemoServerCoreAsync(
@@ -636,6 +807,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
 
     private static async Task<string> ReadProcessOutputAsync(
         Process process,
+        string runtimeName,
         CancellationToken cancellationToken)
     {
         Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
@@ -657,7 +829,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
             string detail = string.IsNullOrWhiteSpace(stderr)
                 ? $"código de salida {process.ExitCode}"
                 : stderr.Trim();
-            throw new InvalidOperationException($"NeMo-Speech.cpp no pudo transcribir el audio: {detail}");
+            throw new InvalidOperationException($"{runtimeName} no pudo transcribir el audio: {detail}");
         }
 
         return stdout.Trim();
@@ -742,6 +914,17 @@ public sealed class ExternalAsrTranscriber : IDisposable
         if (process != null) StopProcess(process);
     }
 
+    private void StopCrispServer()
+    {
+        Process? process = _crispProcess;
+        _crispProcess = null;
+        _crispBaseUri = null;
+        _crispModelPath = null;
+        _crispApiKey = null;
+        _crispUseGpu = false;
+        if (process != null) StopProcess(process);
+    }
+
     private static void StopProcess(Process process)
     {
         try
@@ -774,6 +957,8 @@ public sealed class ExternalAsrTranscriber : IDisposable
     private sealed record QwenRequest(string Audio, string? Language);
     private sealed record QwenResponse(bool Ok = false, string? Text = null, string? Error = null, bool Ready = false);
     private sealed record NemoResponse(string? Text = null);
+    private sealed record CrispAsrResponse(string? Text = null);
+    private sealed record CrispAsrHealth(string? Status = null);
 
     private sealed class NemoServerUnavailableException(string message, Exception? inner = null)
         : Exception(message, inner);

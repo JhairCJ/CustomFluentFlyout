@@ -60,6 +60,7 @@ public partial class DictationPage : Page
             mainWindow.Dictation.Changed += Dictation_Changed;
         DictationModelStore.DownloadStateChanged += DictationDownloadStateChanged;
         UpdateGpuRuntimeStatus();
+        UpdateCrispAsrRuntimeStatus();
     }
 
     private void DictationPage_Unloaded(object sender, RoutedEventArgs e)
@@ -97,6 +98,23 @@ public partial class DictationPage : Page
     private void UpdateGpuRuntimeStatus()
     {
         if (Application.Current.MainWindow is not MainWindow mainWindow) return;
+
+        string? activePath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel);
+        if (activePath != null
+            && DictationModelStore.Find(Path.GetFileName(activePath))?.Backend == DictationModelBackend.CrispAsr)
+        {
+            bool loaded = mainWindow.Dictation.CrispModelLoaded;
+            bool useGpu = loaded ? mainWindow.Dictation.CrispUsingGpu : SettingsManager.Current.DictationUseGpu;
+            GpuRuntimeStatus.Text = useGpu
+                ? loaded
+                    ? IslandStrings.Get("DictationGpuStatusCrispVulkanLoaded", "Parakeet Ultra: Vulkan, model loaded (no CUDA)")
+                    : IslandStrings.Get("DictationGpuStatusCrispVulkan", "Parakeet Ultra will use Vulkan (integrated or dedicated GPU, no CUDA)")
+                : loaded
+                    ? IslandStrings.Get("DictationGpuStatusCrispCpuLoaded", "Parakeet Ultra: CPU, model loaded (no CUDA)")
+                    : IslandStrings.Get("DictationGpuStatusCrispCpu", "Parakeet Ultra will use CPU (no CUDA)");
+            CudaDriverButton.Visibility = Visibility.Collapsed;
+            return;
+        }
 
         string key;
         string fallback;
@@ -144,6 +162,53 @@ public partial class DictationPage : Page
     private void InstallQwenRuntime_Click(object sender, RoutedEventArgs e)
     {
         PrepareExternalRuntimeInstall(QwenRuntimeGuideUrl, QwenRuntimeInstallCommand);
+    }
+
+    /// <summary>
+    /// CrispASR is the one runtime the application can install by itself: the Windows
+    /// (Vulkan) build is a single 37.9 MB zip on GitHub, pinned by hash, that unpacks
+    /// next to the models. It is what the Parakeet Ultra entries need.
+    /// </summary>
+    private async void DownloadCrispAsrRuntime_Click(object sender, RoutedEventArgs e)
+    {
+        if (CrispAsrRuntime.IsInstalling) return;
+
+        try
+        {
+            CrispAsrRuntimeButton.IsEnabled = false;
+            CrispAsrRuntimeStatus.Text = IslandStrings.Get(
+                "DictationRuntimeCrispAsrDownloading", "Downloading CrispASR…");
+            var progress = new Progress<double>(value => CrispAsrRuntimeStatus.Text =
+                IslandStrings.Format(
+                    "DictationRuntimeCrispAsrDownloadingPercent",
+                    "Downloading CrispASR… {0}%",
+                    (int)(value * 100)));
+            await CrispAsrRuntime.InstallAsync(progress);
+            ModelsStatus.Text = IslandStrings.Get(
+                "DictationRuntimeCrispAsrReady", "CrispASR installed");
+        }
+        catch (Exception ex)
+        {
+            ModelsStatus.Text = IslandStrings.Format(
+                "DictationRuntimeCrispAsrFailed", "Could not install CrispASR: {0}", ex.Message);
+        }
+        finally
+        {
+            CrispAsrRuntimeButton.IsEnabled = true;
+            UpdateCrispAsrRuntimeStatus();
+        }
+    }
+
+    private void UpdateCrispAsrRuntimeStatus()
+    {
+        bool installed = CrispAsrRuntime.IsInstalled;
+        CrispAsrRuntimeButton.Content = installed
+            ? IslandStrings.Get("DictationRuntimeCrispAsrReinstall", "Reinstall CrispASR (CPU / Vulkan)")
+            : IslandStrings.Get("DictationRuntimeCrispAsr", "Download CrispASR (CPU / Vulkan)");
+        CrispAsrRuntimeStatus.Text = installed
+            ? IslandStrings.Format(
+                "DictationRuntimeCrispAsrInstalled", "CrispASR {0} installed", CrispAsrRuntime.Version)
+            : IslandStrings.Get("DictationRuntimeCrispAsrMissing", "CrispASR is not installed");
     }
 
     private void PrepareExternalRuntimeInstall(string guideUrl, string command)
@@ -318,6 +383,7 @@ public partial class DictationPage : Page
 
         _rows.Clear();
         foreach (var row in rows) _rows.Add(row);
+        UpdateGpuRuntimeStatus();
     }
 
     /// <summary>
@@ -334,7 +400,9 @@ public partial class DictationPage : Page
         string recommendation = model.Recommended
             ? $" · {IslandStrings.Get("DictationModelRecommended", "Recommended")}"
             : "";
-        string runtime = string.IsNullOrWhiteSpace(model.Runtime) ? "" : $" · {model.Runtime}";
+        string runtime = model.Backend == DictationModelBackend.CrispAsr
+            ? $" · {IslandStrings.Get("DictationRuntimeCrispAsrCpu", "CrispASR · CPU / Vulkan · no CUDA")}"
+            : string.IsNullOrWhiteSpace(model.Runtime) ? "" : $" · {model.Runtime}";
         return $"{model.Size} · {model.Language}{runtime}{recommendation}";
     }
 

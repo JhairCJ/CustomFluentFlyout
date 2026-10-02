@@ -103,6 +103,11 @@ public sealed class DictationService : IDisposable
     /// <summary>Information about the native runtime Whisper.NET is using.</summary>
     public string RuntimeInfo => _runtimeInfo;
 
+    /// <summary>CrispASR's model is kept by its worker, independently of Whisper CUDA.</summary>
+    public bool CrispModelLoaded => _externalTranscriber.CrispRuntimeLoaded;
+
+    public bool CrispUsingGpu => CrispModelLoaded && _externalTranscriber.UsingGpu;
+
     /// <summary>
     /// The native runtime is global to the process: switching CPU/CUDA after it is loaded
     /// is not safe and requires restarting the application.
@@ -196,7 +201,8 @@ public sealed class DictationService : IDisposable
 
         _cancelRequested = false;
         SetPhase(DictationPhase.Listening);
-        _ = PrefetchEngineAsync();
+        Logger.Info("Dictado: grabación iniciada; precarga en segundo plano");
+        _ = Task.Run(PrefetchEngineAsync);
         lock (_resourceStateGate) _resourceSessionStarting = false;
     }
 
@@ -225,6 +231,8 @@ public sealed class DictationService : IDisposable
             string? path = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel);
             if (path == null) return;
             DictationModelInfo? model = DictationModelStore.Find(Path.GetFileName(path));
+            var preloadClock = Stopwatch.StartNew();
+            Logger.Info($"Dictado: precarga iniciada para {Path.GetFileName(path)}");
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
             cts.CancelAfter(PrefetchBudget);
             if (model is { Backend: not DictationModelBackend.Whisper })
@@ -238,6 +246,10 @@ public sealed class DictationService : IDisposable
                 WhisperFactory factory = await EnsureFactoryAsync(cts.Token);
                 await WarmUpAsync(factory, cts.Token);
             }
+
+            Logger.Info($"Dictado: modelo listo tras {preloadClock.ElapsedMilliseconds} ms de precarga "
+                + $"({Path.GetFileName(path)}, fase {Phase})");
+            Changed?.Invoke();
 
             // The gate skips the neural VAD unless the level is ambiguous, but when it
             // does need it the model has to be there: fetching it here keeps the network
@@ -288,6 +300,7 @@ public sealed class DictationService : IDisposable
         }
 
         SetPhase(DictationPhase.Transcribing);
+        Logger.Info("Dictado: grabación finalizada; comienza la transcripción");
         string language = SettingsManager.Current.DictationLanguage;
         var sessionCts = new CancellationTokenSource();
         lock (_transcriptionGate)
@@ -308,9 +321,8 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>
-    /// Reapplies the loading mode and the selected model. In automatic mode it first
-    /// releases whatever stayed loaded; in keep-loaded mode it prepares the load in the
-    /// background.
+    /// Reapplies the loading mode and selected model. A matching model is retained;
+    /// automatic mode starts its inactivity timer, and keep-loaded mode cancels it.
     /// </summary>
     public void RefreshResourcePolicy()
     {
@@ -375,6 +387,14 @@ public sealed class DictationService : IDisposable
     /// </summary>
     public void RefreshAccelerationSettings()
     {
+        string? activePath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel);
+        if (!_disposed && activePath != null
+            && DictationModelStore.Find(Path.GetFileName(activePath))?.Backend == DictationModelBackend.CrispAsr)
+        {
+            RefreshResourcePolicy();
+            Changed?.Invoke();
+            return;
+        }
         if (_disposed || !_runtimeConfigured || _runtimeUseGpu == SettingsManager.Current.DictationUseGpu)
             return;
 
@@ -486,6 +506,16 @@ public sealed class DictationService : IDisposable
                 }
             }
 
+            string? activePath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel);
+            if (SettingsManager.Current.DictationEnabled && activePath != null
+                && (string.Equals(_factoryPath, activePath, StringComparison.OrdinalIgnoreCase)
+                    || _externalTranscriber.MatchesLoadedModel(activePath, SettingsManager.Current.DictationUseGpu)))
+            {
+                // Toggling Keep Model Loaded must not unload/reload the same weights.
+                if (!SettingsManager.Current.DictationKeepModelLoaded) ScheduleResourceRelease();
+                return;
+            }
+
             // A cancelled policy still releases what it already owned. The next policy
             // transition will then load the newly selected backend if necessary.
             await ReleaseLoadedResourcesCoreAsync();
@@ -548,6 +578,7 @@ public sealed class DictationService : IDisposable
         }
 
         Logger.Info($"Dictado: recursos preparados para {Path.GetFileName(modelPath)}");
+        Changed?.Invoke();
     }
 
     private async Task ReleaseLoadedResourcesCoreAsync()
@@ -581,6 +612,7 @@ public sealed class DictationService : IDisposable
             }
 
             Logger.Info("Dictado: pesos, contextos, VAD y workers liberados");
+            Changed?.Invoke();
         }
         catch (Exception ex)
         {

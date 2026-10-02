@@ -372,3 +372,6 @@ FodyWeavers.xsd
 .vscode/
 
 Website/tailwindcss.exe
+
+# Regenerable local Graphify graphs, caches and backups
+/graphify-out/
