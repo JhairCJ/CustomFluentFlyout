@@ -69,6 +69,18 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding TaskbarWidgetExpandOnClick, Mode=TwoWay}" IsEnabled="{Binding TaskbarWidgetEnabled}" />
             </ui:CardControl>
+            <ui:CardControl x:Name="TaskbarWidgetExpandedBackgroundDarknessTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon Color24}" Margin="0,0,0,3">
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="{DynamicResource TaskbarWidgetExpandedBackgroundDarknessTitle}" FontSize="14" />
+                        <TextBlock Text="{DynamicResource TaskbarWidgetExpandedBackgroundDarknessDescription}" FontSize="12" Opacity="0.5" TextWrapping="Wrap" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <StackPanel Orientation="Horizontal" IsEnabled="{Binding TaskbarWidgetEnabled}">
+                    <Slider Minimum="0" Maximum="100" Value="{Binding TaskbarWidgetExpandedBackgroundDarkness, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150" />
+                    <TextBlock Text="{Binding TaskbarWidgetExpandedBackgroundDarkness, StringFormat={}{0}%}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
+            </ui:CardControl>
             <ui:CardControl x:Name="TaskbarWidgetPositionCard" Tag="Indexable" Grid.Row="4" Icon="{ui:SymbolIcon ArrowMove24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">

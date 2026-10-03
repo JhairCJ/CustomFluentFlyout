@@ -109,7 +109,7 @@ public partial class TaskbarWidgetControl : UserControl
     // True while the mouse is over the album art; used to reveal the switch-session chevron.
     private bool _albumArtHovering;
 
-    // Song-block hover/toggle and the temporary solid base of the expanded surface.
+    // Song-block hover/toggle state.
     private bool _songInfoHovering;
     private bool _songInfoExpanded;
     private (FrameworkElement element, Rect from, Rect to, double scale, bool visible)[] _expansionElements = [];
@@ -123,8 +123,6 @@ public partial class TaskbarWidgetControl : UserControl
     }
     private bool _expansionTransition;
     private bool _noMediaWhileExpanded;
-    private Brush? _compactSurfaceBackground;
-    private bool _expansionSurfaceActive;
     private static readonly Brush SongInfoHoverBrush = CreateFrozenBrush(0x18);
     private static readonly Brush SongInfoExpandedBrush = CreateFrozenBrush(0x2A);
 
@@ -271,7 +269,6 @@ public partial class TaskbarWidgetControl : UserControl
         MainBorder.SizeChanged += (s, e) =>
         {
             ApplyCornerRadius();
-            UpdateExpansionSurface();
 
             if (!_expansionTransition && !_backgroundRotationActive)
                 LayoutBackgroundToFillWidget();
@@ -488,25 +485,6 @@ public partial class TaskbarWidgetControl : UserControl
         PlayPauseButton.Foreground = foreground;
         NextButton.Foreground = foreground;
         ExpandedContent.Foreground = Brushes.White;
-        UpdateExpansionSurface();
-    }
-
-    private void UpdateExpansionSurface()
-    {
-        bool needsBase = _songInfoExpanded || (_expansionSurfaceActive && MainBorder.ActualHeight > 40.5);
-        if (needsBase)
-        {
-            if (!_expansionSurfaceActive) _compactSurfaceBackground = MainBorder.Background;
-            Color color = Color.FromRgb(21, 21, 21);
-            if (MainBorder.Background is not SolidColorBrush surface || surface.Color != color)
-                MainBorder.Background = new SolidColorBrush(color);
-            _expansionSurfaceActive = true;
-        }
-        else if (_expansionSurfaceActive)
-        {
-            MainBorder.Background = _compactSurfaceBackground;
-            _expansionSurfaceActive = false;
-        }
     }
 
     /// <summary>
@@ -2409,7 +2387,6 @@ public partial class TaskbarWidgetControl : UserControl
         MainGrid.IsHitTestVisible = false;
         ExpandedContent.Visibility = Visibility.Visible;
         ExpandedContent.IsHitTestVisible = false;
-        ExpandedBackdropShade.Visibility = Visibility.Visible;
         UpdateLayout();
         ExpandedContent.SetCompactButtonIconSizes(
             (PreviousButton.Icon as SymbolIcon)?.FontSize ?? 16,
@@ -2449,7 +2426,6 @@ public partial class TaskbarWidgetControl : UserControl
             }
         }
         ApplyExpansionProgress(ExpansionProgress);
-        UpdateExpansionSurface();
         UpdateSongInfoHighlight();
         ApplyCornerRadius();
         UpdateBackgroundMode(preserveCrossfade: true);
@@ -2475,6 +2451,7 @@ public partial class TaskbarWidgetControl : UserControl
                 element.Clip = new RectangleGeometry(new Rect(0, 0, Math.Max(0, width), to.Height));
             }
         }
+        ExpandedBackdropBase.Opacity = alpha;
         ExpandedBackdropShade.Opacity = alpha;
         ExpandedContent.SetMorphProgress(alpha);
     }
@@ -2499,10 +2476,7 @@ public partial class TaskbarWidgetControl : UserControl
         MainGrid.Opacity = _songInfoExpanded ? 0 : 1;
         ExpandedContent.Visibility = _songInfoExpanded ? Visibility.Visible : Visibility.Collapsed;
         ExpandedContent.Opacity = _songInfoExpanded ? 1 : 0;
-        ExpandedBackdropShade.BeginAnimation(OpacityProperty, null);
-        ExpandedBackdropShade.Visibility = _songInfoExpanded ? Visibility.Visible : Visibility.Collapsed;
-        ExpandedBackdropShade.Opacity = _songInfoExpanded ? 1 : 0;
-        UpdateExpansionSurface();
+        ExpandedBackdropBase.Opacity = ExpandedBackdropShade.Opacity = _songInfoExpanded ? 1 : 0;
         UpdateBackgroundMode(preserveCrossfade: true);
         if (!_songInfoExpanded && _noMediaWhileExpanded)
         {

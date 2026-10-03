@@ -14,6 +14,8 @@
               FlowDirection="{Binding FlowDirection}">
     <Border Name="MainBorder" CornerRadius="6" ClipToBounds="True">
         <Grid x:Name="RootGrid">
+            <!-- Opacity reaches one when expanded, regardless of artwork intensity. -->
+            <Border x:Name="ExpandedBackdropBase" Background="#151515" Opacity="0" IsHitTestVisible="False" />
             <!-- The rotating background lives in a Canvas so it is arranged at its exact
                  square size, independent of the widget's rectangular layout slot. The widget
                  (MainBorder, ClipToBounds) acts purely as the viewport over that square. -->
@@ -107,8 +109,9 @@
                     </StackPanel>
                 </Grid>
             </Border>
-            <!-- Bleed beneath the rounded clip to avoid a bright sampling seam. -->
-            <Border x:Name="ExpandedBackdropShade" Margin="-16" Background="#B3151515" IsHitTestVisible="False" Visibility="Collapsed" Opacity="0"/>
+            <Grid x:Name="ExpandedBackdropShade" Opacity="0" IsHitTestVisible="False">
+                <Border Background="#151515" Margin="-16" Opacity="{Binding TaskbarWidgetExpandedBackgroundDarkness, Converter={StaticResource PercentageToOpacityConverter}}" />
+            </Grid>
             <controls:TaskbarWidgetExpandedContent x:Name="ExpandedContent" Width="340" Height="124" HorizontalAlignment="Left" VerticalAlignment="Top" Visibility="Collapsed" Opacity="0"/>
             <!-- Snapshot layer: holds a render of the previous album while a song change
                  is underway so it can crossfade into the new content underneath. -->

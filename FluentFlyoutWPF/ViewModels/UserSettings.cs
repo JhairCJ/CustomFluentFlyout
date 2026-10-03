@@ -368,6 +368,11 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial bool TaskbarWidgetExpandOnClick { get; set; }
 
+    /// <summary>Additional shading of the expanded widget, from 0 to 100 percent.</summary>
+    [ObservableProperty]
+    public partial int TaskbarWidgetExpandedBackgroundDarkness { get; set; }
+
+
     /// <summary>
     /// Widget Target Display
     /// </summary>
@@ -1805,6 +1810,7 @@ public partial class UserSettings : ObservableObject
         VolumeMixerAcrylicWindowEnabled = true;
         TaskbarWidgetEnabled = true;
         TaskbarWidgetExpandOnClick = true;
+        TaskbarWidgetExpandedBackgroundDarkness = 0;
         TaskbarWidgetSelectedMonitor = 0;
         TaskbarWidgetAutoHide = false;
         TaskbarWidgetPosition = 0;

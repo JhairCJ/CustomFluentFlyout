@@ -810,4 +810,6 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="IslandDictationNoModel">Sin modelo de voz: descarga uno en Ajustes → Dictado</system:String>
     <system:String x:Key="IslandDictationNoMic">No hay micrófono disponible</system:String>
     <system:String x:Key="IslandDictationFailed">No se pudo transcribir el audio</system:String>
+    <system:String x:Key="TaskbarWidgetExpandedBackgroundDarknessTitle">Oscuridad del fondo expandido</system:String>
+    <system:String x:Key="TaskbarWidgetExpandedBackgroundDarknessDescription">Ajusta el oscurecimiento al ampliar. Una base opaca evita que se filtre el escritorio.</system:String>
 </ResourceDictionary>
