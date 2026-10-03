@@ -49,12 +49,11 @@
                                     </Style.Triggers>
                                 </Style>
                             </Border.Style>
-                            <Grid>
+                            <Border CornerRadius="5" ClipToBounds="True" RenderTransformOrigin="0.5,0.5">
+                                <Border.RenderTransform><ScaleTransform x:Name="CompactAlbumFlipScale" /></Border.RenderTransform>
+                                <Border.Background><ImageBrush x:Name="SongImage" Stretch="UniformToFill" /></Border.Background>
                                 <ui:SymbolIcon Name="SongImagePlaceholder" Symbol="MusicNote220" FontSize="24" Filled="True" Foreground="{DynamicResource MicaWPF.Brushes.SystemAccentColorTertiary}" />
-                            </Grid>
-                            <Border.Background>
-                                <ImageBrush x:Name="SongImage" Stretch="UniformToFill" />
-                            </Border.Background>
+                            </Border>
                         </Border>
 
                         <StackPanel Name="SongInfoStackPanel" Orientation="Vertical" VerticalAlignment="Center" Width="Auto" Margin="8,0,0,0" 
@@ -108,7 +107,8 @@
                     </StackPanel>
                 </Grid>
             </Border>
-            <Border x:Name="ExpandedBackdropShade" Background="#B3151515" IsHitTestVisible="False" Visibility="Collapsed" Opacity="0"/>
+            <!-- Bleed beneath the rounded clip to avoid a bright sampling seam. -->
+            <Border x:Name="ExpandedBackdropShade" Margin="-16" Background="#B3151515" IsHitTestVisible="False" Visibility="Collapsed" Opacity="0"/>
             <controls:TaskbarWidgetExpandedContent x:Name="ExpandedContent" Width="340" Height="124" HorizontalAlignment="Left" VerticalAlignment="Top" Visibility="Collapsed" Opacity="0"/>
             <!-- Snapshot layer: holds a render of the previous album while a song change
                  is underway so it can crossfade into the new content underneath. -->

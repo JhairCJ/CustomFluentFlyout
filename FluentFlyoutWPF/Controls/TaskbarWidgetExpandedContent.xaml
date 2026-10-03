@@ -70,13 +70,13 @@
         <StackPanel x:Name="ControlsRow" Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
             <ui:Button x:Name="PreviousButton" Appearance="Transparent" AutomationProperties.Name="{DynamicResource TaskbarWidgetPreviousTrack}" ToolTip="{DynamicResource TaskbarWidgetPreviousTrack}"
                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                       Height="32" Width="32" Padding="0" BorderThickness="0" Margin="4,0" Click="Previous_Click"><ui:Button.Icon><ui:SymbolIcon Symbol="Previous20" Filled="True" FontSize="22"/></ui:Button.Icon></ui:Button>
+                       Height="32" Width="32" Padding="0" BorderThickness="0" Margin="4,0" Click="Previous_Click"><ui:Button.Icon><ui:SymbolIcon x:Name="PreviousIcon" Symbol="Previous20" Filled="True" FontSize="22"/></ui:Button.Icon></ui:Button>
             <ui:Button x:Name="PlayPauseButton" Appearance="Transparent" AutomationProperties.Name="{DynamicResource IslandTooltipPlayPause}" ToolTip="{DynamicResource IslandTooltipPlayPause}"
                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
                        Height="32" Width="32" Padding="0" BorderThickness="0" Margin="4,0" Click="PlayPause_Click"><ui:Button.Icon><ui:SymbolIcon Symbol="Pause24" Filled="True" FontSize="22"/></ui:Button.Icon></ui:Button>
             <ui:Button x:Name="NextButton" Appearance="Transparent" AutomationProperties.Name="{DynamicResource TaskbarWidgetNextTrack}" ToolTip="{DynamicResource TaskbarWidgetNextTrack}"
                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                       Height="32" Width="32" Padding="0" BorderThickness="0" Margin="4,0" Click="Next_Click"><ui:Button.Icon><ui:SymbolIcon Symbol="Next20" Filled="True" FontSize="22"/></ui:Button.Icon></ui:Button>
+                       Height="32" Width="32" Padding="0" BorderThickness="0" Margin="4,0" Click="Next_Click"><ui:Button.Icon><ui:SymbolIcon x:Name="NextIcon" Symbol="Next20" Filled="True" FontSize="22"/></ui:Button.Icon></ui:Button>
         </StackPanel>
         </Grid>
     </Grid>

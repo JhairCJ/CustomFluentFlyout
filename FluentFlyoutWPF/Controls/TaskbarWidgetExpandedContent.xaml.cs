@@ -29,6 +29,9 @@ public partial class TaskbarWidgetExpandedContent : UserControl
     private GlobalSystemMediaTransportControlsSession? _seekSession, _observedSession, _publishedSession;
     private int _progressRefreshAgain, _albumFlipVersion;
     private bool _albumFlipRunning;
+    private bool _canPrevious, _canPlayPause, _canNext;
+    private double _morphProgress;
+    private double _compactPreviousIconSize = 16, _compactPlayIconSize = 16, _compactNextIconSize = 16;
     private BitmapImage? _albumFlipArt, _displayedArt;
     private readonly SymbolIcon _playIcon = new(SymbolRegular.Play24, filled: true) { FontSize = 22 };
     private readonly SymbolIcon _pauseIcon = new(SymbolRegular.Pause24, filled: true) { FontSize = 22 };
@@ -51,7 +54,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         NextButton.CornerRadius = radius;
     }
 
-    // Layout endpoints used by the host's shared spring. These transforms belong
+    // Layout endpoints used by the host's shared transition. These transforms belong
     // to expansion; text-row translations inside them still belong to song changes.
     public FrameworkElement[] MorphElements => [AlbumArtBorder, TitleMorph, ArtistMorph,
         PreviousButton, PlayPauseButton, NextButton];
@@ -66,9 +69,27 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         ArtistText.Opacity = artist.Opacity;
     }
 
+    public void SetCompactButtonIconSizes(double previous, double playPause, double next)
+    {
+        _compactPreviousIconSize = previous;
+        _compactPlayIconSize = playPause;
+        _compactNextIconSize = next;
+        SetMorphProgress(_morphProgress);
+    }
+
     public void SetMorphProgress(double progress)
     {
+        _morphProgress = Math.Clamp(progress, 0, 1);
         SeekRow.Opacity = Math.Clamp((progress - 0.35) / 0.65, 0, 1);
+        // The button bounds already follow the host's transition; interpolate the glyph
+        // itself too, so swapping back to the compact tree has identical pixels.
+        PreviousIcon.FontSize = _compactPreviousIconSize + (22 - _compactPreviousIconSize) * _morphProgress;
+        NextIcon.FontSize = _compactNextIconSize + (22 - _compactNextIconSize) * _morphProgress;
+        _playIcon.FontSize = _pauseIcon.FontSize = _compactPlayIconSize + (22 - _compactPlayIconSize) * _morphProgress;
+        double visibility = SettingsManager.Current.TaskbarWidgetControlsEnabled ? 1 : _morphProgress;
+        PreviousButton.Opacity = (_canPrevious ? 1 : 0.5) * visibility;
+        PlayPauseButton.Opacity = (_canPlayPause ? 1 : 0.5) * visibility;
+        NextButton.Opacity = (_canNext ? 1 : 0.5) * visibility;
     }
 
     public void SetMainWindow(MainWindow mainWindow) => _mainWindow = mainWindow;
@@ -136,9 +157,15 @@ public partial class TaskbarWidgetExpandedContent : UserControl
     {
         _isPaused = paused;
         PlayPauseButton.Icon = paused ? _playIcon : _pauseIcon;
-        PreviousButton.IsEnabled = controls?.IsPreviousEnabled == true;
-        PlayPauseButton.IsEnabled = controls?.IsPlayEnabled == true || controls?.IsPauseEnabled == true;
-        NextButton.IsEnabled = controls?.IsNextEnabled == true;
+        _canPrevious = controls?.IsPreviousEnabled == true;
+        _canPlayPause = controls?.IsPlayEnabled == true || controls?.IsPauseEnabled == true;
+        _canNext = controls?.IsNextEnabled == true;
+        // Match compact controls: unavailable actions are dimmed and ignore input,
+        // rather than entering the UI library's outlined disabled visual state.
+        PreviousButton.IsHitTestVisible = PreviousButton.Focusable = _canPrevious;
+        PlayPauseButton.IsHitTestVisible = PlayPauseButton.Focusable = _canPlayPause;
+        NextButton.IsHitTestVisible = NextButton.Focusable = _canNext;
+        SetMorphProgress(_morphProgress);
         if (_active) RefreshObservedSession();
     }
 
@@ -433,6 +460,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     private async void Previous_Click(object sender, RoutedEventArgs e)
     {
+        if (!_canPrevious) return;
         var session = _mainWindow?.GetTaskbarSession();
         if (session == null) return;
         try
@@ -447,6 +475,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     private async void PlayPause_Click(object sender, RoutedEventArgs e)
     {
+        if (!_canPlayPause) return;
         var session = _mainWindow?.GetTaskbarSession();
         if (session == null) return;
         try
@@ -460,6 +489,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     private async void Next_Click(object sender, RoutedEventArgs e)
     {
+        if (!_canNext) return;
         var session = _mainWindow?.GetTaskbarSession();
         if (session == null) return;
         try

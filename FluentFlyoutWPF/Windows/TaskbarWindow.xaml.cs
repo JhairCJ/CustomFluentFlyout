@@ -1212,6 +1212,13 @@ on_error:
     private void EnsureWindowVisible()
     {
         if (RefreshFullscreenSuppression()) return;
+        // Repeated metadata/position events must leave a running reveal alone.
+        if (Visibility == Visibility.Visible && !_windowFadingOut)
+        {
+            RaiseWidgetAboveTaskbar();
+            return;
+        }
+        double fromOpacity = Visibility == Visibility.Visible ? Opacity : 0;
         ++_visibilityVersion;
         _windowFadingOut = false;
         IsHitTestVisible = true;
@@ -1224,17 +1231,17 @@ on_error:
             return;
         }
 
-        bool wasHidden = Visibility != Visibility.Visible;
         Visibility = Visibility.Visible;
 
-        if (wasHidden)
+        if (fromOpacity < 1)
         {
-            Opacity = 0;
+            Opacity = fromOpacity;
             DoubleAnimation fadeInAnimation = new()
             {
-                From = 0.0,
+                From = fromOpacity,
                 To = 1.0,
-                Duration = TimeSpan.FromMilliseconds(FluentFlyout.Controls.TaskbarWidget.TaskbarWidgetAnimationEnvironment.GetDurationMs()),
+                Duration = TimeSpan.FromMilliseconds(Math.Clamp(
+                    FluentFlyout.Controls.TaskbarWidget.TaskbarWidgetAnimationEnvironment.GetDurationMs() * 0.4, 60, 150)),
                 EasingFunction = GetEasing(true)
             };
             BeginAnimation(OpacityProperty, fadeInAnimation);
@@ -1467,34 +1474,16 @@ on_error:
             FinishWidgetExpansion(version);
             return;
         }
-        // Use the Island's actual underdamped spring, sampled into one shared
-        // progress curve so size and position keep the same edge throughout.
+        // Preserve the responsive timing without a spring or elastic deformation.
         double durationMs = FluentFlyout.Controls.TaskbarWidget.TaskbarWidgetAnimationEnvironment.GetDurationMs();
-        var spring = IslandPhysics.Coefficients(durationMs, false);
-        double timeMs = Math.Max(450, durationMs * 2.5);
-        DoubleAnimationUsingKeyFrames Animation(double a, double b, bool size = false)
-        {
-            var animation = new DoubleAnimationUsingKeyFrames { Duration = TimeSpan.FromMilliseconds(timeMs) };
-            double progress = 0, velocity = 0;
-            const double dt = 1.0 / 240;
-            animation.KeyFrames.Add(new LinearDoubleKeyFrame(a, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-            for (double t = dt; t < timeMs / 1000; t += dt)
-            {
-                IslandPhysics.Step(ref progress, ref velocity, 1, spring.KP, spring.CP, dt);
-                double value = IslandPhysics.Lerp(a, b, IslandPhysics.BounceCurve(progress));
-                if (size) value = Math.Max(Math.Min(a, b) * (1 - IslandPhysics.BounceCompress), value);
-                animation.KeyFrames.Add(new LinearDoubleKeyFrame(value, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t))));
-            }
-            animation.KeyFrames.Add(new LinearDoubleKeyFrame(b, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(timeMs))));
-            return animation;
-        }
-        // Reserve overshoot as well as the start/end, otherwise the spring is clipped.
-        _expansionFlightRect.Inflate(Math.Abs(target.Width - from.Width) * 0.06 + 2,
-            Math.Abs(target.Height - from.Height) * 0.06 + 2);
+        DoubleAnimation Animation(double a, double b) => new(a, b,
+            TimeSpan.FromMilliseconds(durationMs * 0.55))
+        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        _expansionFlightRect.Inflate(2, 2);
         ApplyWidgetHostBounds(_expansionFlightRect);
-        var height = Animation(from.Height / _positionDpiScale, target.Height / _positionDpiScale, true);
+        var height = Animation(from.Height / _positionDpiScale, target.Height / _positionDpiScale);
         height.Completed += (_, _) => FinishWidgetExpansion(version);
-        Widget.BeginAnimation(WidthProperty, Animation(from.Width / _positionDpiScale, target.Width / _positionDpiScale, true));
+        Widget.BeginAnimation(WidthProperty, Animation(from.Width / _positionDpiScale, target.Width / _positionDpiScale));
         Widget.BeginAnimation(Canvas.LeftProperty, Animation(from.Left / _positionDpiScale, target.Left / _positionDpiScale));
         Widget.BeginAnimation(Canvas.TopProperty, Animation(from.Top / _positionDpiScale, target.Top / _positionDpiScale));
         Widget.BeginAnimation(FluentFlyout.Controls.TaskbarWidgetControl.ExpansionProgressProperty,
@@ -1525,7 +1514,7 @@ on_error:
     private void ApplyWidgetHostBounds(Rect widgetRegion)
     {
         var hwnd = new WindowInteropHelper(this).Handle;
-        // Reserve one fixed band for both layouts and spring overshoot. Only the
+        // Reserve one fixed band for both layouts. Only the
         // visible region changes; DWM never presents new native bounds with an old
         // canvas transform, which produced the down-left flash during metadata ticks.
         Rect host = _monitorArea;

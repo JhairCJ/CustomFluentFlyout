@@ -59,6 +59,10 @@ public partial class TaskbarWidgetControl : UserControl
     // tracked separately: its arrival deserves its own entrance transition.
     // Instances come from the thumbnail cache, so reference comparison is exact.
     private BitmapImage? _lastIcon;
+    private GlobalSystemMediaTransportControlsSession? _publishedAlbumSession;
+    private BitmapImage? _compactFlipArt, _compactDisplayedArt;
+    private bool _compactFlipRunning;
+    private int _compactFlipVersion;
 
     // reference to main window for flyout functions
     private MainWindow? _mainWindow;
@@ -888,7 +892,8 @@ public partial class TaskbarWidgetControl : UserControl
         double width = (_songInfoExpanded || _expansionTransition) ? 340 : (BackgroundCanvas.ActualWidth > 0 ? BackgroundCanvas.ActualWidth : 240);
         double height = (_songInfoExpanded || _expansionTransition) ? 124 : (BackgroundCanvas.ActualHeight > 0 ? BackgroundCanvas.ActualHeight : 40);
 
-        double side = Math.Max(Math.Max(width, height), 1);
+        // Overscan beneath the rounded clip to keep texture sampling edges hidden.
+        double side = Math.Max(Math.Max(width, height), 1) + 32;
 
         LayoutFillLayer(BackgroundImage, width, height, side);
         LayoutFillLayer(BackgroundImageNext, width, height, side);
@@ -1550,6 +1555,11 @@ public partial class TaskbarWidgetControl : UserControl
 
         // Title/artist and cover art arrive in separate events on song change:
         // each half gets its own entrance so nothing pops in without a fade.
+        var albumSession = _mainWindow?.GetTaskbarSession()?.ControlSession;
+        bool flipAlbum = !string.IsNullOrEmpty(_actualTitle)
+            && (_actualTitle != newTitle || _actualArtist != newArtist
+                || !ReferenceEquals(albumSession, _publishedAlbumSession));
+        _publishedAlbumSession = albumSession;
         bool infoChanged = _actualTitle != newTitle || _actualArtist != newArtist;
         bool artChanged = !ReferenceEquals(icon, _lastIcon);
 
@@ -1604,8 +1614,8 @@ public partial class TaskbarWidgetControl : UserControl
         SongImagePlaceholder.Foreground = AlbumAccent.Brush;
 
         _lastIcon = icon;
-        _hasAlbumCover = icon != null;
-        SongImage.ImageSource = icon;
+        if (flipAlbum || _compactFlipRunning) StartCompactAlbumFlip(icon);
+        else SetCompactAlbumArt(icon);
         SetBackground(icon);
         SongImageBorder.Margin = new Thickness(0, 0, 0, icon != null ? -2 : -3);
 
@@ -1613,6 +1623,57 @@ public partial class TaskbarWidgetControl : UserControl
         UpdateAlbumArtOverlay();
         ApplyCommitTail(settings, newArtist);
         UpdateRotationPauseState();
+    }
+
+    private void ApplyCompactAlbumArt(BitmapImage? art)
+    {
+        _compactDisplayedArt = art;
+        SongImage.ImageSource = art;
+        _hasAlbumCover = art != null;
+        UpdateAlbumArtOverlay();
+    }
+
+    private void SetCompactAlbumArt(BitmapImage? art)
+    {
+        ++_compactFlipVersion;
+        _compactFlipRunning = false;
+        _compactFlipArt = art;
+        CompactAlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        CompactAlbumFlipScale.ScaleX = 1;
+        ApplyCompactAlbumArt(art);
+    }
+
+    private void StartCompactAlbumFlip(BitmapImage? art)
+    {
+        _compactFlipArt = art;
+        if (!AreAnimationsEnabled || _songInfoExpanded || _expansionTransition)
+        {
+            SetCompactAlbumArt(art);
+            return;
+        }
+        if (_compactFlipRunning) return;
+        _compactFlipRunning = true;
+        int version = _compactFlipVersion;
+        double halfMs = Math.Clamp(TaskbarWidgetAnimationEnvironment.GetDurationMs() * 0.35, 90, 200);
+        var outgoing = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(halfMs))
+        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
+        outgoing.Completed += (_, _) =>
+        {
+            if (version != _compactFlipVersion) return;
+            ApplyCompactAlbumArt(_compactFlipArt);
+            var incoming = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(halfMs))
+            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+            incoming.Completed += (_, _) =>
+            {
+                if (version != _compactFlipVersion) return;
+                CompactAlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                CompactAlbumFlipScale.ScaleX = 1;
+                _compactFlipRunning = false;
+                if (!ReferenceEquals(_compactFlipArt, _compactDisplayedArt)) StartCompactAlbumFlip(_compactFlipArt);
+            };
+            CompactAlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, incoming);
+        };
+        CompactAlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, outgoing);
     }
 
     /// <summary>
@@ -1650,6 +1711,7 @@ public partial class TaskbarWidgetControl : UserControl
     /// </summary>
     private void CleanupWidgetResources()
     {
+        SetCompactAlbumArt(null);
         ExpandedContent.DisposeResources();
         CancelPendingSong();
         _commitTimer = null;
@@ -1685,6 +1747,8 @@ public partial class TaskbarWidgetControl : UserControl
         // Media genuinely stopped: the extended panel has nothing left to show.
         (Window.GetWindow(this) as TaskbarWindow)?.CloseWidgetExpansion();
 
+        SetCompactAlbumArt(null);
+        _publishedAlbumSession = null;
         _lastIcon = null;
         _actualTitle = string.Empty;
         _actualArtist = string.Empty;
@@ -2223,6 +2287,13 @@ public partial class TaskbarWidgetControl : UserControl
             rtb.Render(RootGrid);
             rtb.Freeze();
 
+            // Leave the live album visible through the snapshot so its flip is
+            // independent of the text/background crossfade.
+            var albumBounds = SongImageBorder.TransformToAncestor(RootGrid)
+                .TransformBounds(new Rect(new Size(SongImageBorder.ActualWidth, SongImageBorder.ActualHeight)));
+            CrossfadeOverlay.Clip = new CombinedGeometry(GeometryCombineMode.Exclude,
+                new RectangleGeometry(new Rect(0, 0, RootGrid.ActualWidth, RootGrid.ActualHeight)),
+                new RectangleGeometry(albumBounds));
             CrossfadeOverlay.Width = RootGrid.ActualWidth;
             CrossfadeOverlay.Height = RootGrid.ActualHeight;
             _crossfadeBrush ??= new ImageBrush { Stretch = Stretch.Fill };
@@ -2316,6 +2387,7 @@ public partial class TaskbarWidgetControl : UserControl
     public void SetExpandedState(bool expanded)
     {
         if (_songInfoExpanded == expanded) return;
+        SetCompactAlbumArt(_lastIcon);
         bool wasTransitioning = _expansionTransition;
         _songInfoExpanded = expanded;
         _expansionTransition = true;
@@ -2339,6 +2411,10 @@ public partial class TaskbarWidgetControl : UserControl
         ExpandedContent.IsHitTestVisible = false;
         ExpandedBackdropShade.Visibility = Visibility.Visible;
         UpdateLayout();
+        ExpandedContent.SetCompactButtonIconSizes(
+            (PreviousButton.Icon as SymbolIcon)?.FontSize ?? 16,
+            (PlayPauseButton.Icon as SymbolIcon)?.FontSize ?? 16,
+            (NextButton.Icon as SymbolIcon)?.FontSize ?? 16);
         if (!wasTransitioning)
         {
             var destinations = ExpandedContent.MorphElements;
@@ -2382,8 +2458,7 @@ public partial class TaskbarWidgetControl : UserControl
 
     private void ApplyExpansionProgress(double progress)
     {
-        // Position and scale share the card's spring, including its small overshoot.
-        // Only opacity/clipping clamp at the endpoints.
+        // All elements follow the same smooth, bounded layout transition.
         double alpha = Math.Clamp(progress, 0, 1);
         for (int i = 0; i < _expansionElements.Length; i++)
         {
@@ -2420,6 +2495,7 @@ public partial class TaskbarWidgetControl : UserControl
             element.Opacity = 1;
         }
         _expansionElements = [];
+        ExpandedContent.SetMorphProgress(_songInfoExpanded ? 1 : 0);
         MainGrid.Opacity = _songInfoExpanded ? 0 : 1;
         ExpandedContent.Visibility = _songInfoExpanded ? Visibility.Visible : Visibility.Collapsed;
         ExpandedContent.Opacity = _songInfoExpanded ? 1 : 0;
