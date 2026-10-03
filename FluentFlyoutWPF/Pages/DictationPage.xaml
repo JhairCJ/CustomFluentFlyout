@@ -89,6 +89,120 @@
             </ComboBox>
         </ui:CardControl>
 
+        <ui:CardExpander x:Name="DictationRuntimesCard" Tag="Indexable" Margin="0,0,0,12"
+                         Icon="{ui:SymbolIcon Wrench24}" ContentPadding="20" IsExpanded="False">
+            <ui:CardExpander.Header>
+                <StackPanel>
+                    <TextBlock Text="{DynamicResource DictationRuntimeTitle}" FontSize="14" FontWeight="SemiBold" />
+                    <TextBlock Text="{DynamicResource DictationRuntimeDescription}" FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                </StackPanel>
+            </ui:CardExpander.Header>
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Margin="0,0,16,0" VerticalAlignment="Center">
+                        <TextBlock Text="Whisper · NVIDIA CUDA 13" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{DynamicResource DictationWhisperCudaDescription}" FontSize="12"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        <TextBlock x:Name="WhisperCudaRuntimeStatus" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <Button x:Name="WhisperCudaRuntimeButton" Content="{DynamicResource DictationRuntimeDownload}"
+                                MinWidth="112" Padding="12,6" Click="DownloadWhisperCudaRuntime_Click" />
+                        <Button x:Name="WhisperCudaRuntimeRemoveButton" Content="{DynamicResource DictationRuntimeUninstall}"
+                                MinWidth="112" Padding="12,6" Visibility="Collapsed" Click="UninstallWhisperCudaRuntime_Click" />
+                        <Button x:Name="WhisperCudaRuntimeCancelButton" Content="{DynamicResource DictationRuntimeCancel}"
+                                MinWidth="112" Padding="12,6" Visibility="Collapsed" Click="CancelWhisperCudaRuntime_Click" />
+                    </StackPanel>
+                </Grid>
+                <ProgressBar x:Name="WhisperCudaRuntimeProgress" Minimum="0" Maximum="100" Height="4"
+                             Margin="0,12,0,0" Visibility="Collapsed" />
+                <Border BorderBrush="{DynamicResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,16" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Margin="0,0,16,0" VerticalAlignment="Center">
+                        <TextBlock Text="NeMo-Speech.cpp" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{DynamicResource DictationRuntimeNemoDescription}" FontSize="12"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        <TextBlock x:Name="NemoRuntimeStatus" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <Button x:Name="NemoRuntimeButton" Content="{DynamicResource DictationRuntimeDownload}"
+                                MinWidth="112" Padding="12,6" Click="InstallNemoRuntime_Click" />
+                        <Button x:Name="NemoRuntimeRemoveButton" Content="{DynamicResource DictationRuntimeUninstall}"
+                                MinWidth="112" Padding="12,6" Visibility="Collapsed" Click="UninstallNemoRuntime_Click" />
+                    </StackPanel>
+                </Grid>
+                <Border BorderBrush="{DynamicResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,16" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Margin="0,0,16,0" VerticalAlignment="Center">
+                        <TextBlock Text="{DynamicResource DictationRuntimeVulkanTitle}" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{DynamicResource DictationRuntimeVulkanDescription}" FontSize="12"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        <TextBlock x:Name="CrispAsrRuntimeStatus" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <Button x:Name="CrispAsrRuntimeButton" Content="{DynamicResource DictationRuntimeDownload}"
+                                MinWidth="112" Padding="12,6" Click="DownloadCrispAsrRuntime_Click" />
+                        <Button x:Name="CrispAsrRuntimeRemoveButton" Content="{DynamicResource DictationRuntimeUninstall}"
+                                MinWidth="112" Padding="12,6" Visibility="Collapsed" Click="UninstallCrispAsrRuntime_Click" />
+                    </StackPanel>
+                </Grid>
+                <Border BorderBrush="{DynamicResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,16" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Margin="0,0,16,0" VerticalAlignment="Center">
+                        <TextBlock Text="Parakeet Ultra · NVIDIA CUDA 12" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{DynamicResource DictationRuntimeCuda12Description}" FontSize="12"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        <TextBlock x:Name="CrispAsrCudaRuntimeStatus" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <Button x:Name="CrispAsrCudaRuntimeButton" Content="{DynamicResource DictationRuntimeDownload}"
+                                MinWidth="112" Padding="12,6" Click="DownloadCrispAsrCudaRuntime_Click" />
+                        <Button x:Name="CrispAsrCudaRuntimeRemoveButton" Content="{DynamicResource DictationRuntimeUninstall}"
+                                MinWidth="112" Padding="12,6" Visibility="Collapsed" Click="UninstallCrispAsrCudaRuntime_Click" />
+                    </StackPanel>
+                </Grid>
+                <Border BorderBrush="{DynamicResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,1,0,0" Margin="0,16,0,16" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Margin="0,0,16,0" VerticalAlignment="Center">
+                        <TextBlock Text="Parakeet Ultra · NVIDIA CUDA 13" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{DynamicResource DictationRuntimeCuda13Description}" FontSize="12"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        <TextBlock x:Name="CrispAsrCuda13RuntimeStatus" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <Button x:Name="CrispAsrCuda13RuntimeButton" Content="{DynamicResource DictationRuntimeDownload}"
+                                MinWidth="112" Padding="12,6" Click="DownloadCrispAsrCuda13Runtime_Click" />
+                        <Button x:Name="CrispAsrCuda13RuntimeRemoveButton" Content="{DynamicResource DictationRuntimeUninstall}"
+                                MinWidth="112" Padding="12,6" Visibility="Collapsed" Click="UninstallCrispAsrCuda13Runtime_Click" />
+                    </StackPanel>
+                </Grid>
+                <TextBlock Text="{DynamicResource DictationRuntimeRemovalHint}" FontSize="12"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Margin="0,20,0,0" />
+                <TextBlock x:Name="RuntimesStatus" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0" />
+            </StackPanel>
+        </ui:CardExpander>
+
         <ui:Card x:Name="DictationModelsCard" Tag="Indexable" Margin="0,0,0,12"
                  Padding="20" HorizontalContentAlignment="Stretch"
                  Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
@@ -111,25 +225,6 @@
                     <Button x:Name="CudaDriverButton" Content="{DynamicResource DictationGpuDownloadDrivers}"
                             Padding="12,4" Margin="0,8,0,0" HorizontalAlignment="Left"
                             Visibility="Collapsed" Click="DownloadCudaDrivers_Click" />
-                </StackPanel>
-                <StackPanel Margin="0,0,0,20">
-                    <TextBlock Text="{DynamicResource DictationRuntimeTitle}" FontSize="13" FontWeight="SemiBold" />
-                    <TextBlock Text="{DynamicResource DictationRuntimeDescription}" FontSize="11" Opacity="0.6"
-                               TextWrapping="Wrap" Margin="0,2,0,6" />
-                    <WrapPanel>
-                        <Button Content="{DynamicResource DictationRuntimeNemo}" Padding="12,4"
-                                Click="InstallNemoRuntime_Click" />
-                        <Button x:Name="CrispAsrRuntimeButton" Padding="12,4" Margin="8,0,0,0"
-                                Content="{DynamicResource DictationRuntimeCrispAsr}"
-                                Click="DownloadCrispAsrRuntime_Click" />
-                        <Button x:Name="CrispAsrCudaRuntimeButton" Padding="12,4" Margin="8,0,0,0"
-                                Content="{DynamicResource DictationRuntimeCrispAsrCuda}"
-                                Click="DownloadCrispAsrCudaRuntime_Click" />
-                    </WrapPanel>
-                    <TextBlock x:Name="CrispAsrRuntimeStatus" FontSize="11" Opacity="0.6"
-                               TextWrapping="Wrap" Margin="0,6,0,0" />
-                    <TextBlock x:Name="CrispAsrCudaRuntimeStatus" FontSize="11" Opacity="0.6"
-                               TextWrapping="Wrap" Margin="0,6,0,0" />
                 </StackPanel>
                 <ItemsControl x:Name="ModelList">
                     <ItemsControl.ItemTemplate>

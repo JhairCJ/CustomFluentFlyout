@@ -16,7 +16,7 @@ namespace FluentFlyoutWPF.Classes.Dictation;
 /// canary, granite, cohere...), which is how Parakeet Ultra runs here.
 ///
 /// <para>Separate pinned Windows packages: Vulkan for CPU/integrated graphics, and
-/// CUDA 12 for dedicated NVIDIA GPUs. CUDA bundles its matching runtime DLLs, so
+/// CUDA 12 or CUDA 13 for dedicated NVIDIA GPUs. CUDA bundles its matching runtime DLLs, so
 /// the user does not need a CUDA Toolkit installation.</para>
 ///
 /// <para>The app uses the selected device in a persistent
@@ -64,8 +64,16 @@ internal static class CrispAsrRuntime
         "ggml-cuda.dll", "cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll",
     ]);
 
-    private static Package ForDevice(DictationDevice device) =>
-        device == DictationDevice.DedicatedGpu ? Cuda : Vulkan;
+    private static readonly Package Cuda13 = new("cuda13",
+        "cc81c55d24be9a5759a7887245db1b3842c8c57141757cb45fae9c6b7767b117", 510_558_581,
+    [
+        "crispasr.exe", "crispasr.dll", "whisper.dll", "ggml.dll", "ggml-base.dll", "ggml-cpu.dll",
+        "ggml-cuda.dll", "cudart64_13.dll", "cublas64_13.dll", "cublasLt64_13.dll",
+    ]);
+
+    private static Package ForDevice(DictationDevice device, DictationCudaVersion cudaVersion) =>
+        device == DictationDevice.DedicatedGpu
+            ? cudaVersion == DictationCudaVersion.Cuda13 ? Cuda13 : Cuda : Vulkan;
 
     public static bool IsInstalling { get; private set; }
 
@@ -80,10 +88,12 @@ internal static class CrispAsrRuntime
     /// <summary>Full path of the binary, or null when the runtime is not installed.</summary>
     public static string? ExecutablePath => Vulkan.Executable;
 
-    public static string? ExecutableFor(DictationDevice device) => device == DictationDevice.Cpu
-        ? Vulkan.Executable ?? Cuda.Executable : ForDevice(device).Executable;
+    public static string? ExecutableFor(DictationDevice device,
+        DictationCudaVersion cudaVersion = DictationCudaVersion.Cuda12) => device == DictationDevice.Cpu
+        ? Vulkan.Executable ?? Cuda.Executable ?? Cuda13.Executable : ForDevice(device, cudaVersion).Executable;
 
-    public static bool IsInstalledFor(DictationDevice device) => ExecutableFor(device) != null;
+    public static bool IsInstalledFor(DictationDevice device,
+        DictationCudaVersion cudaVersion = DictationCudaVersion.Cuda12) => ExecutableFor(device, cudaVersion) != null;
 
     public static bool IsInstalled => ExecutablePath != null;
 
@@ -94,13 +104,15 @@ internal static class CrispAsrRuntime
 
     /// <summary>Each backend has its own device IDs: Vulkan1 may be CUDA0.</summary>
     public static async Task<CrispGpuDevice?> GetDeviceAsync(
-        DictationDevice device, CancellationToken cancellationToken = default) =>
-        (await GetDevicesAsync(device, cancellationToken)).FirstOrDefault(adapter => adapter.Device == device);
+        DictationDevice device, CancellationToken cancellationToken = default,
+        DictationCudaVersion cudaVersion = DictationCudaVersion.Cuda12) =>
+        (await GetDevicesAsync(device, cancellationToken, cudaVersion)).FirstOrDefault(adapter => adapter.Device == device);
 
     public static Task<IReadOnlyList<CrispGpuDevice>> GetDevicesAsync(
-        DictationDevice device, CancellationToken cancellationToken = default)
+        DictationDevice device, CancellationToken cancellationToken = default,
+        DictationCudaVersion cudaVersion = DictationCudaVersion.Cuda12)
     {
-        Package package = ForDevice(device);
+        Package package = ForDevice(device, cudaVersion);
         string? executable = package.Executable;
         if (executable == null) return Task.FromResult<IReadOnlyList<CrispGpuDevice>>([]);
         lock (DeviceGate)
@@ -151,7 +163,7 @@ internal static class CrispAsrRuntime
     internal static IReadOnlyList<CrispGpuDevice> ParseDevices(string output, string backend) =>
         Regex.Matches(output,
             @"(?m)^\s*\[\d+\]\s+(?<type>igpu|gpu)\s+name="
-                + (backend == "cuda" ? "CUDA" : "Vulkan")
+                + (backend.StartsWith("cuda", StringComparison.Ordinal) ? "CUDA" : "Vulkan")
                 + @"(?<id>\d+)\s+desc=(?<name>.*?)\s+mem=")
         .Select(match => new CrispGpuDevice(int.Parse(match.Groups["id"].Value),
             match.Groups["name"].Value, match.Groups["type"].Value == "igpu"
@@ -170,13 +182,14 @@ internal static class CrispAsrRuntime
     public static async Task InstallAsync(
         DictationDevice device,
         IProgress<double>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DictationCudaVersion cudaVersion = DictationCudaVersion.Cuda12)
     {
         await InstallLock.WaitAsync(cancellationToken);
         try
         {
             IsInstalling = true;
-            Package package = ForDevice(device);
+            Package package = ForDevice(device, cudaVersion);
             string folder = package.Folder;
             string zipPath = Path.Combine(
                 Path.GetTempPath(),
@@ -215,18 +228,38 @@ internal static class CrispAsrRuntime
         }
     }
 
-    /// <summary>Deletes the runtime folder (used when the install has to be redone).</summary>
-    public static void Uninstall()
+    /// <summary>Removes only the selected package, after its worker has been released.</summary>
+    public static async Task UninstallAsync(DictationDevice device,
+        DictationCudaVersion cudaVersion = DictationCudaVersion.Cuda12)
     {
+        await InstallLock.WaitAsync();
         try
         {
-            string parent = Path.GetDirectoryName(RootFolder) ?? "";
-            if (Directory.Exists(parent)) Directory.Delete(parent, recursive: true);
+            IsInstalling = true;
+            Package package = ForDevice(device, cudaVersion);
+            await Task.Run(() => DeletePackageFolder(package.Folder, Path.GetDirectoryName(RootFolder)!));
+            lock (DeviceGate) DeviceTasks.Remove(package.Backend);
+            Logger.Info($"Runtime CrispASR eliminado: {package.Backend}");
         }
-        catch (Exception ex)
+        finally
         {
-            Logger.Warn(ex, "No se pudo borrar el runtime CrispASR; puede estar en uso");
+            IsInstalling = false;
+            InstallLock.Release();
         }
+    }
+
+    internal static void DeletePackageFolder(string folder, string runtimeRoot)
+    {
+        string target = Path.GetFullPath(folder);
+        string root = Path.GetFullPath(runtimeRoot).TrimEnd(Path.DirectorySeparatorChar);
+        string name = Path.GetFileName(target);
+        if (!string.Equals(Path.GetDirectoryName(target), root, StringComparison.OrdinalIgnoreCase)
+            || (name != Version && name != $"{Version}-cuda" && name != $"{Version}-cuda13"))
+            throw new IOException("The runtime folder is outside the managed package locations");
+        if (!Directory.Exists(target)) return;
+        if ((File.GetAttributes(target) & FileAttributes.ReparsePoint) != 0)
+            throw new IOException("A linked runtime folder cannot be removed");
+        Directory.Delete(target, recursive: true);
     }
 
     private static async Task DownloadZipAsync(

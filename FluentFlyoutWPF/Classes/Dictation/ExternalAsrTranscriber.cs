@@ -49,6 +49,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
     private string? _crispModelPath;
     private string? _crispApiKey;
     private DictationDevice _crispDevice;
+    private DictationCudaVersion _crispCudaVersion;
     private string? _crispDeviceName;
     private bool _disposed;
 
@@ -56,6 +57,8 @@ public sealed class ExternalAsrTranscriber : IDisposable
         || _crispProcess is { HasExited: false };
 
     public bool CrispRuntimeLoaded => _crispProcess is { HasExited: false };
+
+    public DictationCudaVersion LoadedCudaVersion => _crispCudaVersion;
 
     public string? LoadedDeviceName => CrispRuntimeLoaded ? _crispDeviceName : null;
 
@@ -69,16 +72,19 @@ public sealed class ExternalAsrTranscriber : IDisposable
     public DictationDevice LoadedDevice => CrispRuntimeLoaded ? _crispDevice
         : UsingGpu ? DictationDevice.DedicatedGpu : DictationDevice.Cpu;
 
-    public bool MatchesLoadedModel(string modelPath, DictationDevice device) =>
+    public bool MatchesLoadedModel(string modelPath, DictationDevice device,
+        DictationCudaVersion cudaVersion = DictationCudaVersion.Cuda12) =>
         string.Equals(LoadedModelPath, modelPath, StringComparison.OrdinalIgnoreCase)
-        && LoadedDevice == device;
+        && LoadedDevice == device
+        && (!CrispRuntimeLoaded || device != DictationDevice.DedicatedGpu || _crispCudaVersion == cudaVersion);
 
     /// <summary>Loads the model's external worker, if its backend supports preloading.</summary>
     public async Task EnsureLoadedAsync(
         DictationModelInfo model,
         string modelPath,
         DictationDevice device,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DictationCudaVersion cudaVersion = DictationCudaVersion.Cuda12)
     {
         if (model.Backend is not (DictationModelBackend.NemoSpeech or DictationModelBackend.CrispAsr))
             return;
@@ -88,7 +94,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
         {
             if (model.Backend == DictationModelBackend.CrispAsr)
             {
-                await EnsureCrispServerCoreAsync(modelPath, device, cancellationToken);
+                await EnsureCrispServerCoreAsync(modelPath, device, cancellationToken, cudaVersion);
             }
             else
             {
@@ -107,7 +113,8 @@ public sealed class ExternalAsrTranscriber : IDisposable
         float[] samples,
         string language,
         DictationDevice device,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DictationCudaVersion cudaVersion = DictationCudaVersion.Cuda12)
     {
         string wavPath = Path.Combine(
             Path.GetTempPath(),
@@ -121,7 +128,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
                 DictationModelBackend.NemoSpeech => await TranscribeWithNemoAsync(
                     modelPath, wavPath, language, model.UsesLocaleLanguageCodes, device != DictationDevice.Cpu, cancellationToken),
                 DictationModelBackend.CrispAsr => await TranscribeWithCrispAsrAsync(
-                    modelPath, wavPath, language, device, cancellationToken),
+                    modelPath, wavPath, language, device, cancellationToken, cudaVersion),
                 _ => throw new InvalidOperationException(
                     $"El backend externo no admite el modelo {model.FileName}"),
             };
@@ -262,19 +269,20 @@ public sealed class ExternalAsrTranscriber : IDisposable
 
     /// <summary>
     /// Reuses the worker until DictationService releases it under the user's policy.
-    /// Integrated graphics use Vulkan; dedicated NVIDIA graphics use CUDA 12.
+    /// Integrated graphics use Vulkan; dedicated NVIDIA graphics use their selected CUDA package.
     /// </summary>
     private async Task<string> TranscribeWithCrispAsrAsync(
         string modelPath,
         string wavPath,
         string language,
         DictationDevice device,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DictationCudaVersion cudaVersion = DictationCudaVersion.Cuda12)
     {
         await _externalLock.WaitAsync(cancellationToken);
         try
         {
-            await EnsureCrispServerCoreAsync(modelPath, device, cancellationToken);
+            await EnsureCrispServerCoreAsync(modelPath, device, cancellationToken, cudaVersion);
             using var form = new MultipartFormDataContent();
             await using FileStream audio = File.OpenRead(wavPath);
             using var file = new StreamContent(audio);
@@ -312,20 +320,21 @@ public sealed class ExternalAsrTranscriber : IDisposable
         }
     }
 
-    private async Task EnsureCrispServerCoreAsync(string modelPath, DictationDevice device, CancellationToken cancellationToken)
+    private async Task EnsureCrispServerCoreAsync(string modelPath, DictationDevice device, CancellationToken cancellationToken, DictationCudaVersion cudaVersion)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(ExternalAsrTranscriber));
         if (_crispProcess is { HasExited: false }
             && string.Equals(_crispModelPath, modelPath, StringComparison.OrdinalIgnoreCase)
-            && _crispDevice == device)
+            && _crispDevice == device
+            && (device != DictationDevice.DedicatedGpu || _crispCudaVersion == cudaVersion))
             return;
 
         StopCrispServer();
         string backend = device == DictationDevice.DedicatedGpu ? "cuda" : "vulkan";
-        string executable = CrispAsrRuntime.ExecutableFor(device) ?? throw new FileNotFoundException(
-            $"No se encontró el runtime CrispASR {backend}. Descarga sus dependencias en Ajustes > Dictado > Runtimes.");
+        string executable = CrispAsrRuntime.ExecutableFor(device, cudaVersion) ?? throw new FileNotFoundException(
+            $"No se encontró el runtime CrispASR {backend} ({cudaVersion}). Descarga sus dependencias en Ajustes > Dictado > Runtimes.");
         var adapter = device != DictationDevice.Cpu
-            ? await CrispAsrRuntime.GetDeviceAsync(device, cancellationToken) : null;
+            ? await CrispAsrRuntime.GetDeviceAsync(device, cancellationToken, cudaVersion) : null;
         if (device != DictationDevice.Cpu && adapter == null)
             throw new InvalidOperationException($"No se encontró una gráfica {(device == DictationDevice.DedicatedGpu ? "NVIDIA dedicada" : "integrada")} compatible con {backend}. Comprueba las dependencias CrispASR y el controlador de la GPU o selecciona Procesador en los ajustes del modelo.");
         int port = FindAvailableLoopbackPort();
@@ -372,8 +381,9 @@ public sealed class ExternalAsrTranscriber : IDisposable
         _crispModelPath = modelPath;
         _crispApiKey = apiKey;
         _crispDevice = device;
+        _crispCudaVersion = cudaVersion;
         _crispDeviceName = adapter?.Name;
-        Logger.Info($"CrispASR: dispositivo {(adapter == null ? "CPU" : $"{backend} {adapter.Index}: {adapter.Name}")}");
+        Logger.Info($"CrispASR ({cudaVersion}): dispositivo {(adapter == null ? "CPU" : $"{backend} {adapter.Index}: {adapter.Name}")}");
         _ = DrainProcessOutputAsync(process.StandardOutput, "CrispASR stdout");
         _ = DrainProcessOutputAsync(process.StandardError, "CrispASR stderr");
         try

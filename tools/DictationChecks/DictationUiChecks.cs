@@ -52,9 +52,10 @@ internal static class DictationUiChecks
         };
         var page = new DictationPage();
         Invoke(page, "UpdateCrispAsrRuntimeStatus");
-        var models = (FrameworkElement)page.FindName("DictationModelsCard");
-        ((Panel)models.Parent).Children.Remove(models);
-        page.Content = models;
+        var models = PrepareSections(page);
+        var runtimes = (CardExpander)page.FindName("DictationRuntimesCard");
+        Check(!runtimes.IsExpanded && ReferenceEquals(models.Parent, runtimes.Parent),
+            "Runtimes have their own collapsed section beside speech models");
         string folder = Path.Combine(Path.GetTempPath(), "FluentFlyout-DictationUiChecks");
         Directory.CreateDirectory(folder);
 
@@ -63,14 +64,22 @@ internal static class DictationUiChecks
         page.Background = new SolidColorBrush(Color.FromRgb(32, 32, 32));
         Render(page, 1000, Path.Combine(folder, "models-en-dark.png"));
         Check(models.ActualWidth > 900, "The model section uses the full available width");
+        runtimes.IsExpanded = true;
+        Render(page, 1000, Path.Combine(folder, "runtimes-en-dark.png"));
+        var expandedContent = (Border)runtimes.Template.FindName("ContentPresenterBorder", runtimes);
+        Check(expandedContent.Visibility == Visibility.Visible
+            && expandedContent.RenderTransform is TranslateTransform { Y: >= -0.1 },
+            "Expanding Runtimes reveals its management controls after the native animation");
+        Check(!Descendants(models).Contains(page.FindName("CrispAsrCuda13RuntimeButton")),
+            "Runtime controls are outside the speech model list");
         var gear = Gear(page);
         Check(gear != null && gear.Visibility == Visibility.Visible, "The active model has a visible gear button");
         OpenMenu(page, gear!);
         var menu = gear!.ContextMenu!;
         var choices = menu.Items.OfType<MenuItem>().Where(item => item.IsCheckable).ToArray();
-        Check(choices.Length == 3 && choices[1].Header.ToString()!.Contains("Integrated")
+        Check(choices.Length == 4 && choices[1].Header.ToString()!.Contains("Integrated")
             && choices[2].Header.ToString()!.Contains("Dedicated"),
-            "Parakeet Ultra's menu offers CPU, integrated Vulkan and dedicated NVIDIA CUDA");
+            "Parakeet Ultra's menu offers CPU, integrated Vulkan and dedicated NVIDIA CUDA 12 and CUDA 13");
         PumpUntil(() => choices.Skip(1).All(item => item.IsEnabled || item.Header.ToString()!.Contains("unavailable")
             || item.Header.ToString()!.Contains("Could not")));
         Check(choices[1].IsEnabled && choices[1].Header.ToString()!.Contains("Intel"),
@@ -86,10 +95,36 @@ internal static class DictationUiChecks
         }
         else Check(choices[2].Header.ToString()!.Contains("CUDA 12"),
             "A missing CUDA package disables the dedicated option and explains which dependencies to download");
-        Check(((System.Windows.Controls.Button)page.FindName("CrispAsrCudaRuntimeButton")).Content.ToString()!.Contains("727 MB"),
-            "The dedicated CUDA download button displays its actual size");
-        Check(((System.Windows.Controls.Button)page.FindName("CrispAsrRuntimeButton")).Content.ToString()!.Contains("38 MB"),
-            "Vulkan dependencies retain their own smaller download button");
+        bool cuda13Installed = (bool)typeof(ExternalAsrTranscriber).Assembly
+            .GetType("FluentFlyoutWPF.Classes.Dictation.CrispAsrRuntime")!
+            .GetMethod("IsInstalledFor")!.Invoke(null, [DictationDevice.DedicatedGpu, DictationCudaVersion.Cuda13])!;
+        Check(choices[3].Header.ToString()!.Contains("CUDA 13") && choices[3].IsEnabled == cuda13Installed,
+            "CUDA 13 remains a separate choice requiring its installed package");
+        Check(SettingsManager.Current.GetDictationCudaVersion(SettingsManager.Current.DictationModel) == DictationCudaVersion.Cuda12,
+            "Opening runtime management preserves the selected CUDA 12 runtime");
+        var labels = Descendants(runtimes).OfType<System.Windows.Controls.TextBlock>().Select(label => label.Text).ToArray();
+        Check(labels.Any(text => text.Contains("38 MB")) && labels.Any(text => text.Contains("727 MB"))
+            && labels.Any(text => text.Contains("511 MB")) && labels.Any(text => text.Contains("426 MB")), "Each runtime row shows its own download size");
+        foreach (string prefix in new[] { "WhisperCudaRuntime", "NemoRuntime", "CrispAsrRuntime", "CrispAsrCudaRuntime", "CrispAsrCuda13Runtime" })
+        {
+            var download = (System.Windows.Controls.Button)page.FindName(prefix + "Button");
+            var remove = (System.Windows.Controls.Button)page.FindName(prefix + "RemoveButton");
+            Check(download.Visibility != remove.Visibility,
+                prefix + " offers exactly one action: download or uninstall");
+        }
+        Check(((System.Windows.Controls.Button)page.FindName("CrispAsrCuda13RuntimeRemoveButton")).Visibility
+            == (cuda13Installed ? Visibility.Visible : Visibility.Collapsed),
+            "The downloaded CUDA 13 package can be uninstalled independently");
+        typeof(DictationPage).GetField("_runtimeOperation", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(page, true);
+        Invoke(page, "UpdateRuntimeControls");
+        Check(!((System.Windows.Controls.Button)page.FindName("CrispAsrCudaRuntimeRemoveButton")).IsEnabled,
+            "Runtime actions are disabled while another package operation is running");
+        typeof(DictationPage).GetField("_runtimeOperation", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(page, false);
+        Invoke(page, "UpdateRuntimeControls");
+        SettingsManager.Current.SetDictationDevice("parakeet-ultra-q4_k.gguf", DictationDevice.DedicatedGpu, DictationCudaVersion.Cuda13);
+        Invoke(page, "ApplyRemovedRuntimePreferences", DictationDevice.DedicatedGpu, DictationCudaVersion.Cuda13);
+        Check(SettingsManager.Current.GetDictationCudaVersion("parakeet-ultra-q4_k.gguf") == DictationCudaVersion.Cuda12,
+            "Removing selected CUDA 13 falls back to installed CUDA 12");
         choices[0].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         Check(SettingsManager.Current.GetDictationDevice(SettingsManager.Current.DictationModel) == DictationDevice.Cpu,
             "Choosing CPU from the real menu changes the active model's preference");
@@ -117,14 +152,27 @@ internal static class DictationUiChecks
         // navigating to this page does. It is not an Application-owned live window.
         page = new DictationPage();
         Invoke(page, "UpdateCrispAsrRuntimeStatus");
-        models = (FrameworkElement)page.FindName("DictationModelsCard");
-        ((Panel)models.Parent).Children.Remove(models);
-        page.Content = models;
+        models = PrepareSections(page);
+        ((CardExpander)page.FindName("DictationRuntimesCard")).IsExpanded = true;
         page.Background = new SolidColorBrush(Color.FromRgb(243, 243, 243));
         Render(page, 680, Path.Combine(folder, "models-es-light-narrow.png"));
         Check(Gear(page)?.ActualWidth >= 36, "The gear remains usable at a narrower settings width");
         Console.WriteLine("WPF renders: " + folder);
         app.Shutdown();
+    }
+
+    private static FrameworkElement PrepareSections(DictationPage page)
+    {
+        var models = (FrameworkElement)page.FindName("DictationModelsCard");
+        var runtimes = (FrameworkElement)page.FindName("DictationRuntimesCard");
+        var parent = (Panel)models.Parent;
+        parent.Children.Remove(models);
+        parent.Children.Remove(runtimes);
+        var sections = new StackPanel();
+        sections.Children.Add(runtimes);
+        sections.Children.Add(models);
+        page.Content = sections;
+        return models;
     }
 
     private static void OpenMenu(DictationPage page, System.Windows.Controls.Button button)
@@ -158,6 +206,12 @@ internal static class DictationUiChecks
         Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () => frame.Continue = false);
         Dispatcher.PushFrame(frame);
         element.Width = width;
+        element.Measure(new Size(width, double.PositiveInfinity));
+        element.Arrange(new Rect(0, 0, width, element.DesiredSize.Height));
+        element.UpdateLayout();
+        // The shipped CardExpander template animates for 333 ms; capture its settled state.
+        DateTime settled = DateTime.UtcNow.AddMilliseconds(450);
+        PumpUntil(() => DateTime.UtcNow >= settled);
         element.Measure(new Size(width, double.PositiveInfinity));
         element.Arrange(new Rect(0, 0, width, element.DesiredSize.Height));
         element.UpdateLayout();

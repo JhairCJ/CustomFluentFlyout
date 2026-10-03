@@ -12,11 +12,18 @@ public enum DictationDevice
     DedicatedGpu,
 }
 
+public enum DictationCudaVersion
+{
+    Cuda12,
+    Cuda13,
+}
+
 /// <summary>XML-serializable preference keyed by the model's stable file name.</summary>
 public sealed class DictationModelDevicePreference
 {
     public string Model { get; set; } = "";
     public DictationDevice Device { get; set; }
+    public DictationCudaVersion CudaVersion { get; set; } = DictationCudaVersion.Cuda12;
 }
 
 public static class DictationDevices

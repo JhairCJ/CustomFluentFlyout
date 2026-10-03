@@ -1463,14 +1463,26 @@ public partial class UserSettings : ObservableObject
         return DictationUseGpu ? DictationDevices.GpuForModel(model) : DictationDevice.Cpu;
     }
 
-    public void SetDictationDevice(string model, DictationDevice device)
+    public DictationCudaVersion GetDictationCudaVersion(string model)
+    {
+        string key = DictationDevices.ModelKey(model);
+        return DictationModelDevices.FirstOrDefault(item =>
+            string.Equals(item.Model, key, StringComparison.OrdinalIgnoreCase))?.CudaVersion
+            ?? DictationCudaVersion.Cuda12;
+    }
+
+    public void SetDictationDevice(string model, DictationDevice device, DictationCudaVersion? cudaVersion = null)
     {
         if (!DictationDevices.Supports(model, device))
             throw new ArgumentException("The model does not support this device", nameof(device));
         string key = DictationDevices.ModelKey(model);
         DictationModelDevices = [.. DictationModelDevices.Where(item =>
             !string.Equals(item.Model, key, StringComparison.OrdinalIgnoreCase)),
-            new DictationModelDevicePreference { Model = key, Device = device }];
+            new DictationModelDevicePreference
+            {
+                Model = key, Device = device,
+                CudaVersion = cudaVersion ?? GetDictationCudaVersion(model),
+            }];
     }
 
     /// <summary>

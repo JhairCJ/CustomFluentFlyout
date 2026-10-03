@@ -534,3 +534,212 @@ dotnet run --project tools/DictationChecks/DictationChecks.csproj -c Release -p:
 
 `graphify-out/` contiene resultados regenerables de exploración y se conserva
 localmente, fuera del control de versiones.
+
+
+### CUDA 13 opcional y compatibilidad GTX 1650 (3 de octubre de 2026)
+
+El tercer botón descarga `crispasr-windows-x86_64-cuda13.zip` de CrispASR
+0.8.40: 510.558.581 bytes (511 MB decimales), SHA-256
+`cc81c55d24be9a5759a7887245db1b3842c8c57141757cb45fae9c6b7767b117`.
+Incluye las DLL de CUDA 13 y se instala en `0.8.40-cuda13/`, al lado de CUDA 12
+y Vulkan. No instala el Toolkit ni modifica CUDA_PATH. Se usan binarios y
+bibliotecas compilados para la misma versión; cambiar solamente las DLL 12 por
+DLL 13 no es compatible.
+
+Cada modelo CrispASR puede elegir dedicada CUDA 12 o CUDA 13 en su engranaje.
+`DictationModelDevices.CudaVersion` guarda la versión; ajustes antiguos conservan
+CUDA 12. La identidad del worker incluye esa versión, por lo que cambiarla
+reemplaza el proceso y su carpeta de bibliotecas. Descargar CUDA 13 conserva la
+selección actual y los mismos pesos Q4_K / Q8_0; la comparación de rendimiento
+queda pendiente de la descarga solicitada al usuario. No se descargó ni ejecutó
+CUDA 13 durante la preparación de esta opción.
+
+La GTX 1650 es Turing, capacidad CUDA 7.5. El workflow de compilación de este
+paquete contiene `75-real`, y la documentación indica sm_75+ para CUDA 13.
+Por tanto cumple el requisito de arquitectura. CUDA 13 exige un controlador
+NVIDIA de la rama R580 o posterior. Esta compatibilidad se verificó mediante
+fuentes; no hay una GTX 1650 física en el equipo para medir rendimiento o VRAM.
+Para probarla, empezar con Q4_K y verificar memoria disponible y estabilidad.
+El equipo actual tiene RTX 3050 Ti de 4 GiB y controlador 596.49.
+
+Fuentes primarias:
+
+- [Paquetes Windows autocontenidos y requisito sm_75+](https://github.com/CrispStrobe/CrispASR/blob/v0.8.40/docs/install.md).
+- [Compilación CUDA 13.0.0 para Windows, arquitecturas y nombres de DLL](https://github.com/CrispStrobe/CrispASR/blob/v0.8.40/.github/workflows/win-cuda13-verify.yml).
+- [NVIDIA: GTX 1650 y capacidad CUDA 7.5 de Turing](https://forums.developer.nvidia.com/t/cuda-enabled-geforce-1650/81010/7).
+- [NVIDIA: controlador mínimo para CUDA 13](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html).
+
+Una vez descargado, comparar ambas versiones con el mismo modelo Q4_K y el mismo
+audio, alternando el orden de ejecución y repitiendo cada prueba para comparar
+medianas de carga e inferencia (primer envío y repeticiones, 13 s y 31 s). Verificar
+texto y errores además de tiempo; elegir y guardar la versión más rápida que
+mantenga resultados correctos. Conservar la otra instalada para poder volver.
+El runner permite seleccionar la versión sin tocar los ajustes del usuario:
+
+```powershell
+dotnet run --project tools/DictationChecks/DictationChecks.csproj -c Release -p:Platform=x64 -- --benchmark <modelo.gguf> <audio.wav> DedicatedGpu 12
+dotnet run --project tools/DictationChecks/DictationChecks.csproj -c Release -p:Platform=x64 -- --benchmark <modelo.gguf> <audio.wav> DedicatedGpu 13
+```
+
+
+### Gestión de runtimes y comparación CUDA 12 / 13 completada (3 de octubre de 2026)
+
+Los runtimes tienen ahora una sección desplegable propia en Dictado, separada de
+Modelos de voz. Empieza cerrada y presenta una fila por paquete: propósito,
+tamaño de descarga, estado y una única acción (Descargar o Desinstalar). NeMo
+conserva su guía de instalación. Se eliminó la pared de botones de reinstalación
+y se acortaron los subtítulos de Ultra a su dependencia CrispASR.
+
+Desinstalar CrispASR elimina solo el paquete elegido; no elimina sus vecinos ni
+los modelos. La operación comparte el bloqueo del instalador, invalida la caché
+de detección de ese paquete y verifica su carpeta antes de borrarla. Se rechaza
+mientras hay dictado. Cuando el motor está en reposo, la app libera sus workers
+y suspende nuevas grabaciones y precarga mientras elimina los archivos. Al
+eliminar CUDA 12/13, las preferencias afectadas pasan a la otra versión instalada
+o CPU. Al eliminar Vulkan, las preferencias de integrada pasan a CPU. La elección
+se actualiza por modelo, sin modificar otras preferencias de dispositivo.
+
+NeMo se puede desinstalar desde su ubicación estándar
+`%LOCALAPPDATA%/Programs/NeMoSpeech/` cuando existe `.nemo-speech-install`, el
+marcador de su instalador oficial. Se retira únicamente su entrada exacta del
+PATH de usuario y del proceso. No se borran instalaciones en rutas arbitrarias
+ni carpetas enlazadas. Si se elimina su único motor, los modelos NeMo conservan
+sus pesos y requieren reinstalar ese runtime para utilizarlos.
+
+Se completaron 31 comprobaciones de integración del motor, 23 de interfaz WPF,
+8 de eliminación con carpetas temporales y 7 de cambio real CUDA 12 → 13 → 12.
+Las comprobaciones de eliminación no borraron los paquetes instalados del usuario.
+La interfaz se revisó en inglés/oscuro a 1000 px y español/claro a 680 px, tanto
+cerrada como expandida, esperando la animación nativa del desplegable.
+
+Después de completar la interfaz se compararon seis rondas por versión, alternando
+12/13 y 13/12. Cada ronda creó un worker nuevo, cargó Q4_K, transcribió 13 segundos
+del mismo párrafo sintético en inglés dos veces y luego sus 31,05 segundos completos
+dos veces. Equipo: RTX 3050 Ti Laptop de 4 GiB, controlador 596.49, CrispASR 0.8.40.
+La carga se midió por separado; los envíos empiezan con el modelo ya preparado.
+Las DLL cargadas de ggml-cuda y cuBLAS se comprobaron dentro de la carpeta del
+paquete elegido, sin tomar las bibliotecas del Toolkit global. Los 48 envíos
+produjeron el mismo texto entre versiones para cada longitud, sin errores.
+
+| Mediana de seis rondas | CUDA 12 | CUDA 13 |
+|---|---|---|
+| Carga del modelo | 0,895 s | 0,835 s |
+| Audio de 13 s, primer envío | 0,311 s | 0,300 s |
+| Audio de 13 s, repetición | 0,136 s | 0,139 s |
+| Audio de 31,05 s, primer envío | 0,300 s | 0,312 s |
+| Audio de 31,05 s, repetición | 0,293 s | 0,297 s |
+
+La inferencia está prácticamente empatada: no hay una mejora clara de CUDA 13 al
+transcribir este párrafo. CUDA 13 cargó modestamente más rápido y ocupa menos en
+la descarga. Se conserva CUDA 13 seleccionado para Q4_K, como estaba al empezar
+la comparación, y ambos paquetes quedan instalados con sus botones de eliminación.
+Son resultados de este equipo y este audio, no una garantía para otras GPU o
+para todo dictado. La GTX 1650 sigue verificada por arquitectura/documentación;
+no se dispuso de esa tarjeta para medirla.
+
+Comprobaciones adicionales, sin cambiar ajustes ni instalaciones reales:
+
+```powershell
+dotnet run --project tools/DictationChecks/DictationChecks.csproj -c Release -p:Platform=x64 -- --runtime-removal
+dotnet run --project tools/DictationChecks/DictationChecks.csproj -c Release -p:Platform=x64 -- --cuda-switch <modelo.gguf> <audio.wav>
+```
+
+
+### Whisper: dependencias CUDA descargables (2026-10-03)
+
+Dictado → Runtimes añade **Whisper · NVIDIA CUDA 13** con descarga, progreso,
+cancelación y desinstalación. No instala CUDA Toolkit ni cambia PATH/CUDA_PATH.
+El paquete propio vive en `%LOCALAPPDATA%/FluentFlyout/runtimes/whisper-cuda/13.4.1`;
+no depende del paquete de Parakeet ni desaparece al eliminar ese motor.
+
+Las versiones y hashes proceden del
+[manifiesto oficial CUDA 13.4.1](https://developer.download.nvidia.com/compute/cuda/redist/redistrib_13.4.1.json):
+
+| Componente | Versión del componente | Descarga (bytes) | SHA-256 |
+| --- | --- | ---: | --- |
+| cuBLAS | 13.7.0.27 | 423620712 | fff93984ee8a85dd8568e4b9000f9e3ef7153f0f73b176756bcbad3c6622d1f0 |
+| CUDA Runtime | 13.4.49 | 2736140 | e6663f3d3e8949eedc2d5ab92c7c5b9fa3f2a222086d91c42bfc5a38bf2b0225 |
+
+Total: 426356852 bytes (426 MB decimales). Solo se extraen `cublas64_13.dll`,
+`cublasLt64_13.dll`, `cudart64_13.dll` y las dos licencias. Los ZIP contienen un
+archivo `LICENSE` sin extensión: se verificó el directorio central mediante
+lecturas HTTP Range de 64 KiB, sin descargar ni instalar los paquetes completos.
+No se conservan cabeceras, bibliotecas de enlace, nvblas ni los ZIP de descarga.
+La carpeta se publica después de verificar ambos archivos SHA-256 y completar
+la extracción; cancelaciones y errores retiran la carpeta de preparación.
+
+Antes de activar el backend CUDA de Whisper, se cargan las tres bibliotecas
+por rutas absolutas desde el paquete administrado, con búsqueda restringida de
+DLL. Si el paquete falta, falla al cargar o está pendiente de eliminación,
+Whisper conserva CPU como respaldo. El controlador NVIDIA sigue siendo un
+requisito independiente. Los motores externos no cargan CUDA de Whisper solo
+por usar su VAD: ese backend queda en CPU.
+
+La instalación pide reiniciar para evitar cambiar un backend nativo ya cargado.
+Si las DLL están en uso, desinstalar marca la eliminación para el próximo inicio,
+conserva los modelos y cambia las preferencias de Whisper a CPU. No se liberan
+DLL nativas debajo de contextos existentes.
+
+Validación realizada: compilación, 12 comprobaciones con descargas/ZIP ficticios,
+8 comprobaciones existentes de eliminación y 24 de interfaz WPF. No se descargó
+el runtime real ni se ejecutaron transcripciones GPU de Whisper; esas pruebas
+quedan pendientes de que el usuario descargue las dependencias. No se desinstaló
+CUDA Toolkit ni se alteró el controlador.
+
+```powershell
+dotnet run --project tools/DictationChecks/DictationChecks.csproj -c Release -p:Platform=x64 -- --whisper-runtime
+```
+
+
+### Whisper: pruebas reales tras descargar las dependencias (2026-10-03)
+
+La descarga del usuario contiene las tres DLL y ambas licencias (548381980 bytes,
+523 MiB instalados aproximadamente). La aplicación ejecutándose carga las tres
+bibliotecas desde el paquete administrado, sin obtenerlas del Toolkit.
+
+Se ejecutó `Whisper Large v3 Turbo (Q5_0)` en dos procesos nuevos, uno por backend,
+con los mismos ajustes del procesador de FluentFlyout. Se eliminaron las rutas
+del Toolkit y NeMo del PATH de los hijos y todas sus variables CUDA_PATH. La prueba
+rechaza cualquier módulo cargado desde NVIDIA GPU Computing Toolkit y comprueba
+las rutas exactas de cuBLAS, cuBLASLt y cudart. El log nativo confirma `CUDA0`,
+RTX 3050 Ti (compute capability 8.6), pesos y buffers en el backend GPU.
+
+| Audio de prueba | GPU: mediana de 2 solicitudes | CPU: mediana de 2 solicitudes |
+| --- | ---: | ---: |
+| 13 s | 0,708 s | 25,425 s |
+| 31,055 s | 1,268 s | 49,936 s |
+
+Las ocho solicitudes devolvieron texto no vacío, estable entre repeticiones e
+idéntico entre CPU y GPU para cada clip. La carga del modelo tardó 0,671 s en GPU
+(sin incluir la preparación previa de DLL). Esta prueba usa audio sintético en
+inglés; mide estos clips y este modelo/equipo, sin medir micrófono, escritura al
+campo de destino ni otros modelos/idiomas. No compara versiones de las bibliotecas
+del Toolkit contra las descargadas.
+
+No se cambiaron preferencias guardadas, no se usó el micrófono y no se tocó el
+marcador de seguridad CUDA de la aplicación. El Toolkit y el controlador siguen
+instalados. Las pruebas confirman que Whisper puede ejecutarse con su paquete
+local independiente del Toolkit.
+
+```powershell
+dotnet run --project tools/DictationChecks/DictationChecks.csproj -c Release -p:Platform=x64 -- --whisper-benchmark <modelo.bin> <audio-16k-mono.wav> gpu
+dotnet run --project tools/DictationChecks/DictationChecks.csproj -c Release -p:Platform=x64 -- --whisper-benchmark <modelo.bin> <audio-16k-mono.wav> cpu
+```
+
+
+### Desinstalación de CUDA Toolkit 13.4 y verificación posterior (2026-10-03)
+
+Con autorización del usuario se ejecutó el desinstalador registrado de NVIDIA
+para `CUDAToolkit_13.4`, con modo silencioso y sin reinicio automático. Se retiraron
+los archivos del SDK, la entrada de Toolkit y sus variables/rutas de entorno.
+Solo quedan directorios vacíos en la antigua ubicación. Se conservaron el
+controlador NVIDIA 596.49, los tres productos Nsight, los modelos y los paquetes
+locales de Whisper/Parakeet. La aplicación siguió abierta, sin reiniciarse.
+
+Después de desinstalar se repitieron cuatro transcripciones de Whisper GPU en un
+proceso nuevo: ninguna DLL procedía del Toolkit; todas las dependencias CUDA
+procedían del paquete descargado. El clip de 31,055 s tardó 1,275 y 1,290 s.
+Parakeet Ultra Q4_K con CUDA 13 pasó otras cuatro transcripciones; el mismo párrafo
+tardó 0,307 y 0,329 s. El diagnóstico de NeMo sigue reconociendo la RTX 3050 Ti y
+reporta controlador/runtime compatibles, sin advertencias. No se midió de nuevo
+CPU ni se hizo inferencia NeMo en este pase.

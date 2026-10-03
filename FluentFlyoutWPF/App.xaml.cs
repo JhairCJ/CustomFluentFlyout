@@ -35,6 +35,7 @@ public partial class App : Application
         // Register AUMID for toast notifications
         ToastNotificationManagerCompat.OnActivated += Notifications.HandleNotificationActivation;
 
+        FluentFlyoutWPF.Classes.Dictation.WhisperCudaRuntime.CompletePendingRemoval();
         base.OnStartup(e);
     }
 }

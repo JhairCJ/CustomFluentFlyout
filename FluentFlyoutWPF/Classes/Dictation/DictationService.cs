@@ -73,6 +73,7 @@ public sealed class DictationService : IDisposable
     private bool _resourcePolicyPending;
     private bool _resourceSessionStarting;
     private volatile bool _disposed;
+    private volatile bool _runtimeMaintenance;
 
     public DictationPhase Phase { get; private set; } = DictationPhase.Idle;
 
@@ -111,6 +112,11 @@ public sealed class DictationService : IDisposable
 
     public DictationDevice RequestedDevice =>
         SettingsManager.Current.GetDictationDevice(SettingsManager.Current.DictationModel);
+
+    public DictationCudaVersion RequestedCudaVersion =>
+        SettingsManager.Current.GetDictationCudaVersion(SettingsManager.Current.DictationModel);
+
+    public DictationCudaVersion LoadedCudaVersion => _externalTranscriber.LoadedCudaVersion;
 
     private bool EffectiveWhisperUseGpu => RequestedDevice == DictationDevice.DedicatedGpu
         && (!_runtimeLoaded || UsingGpuRuntime);
@@ -202,6 +208,7 @@ public sealed class DictationService : IDisposable
 
         lock (_resourceStateGate)
         {
+            if (_runtimeMaintenance) return;
             CancelResourceReleaseTimerUnsafe();
             _resourceSessionStarting = true;
         }
@@ -263,7 +270,7 @@ public sealed class DictationService : IDisposable
             {
                 await DictationModelStore.ValidateIntegrityAsync(path, cts.Token);
                 await _externalTranscriber.EnsureLoadedAsync(
-                    model, path, RequestedDevice, cts.Token);
+                    model, path, RequestedDevice, cts.Token, RequestedCudaVersion);
             }
             else
             {
@@ -342,6 +349,33 @@ public sealed class DictationService : IDisposable
     public void Preload()
     {
         RefreshResourcePolicy();
+    }
+
+    /// <summary>Releases locked runtime files and suspends preloading/new recordings during removal.</summary>
+    public async Task RunRuntimeMaintenanceAsync(Func<Task> action)
+    {
+        lock (_resourceStateGate)
+        {
+            if (_disposed || IsResourceBusyUnsafe())
+                throw new InvalidOperationException("Finish the current dictation before managing runtimes");
+            _runtimeMaintenance = true;
+            CancelResourceReleaseTimerUnsafe();
+            CancelResourcePolicyUnsafe();
+        }
+        bool lockTaken = false;
+        try
+        {
+            await _resourcePolicyLock.WaitAsync();
+            lockTaken = true;
+            await ReleaseLoadedResourcesCoreAsync();
+            await action();
+        }
+        finally
+        {
+            if (lockTaken) _resourcePolicyLock.Release();
+            lock (_resourceStateGate) _runtimeMaintenance = false;
+            RefreshResourcePolicy();
+        }
     }
 
     /// <summary>
@@ -449,7 +483,8 @@ public sealed class DictationService : IDisposable
     }
 
     private bool IsResourceBusyUnsafe() =>
-        _resourceSessionStarting
+        _runtimeMaintenance
+        || _resourceSessionStarting
         || Active
         || Volatile.Read(ref _transcriptionCts) != null;
 
@@ -521,7 +556,7 @@ public sealed class DictationService : IDisposable
             if (SettingsManager.Current.DictationEnabled && activePath != null
                 && ((string.Equals(_factoryPath, activePath, StringComparison.OrdinalIgnoreCase)
                         && _factoryUseGpu == EffectiveWhisperUseGpu)
-                    || _externalTranscriber.MatchesLoadedModel(activePath, RequestedDevice)))
+                    || _externalTranscriber.MatchesLoadedModel(activePath, RequestedDevice, RequestedCudaVersion)))
             {
                 // Toggling Keep Model Loaded must not unload/reload the same weights.
                 if (!SettingsManager.Current.DictationKeepModelLoaded) ScheduleResourceRelease();
@@ -581,7 +616,7 @@ public sealed class DictationService : IDisposable
                 model,
                 modelPath,
                 RequestedDevice,
-                cancellationToken);
+                cancellationToken, RequestedCudaVersion);
         }
         else
         {
@@ -744,8 +779,11 @@ public sealed class DictationService : IDisposable
 
     private static void ApplyRuntimeLibraryOrder(bool useGpu)
     {
-        RuntimeOptions.RuntimeLibraryOrder = useGpu
-            ? [RuntimeLibrary.Cuda, RuntimeLibrary.Cuda12, RuntimeLibrary.Cpu, RuntimeLibrary.CpuNoAvx]
+        WhisperCudaRuntime.CompletePendingRemoval();
+        bool whisperModel = (DictationModelStore.Find(DictationDevices.ModelKey(SettingsManager.Current.DictationModel))?.Backend
+            ?? DictationModelBackend.Whisper) == DictationModelBackend.Whisper;
+        RuntimeOptions.RuntimeLibraryOrder = useGpu && whisperModel && WhisperCudaRuntime.TryPrepare()
+            ? [RuntimeLibrary.Cuda, RuntimeLibrary.Cpu, RuntimeLibrary.CpuNoAvx]
             : [RuntimeLibrary.Cpu, RuntimeLibrary.CpuNoAvx];
     }
 
@@ -982,7 +1020,7 @@ public sealed class DictationService : IDisposable
                     useful,
                     EffectiveLanguage(language, activePath),
                     RequestedDevice,
-                    token);
+                    token, RequestedCudaVersion);
                 engineMs = clock.ElapsedMilliseconds - mark;
                 text = text.Trim();
                 if (text.Length > 0)
@@ -1079,7 +1117,8 @@ public sealed class DictationService : IDisposable
         float[] samples,
         string language,
         DictationDevice device,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DictationCudaVersion cudaVersion)
     {
         await _resourcePolicyLock.WaitAsync(cancellationToken);
         try
@@ -1090,7 +1129,7 @@ public sealed class DictationService : IDisposable
                 samples,
                 language,
                 device,
-                cancellationToken);
+                cancellationToken, cudaVersion);
         }
         finally
         {
