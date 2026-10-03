@@ -117,7 +117,9 @@ public partial class TaskbarWindow : Window
     private bool _windowFadingOut;
     private WinEventProc? _shellZOrderProc;
     private IntPtr _shellZOrderHook, _shellForegroundHook;
-    private bool _topmostRefreshPending, _closed;
+    private bool _topmostRefreshPending, _closed, _fullscreenSuppressed;
+    private IntPtr _lastForeground;
+    private bool _foregroundIsShell;
 
     public TaskbarWindow()
     {
@@ -395,6 +397,7 @@ on_error:
 
         try
         {
+            if (RefreshFullscreenSuppression()) return;
             var interop = new WindowInteropHelper(this);
             IntPtr taskbarHandle = GetSelectedTaskbarHandle(out bool isMainTaskbarSelected);
             RaiseWidgetAboveTaskbar();
@@ -1208,6 +1211,7 @@ on_error:
     /// </summary>
     private void EnsureWindowVisible()
     {
+        if (RefreshFullscreenSuppression()) return;
         ++_visibilityVersion;
         _windowFadingOut = false;
         IsHitTestVisible = true;
@@ -1243,9 +1247,56 @@ on_error:
         RaiseWidgetAboveTaskbar();
     }
 
+    private bool RefreshFullscreenSuppression()
+    {
+        var foreground = GetForegroundWindow();
+        if (foreground != _lastForeground)
+        {
+            _lastForeground = foreground;
+            _foregroundIsShell = false;
+            var className = new StringBuilder(256);
+            GetClassName(foreground, className, className.Capacity);
+            string name = className.ToString();
+            _foregroundIsShell = name is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd";
+            if (!_foregroundIsShell && foreground != IntPtr.Zero)
+            {
+                try
+                {
+                    GetWindowProcessId(foreground, out uint pid);
+                    using var process = System.Diagnostics.Process.GetProcessById((int)pid);
+                    _foregroundIsShell = process.ProcessName is "StartMenuExperienceHost" or "ShellExperienceHost" or "SearchHost";
+                }
+                catch { /* The foreground process can exit between native queries. */ }
+            }
+        }
+        // Start/search can have a monitor-sized transparent backdrop. They are
+        // shell UI, not fullscreen playback; Windows-key activation must keep the
+        // widget above the taskbar instead of suppressing it as a fullscreen app.
+        bool fullscreen = !_foregroundIsShell && FullscreenDetector.IsFullscreenOrAwayState();
+        if (!_foregroundIsShell && !fullscreen && !_monitorArea.IsEmpty
+            && foreground != IntPtr.Zero && foreground != new WindowInteropHelper(this).Handle
+            && GetWindowRect(foreground, out RECT bounds))
+        {
+            fullscreen = bounds.Left <= _monitorArea.Left && bounds.Top <= _monitorArea.Top
+                && bounds.Right >= _monitorArea.Right && bounds.Bottom >= _monitorArea.Bottom;
+        }
+        _fullscreenSuppressed = fullscreen;
+        if (fullscreen && Visibility == Visibility.Visible)
+        {
+            ++_visibilityVersion;
+            _windowFadingOut = false;
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 1;
+            IsHitTestVisible = false;
+            Visibility = Visibility.Collapsed;
+            CloseWidgetExpansion(animate: false);
+        }
+        return fullscreen;
+    }
+
     private void RaiseWidgetAboveTaskbar()
     {
-        if (_closed || _windowFadingOut || !SettingsManager.Current.TaskbarWidgetEnabled
+        if (_closed || _fullscreenSuppressed || _windowFadingOut || !SettingsManager.Current.TaskbarWidgetEnabled
             || Visibility != Visibility.Visible) return;
         // Explorer can move its own topmost window ahead of us without changing
         // geometry. Restore only Z order: no native move, resize, or canvas reflow.
@@ -1257,13 +1308,14 @@ on_error:
         if (_shellZOrderProc != null) return;
         _shellZOrderProc = (_, eventType, hwnd, _, _, _, _) =>
         {
-            if (_closed || hwnd != _taskbarHandle || eventType == 0x8003 // EVENT_OBJECT_HIDE
+            if (_closed || (eventType != EVENT_SYSTEM_FOREGROUND && hwnd != _taskbarHandle)
+                || eventType == 0x8003 // EVENT_OBJECT_HIDE
                 || _topmostRefreshPending || Dispatcher.HasShutdownStarted) return;
             _topmostRefreshPending = true;
             Dispatcher.BeginInvoke(() =>
             {
                 _topmostRefreshPending = false;
-                RaiseWidgetAboveTaskbar();
+                UpdatePosition();
             }, DispatcherPriority.Render);
         };
         // Observe only shell show/reorder and foreground changes, outside its
@@ -1373,7 +1425,7 @@ on_error:
         widgetScreen.Offset(_taskbarScreenRect.Left, _taskbarScreenRect.Top);
         var box = TaskbarWidgetExpansion.Expand(ToBox(widgetScreen), ToBox(_taskbarScreenRect), ToBox(_monitorWorkArea),
             340 * _positionDpiScale,
-            156 * _positionDpiScale);
+            124 * _positionDpiScale);
         return new Rect(box.Left - _taskbarScreenRect.Left, box.Top - _taskbarScreenRect.Top, box.Width, box.Height);
     }
 

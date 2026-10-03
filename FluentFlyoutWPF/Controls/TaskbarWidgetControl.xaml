@@ -109,7 +109,7 @@
                 </Grid>
             </Border>
             <Border x:Name="ExpandedBackdropShade" Background="#B3151515" IsHitTestVisible="False" Visibility="Collapsed" Opacity="0"/>
-            <controls:TaskbarWidgetExpandedContent x:Name="ExpandedContent" Width="340" Height="156" HorizontalAlignment="Left" VerticalAlignment="Top" Visibility="Collapsed" Opacity="0"/>
+            <controls:TaskbarWidgetExpandedContent x:Name="ExpandedContent" Width="340" Height="124" HorizontalAlignment="Left" VerticalAlignment="Top" Visibility="Collapsed" Opacity="0"/>
             <!-- Snapshot layer: holds a render of the previous album while a song change
                  is underway so it can crossfade into the new content underneath. -->
             <Border x:Name="CrossfadeOverlay" CornerRadius="6" ClipToBounds="True" IsHitTestVisible="False" Opacity="0" Visibility="Collapsed" />

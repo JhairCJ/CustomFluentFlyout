@@ -886,7 +886,7 @@ public partial class TaskbarWidgetControl : UserControl
     private void LayoutBackgroundToFillWidget()
     {
         double width = (_songInfoExpanded || _expansionTransition) ? 340 : (BackgroundCanvas.ActualWidth > 0 ? BackgroundCanvas.ActualWidth : 240);
-        double height = (_songInfoExpanded || _expansionTransition) ? 156 : (BackgroundCanvas.ActualHeight > 0 ? BackgroundCanvas.ActualHeight : 40);
+        double height = (_songInfoExpanded || _expansionTransition) ? 124 : (BackgroundCanvas.ActualHeight > 0 ? BackgroundCanvas.ActualHeight : 40);
 
         double side = Math.Max(Math.Max(width, height), 1);
 
@@ -2135,7 +2135,7 @@ public partial class TaskbarWidgetControl : UserControl
 
     private void AnimateEntrance()
     {
-        if (_expansionTransition) return;
+        if (_expansionTransition || _songInfoExpanded) return;
         try
         {
             // When the widget is appearing from a collapsed state (or already fading out

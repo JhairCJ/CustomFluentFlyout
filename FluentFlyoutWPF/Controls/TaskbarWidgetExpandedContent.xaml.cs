@@ -26,9 +26,12 @@ public partial class TaskbarWidgetExpandedContent : UserControl
     private int _progressRefreshPending, _progressVersion;
     private int _titleVersion, _artistVersion;
     private string _titleTarget = string.Empty, _artistTarget = string.Empty;
-    private GlobalSystemMediaTransportControlsSession? _seekSession;
-    private readonly SymbolIcon _playIcon = new(SymbolRegular.Play24, filled: true);
-    private readonly SymbolIcon _pauseIcon = new(SymbolRegular.Pause24, filled: true);
+    private GlobalSystemMediaTransportControlsSession? _seekSession, _observedSession, _publishedSession;
+    private int _progressRefreshAgain, _albumFlipVersion;
+    private bool _albumFlipRunning;
+    private BitmapImage? _albumFlipArt, _displayedArt;
+    private readonly SymbolIcon _playIcon = new(SymbolRegular.Play24, filled: true) { FontSize = 22 };
+    private readonly SymbolIcon _pauseIcon = new(SymbolRegular.Pause24, filled: true) { FontSize = 22 };
     public Action<bool>? TrackNavigation { get; set; }
     public Action? ToggleExpansion { get; set; }
 
@@ -72,6 +75,10 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     public void PublishSong(string title, string artist, BitmapImage? art, bool backwards = false)
     {
+        var session = _mainWindow?.GetTaskbarSession()?.ControlSession;
+        bool flip = _active && !string.IsNullOrEmpty(_titleTarget)
+            && (_titleTarget != title || _artistTarget != artist || !ReferenceEquals(session, _publishedSession));
+        _publishedSession = session;
         if (_titleTarget != title)
         {
             _titleTarget = title;
@@ -86,10 +93,14 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         }
         TitleText.ToolTip = title;
         ArtistText.ToolTip = artist;
-        AlbumArt.ImageSource = art;
-        UpdateAlbumOverlay();
+        if (flip || _albumFlipRunning) StartAlbumFlip(art);
+        else SetAlbumArt(art);
         Interlocked.Increment(ref _progressVersion);
-        if (_active) ProgressTick(null);
+        if (_active)
+        {
+            RefreshObservedSession();
+            RequestProgressRefresh();
+        }
     }
 
     private void UpdateTextRow(System.Windows.Controls.TextBlock row, string text, bool backwards, Func<bool> current)
@@ -128,6 +139,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         PreviousButton.IsEnabled = controls?.IsPreviousEnabled == true;
         PlayPauseButton.IsEnabled = controls?.IsPlayEnabled == true || controls?.IsPauseEnabled == true;
         NextButton.IsEnabled = controls?.IsNextEnabled == true;
+        if (_active) RefreshObservedSession();
     }
 
     public void SetActive(bool active)
@@ -135,9 +147,12 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         if (_disposed) return;
         _active = active;
         Interlocked.Increment(ref _progressVersion);
-        _progressTimer.Change(active ? 0 : Timeout.Infinite, active ? 300 : Timeout.Infinite);
+        _progressTimer.Change(active ? 0 : Timeout.Infinite, active ? 100 : Timeout.Infinite);
+        RefreshObservedSession();
+        if (active) RequestProgressRefresh();
         if (!active)
         {
+            SetAlbumArt(_albumFlipArt ?? _displayedArt);
             ++_titleVersion;
             ++_artistVersion;
             UpdateTextRow(TitleText, _titleTarget, false, () => true);
@@ -171,50 +186,79 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         AlbumArt.Opacity = chevron ? 0.4 : 1;
     }
 
+    private void RefreshObservedSession()
+    {
+        var current = _active ? _mainWindow?.GetTaskbarSession()?.ControlSession : null;
+        if (ReferenceEquals(current, _observedSession)) return;
+        if (_observedSession != null)
+        {
+            try
+            {
+                _observedSession.TimelinePropertiesChanged -= SessionStateChanged;
+                _observedSession.PlaybackInfoChanged -= SessionStateChanged;
+            }
+            catch (Exception ex) { Logger.Debug(ex, "Taskbar session ended during event cleanup"); }
+        }
+        _observedSession = current;
+        Interlocked.Increment(ref _progressVersion);
+        if (current != null)
+        {
+            try
+            {
+                current.TimelinePropertiesChanged += SessionStateChanged;
+                current.PlaybackInfoChanged += SessionStateChanged;
+            }
+            catch (Exception ex) { Logger.Debug(ex, "Taskbar session notifications unavailable; polling remains active"); }
+            RequestProgressRefresh();
+        }
+    }
+
+    private void SessionStateChanged(GlobalSystemMediaTransportControlsSession sender, object args)
+    {
+        if (_active && ReferenceEquals(sender, _observedSession)) RequestProgressRefresh();
+    }
+
+    private void RequestProgressRefresh()
+    {
+        if (!_active || _disposed) return;
+        _ = Task.Run(() => ProgressTick(null));
+    }
+
     private void ProgressTick(object? state)
     {
-        if (_disposed || !_active)
-            return;
+        if (_disposed || !_active) return;
         if (Interlocked.Exchange(ref _progressRefreshPending, 1) == 1)
+        {
+            Interlocked.Exchange(ref _progressRefreshAgain, 1);
             return;
-
+        }
         int version = Volatile.Read(ref _progressVersion);
-        double minimumSeconds = 0;
-        double positionSeconds = 0;
-        double maximumSeconds = 0;
-        bool seekable = false;
-        bool playing = false;
-
+        double minimumSeconds = 0, positionSeconds = 0, maximumSeconds = 0;
+        bool seekable = false, playing = false;
+        GlobalSystemMediaTransportControlsSessionPlaybackControls? controls = null;
+        GlobalSystemMediaTransportControlsSession? session = null;
         try
         {
-            // The taskbar session, same one the widget shows. The read runs off the UI
-            // thread, like the media flyout's own seek timer.
-            if (_mainWindow?.GetTaskbarSession() is { } session)
+            session = _mainWindow?.GetTaskbarSession()?.ControlSession;
+            if (session != null)
             {
-                var timeline = session.ControlSession.GetTimelineProperties();
-                playing = session.ControlSession.GetPlaybackInfo()?.PlaybackStatus
-                    == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-
+                var playback = session.GetPlaybackInfo();
+                controls = playback?.Controls;
+                playing = playback?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                var timeline = session.GetTimelineProperties();
                 if (timeline.MaxSeekTime > timeline.MinSeekTime)
                 {
                     var position = playing
                         ? timeline.Position + (DateTimeOffset.UtcNow - timeline.LastUpdatedTime)
                         : timeline.Position;
-                    if (position < timeline.MinSeekTime) position = timeline.MinSeekTime;
-                    if (position > timeline.MaxSeekTime) position = timeline.MaxSeekTime;
                     minimumSeconds = timeline.MinSeekTime.TotalSeconds;
-
-                    positionSeconds = position.TotalSeconds;
                     maximumSeconds = timeline.MaxSeekTime.TotalSeconds;
-                    seekable = session.ControlSession.GetPlaybackInfo()?.Controls.IsPlaybackPositionEnabled == true;
+                    positionSeconds = Math.Clamp(position.TotalSeconds, minimumSeconds, maximumSeconds);
+                    seekable = controls?.IsPlaybackPositionEnabled == true;
                 }
             }
         }
-        catch
-        {
-            // The session can disappear mid-read; the next tick retries.
-        }
-
+        catch { /* A disappearing session is retried by the next notification/tick. */ }
         if (Dispatcher.HasShutdownStarted)
         {
             Interlocked.Exchange(ref _progressRefreshPending, 0);
@@ -222,24 +266,72 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         }
         Dispatcher.BeginInvoke(() =>
         {
-            Interlocked.Exchange(ref _progressRefreshPending, 0);
-            if (_disposed || !_active || version != Volatile.Read(ref _progressVersion))
-                return;
-
-            // Safety net: a release outside the slider can skip its mouse-up handler and
-            // leave the drag flag stuck, freezing the live position updates forever.
-            if (_drag && Mouse.LeftButton == MouseButtonState.Released)
-                _drag = false;
-
-            bool paused = !playing;
-            if (_isPaused != paused)
+            try
             {
-                _isPaused = paused;
-                PlayPauseButton.Icon = _isPaused ? _playIcon : _pauseIcon;
+                if (_disposed || !_active || version != Volatile.Read(ref _progressVersion)) return;
+                RefreshObservedSession();
+                if (version != Volatile.Read(ref _progressVersion) || !ReferenceEquals(session, _observedSession)) return;
+                if (_drag && Mouse.LeftButton == MouseButtonState.Released) _drag = false;
+                ApplyPlaybackState(!playing, controls);
+                ApplyProgress(minimumSeconds, positionSeconds, maximumSeconds, seekable);
             }
-
-            ApplyProgress(minimumSeconds, positionSeconds, maximumSeconds, seekable);
+            finally
+            {
+                Interlocked.Exchange(ref _progressRefreshPending, 0);
+                // Never lose a playback/timeline notification behind an older read.
+                if (Interlocked.Exchange(ref _progressRefreshAgain, 0) == 1) RequestProgressRefresh();
+            }
         });
+    }
+
+    private void ApplyAlbumArt(BitmapImage? art)
+    {
+        _displayedArt = art;
+        AlbumArt.ImageSource = art;
+        UpdateAlbumOverlay();
+    }
+
+    private void SetAlbumArt(BitmapImage? art)
+    {
+        ++_albumFlipVersion;
+        _albumFlipRunning = false;
+        _albumFlipArt = art;
+        AlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        AlbumFlipScale.ScaleX = 1;
+        ApplyAlbumArt(art);
+    }
+
+    private void StartAlbumFlip(BitmapImage? art)
+    {
+        _albumFlipArt = art;
+        if (!TaskbarWidgetAnimationEnvironment.AreAnimationsEnabled || !_active)
+        {
+            SetAlbumArt(art);
+            return;
+        }
+        if (_albumFlipRunning) return;
+        _albumFlipRunning = true;
+        int version = _albumFlipVersion;
+        double halfMs = Math.Clamp(TaskbarWidgetAnimationEnvironment.GetDurationMs() * 0.35, 90, 200);
+        var outgoing = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(halfMs))
+        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
+        outgoing.Completed += (_, _) =>
+        {
+            if (version != _albumFlipVersion) return;
+            ApplyAlbumArt(_albumFlipArt);
+            var incoming = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(halfMs))
+            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+            incoming.Completed += (_, _) =>
+            {
+                if (version != _albumFlipVersion) return;
+                AlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                AlbumFlipScale.ScaleX = 1;
+                _albumFlipRunning = false;
+                if (!ReferenceEquals(_albumFlipArt, _displayedArt)) StartAlbumFlip(_albumFlipArt);
+            };
+            AlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, incoming);
+        };
+        AlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, outgoing);
     }
 
     private void ApplyProgress(double minimumSeconds, double positionSeconds, double maximumSeconds, bool seekable)
@@ -323,6 +415,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
             {
                 _mainWindow!.PinTaskbarSession(_mainWindow.GetTaskbarSession()!);
                 await session.TryChangePlaybackPositionAsync(ticks);
+                RequestProgressRefresh();
             }
         }
         catch (Exception ex) { Logger.Debug(ex, "Taskbar widget seek failed"); }
@@ -347,6 +440,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
             _mainWindow!.PinTaskbarSession(session);
             TrackNavigation?.Invoke(false);
             await session.ControlSession.TrySkipPreviousAsync();
+                RequestProgressRefresh();
         }
         catch (Exception ex) { Logger.Debug(ex, "Taskbar widget transport failed"); }
     }
@@ -359,6 +453,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         {
             _mainWindow!.PinTaskbarSession(session);
             await session.ControlSession.TryTogglePlayPauseAsync();
+                RequestProgressRefresh();
         }
         catch (Exception ex) { Logger.Debug(ex, "Taskbar widget transport failed"); }
     }
@@ -372,6 +467,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
             _mainWindow!.PinTaskbarSession(session);
             TrackNavigation?.Invoke(true);
             await session.ControlSession.TrySkipNextAsync();
+                RequestProgressRefresh();
         }
         catch (Exception ex) { Logger.Debug(ex, "Taskbar widget transport failed"); }
     }
@@ -380,6 +476,8 @@ public partial class TaskbarWidgetExpandedContent : UserControl
     {
         e.Handled = true;
         _mainWindow?.CycleTaskbarSession();
+        RefreshObservedSession();
+        RequestProgressRefresh();
     }
 
     private void AlbumArt_MouseEnter(object sender, MouseEventArgs e)

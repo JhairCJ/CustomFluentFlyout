@@ -368,7 +368,7 @@ public static partial class NativeMethods
     internal static partial uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
 
     /// <summary>PID del proceso dueño de una ventana (para no tocar ventanas ajenas).</summary>
-    [LibraryImport("user32.dll", SetLastError = true)]
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowThreadProcessId", SetLastError = true)]
     internal static partial uint GetWindowProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
     /// <summary>
