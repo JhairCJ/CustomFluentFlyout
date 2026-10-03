@@ -51,6 +51,7 @@ internal static class DictationUiChecks
             DictationUseGpu = true,
         };
         var page = new DictationPage();
+        Invoke(page, "UpdateCrispAsrRuntimeStatus");
         var models = (FrameworkElement)page.FindName("DictationModelsCard");
         ((Panel)models.Parent).Children.Remove(models);
         page.Content = models;
@@ -67,12 +68,28 @@ internal static class DictationUiChecks
         OpenMenu(page, gear!);
         var menu = gear!.ContextMenu!;
         var choices = menu.Items.OfType<MenuItem>().Where(item => item.IsCheckable).ToArray();
-        Check(choices.Length == 2 && choices[1].Header.ToString()!.Contains("Integrated"),
-            "Parakeet Ultra's menu offers CPU and integrated GPU, with no dedicated option");
-        PumpUntil(() => choices[1].IsEnabled || choices[1].Header.ToString()!.Contains("unavailable")
-            || choices[1].Header.ToString()!.Contains("Could not"));
+        Check(choices.Length == 3 && choices[1].Header.ToString()!.Contains("Integrated")
+            && choices[2].Header.ToString()!.Contains("Dedicated"),
+            "Parakeet Ultra's menu offers CPU, integrated Vulkan and dedicated NVIDIA CUDA");
+        PumpUntil(() => choices.Skip(1).All(item => item.IsEnabled || item.Header.ToString()!.Contains("unavailable")
+            || item.Header.ToString()!.Contains("Could not")));
         Check(choices[1].IsEnabled && choices[1].Header.ToString()!.Contains("Intel"),
             "The menu discovers the actual integrated Vulkan adapter");
+        if (choices[2].IsEnabled)
+        {
+            Check(choices[2].Header.ToString()!.Contains("RTX 3050 Ti")
+                && choices[2].Header.ToString()!.Contains("CUDA"),
+                "The menu discovers the dedicated RTX adapter with its CUDA label");
+            choices[2].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            Check(SettingsManager.Current.GetDictationDevice(SettingsManager.Current.DictationModel) == DictationDevice.DedicatedGpu,
+                "Choosing the dedicated GPU from the real menu saves the Parakeet preference");
+        }
+        else Check(choices[2].Header.ToString()!.Contains("CUDA 12"),
+            "A missing CUDA package disables the dedicated option and explains which dependencies to download");
+        Check(((System.Windows.Controls.Button)page.FindName("CrispAsrCudaRuntimeButton")).Content.ToString()!.Contains("727 MB"),
+            "The dedicated CUDA download button displays its actual size");
+        Check(((System.Windows.Controls.Button)page.FindName("CrispAsrRuntimeButton")).Content.ToString()!.Contains("38 MB"),
+            "Vulkan dependencies retain their own smaller download button");
         choices[0].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         Check(SettingsManager.Current.GetDictationDevice(SettingsManager.Current.DictationModel) == DictationDevice.Cpu,
             "Choosing CPU from the real menu changes the active model's preference");
@@ -99,6 +116,7 @@ internal static class DictationUiChecks
         // A fresh disconnected page resolves the new application's resources just as
         // navigating to this page does. It is not an Application-owned live window.
         page = new DictationPage();
+        Invoke(page, "UpdateCrispAsrRuntimeStatus");
         models = (FrameworkElement)page.FindName("DictationModelsCard");
         ((Panel)models.Parent).Children.Remove(models);
         page.Content = models;

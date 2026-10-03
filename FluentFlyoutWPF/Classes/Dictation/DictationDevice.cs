@@ -29,5 +29,7 @@ public static class DictationDevices
             : DictationDevice.DedicatedGpu;
 
     public static bool Supports(string model, DictationDevice device) =>
-        device == DictationDevice.Cpu || device == GpuForModel(model);
+        device == DictationDevice.Cpu || device == DictationDevice.DedicatedGpu
+        || (device == DictationDevice.IntegratedGpu
+            && DictationModelStore.Find(ModelKey(model))?.Backend == DictationModelBackend.CrispAsr);
 }

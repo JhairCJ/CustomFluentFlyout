@@ -48,7 +48,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
     private Uri? _crispBaseUri;
     private string? _crispModelPath;
     private string? _crispApiKey;
-    private bool _crispUseGpu;
+    private DictationDevice _crispDevice;
     private string? _crispDeviceName;
     private bool _disposed;
 
@@ -64,17 +64,20 @@ public sealed class ExternalAsrTranscriber : IDisposable
         : null;
 
     public bool UsingGpu => (_nemoProcess is { HasExited: false } && _nemoUseGpu)
-        || (_crispProcess is { HasExited: false } && _crispUseGpu);
+        || (_crispProcess is { HasExited: false } && _crispDevice != DictationDevice.Cpu);
 
-    public bool MatchesLoadedModel(string modelPath, bool useGpu) =>
+    public DictationDevice LoadedDevice => CrispRuntimeLoaded ? _crispDevice
+        : UsingGpu ? DictationDevice.DedicatedGpu : DictationDevice.Cpu;
+
+    public bool MatchesLoadedModel(string modelPath, DictationDevice device) =>
         string.Equals(LoadedModelPath, modelPath, StringComparison.OrdinalIgnoreCase)
-        && UsingGpu == useGpu;
+        && LoadedDevice == device;
 
     /// <summary>Loads the model's external worker, if its backend supports preloading.</summary>
     public async Task EnsureLoadedAsync(
         DictationModelInfo model,
         string modelPath,
-        bool useGpu,
+        DictationDevice device,
         CancellationToken cancellationToken)
     {
         if (model.Backend is not (DictationModelBackend.NemoSpeech or DictationModelBackend.CrispAsr))
@@ -85,11 +88,11 @@ public sealed class ExternalAsrTranscriber : IDisposable
         {
             if (model.Backend == DictationModelBackend.CrispAsr)
             {
-                await EnsureCrispServerCoreAsync(modelPath, useGpu, cancellationToken);
+                await EnsureCrispServerCoreAsync(modelPath, device, cancellationToken);
             }
             else
             {
-                await EnsureNemoServerCoreAsync(modelPath, useGpu, cancellationToken);
+                await EnsureNemoServerCoreAsync(modelPath, device != DictationDevice.Cpu, cancellationToken);
             }
         }
         finally
@@ -103,7 +106,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
         string modelPath,
         float[] samples,
         string language,
-        bool useGpu,
+        DictationDevice device,
         CancellationToken cancellationToken)
     {
         string wavPath = Path.Combine(
@@ -116,9 +119,9 @@ public sealed class ExternalAsrTranscriber : IDisposable
             return model.Backend switch
             {
                 DictationModelBackend.NemoSpeech => await TranscribeWithNemoAsync(
-                    modelPath, wavPath, language, model.UsesLocaleLanguageCodes, useGpu, cancellationToken),
+                    modelPath, wavPath, language, model.UsesLocaleLanguageCodes, device != DictationDevice.Cpu, cancellationToken),
                 DictationModelBackend.CrispAsr => await TranscribeWithCrispAsrAsync(
-                    modelPath, wavPath, language, useGpu, cancellationToken),
+                    modelPath, wavPath, language, device, cancellationToken),
                 _ => throw new InvalidOperationException(
                     $"El backend externo no admite el modelo {model.FileName}"),
             };
@@ -259,19 +262,19 @@ public sealed class ExternalAsrTranscriber : IDisposable
 
     /// <summary>
     /// Reuses the worker until DictationService releases it under the user's policy.
-    /// Acceleration chooses Vulkan; without it the same installed build uses CPU.
+    /// Integrated graphics use Vulkan; dedicated NVIDIA graphics use CUDA 12.
     /// </summary>
     private async Task<string> TranscribeWithCrispAsrAsync(
         string modelPath,
         string wavPath,
         string language,
-        bool useGpu,
+        DictationDevice device,
         CancellationToken cancellationToken)
     {
         await _externalLock.WaitAsync(cancellationToken);
         try
         {
-            await EnsureCrispServerCoreAsync(modelPath, useGpu, cancellationToken);
+            await EnsureCrispServerCoreAsync(modelPath, device, cancellationToken);
             using var form = new MultipartFormDataContent();
             await using FileStream audio = File.OpenRead(wavPath);
             using var file = new StreamContent(audio);
@@ -293,7 +296,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
             string text = JsonSerializer.Deserialize<CrispAsrResponse>(body, JsonOptions)?.Text?.Trim() ?? "";
             if (text.Length == 0)
                 throw new InvalidOperationException("CrispASR no devolvió texto para este audio");
-            Logger.Info($"CrispASR: {Path.GetFileName(modelPath)} ({(useGpu ? "Vulkan" : "CPU")}, modelo persistente)");
+            Logger.Info($"CrispASR: {Path.GetFileName(modelPath)} ({device}, modelo persistente)");
             return text;
         }
         catch
@@ -309,20 +312,22 @@ public sealed class ExternalAsrTranscriber : IDisposable
         }
     }
 
-    private async Task EnsureCrispServerCoreAsync(string modelPath, bool useGpu, CancellationToken cancellationToken)
+    private async Task EnsureCrispServerCoreAsync(string modelPath, DictationDevice device, CancellationToken cancellationToken)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(ExternalAsrTranscriber));
         if (_crispProcess is { HasExited: false }
             && string.Equals(_crispModelPath, modelPath, StringComparison.OrdinalIgnoreCase)
-            && _crispUseGpu == useGpu)
+            && _crispDevice == device)
             return;
 
         StopCrispServer();
-        string executable = CrispAsrRuntime.ExecutablePath ?? throw new FileNotFoundException(
-            "No se encontró el runtime CrispASR. Descárgalo en Ajustes > Dictado > Runtimes.");
-        var integrated = useGpu ? await CrispAsrRuntime.GetIntegratedDeviceAsync(cancellationToken) : null;
-        if (useGpu && integrated == null)
-            throw new InvalidOperationException("No se encontró una gráfica integrada compatible con Vulkan. Selecciona Procesador en los ajustes del modelo.");
+        string backend = device == DictationDevice.DedicatedGpu ? "cuda" : "vulkan";
+        string executable = CrispAsrRuntime.ExecutableFor(device) ?? throw new FileNotFoundException(
+            $"No se encontró el runtime CrispASR {backend}. Descarga sus dependencias en Ajustes > Dictado > Runtimes.");
+        var adapter = device != DictationDevice.Cpu
+            ? await CrispAsrRuntime.GetDeviceAsync(device, cancellationToken) : null;
+        if (device != DictationDevice.Cpu && adapter == null)
+            throw new InvalidOperationException($"No se encontró una gráfica {(device == DictationDevice.DedicatedGpu ? "NVIDIA dedicada" : "integrada")} compatible con {backend}. Comprueba las dependencias CrispASR y el controlador de la GPU o selecciona Procesador en los ajustes del modelo.");
         int port = FindAvailableLoopbackPort();
         Uri baseUri = new($"http://127.0.0.1:{port}/");
         string apiKey = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
@@ -340,18 +345,19 @@ public sealed class ExternalAsrTranscriber : IDisposable
         startInfo.Environment["NO_COLOR"] = "1";
         startInfo.Environment["CRISPASR_API_KEYS"] = apiKey;
         startInfo.Environment.Remove("GGML_VK_VISIBLE_DEVICES");
+        startInfo.Environment.Remove("CUDA_VISIBLE_DEVICES");
         startInfo.ArgumentList.Add("--server");
         startInfo.ArgumentList.Add("--host");
         startInfo.ArgumentList.Add("127.0.0.1");
         startInfo.ArgumentList.Add("--port");
         startInfo.ArgumentList.Add(port.ToString());
         startInfo.ArgumentList.Add("--no-warmup");
-        if (useGpu)
+        if (adapter != null)
         {
             startInfo.ArgumentList.Add("--gpu-backend");
-            startInfo.ArgumentList.Add("vulkan");
+            startInfo.ArgumentList.Add(backend);
             startInfo.ArgumentList.Add("--device");
-            startInfo.ArgumentList.Add(integrated!.Index.ToString());
+            startInfo.ArgumentList.Add(adapter.Index.ToString());
         }
         else
         {
@@ -365,9 +371,9 @@ public sealed class ExternalAsrTranscriber : IDisposable
         _crispBaseUri = baseUri;
         _crispModelPath = modelPath;
         _crispApiKey = apiKey;
-        _crispUseGpu = useGpu;
-        _crispDeviceName = integrated?.Name;
-        Logger.Info($"CrispASR: dispositivo {(integrated == null ? "CPU" : $"Vulkan {integrated.Index}: {integrated.Name}")}");
+        _crispDevice = device;
+        _crispDeviceName = adapter?.Name;
+        Logger.Info($"CrispASR: dispositivo {(adapter == null ? "CPU" : $"{backend} {adapter.Index}: {adapter.Name}")}");
         _ = DrainProcessOutputAsync(process.StandardOutput, "CrispASR stdout");
         _ = DrainProcessOutputAsync(process.StandardError, "CrispASR stderr");
         try
@@ -395,7 +401,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
                 catch (OperationCanceledException) when (!readyCts.IsCancellationRequested) { }
                 await Task.Delay(NemoPollInterval, readyCts.Token);
             }
-            Logger.Info($"CrispASR listo ({(useGpu ? "Vulkan" : "CPU")}, persistente): {Path.GetFileName(modelPath)}");
+            Logger.Info($"CrispASR listo ({device}, persistente): {Path.GetFileName(modelPath)}");
         }
         catch
         {
@@ -776,7 +782,7 @@ public sealed class ExternalAsrTranscriber : IDisposable
         _crispBaseUri = null;
         _crispModelPath = null;
         _crispApiKey = null;
-        _crispUseGpu = false;
+        _crispDevice = DictationDevice.Cpu;
         _crispDeviceName = null;
         if (process != null) StopProcess(process);
     }

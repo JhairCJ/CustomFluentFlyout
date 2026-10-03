@@ -183,7 +183,7 @@ public static class DictationModelStore
             "Español, inglés y 23 idiomas más")
         {
             Backend = DictationModelBackend.CrispAsr,
-            Runtime = "Requiere CrispASR (CPU / Vulkan; sin CUDA)",
+            Runtime = "Requiere CrispASR (CPU / integrada Vulkan / NVIDIA CUDA 12)",
             Repository = "cstr/parakeet-ultra-GGUF",
             RemoteFileName = "parakeet-ultra-q8_0.gguf",
             Revision = "252cd632a21e98ba5edbdeb61c7274d01c54cb73",
@@ -193,7 +193,7 @@ public static class DictationModelStore
             "Español, inglés y 23 idiomas más")
         {
             Backend = DictationModelBackend.CrispAsr,
-            Runtime = "Requiere CrispASR (CPU / Vulkan; sin CUDA)",
+            Runtime = "Requiere CrispASR (CPU / integrada Vulkan / NVIDIA CUDA 12)",
             Repository = "cstr/parakeet-ultra-GGUF",
             RemoteFileName = "parakeet-ultra-q4_k.gguf",
             Revision = "252cd632a21e98ba5edbdeb61c7274d01c54cb73",

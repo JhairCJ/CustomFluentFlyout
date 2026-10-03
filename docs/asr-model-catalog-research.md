@@ -432,11 +432,65 @@ sale el modelo.
 
 ## 13. Integración implementada en la app
 
-Parakeet Ultra Q8_0 y Q4_K usan CrispASR 0.8.40. La app descarga el runtime
-Windows CPU/Vulkan con versión y SHA-256 fijados. El engranaje junto a «En uso»
-permite elegir procesador o gráfica integrada (Vulkan, sin NVIDIA CUDA). La app
-consulta los dispositivos al runtime, identifica la integrada y pasa su índice
-explícito; no depende de que la gráfica predeterminada sea la integrada.
+Parakeet Ultra Q8_0 y Q4_K usan CrispASR 0.8.40. La app descarga dos paquetes
+Windows independientes, con versión y SHA-256 fijados. El engranaje junto a
+«En uso» permite elegir CPU, integrada (Vulkan) o dedicada NVIDIA (CUDA 12).
+La RTX 3050 Ti es `CUDA0` en el paquete CUDA y `Vulkan1` en el paquete Vulkan:
+los índices pertenecen a cada backend y no se pueden reutilizar entre ellos.
+La app enumera cada paquete por separado, pasa el índice explícito y muestra el
+nombre real del adaptador. Si faltan CUDA o una NVIDIA compatible, la opción
+dedicada queda desactivada con instrucciones; no se presenta CPU como dGPU.
+
+Dos botones instalan las dependencias, con progreso y validación SHA-256:
+
+- «Descargar Ultra CPU / integrada (38 MB)»: paquete Vulkan existente, conserva
+  su ubicación `%LOCALAPPDATA%/FluentFlyout/runtimes/crispasr/0.8.40/`.
+- «Descargar Ultra NVIDIA CUDA 12 (727 MB)»: paquete CUDA 12.8 autocontenido,
+  726.799.695 bytes comprimidos y 995.423.676 bytes instalados. Incluye
+  `cudart64_12.dll`, `cublas64_12.dll`, `cublasLt64_12.dll` y `ggml-cuda.dll`.
+  No necesita instalar CUDA Toolkit ni cambiar `CUDA_PATH`; requiere controlador
+  NVIDIA compatible. Se instala al lado, en `0.8.40-cuda/`, para que reinstalar
+  Vulkan no borre CUDA. SHA-256:
+  `5bca3b6095f6167b43d81491201d1365b93b8dccc772e4823e80c26bdd7f6ec8`.
+
+No hace falta descargar otro modelo para dGPU: los pesos GGUF son independientes
+del motor. Q4_K (384 MiB) y Q8_0 (643 MiB) conservan sus botones de descarga,
+revisiones inmutables y hashes. CUDA y Vulkan reutilizan el archivo instalado.
+Las pruebas de rendimiento siguientes usan Q4_K.
+
+Referencias verificadas el 3 de octubre de 2026:
+
+- [CrispASR 0.8.40: instalación y paquetes CUDA](https://github.com/CrispStrobe/CrispASR/blob/v0.8.40/docs/install.md).
+- [Guía oficial: Windows NVIDIA y paquete sin Toolkit](https://github.com/CrispStrobe/CrispASR/blob/v0.8.40/docs/getting-started.md).
+- [GGUF de Parakeet Ultra usado por el catálogo](https://huggingface.co/cstr/parakeet-ultra-GGUF).
+
+Prueba real en este equipo, 3 de octubre de 2026: NVIDIA GeForce RTX 3050 Ti
+Laptop GPU de 4 GiB, controlador 596.49, CrispASR 0.8.40 y Parakeet Ultra Q4_K.
+La prueba anterior de Vulkan con solo 3,24 segundos repetidos no detectó el mal
+rendimiento al cambiar la longitud del dictado. Los registros de uso mostraron
+20,15 segundos de inferencia para 13,1 segundos de audio en Vulkan NVIDIA.
+
+La validación CUDA usa un párrafo sintético en inglés, mono PCM16 a 16 kHz,
+y el mismo audio con dos longitudes. Se crea un worker nuevo por dispositivo,
+carga el modelo una vez y cambia de 13 a 31,05 segundos sin reiniciarlo:
+
+| Audio | Integrada Vulkan, primer envío / repetido | RTX CUDA 12, primer envío / repetido |
+|---|---|---|
+| 13,00 s | 4,816 s / 4,394 s | 0,381 s / 0,146 s |
+| 31,05 s | 10,454 s / 9,958 s | 0,397 s / 0,386 s |
+
+La carga previa, excluida de esos tiempos, fue 1,98 s en integrada y 1,53 s en
+CUDA. Los dos motores devolvieron el mismo texto en cada longitud. Son mediciones
+del párrafo de prueba, no una garantía para todo audio. CUDA ya evita el coste
+Vulkan observado para longitudes nuevas. `Keep Model Loaded` conserva el worker;
+sin ese ajuste se añade la carga del modelo después de la liberación por inactividad.
+
+Para repetir el benchmark a través del transcriptor real de la aplicación:
+
+```powershell
+dotnet run --project tools/DictationChecks/DictationChecks.csproj -c Release -p:Platform=x64 -- --benchmark <modelo.gguf> <audio.wav> IntegratedGpu
+dotnet run --project tools/DictationChecks/DictationChecks.csproj -c Release -p:Platform=x64 -- --benchmark <modelo.gguf> <audio.wav> DedicatedGpu
+```
 
 Whisper, OruKeet y Parakeet/NeMo permiten procesador o dedicada NVIDIA
 (CUDA). Cada archivo del catálogo, incluidas sus variantes cuantizadas, conserva
@@ -458,10 +512,11 @@ Desactivar Keep Model Loaded conserva el modelo actual hasta vencer ese plazo.
 La cancelación detiene la inferencia nativa; el siguiente dictado recrea el worker.
 Cambiar de modelo o de dispositivo sustituye el proceso cuando corresponde.
 
-Las 20 comprobaciones de integración cubren precarga durante la fase Listening,
+Las comprobaciones de integración cubren precarga durante la fase Listening,
 reutilización de procesos, retención, reinicio del contador, liberación por
-inactividad, cancelación, recuperación, cambio entre CPU y Vulkan, persistencia
-XML independiente por modelo e identificación explícita de la integrada. Se ejecutan
+inactividad, cancelación, recuperación, cambio entre CPU, Vulkan y CUDA, persistencia
+XML independiente por modelo, identificación explícita de la integrada, cambio a
+la dedicada con su propio paquete y backend CUDA, y reutilización de su worker. Se ejecutan
 con el runtime instalado y un audio local mono PCM16 a 16 kHz:
 
 ```powershell

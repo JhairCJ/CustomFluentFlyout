@@ -112,7 +112,6 @@ public sealed class DictationService : IDisposable
     public DictationDevice RequestedDevice =>
         SettingsManager.Current.GetDictationDevice(SettingsManager.Current.DictationModel);
 
-    private bool RequestedUseGpu => RequestedDevice != DictationDevice.Cpu;
     private bool EffectiveWhisperUseGpu => RequestedDevice == DictationDevice.DedicatedGpu
         && (!_runtimeLoaded || UsingGpuRuntime);
 
@@ -126,6 +125,9 @@ public sealed class DictationService : IDisposable
         }
     }
     public bool ModelUsingGpu => ModelLoaded && (_factory != null ? _factoryUseGpu : _externalTranscriber.UsingGpu);
+    public DictationDevice LoadedDevice => _factory != null
+        ? (_factoryUseGpu ? DictationDevice.DedicatedGpu : DictationDevice.Cpu)
+        : _externalTranscriber.LoadedDevice;
     public string? LoadedDeviceName => ModelLoaded ? _externalTranscriber.LoadedDeviceName : null;
 
     /// <summary>
@@ -261,7 +263,7 @@ public sealed class DictationService : IDisposable
             {
                 await DictationModelStore.ValidateIntegrityAsync(path, cts.Token);
                 await _externalTranscriber.EnsureLoadedAsync(
-                    model, path, RequestedUseGpu, cts.Token);
+                    model, path, RequestedDevice, cts.Token);
             }
             else
             {
@@ -519,7 +521,7 @@ public sealed class DictationService : IDisposable
             if (SettingsManager.Current.DictationEnabled && activePath != null
                 && ((string.Equals(_factoryPath, activePath, StringComparison.OrdinalIgnoreCase)
                         && _factoryUseGpu == EffectiveWhisperUseGpu)
-                    || _externalTranscriber.MatchesLoadedModel(activePath, RequestedUseGpu)))
+                    || _externalTranscriber.MatchesLoadedModel(activePath, RequestedDevice)))
             {
                 // Toggling Keep Model Loaded must not unload/reload the same weights.
                 if (!SettingsManager.Current.DictationKeepModelLoaded) ScheduleResourceRelease();
@@ -578,7 +580,7 @@ public sealed class DictationService : IDisposable
             await _externalTranscriber.EnsureLoadedAsync(
                 model,
                 modelPath,
-                RequestedUseGpu,
+                RequestedDevice,
                 cancellationToken);
         }
         else
@@ -979,7 +981,7 @@ public sealed class DictationService : IDisposable
                     activePath,
                     useful,
                     EffectiveLanguage(language, activePath),
-                    RequestedUseGpu,
+                    RequestedDevice,
                     token);
                 engineMs = clock.ElapsedMilliseconds - mark;
                 text = text.Trim();
@@ -1076,7 +1078,7 @@ public sealed class DictationService : IDisposable
         string modelPath,
         float[] samples,
         string language,
-        bool useGpu,
+        DictationDevice device,
         CancellationToken cancellationToken)
     {
         await _resourcePolicyLock.WaitAsync(cancellationToken);
@@ -1087,7 +1089,7 @@ public sealed class DictationService : IDisposable
                 modelPath,
                 samples,
                 language,
-                useGpu,
+                device,
                 cancellationToken);
         }
         finally

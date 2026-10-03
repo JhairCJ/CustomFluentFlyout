@@ -122,8 +122,13 @@
                         <Button x:Name="CrispAsrRuntimeButton" Padding="12,4" Margin="8,0,0,0"
                                 Content="{DynamicResource DictationRuntimeCrispAsr}"
                                 Click="DownloadCrispAsrRuntime_Click" />
+                        <Button x:Name="CrispAsrCudaRuntimeButton" Padding="12,4" Margin="8,0,0,0"
+                                Content="{DynamicResource DictationRuntimeCrispAsrCuda}"
+                                Click="DownloadCrispAsrCudaRuntime_Click" />
                     </WrapPanel>
                     <TextBlock x:Name="CrispAsrRuntimeStatus" FontSize="11" Opacity="0.6"
+                               TextWrapping="Wrap" Margin="0,6,0,0" />
+                    <TextBlock x:Name="CrispAsrCudaRuntimeStatus" FontSize="11" Opacity="0.6"
                                TextWrapping="Wrap" Margin="0,6,0,0" />
                 </StackPanel>
                 <ItemsControl x:Name="ModelList">

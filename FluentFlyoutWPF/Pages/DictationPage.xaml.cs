@@ -125,7 +125,7 @@ public partial class DictationPage : Page
         var service = Dictation;
         foreach (var row in _rows)
         {
-            row.DeviceText = DeviceLabel(SettingsManager.Current.GetDictationDevice(row.FileName));
+            row.DeviceText = DeviceLabel(SettingsManager.Current.GetDictationDevice(row.FileName), row.FileName);
             if (row.Active && service?.AccelerationRestartRequired == true)
                 row.DeviceText += " · " + IslandStrings.Get("DictationDeviceRestartShort", "Restart to apply");
         }
@@ -136,7 +136,7 @@ public partial class DictationPage : Page
             return;
         }
 
-        string selected = DeviceLabel(service.RequestedDevice);
+        string selected = DeviceLabel(service.RequestedDevice, SettingsManager.Current.DictationModel);
         if (service.AccelerationRestartRequired)
         {
             GpuRuntimeStatus.Text = IslandStrings.Get("DictationDeviceRestartRequired",
@@ -145,8 +145,7 @@ public partial class DictationPage : Page
         }
         else if (service.ModelLoaded)
         {
-            string actual = DeviceLabel(service.ModelUsingGpu
-                ? DictationDevices.GpuForModel(SettingsManager.Current.DictationModel) : DictationDevice.Cpu);
+            string actual = DeviceLabel(service.LoadedDevice, SettingsManager.Current.DictationModel);
             if (!string.IsNullOrWhiteSpace(service.LoadedDeviceName)) actual += $" · {service.LoadedDeviceName}";
             GpuRuntimeStatus.Text = IslandStrings.Format("DictationDeviceLoaded",
                 "Selected: {0}. Model loaded: {1}.", selected, actual);
@@ -158,7 +157,7 @@ public partial class DictationPage : Page
         }
     }
 
-    private static string DeviceLabel(DictationDevice device) => device switch
+    private static string DeviceLabel(DictationDevice device, string model) => device switch
     {
         DictationDevice.IntegratedGpu => IslandStrings.Get("DictationDeviceIntegrated", "Integrated GPU (Vulkan)"),
         DictationDevice.DedicatedGpu => IslandStrings.Get("DictationDeviceDedicated", "Dedicated NVIDIA GPU (CUDA)"),
@@ -169,7 +168,7 @@ public partial class DictationPage : Page
     {
         if (sender is not Button button || button.DataContext is not DictationModelRow { Active: true } row) return;
         var selected = SettingsManager.Current.GetDictationDevice(row.FileName);
-        var gpu = DictationDevices.GpuForModel(row.FileName);
+        bool usesCrisp = DictationModelStore.Find(row.FileName)?.Backend == DictationModelBackend.CrispAsr;
         var menu = new ContextMenu { PlacementTarget = button, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
         menu.Items.Add(new MenuItem
         {
@@ -179,7 +178,7 @@ public partial class DictationPage : Page
         menu.Items.Add(new Separator());
         MenuItem AddDevice(DictationDevice device)
         {
-            var item = new MenuItem { Header = DeviceLabel(device), IsCheckable = true, IsChecked = device == selected };
+            var item = new MenuItem { Header = DeviceLabel(device, row.FileName), IsCheckable = true, IsChecked = device == selected };
             item.Click += (_, _) =>
             {
                 SettingsManager.Current.SetDictationDevice(row.FileName, device);
@@ -189,23 +188,30 @@ public partial class DictationPage : Page
             return item;
         }
         AddDevice(DictationDevice.Cpu);
-        var gpuItem = AddDevice(gpu);
-        if (gpu == DictationDevice.IntegratedGpu)
-            gpuItem.IsEnabled = false;
+        var gpuItems = new List<(DictationDevice Device, MenuItem Item)>();
+        if (usesCrisp) gpuItems.Add((DictationDevice.IntegratedGpu, AddDevice(DictationDevice.IntegratedGpu)));
+        gpuItems.Add((DictationDevice.DedicatedGpu, AddDevice(DictationDevice.DedicatedGpu)));
+        if (usesCrisp)
+            foreach (var (_, item) in gpuItems) item.IsEnabled = false;
         button.ContextMenu = menu;
         menu.IsOpen = true;
 
-        if (gpu != DictationDevice.IntegratedGpu) return;
-        try
+        if (!usesCrisp) return;
+        foreach (var (device, item) in gpuItems)
         {
-            var integrated = await CrispAsrRuntime.GetIntegratedDeviceAsync();
-            gpuItem.IsEnabled = integrated != null;
-            gpuItem.Header = integrated != null ? $"{DeviceLabel(gpu)} · {integrated.Name}"
-                : IslandStrings.Get("DictationDeviceIntegratedUnavailable", "Integrated GPU unavailable (check the Vulkan runtime and driver)");
-        }
-        catch (Exception)
-        {
-            gpuItem.Header = IslandStrings.Get("DictationDeviceDetectionFailed", "Could not detect the integrated GPU. Reopen this menu to retry.");
+            try
+            {
+                var adapter = await CrispAsrRuntime.GetDeviceAsync(device);
+                item.IsEnabled = adapter != null;
+                item.Header = adapter != null ? $"{DeviceLabel(device, row.FileName)} · {adapter.Name}"
+                    : device == DictationDevice.IntegratedGpu
+                        ? IslandStrings.Get("DictationDeviceIntegratedUnavailable", "Integrated GPU unavailable (check the Vulkan runtime and driver)")
+                        : IslandStrings.Get("DictationDeviceDedicatedUnavailable", "NVIDIA GPU unavailable (download the CUDA 12 dependencies and check your driver)");
+            }
+            catch (Exception)
+            {
+                item.Header = IslandStrings.Get("DictationDeviceDetectionFailed", "Could not detect GPUs. Reopen this menu to retry.");
+            }
         }
     }
 
@@ -224,25 +230,32 @@ public partial class DictationPage : Page
     }
 
     /// <summary>
-    /// CrispASR is the one runtime the application can install by itself: the Windows
-    /// (Vulkan) build is a single 37.9 MB zip on GitHub, pinned by hash, that unpacks
-    /// next to the models. It is what the Parakeet Ultra entries need.
+    /// Installs a pinned Windows runtime and its DLLs into the user's runtime folder.
     /// </summary>
-    private async void DownloadCrispAsrRuntime_Click(object sender, RoutedEventArgs e)
+    private async void DownloadCrispAsrRuntime_Click(object sender, RoutedEventArgs e) =>
+        await DownloadCrispRuntimeAsync(DictationDevice.IntegratedGpu);
+
+    private async void DownloadCrispAsrCudaRuntime_Click(object sender, RoutedEventArgs e) =>
+        await DownloadCrispRuntimeAsync(DictationDevice.DedicatedGpu);
+
+    private async Task DownloadCrispRuntimeAsync(DictationDevice device)
     {
         if (CrispAsrRuntime.IsInstalling) return;
+        bool cuda = device == DictationDevice.DedicatedGpu;
+        var status = cuda ? CrispAsrCudaRuntimeStatus : CrispAsrRuntimeStatus;
 
         try
         {
             CrispAsrRuntimeButton.IsEnabled = false;
-            CrispAsrRuntimeStatus.Text = IslandStrings.Get(
+            CrispAsrCudaRuntimeButton.IsEnabled = false;
+            status.Text = IslandStrings.Get(
                 "DictationRuntimeCrispAsrDownloading", "Downloading CrispASR…");
-            var progress = new Progress<double>(value => CrispAsrRuntimeStatus.Text =
+            var progress = new Progress<double>(value => status.Text =
                 IslandStrings.Format(
                     "DictationRuntimeCrispAsrDownloadingPercent",
                     "Downloading CrispASR… {0}%",
                     (int)(value * 100)));
-            await CrispAsrRuntime.InstallAsync(progress);
+            await CrispAsrRuntime.InstallAsync(device, progress);
             ModelsStatus.Text = IslandStrings.Get(
                 "DictationRuntimeCrispAsrReady", "CrispASR installed");
         }
@@ -254,7 +267,10 @@ public partial class DictationPage : Page
         finally
         {
             CrispAsrRuntimeButton.IsEnabled = true;
+            CrispAsrCudaRuntimeButton.IsEnabled = true;
             UpdateCrispAsrRuntimeStatus();
+            // A previously missing CUDA runtime can now preload without an app restart.
+            Dictation?.RefreshResourcePolicy();
         }
     }
 
@@ -268,6 +284,13 @@ public partial class DictationPage : Page
             ? IslandStrings.Format(
                 "DictationRuntimeCrispAsrInstalled", "CrispASR {0} installed", CrispAsrRuntime.Version)
             : IslandStrings.Get("DictationRuntimeCrispAsrMissing", "CrispASR is not installed");
+        bool cudaInstalled = CrispAsrRuntime.IsInstalledFor(DictationDevice.DedicatedGpu);
+        CrispAsrCudaRuntimeButton.Content = cudaInstalled
+            ? IslandStrings.Get("DictationRuntimeCrispAsrCudaReinstall", "Reinstall Parakeet Ultra CUDA 12 (727 MB)")
+            : IslandStrings.Get("DictationRuntimeCrispAsrCuda", "Download Parakeet Ultra CUDA 12 (727 MB)");
+        CrispAsrCudaRuntimeStatus.Text = cudaInstalled
+            ? IslandStrings.Format("DictationRuntimeCrispAsrCudaInstalled", "CrispASR {0} · CUDA 12 installed", CrispAsrRuntime.Version)
+            : IslandStrings.Get("DictationRuntimeCrispAsrCudaMissing", "NVIDIA dGPU requires the CUDA 12 package; CUDA Toolkit is not required.");
     }
 
     private void PrepareExternalRuntimeInstall(string guideUrl, string command)
@@ -460,7 +483,7 @@ public partial class DictationPage : Page
             ? $" · {IslandStrings.Get("DictationModelRecommended", "Recommended")}"
             : "";
         string runtime = model.Backend == DictationModelBackend.CrispAsr
-            ? $" · {IslandStrings.Get("DictationRuntimeCrispAsrCpu", "CrispASR · CPU / Vulkan · no CUDA")}"
+            ? $" · {IslandStrings.Get("DictationRuntimeCrispAsrCpu", "CrispASR · CPU / iGPU Vulkan / NVIDIA CUDA 12")}"
             : string.IsNullOrWhiteSpace(model.Runtime) ? "" : $" · {model.Runtime}";
         return $"{model.Size} · {model.Language}{runtime}{recommendation}";
     }
