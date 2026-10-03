@@ -15,6 +15,8 @@
     <System:String x:Key="IslandTooltipNextFeature">Next feature</System:String>
     <System:String x:Key="IslandTooltipChangeMedia">Change media</System:String>
     <System:String x:Key="IslandTooltipViewDetails">View details</System:String>
+    <System:String x:Key="TaskbarWidgetPreviousTrack">Previous track</System:String>
+    <System:String x:Key="TaskbarWidgetNextTrack">Next track</System:String>
     <System:String x:Key="IslandTooltipPlayPause">Play/pause</System:String>
     <System:String x:Key="IslandTooltipViewTimer">View timer</System:String>
     <System:String x:Key="IslandTooltipClipboardCompact">Clipboard (click to see all)</System:String>
@@ -384,6 +386,8 @@ hides repeat, shuffle and player info</System:String>
     <System:String x:Key="PauseOtherMediaDescription">When you play or focus on new media, other active sessions are automatically paused</System:String>
     <System:String x:Key="TaskbarWidgetCustomizationTitle">Taskbar Widget</System:String>
     <System:String x:Key="TaskbarWidgetDescription">A compact, built-in widget that lives right on your Windows Taskbar for instant access to your media. Click the widget to expand the full Media Flyout.</System:String>
+    <System:String x:Key="TaskbarWidgetExpandOnClickTitle">Expand on click</System:String>
+    <System:String x:Key="TaskbarWidgetExpandOnClickDescription">Click the song to expand the widget and show playback progress and controls.</System:String>
     <System:String x:Key="TaskbarWidgetEnabledTitle">Enable Taskbar Widget</System:String>
     <System:String x:Key="TaskbarWidgetEnabledDescription">Show a compact media widget on the taskbar</System:String>
     <System:String x:Key="TaskbarWidgetVisualIssuesWarning">Configure the options below if you experience visual issues.</System:String>

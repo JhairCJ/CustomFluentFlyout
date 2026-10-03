@@ -364,6 +364,10 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial bool TaskbarWidgetEnabled { get; set; }
 
+    /// <summary>Whether clicking the song block can expand the taskbar widget.</summary>
+    [ObservableProperty]
+    public partial bool TaskbarWidgetExpandOnClick { get; set; }
+
     /// <summary>
     /// Widget Target Display
     /// </summary>
@@ -1800,6 +1804,7 @@ public partial class UserSettings : ObservableObject
         LockKeysAcrylicWindowEnabled = true;
         VolumeMixerAcrylicWindowEnabled = true;
         TaskbarWidgetEnabled = true;
+        TaskbarWidgetExpandOnClick = true;
         TaskbarWidgetSelectedMonitor = 0;
         TaskbarWidgetAutoHide = false;
         TaskbarWidgetPosition = 0;
@@ -2796,6 +2801,13 @@ public partial class UserSettings : ObservableObject
         if (oldValue == newValue || _initializing) return;
 
         UpdateTaskbar();
+    }
+
+    partial void OnTaskbarWidgetExpandOnClickChanged(bool oldValue, bool newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        if (Application.Current?.MainWindow is MainWindow mainWindow)
+            mainWindow.taskbarWindow?.RefreshExpansionPreference();
     }
 
     // Update taskbar when relevant settings change

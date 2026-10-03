@@ -62,6 +62,9 @@ public static partial class NativeMethods
     // notificación de entrada/salida de la franja sin sondeo continuo.
     internal const int WH_MOUSE_LL = 14;
     internal const int WM_MOUSEMOVE = 0x0200;
+    internal const int WM_LBUTTONDOWN = 0x0201;
+    internal const int WM_RBUTTONDOWN = 0x0204;
+    internal const int WM_MBUTTONDOWN = 0x0207;
 
     // WinEvent Hook (001 MOD RF-12): contexto por eventos de Windows.
     internal const uint EVENT_SYSTEM_FOREGROUND = 0x0003;

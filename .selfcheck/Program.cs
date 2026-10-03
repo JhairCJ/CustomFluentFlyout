@@ -373,4 +373,43 @@ Check(IslandPresentation.Resolve(Input(notice, notices, usable: [])).View == Isl
     "un aviso no usable tampoco sostiene la vista");
 Ok();
 
+// ------------------------------------------------------------------
+// Widget: la misma superficie crece hacia el monitor, sin hueco ni segunda tarjeta.
+// ------------------------------------------------------------------
+var work = new TaskbarWidgetExpansion.Box(0, 0, 1920, 1032);
+var bottomBar = new TaskbarWidgetExpansion.Box(0, 1032, 1920, 48);
+var widget = new TaskbarWidgetExpansion.Box(600, 1036, 160, 40);
+var expandedWidget = TaskbarWidgetExpansion.Expand(widget, bottomBar, work, 340, 156);
+CheckNear(expandedWidget.Left, 510, 0.001, "se expande alrededor del centro del widget");
+CheckNear(expandedWidget.Bottom, widget.Bottom, 0.001, "conserva el borde inferior de la superficie compacta");
+CheckNear(expandedWidget.Top, 920, 0.001, "crece hacia arriba sin separación");
+var rightAligned = TaskbarWidgetExpansion.Expand(new(1890, 1036, 30, 40), bottomBar, work, 340, 156);
+CheckNear(rightAligned.Right, 1920, 0.001, "el widget expandido no sale por el borde derecho");
+var topBar = new TaskbarWidgetExpansion.Box(0, 0, 1920, 48);
+var topWork = new TaskbarWidgetExpansion.Box(0, 48, 1920, 1032);
+var topWidget = new TaskbarWidgetExpansion.Box(600, 4, 160, 40);
+CheckNear(TaskbarWidgetExpansion.Expand(topWidget, topBar, topWork, 340, 156).Top, 4, 0.001,
+    "con la barra arriba crece hacia abajo conservando su borde");
+var leftBar = new TaskbarWidgetExpansion.Box(0, 0, 48, 1080);
+var leftWork = new TaskbarWidgetExpansion.Box(48, 0, 1872, 1080);
+CheckNear(TaskbarWidgetExpansion.Expand(new(4, 600, 40, 160), leftBar, leftWork, 340, 156).Left, 4, 0.001,
+    "con la barra izquierda conserva su borde y crece hacia la derecha");
+var rightBar = new TaskbarWidgetExpansion.Box(1872, 0, 48, 1080);
+var rightWork = new TaskbarWidgetExpansion.Box(0, 0, 1872, 1080);
+CheckNear(TaskbarWidgetExpansion.Expand(new(1876, 600, 40, 160), rightBar, rightWork, 340, 156).Right, 1916, 0.001,
+    "con la barra derecha crece hacia la izquierda");
+Check(TaskbarWidgetExpansion.EdgeOf(bottomBar, new(0, 0, 1920, 1080)) == TaskbarWidgetExpansion.Edge.Bottom,
+    "la barra autooculta conserva la dirección de expansión");
+// Un monitor a la izquierda del principal y escalado al 150 % conserva píxeles físicos.
+var negativeBar = new TaskbarWidgetExpansion.Box(-2560, -100, 2560, 72);
+var negativeWork = new TaskbarWidgetExpansion.Box(-2560, -1468, 2560, 1368);
+var negativeWidget = new TaskbarWidgetExpansion.Box(-2000, -94, 240, 60);
+var scaledExpansion = TaskbarWidgetExpansion.Expand(negativeWidget, negativeBar, negativeWork, 340 * 1.5, 156 * 1.5);
+CheckNear(scaledExpansion.Bottom, -34, 0.001, "DPI y coordenadas negativas conservan el anclaje");
+CheckNear(scaledExpansion.Width / 1.5, 340, 0.001, "el ancho visual sigue siendo 340 DIPs");
+var tiny = TaskbarWidgetExpansion.Expand(new(0, 90, 60, 10), new(0, 90, 100, 10), new(0, 0, 100, 90), 340, 156);
+Check(tiny.Left >= 0 && tiny.Top >= 0 && tiny.Right <= 100 && tiny.Bottom <= 100,
+    "una pantalla pequeña limita también el tamaño, no solo la posición");
+Ok();
+
 Console.WriteLine($"selfcheck: {passed} bloques correctos");

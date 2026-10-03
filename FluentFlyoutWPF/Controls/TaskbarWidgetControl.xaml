@@ -4,6 +4,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:controls="clr-namespace:FluentFlyout.Controls"
              xmlns:viewModels="clr-namespace:FluentFlyoutWPF.ViewModels"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance viewModels:UserSettings}"
@@ -60,20 +61,32 @@
                                     ToolTipService.InitialShowDelay="800"
                                     ToolTipService.Placement="RelativePoint"
                                     ToolTipService.VerticalOffset="-16">
-                            <Canvas x:Name="SongTitleContainer" ClipToBounds="True" Height="20">
-                                <TextBlock x:Name="SongTitle" Text="" FontSize="13" FontWeight="SemiBold">
-                                    <TextBlock.RenderTransform>
-                                        <TranslateTransform />
-                                    </TextBlock.RenderTransform>
-                                </TextBlock>
-                            </Canvas>
-                            <Canvas x:Name="SongArtistContainer" ClipToBounds="True" Margin="0,-1,0,0" Height="18">
-                                <TextBlock x:Name="SongArtist" Text="" FontSize="12" FontWeight="Normal" Opacity="0.65">
-                                    <TextBlock.RenderTransform>
-                                        <TranslateTransform />
-                                    </TextBlock.RenderTransform>
-                                </TextBlock>
-                            </Canvas>
+                            <!-- Song block: clicking anywhere on it (text or empty space) toggles
+                                 the expanded state of this widget. Background=Transparent is what
+                                 makes the whole block hit-testable, not just the glyphs. -->
+                            <!-- No tooltip here: the outer panel already shows the song info,
+                                 and an inner tooltip would mask it for long, clipped titles. -->
+                            <Border x:Name="SongInfoHitArea" Background="Transparent" CornerRadius="6" Cursor="Hand"
+                                    MouseLeftButtonUp="SongInfo_MouseLeftButtonUp"
+                                    MouseEnter="SongInfo_MouseEnter"
+                                    MouseLeave="SongInfo_MouseLeave">
+                                <StackPanel Orientation="Vertical">
+                                    <Canvas x:Name="SongTitleContainer" ClipToBounds="True" Height="20">
+                                        <TextBlock x:Name="SongTitle" Text="" FontSize="13" FontWeight="SemiBold">
+                                            <TextBlock.RenderTransform>
+                                                <TranslateTransform />
+                                            </TextBlock.RenderTransform>
+                                        </TextBlock>
+                                    </Canvas>
+                                    <Canvas x:Name="SongArtistContainer" ClipToBounds="True" Margin="0,-1,0,0" Height="18">
+                                        <TextBlock x:Name="SongArtist" Text="" FontSize="12" FontWeight="Normal" Opacity="0.65">
+                                            <TextBlock.RenderTransform>
+                                                <TranslateTransform />
+                                            </TextBlock.RenderTransform>
+                                        </TextBlock>
+                                    </Canvas>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <StackPanel Name="ControlsStackPanel" Orientation="Horizontal" VerticalAlignment="Center" Width="Auto">
@@ -95,6 +108,8 @@
                     </StackPanel>
                 </Grid>
             </Border>
+            <Border x:Name="ExpandedBackdropShade" Background="#B3151515" IsHitTestVisible="False" Visibility="Collapsed" Opacity="0"/>
+            <controls:TaskbarWidgetExpandedContent x:Name="ExpandedContent" Width="340" Height="156" HorizontalAlignment="Left" VerticalAlignment="Top" Visibility="Collapsed" Opacity="0"/>
             <!-- Snapshot layer: holds a render of the previous album while a song change
                  is underway so it can crossfade into the new content underneath. -->
             <Border x:Name="CrossfadeOverlay" CornerRadius="6" ClipToBounds="True" IsHitTestVisible="False" Opacity="0" Visibility="Collapsed" />

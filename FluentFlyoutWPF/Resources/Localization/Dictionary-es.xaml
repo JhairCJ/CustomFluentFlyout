@@ -14,6 +14,8 @@
     <system:String x:Key="IslandTooltipNextFeature">Funcionalidad siguiente</system:String>
     <system:String x:Key="IslandTooltipChangeMedia">Cambiar de medio</system:String>
     <system:String x:Key="IslandTooltipViewDetails">Ver detalles</system:String>
+    <system:String x:Key="TaskbarWidgetPreviousTrack">Canción anterior</system:String>
+    <system:String x:Key="TaskbarWidgetNextTrack">Canción siguiente</system:String>
     <system:String x:Key="IslandTooltipPlayPause">Reproducir/pausar</system:String>
     <system:String x:Key="IslandTooltipViewTimer">Ver temporizador</system:String>
     <system:String x:Key="IslandTooltipClipboardCompact">Portapapeles (haz clic para ver todo)</system:String>
@@ -459,6 +461,8 @@ Puedes ayudar a contribuir con las traducciones en</system:String>
     <system:String x:Key="AnimationEasingStyleTitle">Estilo de Suavizado de Animaciones</system:String>
     <system:String x:Key="TaskbarWidgetCustomizationTitle">Widget de la Barra de Tareas</system:String>
     <system:String x:Key="TaskbarWidgetDescription">Un widget compacto que aparece en la Barra de Tareas de Windows para tener acceso instantáneo a tu contenido multimedia. Haz click en el widget para expandir el Flyout Multimedia.</system:String>
+    <system:String x:Key="TaskbarWidgetExpandOnClickTitle">Ampliar al hacer clic</system:String>
+    <system:String x:Key="TaskbarWidgetExpandOnClickDescription">Haz clic en la canción para ampliar el widget y mostrar el progreso y los controles.</system:String>
     <system:String x:Key="TaskbarWidgetEnabledTitle">Activar Widget de la Barra de Tareas</system:String>
     <system:String x:Key="TaskbarWidgetEnabledDescription">Muestra un widget multimedia compacto en la barra de tareas</system:String>
     <system:String x:Key="TaskbarWidgetVisualIssuesWarning">Configura las opciones de debajo si experimentas problemas visuales.</system:String>

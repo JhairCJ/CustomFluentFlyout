@@ -19,5 +19,7 @@
     <Compile Include="../FluentFlyoutWPF/Classes/IslandActivityRegistry.cs" />
     <Compile Include="../FluentFlyoutWPF/Classes/IslandPresentation.cs" />
     <Compile Include="../FluentFlyoutWPF/Models/DictationHotkey.cs" />
+    <!-- Expansión del propio widget del widget de la barra de tareas: solo geometría. -->
+    <Compile Include="../FluentFlyoutWPF/Classes/TaskbarWidgetExpansion.cs" />
   </ItemGroup>
 </Project>

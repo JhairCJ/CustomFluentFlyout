@@ -10,7 +10,7 @@
         Title="TaskbarWindow" Height="40" Width="100"
         WindowStyle="None"
         ResizeMode="NoResize"
-        ShowInTaskbar="False"
+        ShowInTaskbar="False" Topmost="True" ShowActivated="False"
         AllowsTransparency="True"
         Background="Transparent"
         TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Ideal"
