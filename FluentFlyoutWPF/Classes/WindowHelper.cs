@@ -27,6 +27,16 @@ public static class WindowHelper
         }
     }
 
+    /// <summary>Keeps this overlay visible while Windows previews another window.</summary>
+    public static void ExcludeFromPeek(Window window)
+    {
+        const int excludedFromPeek = 12;
+        int enabled = 1;
+        var handle = new WindowInteropHelper(window).Handle;
+        int result = DwmSetWindowAttribute(handle, excludedFromPeek, ref enabled, sizeof(int));
+        if (result < 0) Logger.Warn($"Unable to exclude '{window.GetType().Name}' from Aero Peek: 0x{result:X8}");
+    }
+
     public static void SetTopmost(Window window) // workaround to set window even more topmost
     {
         var handle = new WindowInteropHelper(window).Handle;

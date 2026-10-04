@@ -6,7 +6,6 @@ using FluentFlyout.Classes.Settings;
 using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Classes.Utils;
 using FluentFlyoutWPF.Models;
-using System.Text;
 using Windows.Media.Control;
 
 namespace FluentFlyoutWPF.Windows;
@@ -31,43 +30,12 @@ public partial class IslandWindow
     private bool Suppressed() => _ctxValid ? _ctxSuppressed : ComputeSuppressed();
 
     /// <summary>
-    /// Cálculo real de la supresión (pantalla completa o una ventana que cubre
-    /// todo el monitor principal apagan el Island; el escritorio Progman/WorkerW
-    /// no cuenta como aplicación). Es una consulta impura: se llama solo al
-    /// refrescar la instantánea de contexto.
-    ///
-    /// <para>La pantalla completa se detecta con el estado del shell (D3D
-    /// exclusivo, juegos y vídeos sin bordes, presentaciones y equipo bloqueado) y
-    /// la decide el ajuste PROPIO del Island, con el global del Media Flyout como
-    /// acompañante: tener apagado uno no deja el Island encima de un juego
-    /// (001 MOD RF-8/14).</para>
+    /// Uses the same foreground/visible-bounds classification as the taskbar widget,
+    /// while retaining the Island's fullscreen visibility preferences.
     /// </summary>
-    private bool ComputeSuppressed()
-    {
-        if (FullscreenDetector.IsFullscreenOrAwayState()
-            && (SettingsManager.Current.IslandHideOnFullscreen
-                || SettingsManager.Current.DisableIfFullscreen))
-            return true;
-        try
-        {
-            var fg = NativeMethods.GetForegroundWindow();
-            if (fg != IntPtr.Zero && NativeMethods.GetWindowRect(fg, out var r))
-            {
-                // ponytail: el escritorio (Progman/WorkerW) cubre todo el monitor pero no es una app.
-                var sb = new StringBuilder(256);
-                if (NativeMethods.GetClassName(fg, sb, sb.Capacity) > 0)
-                {
-                    string cls = sb.ToString();
-                    if (cls == "Progman" || cls == "WorkerW") return false;
-                }
-                var primary = PrimaryMonitor();
-                if (primary.monitorArea.Width != 0 && r.Left <= primary.monitorArea.Left && r.Top <= primary.monitorArea.Top && r.Right >= primary.monitorArea.Right && r.Bottom >= primary.monitorArea.Bottom)
-                    return true;
-            }
-        }
-        catch { }
-        return false;
-    }
+    private bool ComputeSuppressed() =>
+        (SettingsManager.Current.IslandHideOnFullscreen || SettingsManager.Current.DisableIfFullscreen)
+        && FullscreenDetector.IsFullscreenOrAwayState(PrimaryMonitor().monitorArea);
 
     /// <summary>
     /// Arranque/parada del visualizador de audio y su número de barras. Solo se

@@ -117,9 +117,8 @@ public partial class TaskbarWindow : Window
     private bool _windowFadingOut;
     private WinEventProc? _shellZOrderProc;
     private IntPtr _shellZOrderHook, _shellForegroundHook;
-    private bool _topmostRefreshPending, _closed, _fullscreenSuppressed;
-    private IntPtr _lastForeground;
-    private bool _foregroundIsShell;
+    private bool _topmostRefreshPending, _closed, _fullscreenSuppressed, _shellPositionDeferred;
+    private IntPtr _taskbarOwner;
 
     public TaskbarWindow()
     {
@@ -146,6 +145,7 @@ public partial class TaskbarWindow : Window
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
+        WindowHelper.ExcludeFromPeek(this);
         HwndSource source = (HwndSource)PresentationSource.FromDependencyObject(this);
         source.AddHook(WindowProc);
     }
@@ -427,6 +427,22 @@ on_error:
                 return;
             }
 
+            if (KeepAnchorDuringShellInteraction())
+            {
+                _shellPositionDeferred = true;
+                if (_hasPublishedMedia && Widget.Visibility == Visibility.Visible
+                    && (_widgetExpanded || !SettingsManager.Current.TaskbarWidgetAutoHide
+                        || _lastPlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing))
+                    EnsureWindowVisible();
+                return;
+            }
+
+            if (_shellPositionDeferred)
+            {
+                _shellPositionDeferred = false;
+                force = true;
+            }
+
             if (taskbarHandle != IntPtr.Zero && interop.Handle != IntPtr.Zero)
             {
                 // Check shell geometry cheaply; expensive UI Automation and WPF
@@ -487,8 +503,20 @@ on_error:
         }
     }
 
+    private bool KeepAnchorDuringShellInteraction() => _hasEverBeenPositioned
+        && _lastSelectedMonitor == SettingsManager.Current.TaskbarWidgetSelectedMonitor
+        && FullscreenDetector.IsTaskbarInteractionActive();
+
     private void CalculateAndSetPosition(IntPtr taskbarHandle, IntPtr taskbarWindowHandle, bool isMainTaskbarSelected)
     {
+        // A queued automation update must not move the HWND or replace its region
+        // using transient taskbar bounds while Start/search/preview UI is active.
+        if (KeepAnchorDuringShellInteraction())
+        {
+            _shellPositionDeferred = true;
+            return;
+        }
+
         // Prevent overlapping updates - if a previous update is still running
         // (e.g. waiting for an automation query timeout), skip this tick.
         if (_positionUpdateInProgress)
@@ -553,6 +581,7 @@ on_error:
             // Vertical taskbar support: rotate and reposition widget when taskbar is taller than wide
             bool isVertical = taskbarHeight > taskbarWidth;
             _taskbarHandle = taskbarHandle;
+            AttachTaskbarOwner(taskbarHandle);
             _positionDpiScale = dpiScale;
             var barScreenRect = new Rect(taskbarRect.Left, taskbarRect.Top, taskbarWidth, taskbarHeight);
             if (_monitorWorkArea.IsEmpty || barScreenRect != _taskbarScreenRect
@@ -1256,37 +1285,7 @@ on_error:
 
     private bool RefreshFullscreenSuppression()
     {
-        var foreground = GetForegroundWindow();
-        if (foreground != _lastForeground)
-        {
-            _lastForeground = foreground;
-            _foregroundIsShell = false;
-            var className = new StringBuilder(256);
-            GetClassName(foreground, className, className.Capacity);
-            string name = className.ToString();
-            _foregroundIsShell = name is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd";
-            if (!_foregroundIsShell && foreground != IntPtr.Zero)
-            {
-                try
-                {
-                    GetWindowProcessId(foreground, out uint pid);
-                    using var process = System.Diagnostics.Process.GetProcessById((int)pid);
-                    _foregroundIsShell = process.ProcessName is "StartMenuExperienceHost" or "ShellExperienceHost" or "SearchHost";
-                }
-                catch { /* The foreground process can exit between native queries. */ }
-            }
-        }
-        // Start/search can have a monitor-sized transparent backdrop. They are
-        // shell UI, not fullscreen playback; Windows-key activation must keep the
-        // widget above the taskbar instead of suppressing it as a fullscreen app.
-        bool fullscreen = !_foregroundIsShell && FullscreenDetector.IsFullscreenOrAwayState();
-        if (!_foregroundIsShell && !fullscreen && !_monitorArea.IsEmpty
-            && foreground != IntPtr.Zero && foreground != new WindowInteropHelper(this).Handle
-            && GetWindowRect(foreground, out RECT bounds))
-        {
-            fullscreen = bounds.Left <= _monitorArea.Left && bounds.Top <= _monitorArea.Top
-                && bounds.Right >= _monitorArea.Right && bounds.Bottom >= _monitorArea.Bottom;
-        }
+        bool fullscreen = FullscreenDetector.IsFullscreenOrAwayState(_monitorArea);
         _fullscreenSuppressed = fullscreen;
         if (fullscreen && Visibility == Visibility.Visible)
         {
@@ -1301,13 +1300,33 @@ on_error:
         return fullscreen;
     }
 
+    private void AttachTaskbarOwner(IntPtr taskbarHandle)
+    {
+        if (_taskbarOwner == taskbarHandle || taskbarHandle == IntPtr.Zero || !IsWindow(taskbarHandle)) return;
+        try
+        {
+            // A top-level owned popup stays above its owner when Explorer raises
+            // the taskbar. Ownership preserves the layered WPF HWND and its screen
+            // coordinates; making it a WS_CHILD would break transparent rendering.
+            new WindowInteropHelper(this).Owner = taskbarHandle;
+            _taskbarOwner = taskbarHandle;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "Unable to attach taskbar widget ownership to Explorer");
+        }
+    }
+
     private void RaiseWidgetAboveTaskbar()
     {
         if (_closed || _fullscreenSuppressed || _windowFadingOut || !SettingsManager.Current.TaskbarWidgetEnabled
             || Visibility != Visibility.Visible) return;
-        // Explorer can move its own topmost window ahead of us without changing
-        // geometry. Restore only Z order: no native move, resize, or canvas reflow.
-        WindowHelper.SetTopmost(this);
+        // Native ownership already keeps us above Explorer's taskbar. Repeatedly
+        // raising an owned popup also reorders the owner's group and disrupts menus.
+        if (_taskbarOwner != IntPtr.Zero && IsWindow(_taskbarOwner)) return;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     }
 
     private void InstallShellZOrderHooks()
@@ -1545,8 +1564,8 @@ on_error:
         UpdateWindowRegion(hwnd, widgetRegion, _visualizerRect);
         if (host == _nativeHostScreenRect) return;
         _nativeHostScreenRect = host;
-        SetWindowPos(hwnd, HWND_TOPMOST, (int)host.Left, (int)host.Top,
-            (int)host.Width, (int)host.Height, SWP_NOACTIVATE);
+        SetWindowPos(hwnd, 0, (int)host.Left, (int)host.Top,
+            (int)host.Width, (int)host.Height, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
     }
 
     private bool ClickInsideWidget(int x, int y)

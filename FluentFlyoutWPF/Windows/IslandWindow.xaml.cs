@@ -338,6 +338,7 @@ public partial class IslandWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        WindowHelper.ExcludeFromPeek(this);
         WindowHelper.SetTopmost(this);
         PositionTopCenter();
         SyncMeasuredHeight();
