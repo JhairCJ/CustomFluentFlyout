@@ -697,7 +697,7 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
 
     <!-- Dictado por voz local (spec 006): página de ajustes, isla y sus mensajes. -->
     <system:String x:Key="DictationTitle">Dictado</system:String>
-    <system:String x:Key="DictationDescription">Mantén una tecla o combinación y habla: el texto se escribe donde tengas el cursor. El modelo corre en este equipo, así que tu voz no sale de él.</system:String>
+    <system:String x:Key="DictationDescription">Dicta manteniendo el atajo o pulsa para iniciar y finalizar en modo manos libres. El texto se escribe donde tengas el cursor. Tu voz se procesa en este equipo.</system:String>
     <system:String x:Key="DictationEnableTitle">Dictado por voz</system:String>
     <system:String x:Key="DictationEnableDescription">Mientras mantienes el atajo, el Island enseña el micrófono y las ondas de tu voz; al soltar, se transcribe el audio y se escribe.</system:String>
     <system:String x:Key="DictationGpuTitle">Aceleración GPU (CUDA / Vulkan)</system:String>
@@ -718,9 +718,14 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="DictationUnloadDelayTitle">Liberar después de la inactividad</system:String>
     <system:String x:Key="DictationUnloadDelayDescription">Elige entre 15 y 600 segundos. Cada nueva transcripción reinicia el contador.</system:String>
     <system:String x:Key="DictationHotkeyTitle">Atajo a mantener</system:String>
-    <system:String x:Key="DictationHotkeyDescription">Una tecla o una combinación. Ctrl a secas es lo más cómodo: lo mantienes, hablas y lo sueltas.</system:String>
+    <system:String x:Key="DictationHotkeyDescription">El mismo atajo inicia y finaliza el dictado según el modo elegido. En manos libres, una combinación evita activarlo al usar Ctrl en otras aplicaciones.</system:String>
+    <system:String x:Key="DictationToggleTitle">Dictado manos libres</system:String>
+    <system:String x:Key="DictationToggleDescription">Activado: una pulsación breve deja el dictado en manos libres; otra pulsación lo termina. Si mantienes el atajo pulsado, termina al soltarlo. Desactivado: solo mantener pulsado. Esc cancela. Sin corte a los dos minutos.</system:String>
+    <system:String x:Key="IslandDictationHandsFree">Escuchando…</system:String>
+    <system:String x:Key="IslandDictationTooltipHandsFree">Grabando en manos libres. Pulsa {0} para terminar; Esc para cancelar.</system:String>
+    <system:String x:Key="IslandDictationCaptureFailed">No se pudo guardar la grabación. Revisa el espacio libre en disco.</system:String>
     <system:String x:Key="DictationHotkeyHint">Haz clic y pulsa las teclas</system:String>
-    <system:String x:Key="DictationHotkeyTip">Haz clic y pulsa la tecla o combinación que quieras mantener</system:String>
+    <system:String x:Key="DictationHotkeyTip">Haz clic y pulsa la tecla o combinación que quieras usar</system:String>
     <system:String x:Key="DictationLanguageTitle">Idioma</system:String>
     <system:String x:Key="DictationLanguageDescription">Los modelos multilingües entienden español e inglés a la vez; Automático deja que el modelo lo detecte.</system:String>
     <system:String x:Key="DictationLanguageAuto">Automático</system:String>

@@ -320,9 +320,22 @@
                                        Filled="False" Foreground="White" FontSize="16"
                                        HorizontalAlignment="Center" VerticalAlignment="Center"
                                        IsHitTestVisible="False"/>
-                        <TextBlock x:Name="DictationStatus" Grid.Column="1" Text="" Foreground="White" FontSize="12"
+                        <TextBlock x:Name="DictationStatus" Grid.Column="1" Text="" FontSize="12"
                                    Margin="8,0,4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                                   IsHitTestVisible="False"/>
+                                   IsHitTestVisible="False">
+                            <TextBlock.Foreground>
+                                <LinearGradientBrush x:Name="DictationStatusShimmerBrush" StartPoint="-0.2,0.5" EndPoint="0.2,0.5">
+                                    <LinearGradientBrush.RelativeTransform>
+                                        <TranslateTransform x:Name="DictationStatusShimmerOffset"/>
+                                    </LinearGradientBrush.RelativeTransform>
+                                    <GradientStop Color="#BFFFFFFF" Offset="0"/>
+                                    <GradientStop Color="#BFFFFFFF" Offset="0.25"/>
+                                    <GradientStop Color="White" Offset="0.5"/>
+                                    <GradientStop Color="#BFFFFFFF" Offset="0.75"/>
+                                    <GradientStop Color="#BFFFFFFF" Offset="1"/>
+                                </LinearGradientBrush>
+                            </TextBlock.Foreground>
+                        </TextBlock>
                         <!-- Las barras las crea el código (IslandWindow.Dictation.cs): su número y su
                              alto siguen al nivel del micrófono, no a un valor fijo del XAML. -->
                         <StackPanel x:Name="DictationWave" Grid.Column="2" Orientation="Horizontal"

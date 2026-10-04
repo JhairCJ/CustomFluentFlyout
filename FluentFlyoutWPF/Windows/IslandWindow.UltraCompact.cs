@@ -56,10 +56,12 @@ public partial class IslandWindow
     /// </summary>
     private void ApplyUltraCompactContent(bool refitRows = false)
     {
+        RefreshDictationStatusLayout();
         foreach (var card in _featureCards.Values)
         {
             if (card.Middle is not { } middle) continue;
             middle.Visibility = UltraCompactOn && card.Mode == _contentMode
+                && !(card.Mode == IslandContentMode.Dictation && (DictationTranscribing || DictationHandsFree))
                 ? Visibility.Collapsed
                 : card.RestoreMiddle?.Invoke() ?? Visibility.Visible;
         }

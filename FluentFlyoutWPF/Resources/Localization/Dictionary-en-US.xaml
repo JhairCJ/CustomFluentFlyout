@@ -697,7 +697,7 @@ You can help contribute translations on</System:String>
 
     <!-- Dictado por voz local (spec 006): página de ajustes, isla y sus mensajes. -->
     <System:String x:Key="DictationTitle">Dictation</System:String>
-    <System:String x:Key="DictationDescription">Hold a key or combination and speak: the text is written where your cursor is. The model runs on this computer, so your voice never leaves it.</System:String>
+    <System:String x:Key="DictationDescription">Hold the shortcut to dictate, or press to start and finish in hands-free mode. Text is written where your cursor is. Your voice is processed on this computer.</System:String>
     <System:String x:Key="DictationEnableTitle">Voice dictation</System:String>
     <System:String x:Key="DictationEnableDescription">While you hold the shortcut, the Island shows the microphone and the waves of your voice; when you let go, the audio is transcribed and typed.</System:String>
     <System:String x:Key="DictationGpuTitle">GPU acceleration (CUDA / Vulkan)</System:String>
@@ -718,9 +718,14 @@ You can help contribute translations on</System:String>
     <System:String x:Key="DictationUnloadDelayTitle">Release after inactivity</System:String>
     <System:String x:Key="DictationUnloadDelayDescription">Choose between 15 and 600 seconds. Each new transcription resets the timer.</System:String>
     <System:String x:Key="DictationHotkeyTitle">Shortcut to hold</System:String>
-    <System:String x:Key="DictationHotkeyDescription">One key or a combination. Ctrl on its own is the most comfortable: hold it, speak and let go.</System:String>
+    <System:String x:Key="DictationHotkeyDescription">The same shortcut starts and finishes dictation in your chosen mode. For hands-free mode, a combination avoids activating it when using Ctrl in other apps.</System:String>
+    <System:String x:Key="DictationToggleTitle">Hands-free dictation</System:String>
+    <System:String x:Key="DictationToggleDescription">On: tap the shortcut for hands-free recording; tap again to finish. Holding the shortcut finishes when you release it. Off: hold only. Esc cancels. No two-minute cutoff.</System:String>
+    <System:String x:Key="IslandDictationHandsFree">Listening…</System:String>
+    <System:String x:Key="IslandDictationTooltipHandsFree">Hands-free recording. Press {0} to finish; Esc to cancel.</System:String>
+    <System:String x:Key="IslandDictationCaptureFailed">Could not save the recording. Check free disk space.</System:String>
     <System:String x:Key="DictationHotkeyHint">Click and press the keys</System:String>
-    <System:String x:Key="DictationHotkeyTip">Click and press the key or combination you want to hold</System:String>
+    <System:String x:Key="DictationHotkeyTip">Click and press the key or combination you want to use</System:String>
     <System:String x:Key="DictationLanguageTitle">Language</System:String>
     <System:String x:Key="DictationLanguageDescription">Multilingual models understand Spanish and English at once; Automatic lets the model work it out.</System:String>
     <System:String x:Key="DictationLanguageAuto">Automatic</System:String>

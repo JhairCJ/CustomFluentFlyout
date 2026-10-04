@@ -54,6 +54,7 @@ public partial class IslandWindow
         ApplyIslandTextStyle();
         UpdateLine();
         ApplyFrame();
+        UpdateDictationShimmer();
     }
 
     /// <summary>
@@ -71,6 +72,7 @@ public partial class IslandWindow
         if (_contentMode == IslandContentMode.Timer) RefreshTimerUI();
         else if (_contentMode == IslandContentMode.Calendar) RefreshCalendarList();
         else if (_contentMode == IslandContentMode.Power) RefreshPowerUI();
+        else if (_contentMode == IslandContentMode.Dictation) RefreshDictationUI();
     });
 
     private int _appliedStyle = -1;
@@ -90,7 +92,7 @@ public partial class IslandWindow
             else
             {
                 IslandBox.BorderThickness = new Thickness(1);
-                CompactLayer.Width = RestCompactWidth(CompactPillWidth);
+                CompactLayer.Width = ContentCompactWidth;
             }
         }
 

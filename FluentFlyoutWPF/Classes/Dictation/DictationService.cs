@@ -32,7 +32,7 @@ public enum DictationPhase
 }
 
 /// <summary>
-/// LOCAL voice dictation (spec 006): hold the hotkey, speak, release, and the text
+/// LOCAL voice dictation (spec 006): hold or toggle the hotkey, speak, and the text
 /// appears wherever the cursor is.
 /// <para>The engine is whisper.cpp (Whisper.net) with a ggml model from disk: inference
 /// never leaves the machine - the network is only used to download the models. Capture
@@ -64,6 +64,11 @@ public sealed class DictationService : IDisposable
     private string? _vadFactoryPath;
     private CancellationTokenSource? _transcriptionCts;
     private bool _cancelRequested;
+    private bool _sessionToggle;
+    private bool _handsFreeLatched;
+    private long _hotkeyStartedTick;
+    private const int HotkeyHoldThresholdMs = 350;
+    private IReadOnlyList<int> _sessionHotkey = [];
     private bool _runtimeConfigured;
     private bool _runtimeUseGpu;
     private bool _runtimeLoaded;
@@ -89,6 +94,8 @@ public sealed class DictationService : IDisposable
 
     /// <summary>Microphone level right now (0..1), for the wave visualizer.</summary>
     public float Level => _capture.Level;
+
+    public bool HandsFree => Phase == DictationPhase.Listening && _handsFreeLatched;
 
     /// <summary>Localization key of the current message (error or notice); null if none.</summary>
     public string? MessageKey { get; private set; }
@@ -148,6 +155,18 @@ public sealed class DictationService : IDisposable
     /// <summary>Raised on any phase change, message level change, or end of dictation.</summary>
     public event Action? Changed;
 
+    public DictationService()
+    {
+        // Device callbacks never close their own device. Report disk errors on the UI
+        // thread immediately instead of silently leaving a recording running.
+        _capture.StorageFailed += () =>
+        {
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (!_disposed && dispatcher is { HasShutdownStarted: false })
+                dispatcher.BeginInvoke(new Action(Stop));
+        };
+    }
+
     // ------------------------------------------------------------------
     // Hotkey (driven by MainWindow's keyboard hook)
     // ------------------------------------------------------------------
@@ -155,7 +174,7 @@ public sealed class DictationService : IDisposable
     /// <summary>
     /// A key from the global hook. It keeps the set of held keys - the hook sees ALL of
     /// them, whether the app has focus or not - and decides with the pure hotkey logic:
-    /// completing it starts, releasing any of its keys ends it, and only Escape cancels
+    /// completing it starts, release (hold mode) or press again (toggle mode) ends it, and Escape cancels
     /// (RF-1/RF-3/RF-4). Any other foreign key is ignored, so brushing the desk with
     /// your hand never discards the phrase being dictated.
     /// </summary>
@@ -172,22 +191,38 @@ public sealed class DictationService : IDisposable
         // hotkey says "Ctrl": they are unified before anything is compared.
         virtualKey = DictationHotkey.Normalize(virtualKey);
 
-        var hotkey = DictationHotkey.Parse(SettingsManager.Current.DictationHotkey);
+        var hotkey = Phase == DictationPhase.Listening ? _sessionHotkey
+            : DictationHotkey.Parse(SettingsManager.Current.DictationHotkey);
 
         if (down)
         {
-            _pressed.Add(virtualKey);
+            bool wasComplete = hotkey.All(_pressed.Contains);
+            if (!_pressed.Add(virtualKey)) return; // Ignore keyboard auto-repeat.
             if (Active)
             {
                 if (DictationHotkey.Cancels(virtualKey)) Cancel();
+                else if (Phase == DictationPhase.Listening && _handsFreeLatched && !wasComplete
+                    && DictationHotkey.Triggers(hotkey, virtualKey, _pressed)) Stop();
                 return;
             }
-            if (DictationHotkey.Triggers(hotkey, virtualKey, _pressed)) Start();
+            if (!wasComplete && DictationHotkey.Triggers(hotkey, virtualKey, _pressed)) Start();
             return;
         }
 
         _pressed.Remove(virtualKey);
-        if (Phase == DictationPhase.Listening && DictationHotkey.Ends(hotkey, virtualKey)) Stop();
+        if (Phase != DictationPhase.Listening || !DictationHotkey.Ends(hotkey, virtualKey)) return;
+        if (!_sessionToggle || (!_handsFreeLatched
+            && Environment.TickCount64 - _hotkeyStartedTick >= HotkeyHoldThresholdMs))
+        {
+            Stop();
+        }
+        else if (!_handsFreeLatched)
+        {
+            // A short release latches the existing recording. No microphone restart,
+            // second shortcut, deferred start or background timer is needed.
+            _handsFreeLatched = true;
+            Changed?.Invoke();
+        }
     }
 
     // ------------------------------------------------------------------
@@ -198,6 +233,7 @@ public sealed class DictationService : IDisposable
     public void Start()
     {
         if (_disposed || Active) return;
+        long gestureStartedTick = Environment.TickCount64;
 
         string? modelPath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel);
         if (modelPath == null)
@@ -225,12 +261,18 @@ public sealed class DictationService : IDisposable
         {
             lock (_resourceStateGate) _resourceSessionStarting = false;
             Logger.Warn(ex, "No se pudo abrir el micrófono");
-            Fail("IslandDictationNoMic", "No microphone available");
+            if (ex is IOException or UnauthorizedAccessException)
+                Fail("IslandDictationCaptureFailed", "Could not save the recording. Check free disk space.");
+            else Fail("IslandDictationNoMic", "No microphone available");
             ScheduleResourceRelease();
             return;
         }
 
         _cancelRequested = false;
+        _sessionToggle = SettingsManager.Current.DictationToggleMode;
+        _handsFreeLatched = false;
+        _hotkeyStartedTick = gestureStartedTick;
+        _sessionHotkey = DictationHotkey.Parse(SettingsManager.Current.DictationHotkey);
         SetPhase(DictationPhase.Listening);
         Logger.Info("Dictado: grabación iniciada; precarga en segundo plano");
         _ = Task.Run(PrefetchEngineAsync);
@@ -319,12 +361,21 @@ public sealed class DictationService : IDisposable
     {
         if (Phase != DictationPhase.Listening) return;
 
-        float[] samples = _capture.Stop();
+        CapturedRecording? recording;
+        try { recording = _capture.Stop(); }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Dictation recording failed");
+            Fail("IslandDictationCaptureFailed", "Could not save the recording. Check free disk space.");
+            FinishSessionWithoutTranscription();
+            return;
+        }
         bool cancelled = _cancelRequested;
         _cancelRequested = false;
 
-        if (cancelled || samples.Length == 0)
+        if (cancelled || recording == null || recording.Length == 0)
         {
+            recording?.Dispose();
             SetPhase(DictationPhase.Idle);
             FinishSessionWithoutTranscription();
             return;
@@ -339,7 +390,7 @@ public sealed class DictationService : IDisposable
             CancellationTokenSource? previousCts = Interlocked.Exchange(ref _transcriptionCts, sessionCts);
             previousCts?.Cancel();
         }
-        _ = Task.Run(() => TranscribeAndSendAsync(samples, language, sessionCts));
+        _ = Task.Run(() => TranscribeAndSendAsync(recording, language, sessionCts));
     }
 
     /// <summary>
@@ -960,7 +1011,7 @@ public sealed class DictationService : IDisposable
     }
 
     private async Task TranscribeAndSendAsync(
-        float[] samples,
+        CapturedRecording recording,
         string language,
         CancellationTokenSource sessionCts)
     {
@@ -974,96 +1025,106 @@ public sealed class DictationService : IDisposable
                 _lifetimeCts.Token);
             CancellationToken token = linkedCts.Token;
 
-            long mark = clock.ElapsedMilliseconds;
-            VoiceWindow window = LocateVoice(samples);
-            if (window.Length == 0)
+            var completeTranscript = new StringBuilder();
+            foreach (float[] samples in recording.ReadChunks(token))
             {
-                Logger.Info($"Dictation: {AudioSeconds(samples)} of audio with no voice"
-                    + $" (gate {clock.ElapsedMilliseconds - mark} ms)"
-                    + MicNote());
-                return;
-            }
+                token.ThrowIfCancellationRequested();
+                segments = 0;
+                characters = 0;
 
-            // Ambiguous level: background noise, or a voice too quiet to separate from
-            // the floor. The neural VAD gets the last word there so a stray trigger does
-            // not invent text. A VAD that is missing or failing only downgrades to
-            // "assume voice": transcribing is always better than staying mute.
-            if (!window.Confident)
-            {
-                bool? hasVoice = await DetectVoiceAsync(window.Slice(samples), token);
-                vadMs = clock.ElapsedMilliseconds - mark;
-                if (hasVoice == false)
+                long mark = clock.ElapsedMilliseconds;
+                VoiceWindow window = LocateVoice(samples);
+                if (window.Length == 0)
                 {
                     Logger.Info($"Dictation: {AudioSeconds(samples)} of audio with no voice"
-                        + $" (gate {vadMs} ms)"
+                        + $" (gate {clock.ElapsedMilliseconds - mark} ms)"
                         + MicNote());
-                    return;
+                    continue;
                 }
-            }
-            else
-            {
-                vadMs = clock.ElapsedMilliseconds - mark;
-            }
 
-            float[] useful = window.Slice(samples);
-            string vadNote = window.Confident ? $"{vadMs} ms (gate)" : $"{vadMs} ms (gate+VAD)";
-            string activePath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel)
-                ?? throw new FileNotFoundException("There is no active dictation model");
-            DictationModelInfo? activeModel = DictationModelStore.Find(Path.GetFileName(activePath));
-            if (activeModel is { Backend: not DictationModelBackend.Whisper })
-            {
-                mark = clock.ElapsedMilliseconds;
-                await DictationModelStore.ValidateIntegrityAsync(activePath, token);
-                string text = await TranscribeExternalAsync(
-                    activeModel,
-                    activePath,
-                    useful,
-                    EffectiveLanguage(language, activePath),
-                    RequestedDevice,
-                    token, RequestedCudaVersion);
-                engineMs = clock.ElapsedMilliseconds - mark;
-                text = text.Trim();
-                if (text.Length > 0)
+                // Ambiguous level: background noise, or a voice too quiet to separate from
+                // the floor. The neural VAD gets the last word there so a stray trigger does
+                // not invent text. A VAD that is missing or failing only downgrades to
+                // "assume voice": transcribing is always better than staying mute.
+                if (!window.Confident)
                 {
-                    segments = 1;
-                    characters = text.Length;
-                    WriteDictatedText(text, token, sessionCts);
+                    bool? hasVoice = await DetectVoiceAsync(window.Slice(samples), token);
+                    vadMs = clock.ElapsedMilliseconds - mark;
+                    if (hasVoice == false)
+                    {
+                        Logger.Info($"Dictation: {AudioSeconds(samples)} of audio with no voice"
+                            + $" (gate {vadMs} ms)"
+                            + MicNote());
+                        continue;
+                    }
+                }
+                else
+                {
+                    vadMs = clock.ElapsedMilliseconds - mark;
+                }
+
+                float[] useful = window.Slice(samples);
+                string vadNote = window.Confident ? $"{vadMs} ms (gate)" : $"{vadMs} ms (gate+VAD)";
+                string activePath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel)
+                    ?? throw new FileNotFoundException("There is no active dictation model");
+                DictationModelInfo? activeModel = DictationModelStore.Find(Path.GetFileName(activePath));
+                if (activeModel is { Backend: not DictationModelBackend.Whisper })
+                {
+                    mark = clock.ElapsedMilliseconds;
+                    await DictationModelStore.ValidateIntegrityAsync(activePath, token);
+                    string text = await TranscribeExternalAsync(
+                        activeModel,
+                        activePath,
+                        useful,
+                        EffectiveLanguage(language, activePath),
+                        RequestedDevice,
+                        token, RequestedCudaVersion);
+                    engineMs = clock.ElapsedMilliseconds - mark;
+                    text = text.Trim();
+                    if (text.Length > 0)
+                    {
+                        segments = 1;
+                        characters = text.Length;
+                        completeTranscript.Append(text).Append(' ');
+                    }
+                    decodeMs = clock.ElapsedMilliseconds - mark;
+                    Logger.Info($"Dictation: {AudioSeconds(samples)}→{AudioSeconds(useful)} of audio | VAD {vadNote} | engine {engineMs} ms | "
+                        + $"decode {decodeMs} ms | {segments} segment(s), "
+                        + $"{characters} characters | model {activeModel.Name}{MicNote()}");
+                    continue;
+                }
+
+                mark = clock.ElapsedMilliseconds;
+                WhisperFactory factory = await EnsureFactoryAsync(token);
+                engineMs = clock.ElapsedMilliseconds - mark;
+
+                using var processor = BuildProcessor(factory, EffectiveLanguage(language, activePath));
+
+                // Whisper can return several segments for a single session. They are accumulated
+                // and injected together: one dictation session is one write at the target.
+                var transcript = new StringBuilder();
+                mark = clock.ElapsedMilliseconds;
+                await foreach (var segment in processor.ProcessAsync(useful, token))
+                {
+                    segments++;
+                    transcript.Append(segment.Text);
                 }
                 decodeMs = clock.ElapsedMilliseconds - mark;
+                string whisperText = transcript.ToString().Trim();
+                characters = whisperText.Length;
+                if (whisperText.Length > 0)
+                    completeTranscript.Append(whisperText).Append(' ');
+                // CUDA has loaded and has inferred: the safety notice is redundant until the next load.
+                DictationGpuSafety.Disarm();
+
                 Logger.Info($"Dictation: {AudioSeconds(samples)}→{AudioSeconds(useful)} of audio | VAD {vadNote} | engine {engineMs} ms | "
                     + $"decode {decodeMs} ms | {segments} segment(s), "
-                    + $"{characters} characters | model {activeModel.Name}{MicNote()}");
-                return;
+                    + $"{characters} characters "
+                    + $"| {(_factoryPath == null ? "?" : Path.GetFileName(_factoryPath))}"
+                    + MicNote());
             }
-
-            mark = clock.ElapsedMilliseconds;
-            WhisperFactory factory = await EnsureFactoryAsync(token);
-            engineMs = clock.ElapsedMilliseconds - mark;
-
-            using var processor = BuildProcessor(factory, EffectiveLanguage(language, activePath));
-
-            // Whisper can return several segments for a single session. They are accumulated
-            // and injected together: one dictation session is one write at the target.
-            var transcript = new StringBuilder();
-            mark = clock.ElapsedMilliseconds;
-            await foreach (var segment in processor.ProcessAsync(useful, token))
-            {
-                segments++;
-                transcript.Append(segment.Text);
-            }
-            decodeMs = clock.ElapsedMilliseconds - mark;
-            string whisperText = transcript.ToString().Trim();
-            characters = whisperText.Length;
-            if (whisperText.Length > 0)
-                WriteDictatedText(whisperText, token, sessionCts);
-            // CUDA has loaded and has inferred: the safety notice is redundant until the next load.
-            DictationGpuSafety.Disarm();
-
-            Logger.Info($"Dictation: {AudioSeconds(samples)}→{AudioSeconds(useful)} of audio | VAD {vadNote} | engine {engineMs} ms | "
-                + $"decode {decodeMs} ms | {segments} segment(s), "
-                + $"{characters} characters "
-                + $"| {(_factoryPath == null ? "?" : Path.GetFileName(_factoryPath))}"
-                + MicNote());
+            string result = completeTranscript.ToString().Trim();
+            if (result.Length > 0) WriteDictatedText(result, token, sessionCts);
         }
         catch (OperationCanceledException) when (
             sessionCts.IsCancellationRequested || _lifetimeCts.IsCancellationRequested)
@@ -1078,6 +1139,7 @@ public sealed class DictationService : IDisposable
         }
         finally
         {
+            recording.Dispose();
             bool current;
             lock (_transcriptionGate)
             {
@@ -1461,7 +1523,7 @@ public sealed class DictationService : IDisposable
 
     /// <summary>
     /// Capture from the default microphone at 16 kHz mono PCM16 - Whisper's native
-    /// format - accumulating the already normalized samples and measuring the level for
+    /// format - spooling PCM to a temporary file and measuring the level for
     /// the waves.
     ///
     /// <para>It watches that the device keeps delivering audio. A long dictation used to
@@ -1473,26 +1535,16 @@ public sealed class DictationService : IDisposable
     private sealed class MicCapture : IDisposable
     {
         private const int SampleRate = 16_000;
-        /// <summary>Top of a dictation: 2 minutes. Caps memory (7.7 MB of samples).</summary>
-        private const int MaxSamples = SampleRate * 120;
         /// <summary>Without a single device buffer in this time, capture is dead (the same criterion the visualizer uses).</summary>
         private const int StallMs = 2000;
-        /// <summary>
-        /// Room reserved on the first block so a typical phrase never has to grow it.
-        /// The buffer doubles from here; the cap above is the only hard limit.
-        /// </summary>
-        private const int InitialCapacity = SampleRate * 15;
 
         // The device is opened in Start(), not in the constructor: on a machine with no
         // microphone building the object already throws, and this service is born with
         // the main window (dictation being off must not stop the app from starting).
         private WaveIn? _wave;
-        /// <summary>
-        /// Plain array with an explicit length, not a List: the audio callback appends to
-        /// it every 100 ms and a List checks its own bounds on every single sample.
-        /// </summary>
-        private float[] _samples = new float[InitialCapacity];
-        private int _count;
+        /// <summary>PCM is spooled locally; recording duration does not grow the audio buffer.</summary>
+        private CapturedRecording? _recording;
+        private Exception? _writeError;
         /// <summary>Samples: the audio thread writes them, the transcription thread reads them.</summary>
         private readonly Lock _lock = new();
         /// <summary>Device and recording: touched by the UI, the watchdog and the teardown.</summary>
@@ -1502,10 +1554,11 @@ public sealed class DictationService : IDisposable
         private volatile bool _active;
         private long _lastDataTick;
         private int _revives;
-        private bool _capped;
 
         /// <summary>Level of the last buffer (0..1) for the visualizer.</summary>
         public float Level => _level;
+
+        public event Action? StorageFailed;
 
         /// <summary>Capture restarts during this dictation (0 = the device behaved).</summary>
         public int Revives => _revives;
@@ -1514,21 +1567,26 @@ public sealed class DictationService : IDisposable
         {
             lock (_lock)
             {
-                _count = 0;
+                _recording?.Dispose();
+                _recording = new CapturedRecording();
+                _writeError = null;
                 _level = 0;
-                _capped = false;
             }
             _revives = 0;
-            lock (_deviceLock)
+            try
             {
-                OpenAndRecord();
-                _active = true;
+                lock (_deviceLock)
+                {
+                    OpenAndRecord();
+                    _active = true;
+                }
+                StartWatchdog();
             }
-            StartWatchdog();
+            catch { Dispose(); throw; }
         }
 
         /// <summary>Closes the microphone and returns what was captured.</summary>
-        public float[] Stop()
+        public CapturedRecording? Stop()
         {
             _active = false; // before the watchdog: an in-flight tick must not reopen anything
             StopWatchdog();
@@ -1546,9 +1604,14 @@ public sealed class DictationService : IDisposable
             _level = 0;
             lock (_lock)
             {
-                float[] copy = _samples.AsSpan(0, _count).ToArray();
-                _count = 0; // a second Stop without Start returns empty, it does not duplicate a session
-                return copy;
+                var recording = _recording;
+                _recording = null; // Ownership passes to transcription; another Stop returns null.
+                if (_writeError != null)
+                {
+                    recording?.Dispose();
+                    throw new IOException("Could not save the dictation audio", _writeError);
+                }
+                return recording;
             }
         }
 
@@ -1566,6 +1629,11 @@ public sealed class DictationService : IDisposable
                 {
                     // The device may already have been closed.
                 }
+            }
+            lock (_lock)
+            {
+                _recording?.Dispose();
+                _recording = null;
             }
         }
 
@@ -1607,26 +1675,22 @@ public sealed class DictationService : IDisposable
             float sum = 0;
             lock (_lock)
             {
-                int room = MaxSamples - _count;
-                int take = Math.Min(count, room);
-                if (take == 0 && !_capped)
+                if (_recording == null || _writeError != null) return;
+                try { _recording.Append(pcm); }
+                catch (Exception ex)
                 {
-                    // Dictation cap reached: whatever comes next does not fit.
-                    _capped = true;
-                    Logger.Warn($"Dictation: recording hit the {MaxSamples / SampleRate} s cap; "
-                        + "anything after it is not captured");
+                    _writeError = ex;
+                    _level = 0;
+                    Logger.Error(ex, "Dictation audio storage failed");
+                    StorageFailed?.Invoke();
+                    return;
                 }
-
-                GrowIfNeeded(take);
-                var destination = _samples.AsSpan(_count, take);
-                for (int i = 0; i < take; i++)
+                for (int i = 0; i < count; i++)
                 {
                     short raw = (short)(pcm[i * 2] | (pcm[i * 2 + 1] << 8));
                     float sample = raw / 32768f;
-                    destination[i] = sample;
                     sum += sample * sample;
                 }
-                _count += take;
             }
 
             // Buffer RMS -> visualizer level (the Island does the smoothing).
@@ -1634,24 +1698,10 @@ public sealed class DictationService : IDisposable
             _level = Math.Clamp(rms * 9f, 0f, 1f);
         }
 
-        /// <summary>
-        /// Doubles the sample buffer until it can hold <paramref name="extra"/> more.
-        /// Only the first blocks of a long dictation ever pay for it.
-        /// </summary>
-        private void GrowIfNeeded(int extra)
-        {
-            int required = _count + extra;
-            if (required <= _samples.Length) return;
-            int capacity = Math.Max(_samples.Length, InitialCapacity);
-            while (capacity < required) capacity *= 2;
-            if (capacity > MaxSamples) capacity = MaxSamples;
-            Array.Resize(ref _samples, capacity);
-        }
-
         /// <summary>Samples stored so far, in seconds (for the watchdog notices).</summary>
         private double CapturedSeconds()
         {
-            lock (_lock) return _count / (double)SampleRate;
+            lock (_lock) return (_recording?.Length ?? 0) / (2.0 * SampleRate);
         }
 
         private void StartWatchdog()

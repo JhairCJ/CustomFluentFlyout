@@ -75,6 +75,17 @@
             </StackPanel>
         </ui:CardControl>
 
+        <ui:CardControl x:Name="DictationModeCard" Tag="Indexable" Icon="{ui:SymbolIcon Mic24}" Margin="0,0,0,12">
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="{DynamicResource DictationToggleTitle}" FontSize="14" />
+                    <TextBlock Text="{DynamicResource DictationToggleDescription}" FontSize="12" Opacity="0.5"
+                               TextWrapping="Wrap" MaxWidth="520" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:ToggleSwitch IsChecked="{Binding DictationToggleMode, Mode=TwoWay}" />
+        </ui:CardControl>
+
         <ui:CardControl x:Name="DictationLanguageCard" Tag="Indexable" Icon="{ui:SymbolIcon LocalLanguage24}" Margin="0,0,0,12">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">

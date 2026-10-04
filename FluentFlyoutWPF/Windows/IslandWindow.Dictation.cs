@@ -9,6 +9,7 @@ using FluentFlyoutWPF.Models;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
 namespace FluentFlyoutWPF.Windows;
@@ -50,6 +51,10 @@ public partial class IslandWindow
     private DictationService? _dictation;
     /// <summary>The dictation card is the view in front right now.</summary>
     private bool _dictationViewShown;
+    private bool _dictationShimmerRunning;
+    private DictationPhase? _dictationPresentedPhase;
+    private bool DictationTranscribing => _dictation?.Phase == DictationPhase.Transcribing;
+    private bool DictationHandsFree => _dictation?.HandsFree == true;
 
     /// <summary>Registered "dictation" feature (never null after startup).</summary>
     private IIslandFeature? DictationFeature => FeatureById(IslandFeatureIds.Dictation);
@@ -127,6 +132,7 @@ public partial class IslandWindow
         _dictation = _main.Dictation;
         _dictation.Changed += OnDictationChanged;
         DictationCompactGrid.IsVisibleChanged += OnDictationVisibilityChanged;
+        DictationStatus.IsVisibleChanged += OnDictationStatusVisibilityChanged;
     }
 
     private void ShutdownDictation()
@@ -134,6 +140,9 @@ public partial class IslandWindow
         if (_dictation != null) _dictation.Changed -= OnDictationChanged;
         _dictation = null;
         DictationCompactGrid.IsVisibleChanged -= OnDictationVisibilityChanged;
+        DictationStatus.IsVisibleChanged -= OnDictationStatusVisibilityChanged;
+        StopDictationShimmer();
+        DictationStatus.BeginAnimation(OpacityProperty, null);
         StopDictationBars();
         if (_dictationBarsTimer != null) _dictationBarsTimer.Tick -= OnDictationBarsTick;
         _dictationBarsTimer = null;
@@ -218,6 +227,18 @@ public partial class IslandWindow
         // which is what matters; it just does not paint its card. Same veto as
         // Bluetooth and the charger, which also do not present over an exclusive.
         if (AnotherFeatureExclusive()) return;
+        // A phase change within the same live card only changes its feedback. Do
+        // not hide/remount the layers, reset the waves or remeasure every screen.
+        if (_dictationViewShown && _dictation.Active
+            && _dictationPresentedPhase is DictationPhase.Listening or DictationPhase.Transcribing
+            && _contentMode == IslandContentMode.Dictation && DictationCompactGrid.IsVisible
+            && !_expanded && !_inactiveShown && _inactiveTt == 0 && _qT > 0)
+        {
+            RefreshDictationUI();
+            ApplyUltraCompactContent();
+            UpdateDictationBars();
+            return;
+        }
         _dictationViewShown = true;
         // The waves only run with the mic open: a failure notice animates nothing.
         ShowCompactView(IslandContentMode.Dictation, DictationFeature, RefreshDictationUI,
@@ -261,13 +282,62 @@ public partial class IslandWindow
             ? Wpf.Ui.Controls.SymbolRegular.MicOff24
             : Wpf.Ui.Controls.SymbolRegular.Mic24;
 
-        DictationStatus.Text = dictation.Phase switch
+        string status = dictation.Phase switch
         {
+            DictationPhase.Listening when dictation.HandsFree => UltraCompactOn
+                ? "REC" : IslandStrings.Get("IslandDictationHandsFree", "Listening…"),
             DictationPhase.Transcribing => IslandStrings.Get("IslandDictationTranscribing", "Transcribing…"),
             DictationPhase.Error => IslandStrings.Get(dictation.MessageKey ?? "", dictation.MessageFallback ?? ""),
             _ => "",
         };
+        bool enteringStatus = DictationStatus.Text.Length == 0 && status.Length > 0;
+        DictationStatus.Text = status;
+        if (enteringStatus && AnimationsEnabled && SystemParameters.ClientAreaAnimation)
+            DictationStatus.BeginAnimation(OpacityProperty,
+                new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140))
+                { FillBehavior = FillBehavior.Stop, EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+        else if (status.Length == 0 || !AnimationsEnabled)
+            DictationStatus.BeginAnimation(OpacityProperty, null);
+        RefreshDictationStatusLayout();
+        _dictationPresentedPhase = dictation.Phase;
         DictationCompactGrid.ToolTip = DictationTooltip(dictation);
+        UpdateDictationShimmer();
+    }
+
+    private void RefreshDictationStatusLayout()
+    {
+        bool replaceWave = UltraCompactOn && DictationTranscribing;
+        // Preserve the microphone at the left. In ultra mode the localized status
+        // becomes the right endpoint where the live wave was, without widening it.
+        Grid.SetColumn(DictationStatus, replaceWave ? 2 : 1);
+        DictationStatus.FontSize = UltraCompactOn ? (DictationHandsFree ? 9 : 11) : 12;
+        DictationStatus.Margin = UltraCompactOn ? new Thickness(2, 0, 0, 0) : new Thickness(8, 0, 4, 0);
+        DictationStatus.HorizontalAlignment = replaceWave ? HorizontalAlignment.Right : HorizontalAlignment.Stretch;
+        DictationWave.Visibility = DictationTranscribing ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void OnDictationStatusVisibilityChanged(object sender, DependencyPropertyChangedEventArgs e) => UpdateDictationShimmer();
+
+    private void UpdateDictationShimmer()
+    {
+        bool animate = !_disposed && DictationModeAvailable() && DictationTranscribing
+            && DictationStatus.IsVisible && AnimationsEnabled && SystemParameters.ClientAreaAnimation;
+        if (!animate) { StopDictationShimmer(); return; }
+        if (_dictationShimmerRunning) return;
+        _dictationShimmerRunning = true;
+        DictationStatus.Foreground = DictationStatusShimmerBrush;
+        var sweep = new DoubleAnimation(-0.3, 1.3, TimeSpan.FromMilliseconds(1600))
+        { RepeatBehavior = RepeatBehavior.Forever };
+        Timeline.SetDesiredFrameRate(sweep, 30);
+        DictationStatusShimmerOffset.BeginAnimation(TranslateTransform.XProperty, sweep);
+    }
+
+    private void StopDictationShimmer()
+    {
+        _dictationShimmerRunning = false;
+        DictationStatusShimmerOffset.BeginAnimation(TranslateTransform.XProperty, null);
+        DictationStatusShimmerOffset.X = 0;
+        DictationStatus.Foreground = Brushes.White;
     }
 
     /// <summary>Label on hover: which hotkey to hold and which model is used.</summary>
@@ -278,6 +348,8 @@ public partial class IslandWindow
             : DictationHotkey.Default;
         return dictation.Phase switch
         {
+            DictationPhase.Listening when dictation.HandsFree => IslandStrings.Format("IslandDictationTooltipHandsFree",
+                "Hands-free recording. Press {0} to finish; Esc to cancel.", hotkey),
             DictationPhase.Listening => IslandStrings.Format("IslandDictationTooltipListening",
                 "Listening… hold {0} to dictate", hotkey),
             DictationPhase.Transcribing => IslandStrings.Get("IslandDictationTranscribing", "Transcribing…"),
@@ -330,7 +402,11 @@ public partial class IslandWindow
         }
     }
 
-    private void OnDictationVisibilityChanged(object sender, DependencyPropertyChangedEventArgs e) => UpdateDictationBars();
+    private void OnDictationVisibilityChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        UpdateDictationBars();
+        UpdateDictationShimmer();
+    }
 
     private bool DictationBarsVisible() => !_disposed && DictationModeAvailable()
         && DictationCompactGrid.IsVisible && _dictation?.Phase == DictationPhase.Listening;

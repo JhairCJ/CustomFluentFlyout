@@ -193,7 +193,9 @@ public partial class IslandWindow
         // The compact layer recovers its usual width: the compact never groups
         // (change island-pantallas), so it measures what a single feature takes —or what
         // its two ends measure, with the ultra compact mode on—.
-        CompactLayer.Width = RestCompactWidth(SingleCompactLayerWidth);
+        // The notch body rests at 200 DIPs, not the pill's 240. A wider centered
+        // content layer cuts the album and equalizer off at both clipped edges.
+        CompactLayer.Width = IsNotch ? RestCompactWidth(NotchCompactWidth) : ContentCompactWidth;
         if (_contentMode == IslandContentMode.Screen)
         {
             // The SCREEN mode is the composition of the EXPANDED view (its columns, from

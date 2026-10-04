@@ -1446,6 +1446,10 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial string DictationHotkey { get; set; } = Models.DictationHotkey.Default;
 
+    /// <summary>Short taps latch hands-free dictation; holding still ends on release. Enabled by default.</summary>
+    [ObservableProperty]
+    public partial bool DictationToggleMode { get; set; } = true;
+
     /// <summary>
     /// Active dictation model: the file name of a model in the models folder, or the
     /// full path of a hand-added one. Empty = none downloaded yet.
@@ -1947,6 +1951,7 @@ public partial class UserSettings : ObservableObject
         IslandPowerEnabled = true;
         DictationEnabled = false;
         DictationHotkey = Models.DictationHotkey.Default;
+        DictationToggleMode = true;
         DictationModel = "";
         DictationLanguage = "auto";
         DictationUseGpu = false;
@@ -2047,6 +2052,8 @@ public partial class UserSettings : ObservableObject
         // effect on the next reconciliation).
         [nameof(IslandReturnToInactive)] = island => island.RefreshVisibilityState(),
         [nameof(IslandStyle)] = island => island.RefreshAppearance(),
+        [nameof(IslandAnimated)] = island => island.RefreshAppearance(),
+        [nameof(FlyoutAnimationSpeed)] = island => island.RefreshAppearance(),
         [nameof(IslandLineTopOffset)] = island => island.RefreshAppearance(),
         [nameof(IslandTopOffset)] = island => island.RefreshAppearance(),
         [nameof(IslandFontFamily)] = island => island.RefreshAppearance(),
