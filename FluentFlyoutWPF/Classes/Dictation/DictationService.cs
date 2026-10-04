@@ -50,7 +50,11 @@ public sealed class DictationService : IDisposable
     private readonly MicCapture _capture = new();
     private readonly ExternalAsrTranscriber _externalTranscriber = new();
     private readonly DictationTranscriptHistory _transcriptHistory = new();
-    private readonly HashSet<int> _pressed = [];
+    private readonly DictationKeyRouter _keyRouter = new();
+    private volatile bool _inputHeld;
+    private bool _finishHandsFreeOnRelease;
+    private string? _configuredHotkeyText;
+    private IReadOnlyList<int> _configuredHotkey = [];
     private readonly SemaphoreSlim _engineLock = new(1, 1);
     private readonly SemaphoreSlim _vadLock = new(1, 1);
     private readonly CancellationTokenSource _lifetimeCts = new();
@@ -99,6 +103,13 @@ public sealed class DictationService : IDisposable
     public bool HandsFree => Phase == DictationPhase.Listening && _handsFreeLatched;
 
     public void CleanupTranscriptHistory() => _transcriptHistory.QueueCleanup();
+
+    internal void ResetKeyboardRouting()
+    {
+        _keyRouter.Reset();
+        _inputHeld = false;
+        _finishHandsFreeOnRelease = false;
+    }
 
     /// <summary>Localization key of the current message (error or notice); null if none.</summary>
     public string? MessageKey { get; private set; }
@@ -174,58 +185,78 @@ public sealed class DictationService : IDisposable
     // Hotkey (driven by MainWindow's keyboard hook)
     // ------------------------------------------------------------------
 
-    /// <summary>
-    /// A key from the global hook. It keeps the set of held keys - the hook sees ALL of
-    /// them, whether the app has focus or not - and decides with the pure hotkey logic:
-    /// completing it starts, release (hold mode) or press again (toggle mode) ends it, and Escape cancels
-    /// (RF-1/RF-3/RF-4). Any other foreign key is ignored, so brushing the desk with
-    /// your hand never discards the phrase being dictated.
-    /// </summary>
-    public void HandleKey(int virtualKey, bool down, bool injected = false)
+    /// <summary>Reports physical keys and returns whether this event belongs to dictation.</summary>
+    public bool HandleKey(int virtualKey, bool down, bool injected = false, int scanCode = 0, bool extended = false)
     {
-        // An injected event (the text we type ourselves, an on-screen keyboard, a macro) is
-        // not a key from the user and dictation must not see it. Without this an injected
-        // Enter - the line break of a transcription - cancelled the very session writing
-        // it. Unicode keys also carry no virtual code, so they never count for the hotkey.
-        if (_disposed || injected || virtualKey == 0) return;
-        // Defining the hotkey in Settings is not dictating: those keys start and cut nothing.
-        if (HotkeyCaptureActive) return;
-        // The hook delivers the physical modifier (0xA2 for left Ctrl) while the saved
-        // hotkey says "Ctrl": they are unified before anything is compared.
-        virtualKey = DictationHotkey.Normalize(virtualKey);
-
-        var hotkey = Phase == DictationPhase.Listening ? _sessionHotkey
-            : DictationHotkey.Parse(SettingsManager.Current.DictationHotkey);
-
-        if (down)
+        if (_disposed || injected || virtualKey == 0) return false;
+        string configured = SettingsManager.Current.DictationHotkey;
+        if (_configuredHotkeyText != configured)
         {
-            bool wasComplete = hotkey.All(_pressed.Contains);
-            if (!_pressed.Add(virtualKey)) return; // Ignore keyboard auto-repeat.
-            if (Active)
+            _configuredHotkeyText = configured;
+            _configuredHotkey = DictationHotkey.Parse(configured);
+        }
+        var hotkey = Phase == DictationPhase.Listening ? _sessionHotkey : _configuredHotkey;
+        var routing = _keyRouter.Route(new(virtualKey, scanCode, extended, down), hotkey,
+            SettingsManager.Current.DictationEnabled && !HotkeyCaptureActive,
+            Active && !HotkeyCaptureActive);
+        _inputHeld = _keyRouter.InputHeld;
+
+        if (routing.Replay is { } replay) ReplayShortcut(replay);
+        if (routing.Cancel) { Cancel(); return routing.Consume; }
+        if (HotkeyCaptureActive || !SettingsManager.Current.DictationEnabled) return routing.Consume;
+
+        if (routing.ForeignChord)
+        {
+            _finishHandsFreeOnRelease = false;
+            // A native Ctrl+Shift+C typed right after the modifiers is a shortcut,
+            // not a new dictation. Leave an established hands-free session running.
+            if (Phase == DictationPhase.Listening && !_handsFreeLatched
+                && Environment.TickCount64 - _hotkeyStartedTick < HotkeyHoldThresholdMs) Cancel();
+        }
+        if (routing.Completed)
+        {
+            if (!Active) Start();
+            else if (Phase == DictationPhase.Listening && _handsFreeLatched)
             {
-                if (DictationHotkey.Cancels(virtualKey)) Cancel();
-                else if (Phase == DictationPhase.Listening && _handsFreeLatched && !wasComplete
-                    && DictationHotkey.Triggers(hotkey, virtualKey, _pressed)) Stop();
-                return;
+                // Modifier-only chords are ambiguous until release: a following C
+                // must still mean Ctrl+Shift+C, without ending hands-free recording.
+                if (hotkey.All(DictationKeyRouter.IsModifier)) _finishHandsFreeOnRelease = true;
+                else Stop();
             }
-            if (!wasComplete && DictationHotkey.Triggers(hotkey, virtualKey, _pressed)) Start();
-            return;
         }
 
-        _pressed.Remove(virtualKey);
-        if (Phase != DictationPhase.Listening || !DictationHotkey.Ends(hotkey, virtualKey)) return;
-        if (!_sessionToggle || (!_handsFreeLatched
-            && Environment.TickCount64 - _hotkeyStartedTick >= HotkeyHoldThresholdMs))
+        int normalized = DictationHotkey.Normalize(virtualKey);
+        if (!down && Phase == DictationPhase.Listening && DictationHotkey.Ends(hotkey, normalized)
+            && !_keyRouter.IsDown(normalized))
         {
-            Stop();
+            if (_finishHandsFreeOnRelease)
+            {
+                _finishHandsFreeOnRelease = false;
+                Stop();
+            }
+            else if (!_sessionToggle || (!_handsFreeLatched
+                && Environment.TickCount64 - _hotkeyStartedTick >= HotkeyHoldThresholdMs)) Stop();
+            else if (!_handsFreeLatched)
+            {
+                _handsFreeLatched = true;
+                Changed?.Invoke();
+            }
         }
-        else if (!_handsFreeLatched)
+        return routing.Consume;
+    }
+
+    private static void ReplayShortcut(IReadOnlyList<DictationKeyRouter.Key> keys)
+    {
+        var inputs = new NativeMethods.INPUT[keys.Count];
+        for (int i = 0; i < keys.Count; i++)
         {
-            // A short release latches the existing recording. No microphone restart,
-            // second shortcut, deferred start or background timer is needed.
-            _handsFreeLatched = true;
-            Changed?.Invoke();
+            var key = keys[i];
+            inputs[i] = KeyInput((ushort)key.VirtualKey, !key.Down);
+            inputs[i].ki.wScan = (ushort)key.ScanCode;
+            if (key.Extended) inputs[i].ki.dwFlags |= 0x0001; // KEYEVENTF_EXTENDEDKEY
         }
+        uint sent = NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
+        if (sent != inputs.Length) Logger.Warn($"Could not replay all native shortcut events ({sent}/{inputs.Length})");
     }
 
     // ------------------------------------------------------------------
@@ -274,6 +305,7 @@ public sealed class DictationService : IDisposable
         _cancelRequested = false;
         _sessionToggle = SettingsManager.Current.DictationToggleMode;
         _handsFreeLatched = false;
+        _finishHandsFreeOnRelease = false;
         _hotkeyStartedTick = gestureStartedTick;
         _sessionHotkey = DictationHotkey.Parse(SettingsManager.Current.DictationHotkey);
         SetPhase(DictationPhase.Listening);
@@ -1003,14 +1035,23 @@ public sealed class DictationService : IDisposable
     /// not been cancelled (RF-3/RF-4). It is the same lock cancellation uses: text and
     /// cancellation never cross halfway.
     /// </summary>
-    private void WriteDictatedText(string text, CancellationToken token, CancellationTokenSource sessionCts)
+    private async Task WriteDictatedTextAsync(string text, CancellationToken token, CancellationTokenSource sessionCts)
     {
         if (token.IsCancellationRequested) return;
+        bool released = await WaitForInputReleaseAsync(token);
         lock (_transcriptionGate)
         {
             if (_disposed || !SettingsManager.Current.DictationEnabled || !IsCurrentTranscription(sessionCts))
                 return;
-            try { SendText(text); }
+            try
+            {
+                if (!released || _inputHeld || NativeModifiersHeld())
+                {
+                    Fail("IslandDictationKeysHeld", "Text was not inserted while shortcut keys were held. Check the recovery folder.", 5000);
+                    return;
+                }
+                SendText(text);
+            }
             finally
             {
                 // Queue the recovery copy AFTER attempting insertion. Missing focus,
@@ -1018,6 +1059,29 @@ public sealed class DictationService : IDisposable
                 _transcriptHistory.SaveAfterSubmission(text);
             }
         }
+    }
+
+    private static bool NativeModifiersHeld() =>
+        (NativeMethods.GetAsyncKeyState(DictationHotkey.VkCtrl) & 0x8000) != 0
+        || (NativeMethods.GetAsyncKeyState(DictationHotkey.VkShift) & 0x8000) != 0
+        || (NativeMethods.GetAsyncKeyState(DictationHotkey.VkAlt) & 0x8000) != 0
+        || (NativeMethods.GetAsyncKeyState(0x5B) & 0x8000) != 0
+        || (NativeMethods.GetAsyncKeyState(0x5C) & 0x8000) != 0;
+
+    private async Task<bool> WaitForInputReleaseAsync(CancellationToken token)
+    {
+        long deadline = Environment.TickCount64 + 5000;
+        int stableChecks = 0;
+        do
+        {
+            token.ThrowIfCancellationRequested();
+            // This runs on the transcription worker, never inside the keyboard hook
+            // (Windows has not updated asynchronous key state inside that callback).
+            stableChecks = !_inputHeld && !NativeModifiersHeld() ? stableChecks + 1 : 0;
+            if (stableChecks >= 2) return true;
+            await Task.Delay(16, token);
+        } while (Environment.TickCount64 < deadline);
+        return false;
     }
 
     private async Task TranscribeAndSendAsync(
@@ -1134,7 +1198,7 @@ public sealed class DictationService : IDisposable
                     + MicNote());
             }
             string result = completeTranscript.ToString().Trim();
-            if (result.Length > 0) WriteDictatedText(result, token, sessionCts);
+            if (result.Length > 0) await WriteDictatedTextAsync(result, token, sessionCts);
         }
         catch (OperationCanceledException) when (
             sessionCts.IsCancellationRequested || _lifetimeCts.IsCancellationRequested)

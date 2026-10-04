@@ -727,6 +727,7 @@ You can help contribute translations on</System:String>
     <System:String x:Key="IslandDictationHandsFree">Listening…</System:String>
     <System:String x:Key="IslandDictationTooltipHandsFree">Hands-free recording. Press {0} to finish; Esc to cancel.</System:String>
     <System:String x:Key="IslandDictationCaptureFailed">Could not save the recording. Check free disk space.</System:String>
+    <System:String x:Key="IslandDictationKeysHeld">Text was not inserted while shortcut keys were held. Check the transcriptions folder.</System:String>
     <System:String x:Key="DictationHotkeyHint">Click and press the keys</System:String>
     <System:String x:Key="DictationHotkeyTip">Click and press the key or combination you want to use</System:String>
     <System:String x:Key="DictationLanguageTitle">Language</System:String>

@@ -984,6 +984,7 @@ public partial class MainWindow : MicaWindow
         {
             UnhookWindowsHookEx(_hookId);
             _hookId = IntPtr.Zero;
+            Dictation.ResetKeyboardRouting();
         }
     }
 
@@ -995,15 +996,14 @@ public partial class MainWindow : MicaWindow
             int vkCode = Marshal.ReadInt32(lParam);
             bool keyDown = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
 
-            // Dictation (spec 006): the hook only REPORTS the key state - completing the
-            // hotkey opens the microphone, releasing it closes it, and a foreign key
-            // cancels. The key still travels to the app in front: the hotkey is never
-            // swallowed. Injected events (the text dictation itself types, an on-screen
-            // keyboard, a macro) are not the user and must not be seen as such; an
-            // injected Enter used to cancel the session that was typing it.
-            if (SettingsManager.Current.DictationEnabled)
-                Dictation.HandleKey(vkCode, down: keyDown,
-                    injected: (Marshal.ReadInt32(lParam, 8) & LLKHF_INJECTED) != 0);
+            // Consume only events owned by the dictation gesture. Keep reporting
+            // releases after disabling it so captured downs never leak unmatched ups.
+            // Replayed shortcuts and dictated Unicode are injected and pass through.
+            int keyFlags = Marshal.ReadInt32(lParam, 8);
+            if (Dictation.HandleKey(vkCode, down: keyDown,
+                injected: (keyFlags & LLKHF_INJECTED) != 0,
+                scanCode: Marshal.ReadInt32(lParam, 4), extended: (keyFlags & 1) != 0))
+                return new IntPtr(1);
 
             bool mediaKeysPressed = vkCode == 0xB3 || vkCode == 0xB0 || vkCode == 0xB1 || vkCode == 0xB2; // Play/Pause, next, previous, stop
             bool volumeKeysPressed = vkCode == 0xAD || vkCode == 0xAE || vkCode == 0xAF; // Mute, Volume Down, Volume Up

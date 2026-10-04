@@ -727,6 +727,7 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="IslandDictationHandsFree">Escuchando…</system:String>
     <system:String x:Key="IslandDictationTooltipHandsFree">Grabando en manos libres. Pulsa {0} para terminar; Esc para cancelar.</system:String>
     <system:String x:Key="IslandDictationCaptureFailed">No se pudo guardar la grabación. Revisa el espacio libre en disco.</system:String>
+    <system:String x:Key="IslandDictationKeysHeld">No se insertó el texto porque había teclas del atajo pulsadas. Revisa la carpeta de transcripciones.</system:String>
     <system:String x:Key="DictationHotkeyHint">Haz clic y pulsa las teclas</system:String>
     <system:String x:Key="DictationHotkeyTip">Haz clic y pulsa la tecla o combinación que quieras usar</system:String>
     <system:String x:Key="DictationLanguageTitle">Idioma</system:String>

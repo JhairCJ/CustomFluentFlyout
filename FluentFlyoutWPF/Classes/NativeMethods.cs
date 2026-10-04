@@ -469,6 +469,9 @@ public static partial class NativeMethods
 
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial IntPtr GetForegroundWindow();
+
+    [LibraryImport("user32.dll")]
+    internal static partial short GetAsyncKeyState(int virtualKey);
     // SendInput (dictado, spec 006): un carácter = una pulsación Unicode, así se escribe
     // cualquier idioma en el punto de inserción sin tocar el portapapeles.
     internal const uint INPUT_KEYBOARD = 1;
