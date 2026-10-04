@@ -371,8 +371,15 @@ public partial class IslandWindow : Window
     private void NotePlay(string id) { _lastPlay[id] = DateTime.Now; _lastFeatureEvent["media"] = DateTime.UtcNow; _currentId = id; }
     private void NoteFeatureEvent(string id) => _lastFeatureEvent[id] = DateTime.UtcNow;
 
+    protected override void OnClosed(EventArgs e)
+    {
+        Dispose();
+        base.OnClosed(e);
+    }
+
     public void Dispose()
     {
+        if (_disposed) return;
         _disposed = true;
         LocalizationManager.LanguageChanged -= OnLanguageChanged;
         ShutdownActivity();
@@ -383,6 +390,7 @@ public partial class IslandWindow : Window
         ShutdownDictation();
         ClearTemporaryNotice();
         StopLoop();
+        StopAlbumFlip();
         StopBackgroundRotation();
         _eq.Dispose();
         HookMediaEvents(false);

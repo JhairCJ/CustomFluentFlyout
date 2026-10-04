@@ -136,8 +136,8 @@ public partial class TaskbarWidgetControl : UserControl
 
     // Play/pause glyphs shared across updates: allocating a new SymbolIcon per
     // metadata event is pure GC pressure for two constant visuals.
-    private static readonly SymbolIcon _playIcon = new(SymbolRegular.Play24, filled: true);
-    private static readonly SymbolIcon _pauseIcon = new(SymbolRegular.Pause24, filled: true);
+    private readonly SymbolIcon _playIcon = new(SymbolRegular.Play24, filled: true);
+    private readonly SymbolIcon _pauseIcon = new(SymbolRegular.Pause24, filled: true);
 
     // True while a cover thumbnail is currently displayed; the switch-session chevron and the
     // pause overlay are only drawn over real cover art, not over the music-note placeholder.
@@ -305,8 +305,10 @@ public partial class TaskbarWidgetControl : UserControl
         TopBorder.CornerRadius = new CornerRadius(Math.Max(0, radius - 1));
         SongImageBorder.CornerRadius = new CornerRadius(SettingsManager.Current.TaskbarWidgetAlbumArtRadius);
         CrossfadeOverlay.CornerRadius = new CornerRadius(radius);
-        MainBorder.Clip = new RectangleGeometry(
-            new Rect(0, 0, MainBorder.ActualWidth, MainBorder.ActualHeight), radius, radius);
+        if (MainBorder.Clip is not RectangleGeometry clip || clip.IsFrozen)
+            MainBorder.Clip = clip = new RectangleGeometry();
+        clip.Rect = new Rect(0, 0, MainBorder.ActualWidth, MainBorder.ActualHeight);
+        clip.RadiusX = clip.RadiusY = radius;
     }
 
     public void ApplyButtonHoverRadius()
@@ -1718,6 +1720,13 @@ public partial class TaskbarWidgetControl : UserControl
         ParkSlideRow(SongTitle, _actualTitle);
         ParkSlideRow(SongArtist, _actualArtist);
         CancelBackgroundCrossfade();
+        // A background bake may still finish after Unloaded. Invalidate its art
+        // identity so that result cannot start another animation on the old control.
+        _currentIcon = null;
+        _bakedIcon = null;
+        _bakedBackground = null;
+        _bakedBackgroundCache.Clear();
+        BackgroundImage.Source = BackgroundImageNext.Source = null;
         if (_backgroundRotateTransform != null)
             _backgroundRotateTransform.BeginAnimation(RotateTransform.AngleProperty, null);
         BeginAnimation(OpacityProperty, null);
@@ -2456,13 +2465,17 @@ public partial class TaskbarWidgetControl : UserControl
             double scale = initialScale + (1 - initialScale) * progress;
             double x = from.Left + (to.Left - from.Left) * progress - to.Left;
             double y = from.Top + (to.Top - from.Top) * progress - to.Top;
-            element.RenderTransform = new MatrixTransform(scale, 0, 0, scale, x, y);
+            if (element.RenderTransform is not MatrixTransform transform || transform.IsFrozen)
+                element.RenderTransform = transform = new MatrixTransform();
+            transform.Matrix = new Matrix(scale, 0, 0, scale, x, y);
             element.Opacity = visible ? 1 : alpha;
             if (i == 1 || i == 2)
             {
                 double width = from.Width / Math.Max(initialScale, 0.01)
                     + (to.Width - from.Width / Math.Max(initialScale, 0.01)) * alpha;
-                element.Clip = new RectangleGeometry(new Rect(0, 0, Math.Max(0, width), to.Height));
+                if (element.Clip is not RectangleGeometry clip || clip.IsFrozen)
+                    element.Clip = clip = new RectangleGeometry();
+                clip.Rect = new Rect(0, 0, Math.Max(0, width), to.Height);
             }
         }
         ExpandedBackdropBase.Opacity = alpha;

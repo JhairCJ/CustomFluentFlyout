@@ -10,6 +10,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Windows.Media.Control;
 using Wpf.Ui.Controls;
 
@@ -20,7 +21,11 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 {
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
     private MainWindow? _mainWindow;
-    private readonly System.Threading.Timer _progressTimer;
+    private readonly DispatcherTimer _progressTimer;
+    private DateTimeOffset _nextProgressRead, _positionUpdatedAt;
+    private double _minimumSeconds, _positionSeconds, _maximumSeconds;
+    private double _paintedPositionSecond = double.NaN, _paintedRemainingSecond = double.NaN;
+    private bool _progressPlaying, _progressSeekable;
     private volatile bool _active, _disposed;
     private bool _drag, _albumArtHovering, _isPaused = true;
     private int _progressRefreshPending, _progressVersion;
@@ -43,7 +48,10 @@ public partial class TaskbarWidgetExpandedContent : UserControl
     {
         InitializeComponent();
         ApplyButtonStyle();
-        _progressTimer = new System.Threading.Timer(ProgressTick, null, Timeout.Infinite, Timeout.Infinite);
+        _progressTimer = new DispatcherTimer(DispatcherPriority.Background)
+        { Interval = TimeSpan.FromMilliseconds(100) };
+        _progressTimer.Tick += ProgressTick;
+        IsVisibleChanged += (_, _) => UpdateProgressTimer();
         Unloaded += (_, _) => SetActive(false);
     }
 
@@ -175,9 +183,8 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         if (_disposed) return;
         _active = active;
         Interlocked.Increment(ref _progressVersion);
-        _progressTimer.Change(active ? 0 : Timeout.Infinite, active ? 100 : Timeout.Infinite);
         RefreshObservedSession();
-        if (active) RequestProgressRefresh();
+        UpdateProgressTimer();
         if (!active)
         {
             SetAlbumArt(_albumFlipArt ?? _displayedArt);
@@ -196,7 +203,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         if (_disposed) return;
         SetActive(false);
         _disposed = true;
-        _progressTimer.Dispose();
+        _progressTimer.Tick -= ProgressTick;
     }
 
     private void SongInfo_Click(object sender, MouseButtonEventArgs e)
@@ -228,6 +235,8 @@ public partial class TaskbarWidgetExpandedContent : UserControl
             catch (Exception ex) { Logger.Debug(ex, "Taskbar session ended during event cleanup"); }
         }
         _observedSession = current;
+        _minimumSeconds = _positionSeconds = _maximumSeconds = 0;
+        _paintedPositionSecond = _paintedRemainingSecond = double.NaN;
         Interlocked.Increment(ref _progressVersion);
         if (current != null)
         {
@@ -248,19 +257,59 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     private void RequestProgressRefresh()
     {
-        if (!_active || _disposed) return;
-        _ = Task.Run(() => ProgressTick(null));
-    }
-
-    private void ProgressTick(object? state)
-    {
-        if (_disposed || !_active) return;
+        if (!_active || _disposed || Dispatcher.HasShutdownStarted) return;
+        // Coalesce before queuing work, so a notification burst creates one worker.
         if (Interlocked.Exchange(ref _progressRefreshPending, 1) == 1)
         {
             Interlocked.Exchange(ref _progressRefreshAgain, 1);
             return;
         }
+        _ = Task.Run(ReadProgress);
+    }
+
+    private void UpdateProgressTimer()
+    {
+        if (_disposed || !_active || !IsVisible)
+        {
+            _progressTimer.Stop();
+            return;
+        }
+        _nextProgressRead = DateTimeOffset.UtcNow.AddSeconds(1);
+        _progressTimer.Start();
+        RequestProgressRefresh();
+    }
+
+    private void ProgressTick(object? sender, EventArgs e)
+    {
+        if (_disposed || !_active || !IsVisible) { _progressTimer.Stop(); return; }
+        var now = DateTimeOffset.UtcNow;
+        // The 100 ms paint uses the last snapshot; only the 1 s recovery poll and
+        // actual playback/timeline events cross into the player's process.
+        if (now >= _nextProgressRead)
+        {
+            _nextProgressRead = now.AddSeconds(1);
+            RefreshObservedSession();
+            RequestProgressRefresh();
+        }
+        ApplyCachedProgress(now);
+    }
+
+    private void ApplyCachedProgress(DateTimeOffset now)
+    {
+        double position = _positionSeconds + (_progressPlaying ? (now - _positionUpdatedAt).TotalSeconds : 0);
+        ApplyProgress(_minimumSeconds, Math.Clamp(position, _minimumSeconds, _maximumSeconds),
+            _maximumSeconds, _progressSeekable);
+    }
+
+    private void ReadProgress()
+    {
+        if (_disposed || !_active)
+        {
+            Interlocked.Exchange(ref _progressRefreshPending, 0);
+            return;
+        }
         int version = Volatile.Read(ref _progressVersion);
+        var updatedAt = DateTimeOffset.UtcNow;
         double minimumSeconds = 0, positionSeconds = 0, maximumSeconds = 0;
         bool seekable = false, playing = false;
         GlobalSystemMediaTransportControlsSessionPlaybackControls? controls = null;
@@ -277,7 +326,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
                 if (timeline.MaxSeekTime > timeline.MinSeekTime)
                 {
                     var position = playing
-                        ? timeline.Position + (DateTimeOffset.UtcNow - timeline.LastUpdatedTime)
+                        ? timeline.Position + (updatedAt - timeline.LastUpdatedTime)
                         : timeline.Position;
                     minimumSeconds = timeline.MinSeekTime.TotalSeconds;
                     maximumSeconds = timeline.MaxSeekTime.TotalSeconds;
@@ -301,7 +350,15 @@ public partial class TaskbarWidgetExpandedContent : UserControl
                 if (version != Volatile.Read(ref _progressVersion) || !ReferenceEquals(session, _observedSession)) return;
                 if (_drag && Mouse.LeftButton == MouseButtonState.Released) _drag = false;
                 ApplyPlaybackState(!playing, controls);
-                ApplyProgress(minimumSeconds, positionSeconds, maximumSeconds, seekable);
+                _minimumSeconds = minimumSeconds;
+                _positionSeconds = positionSeconds;
+                _maximumSeconds = maximumSeconds;
+                _positionUpdatedAt = updatedAt;
+                _progressPlaying = playing;
+                _progressSeekable = seekable;
+                _progressTimer.Interval = TimeSpan.FromMilliseconds(playing ? 100 : 1000);
+                _nextProgressRead = DateTimeOffset.UtcNow.AddSeconds(1);
+                ApplyCachedProgress(DateTimeOffset.UtcNow);
             }
             finally
             {
@@ -381,15 +438,29 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         if (maximumSeconds <= minimumSeconds) return;
 
         if (_drag) return;
-        Seekbar.Minimum = 0;
-        Seekbar.Maximum = maximumSeconds;
-        Seekbar.Minimum = minimumSeconds;
+        // Avoid resetting/coercing Value twice on every tick when bounds are unchanged.
+        bool boundsChanged = Seekbar.Minimum != minimumSeconds || Seekbar.Maximum != maximumSeconds;
+        if (boundsChanged)
+        {
+            Seekbar.Minimum = 0;
+            Seekbar.Maximum = maximumSeconds;
+            Seekbar.Minimum = minimumSeconds;
+        }
         Seekbar.IsEnabled = seekable;
         Seekbar.Value = positionSeconds;
-        PosText.Text = Fmt(TimeSpan.FromSeconds(positionSeconds));
-
-        DurText.Text = FmtRemaining(TimeSpan.FromSeconds(maximumSeconds - positionSeconds));
-        UpdateTimelineVisual();
+        if (boundsChanged) UpdateTimelineVisual();
+        double positionSecond = Math.Floor(positionSeconds);
+        double remainingSecond = Math.Floor(maximumSeconds - positionSeconds);
+        if (_paintedPositionSecond != positionSecond)
+        {
+            _paintedPositionSecond = positionSecond;
+            PosText.Text = Fmt(TimeSpan.FromSeconds(positionSecond));
+        }
+        if (_paintedRemainingSecond != remainingSecond)
+        {
+            _paintedRemainingSecond = remainingSecond;
+            DurText.Text = FmtRemaining(TimeSpan.FromSeconds(remainingSecond));
+        }
     }
 
     private static string Fmt(TimeSpan t) => t.ToString(t.Hours > 0 ? @"h\:mm\:ss" : @"m\:ss");
@@ -421,6 +492,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         if (!Seekbar.IsEnabled || _mainWindow?.GetTaskbarSession() is not { } session) return;
         _seekSession = session.ControlSession;
         _drag = true;
+        _paintedPositionSecond = _paintedRemainingSecond = double.NaN;
         Seekbar.CaptureMouse();
         SetSeekPosition(e);
         e.Handled = true;

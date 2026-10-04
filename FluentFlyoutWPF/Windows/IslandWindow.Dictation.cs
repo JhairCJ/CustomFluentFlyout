@@ -126,13 +126,17 @@ public partial class IslandWindow
         BuildDictationBars();
         _dictation = _main.Dictation;
         _dictation.Changed += OnDictationChanged;
+        DictationCompactGrid.IsVisibleChanged += OnDictationVisibilityChanged;
     }
 
     private void ShutdownDictation()
     {
         if (_dictation != null) _dictation.Changed -= OnDictationChanged;
         _dictation = null;
+        DictationCompactGrid.IsVisibleChanged -= OnDictationVisibilityChanged;
         StopDictationBars();
+        if (_dictationBarsTimer != null) _dictationBarsTimer.Tick -= OnDictationBarsTick;
+        _dictationBarsTimer = null;
         // Without the service there is no dictation: the Island responds to the pointer again.
         ApplyDictationInteractionLock();
     }
@@ -216,10 +220,9 @@ public partial class IslandWindow
         if (AnotherFeatureExclusive()) return;
         _dictationViewShown = true;
         // The waves only run with the mic open: a failure notice animates nothing.
-        if (DictationActive()) StartDictationBars(); else StopDictationBars();
-        RefreshDictationUI();
         ShowCompactView(IslandContentMode.Dictation, DictationFeature, RefreshDictationUI,
             forceNotice: true, restartNotice: true);
+        UpdateDictationBars();
     }
 
     /// <summary>
@@ -292,7 +295,9 @@ public partial class IslandWindow
             var bar = new Border
             {
                 Width = 3,
-                Height = DictationBarMin,
+                Height = DictationBarMax,
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new ScaleTransform(1, DictationBarMin / DictationBarMax),
                 CornerRadius = new CornerRadius(1.5),
                 Background = _dictationIndicatorBrush,
                 Margin = new Thickness(0, 0, 2, 0),
@@ -325,6 +330,16 @@ public partial class IslandWindow
         }
     }
 
+    private void OnDictationVisibilityChanged(object sender, DependencyPropertyChangedEventArgs e) => UpdateDictationBars();
+
+    private bool DictationBarsVisible() => !_disposed && DictationModeAvailable()
+        && DictationCompactGrid.IsVisible && _dictation?.Phase == DictationPhase.Listening;
+
+    private void UpdateDictationBars()
+    {
+        if (DictationBarsVisible()) StartDictationBars(); else StopDictationBars();
+    }
+
     private void StartDictationBars()
     {
         if (_dictationBarsTimer == null)
@@ -341,7 +356,7 @@ public partial class IslandWindow
         Array.Clear(_dictationLevels);
         foreach (var bar in _dictationBars)
         {
-            if (bar != null) bar.Height = DictationBarMin;
+            if (bar != null) ((ScaleTransform)bar.RenderTransform).ScaleY = DictationBarMin / DictationBarMax;
         }
     }
 
@@ -353,7 +368,7 @@ public partial class IslandWindow
     private void OnDictationBarsTick(object? sender, EventArgs e)
     {
         var dictation = _dictation;
-        if (dictation == null || !dictation.Active)
+        if (dictation == null || !DictationBarsVisible())
         {
             StopDictationBars();
             return;
@@ -372,7 +387,8 @@ public partial class IslandWindow
         {
             double value = _dictationLevels[i];
             double height = DictationBarMin + Math.Pow(value, 0.7) * (DictationBarMax - DictationBarMin);
-            _dictationBars[i].Height = height;
+            // Render transforms keep the StackPanel's measured geometry fixed.
+            ((ScaleTransform)_dictationBars[i].RenderTransform).ScaleY = height / DictationBarMax;
         }
     }
 }

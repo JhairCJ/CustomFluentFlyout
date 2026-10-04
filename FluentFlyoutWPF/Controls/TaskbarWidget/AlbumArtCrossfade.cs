@@ -35,7 +35,7 @@ internal sealed class AlbumArtCrossfade
     public void Fade(Action update, double durationMs)
     {
         BitmapSource? snapshot = null;
-        if (_surface.ActualWidth > 0 && _surface.ActualHeight > 0)
+        if (CanCapture() && _surface.ActualWidth > 0 && _surface.ActualHeight > 0)
         {
             var dpi = VisualTreeHelper.GetDpi(_surface);
             var drawing = new DrawingVisual();
@@ -62,6 +62,15 @@ internal sealed class AlbumArtCrossfade
         { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
         animation.Completed += (_, _) => { if (version == _version) Stop(); };
         _outgoing.BeginAnimation(UIElement.OpacityProperty, animation);
+    }
+
+    private bool CanCapture()
+    {
+        if (!_surface.IsVisible) return false;
+        // Island layers remain measurable while their parent's opacity hides them.
+        for (DependencyObject? node = _surface; node != null; node = VisualTreeHelper.GetParent(node))
+            if (node is UIElement element && element.Opacity <= 0) return false;
+        return true;
     }
 
     public void Stop()

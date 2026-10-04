@@ -908,10 +908,11 @@ public partial class IslandWindow
         // artwork the SAME song flipped by itself when shown again. It does not flip
         // for a repaint, nor for a late thumbnail (that already changes the key), nor
         // on the first paint.
+        bool albumCrossfadeRunning = _compactAlbumCrossfade?.IsRunning == true || _expandedAlbumCrossfade?.IsRunning == true;
         if (trackChanged || forceAlbumFlip
-            || (_compactAlbumCrossfade?.IsRunning == true && !ReferenceEquals(art, _displayedAlbumArt)))
+            || (albumCrossfadeRunning && !ReferenceEquals(art, _displayedAlbumArt)))
             StartAlbumFlip(art);
-        else if (!_albumFlipRunning && _compactAlbumCrossfade?.IsRunning != true)
+        else if (!_albumFlipRunning && !albumCrossfadeRunning)
             SetAlbumArt(art);
         if (trackChanged && SettingsManager.Current.IslandShowOnTrackChange) PlayTrackPop();
         BitmapHelper.GetDominantColors();

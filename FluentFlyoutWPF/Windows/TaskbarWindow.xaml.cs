@@ -35,9 +35,8 @@ public partial class TaskbarWindow : Window
     private AutomationElement? _widgetElement;
     private AutomationElement? _trayElement;
     private AutomationElement? _taskbarFrameElement;
-    // Bounds cache: every forced reposition (each metadata event in a song-change
-    // burst) used to round-trip COM on the UI thread with blocking Waits. Bounds
-    // move with the taskbar itself, so a short TTL is visually identical.
+    // UI Automation is asynchronous. Keep the last bounds while Explorer responds;
+    // a short TTL also coalesces forced repositions during metadata bursts.
     private readonly Dictionary<string, (Rect rect, DateTime utc)> _automationBoundsCache = [];
     private static readonly TimeSpan AutomationBoundsTtl = TimeSpan.FromSeconds(3);
     // reference to main window for flyout functions
@@ -45,6 +44,8 @@ public partial class TaskbarWindow : Window
     private int _lastSelectedMonitor = -1;
     private bool _positionUpdateInProgress;
     private readonly Dictionary<string, Task> _pendingAutomationTasks = [];
+    private IntPtr _automationTaskbarHandle;
+    private int _automationMonitor = -1, _automationQueryVersion;
 
     // Last known taskbar window rect, used to skip redundant position updates.
     private RECT _lastTaskbarRect;
@@ -1583,6 +1584,9 @@ on_error:
         if (_shellForegroundHook != IntPtr.Zero) UnhookWinEvent(_shellForegroundHook);
         _shellZOrderHook = _shellForegroundHook = IntPtr.Zero;
         _shellZOrderProc = null;
+        _pendingAutomationTasks.Clear();
+        _automationBoundsCache.Clear();
+        _widgetElement = _trayElement = _taskbarFrameElement = null;
         _timer.Stop();
         _autoHideTimer?.Stop();
         _expansionOutsideHook?.Dispose();
@@ -1593,118 +1597,78 @@ on_error:
 
     private (bool, Rect) GetTaskbarXamlElementRect(IntPtr taskbarHandle, ref AutomationElement? elementCache, string elementName)
     {
-        if (taskbarHandle == IntPtr.Zero)
-            return (false, Rect.Empty);
+        if (_closed || taskbarHandle == IntPtr.Zero) return (false, Rect.Empty);
+        int monitor = SettingsManager.Current.TaskbarWidgetSelectedMonitor;
+        if (_automationTaskbarHandle != taskbarHandle || _automationMonitor != monitor)
+        {
+            _automationTaskbarHandle = taskbarHandle;
+            _automationMonitor = monitor;
+            ++_automationQueryVersion;
+            _widgetElement = _trayElement = _taskbarFrameElement = null;
+            elementCache = null;
+            _automationBoundsCache.Clear();
+        }
 
+        bool hasBounds = _automationBoundsCache.TryGetValue(elementName, out var cached);
+        if (hasBounds && DateTime.UtcNow - cached.utc < AutomationBoundsTtl)
+            return (!cached.rect.IsEmpty, cached.rect);
+
+        if (!_pendingAutomationTasks.ContainsKey(elementName))
+        {
+            int version = _automationQueryVersion;
+            var knownElement = elementCache;
+            var query = Task.Run(() => ReadTaskbarElement(taskbarHandle, knownElement, elementName));
+            _pendingAutomationTasks[elementName] = query;
+            _ = ObserveTaskbarQuery(query, new WeakReference<TaskbarWindow>(this), elementName, version);
+        }
+        // Never block the WPF dispatcher waiting for another process. Initial reads
+        // use the existing native-bounds fallback; refreshes preserve the last bounds.
+        return hasBounds ? (!cached.rect.IsEmpty, cached.rect) : (false, Rect.Empty);
+    }
+
+    private static (AutomationElement? element, Rect rect) ReadTaskbarElement(
+        IntPtr taskbarHandle, AutomationElement? element, string elementName)
+    {
         try
         {
-            // reset if monitor changed
-            if (_lastSelectedMonitor != SettingsManager.Current.TaskbarWidgetSelectedMonitor)
-            {
-                elementCache = null;
-                _automationBoundsCache.Remove(elementName);
-                _automationBoundsCache.Clear();
-            }
-
-            // Fresh bounds: serve from cache, no COM round-trip on the UI thread.
-            if (elementCache != null
-                && _automationBoundsCache.TryGetValue(elementName, out var cached)
-                && DateTime.UtcNow - cached.utc < AutomationBoundsTtl
-                && cached.rect != Rect.Empty)
-            {
-                return (true, cached.rect);
-            }
-
-            // find widget in XAML
-            if (elementCache == null)
-            {
-                if (_pendingAutomationTasks.TryGetValue(elementName, out var pendingTask) && !pendingTask.IsCompleted)
-                    return (false, Rect.Empty);
-
-                AutomationElement? found = null;
-                var findTask = Task.Run(() =>
-                {
-                    var root = AutomationElement.FromHandle(taskbarHandle);
-                    found = root.FindFirst(TreeScope.Descendants,
-                        new PropertyCondition(AutomationElement.AutomationIdProperty, elementName));
-                });
-                _pendingAutomationTasks[elementName] = findTask;
-
-                if (!findTask.Wait(1000))
-                {
-                    Logger.Warn("Timeout querying taskbar XAML element: " + elementName);
-                    return (false, Rect.Empty);
-                }
-
-                // Propagate any exception from the background thread
-                findTask.GetAwaiter().GetResult();
-                elementCache = found;
-            }
-
-            if (elementCache == null) // widget most likely disabled
-                return (false, Rect.Empty);
-
-            try
-            {
-                if (_pendingAutomationTasks.TryGetValue(elementName, out var pendingTask) && !pendingTask.IsCompleted)
-                {
-                    elementCache = null;
-                _automationBoundsCache.Remove(elementName);
-                    return (false, Rect.Empty);
-                }
-
-                var cachedElement = elementCache;
-                var boundsTask = Task.Run(() => cachedElement.Current.BoundingRectangle);
-                _pendingAutomationTasks[elementName] = boundsTask;
-
-                if (!boundsTask.Wait(500))
-                {
-                    Logger.Warn("Timeout getting bounds for taskbar XAML element: " + elementName);
-                    elementCache = null;
-                _automationBoundsCache.Remove(elementName);
-                    return (false, Rect.Empty);
-                }
-
-                Rect elementRect = boundsTask.GetAwaiter().GetResult();
-
-                if (elementRect == Rect.Empty) // widget shown before but most likely disabled now
-                {
-                    elementCache = null;
-                _automationBoundsCache.Remove(elementName); // reset cache
-                    _automationBoundsCache.Remove(elementName);
-                    return (false, Rect.Empty);
-                }
-
-                _automationBoundsCache[elementName] = (elementRect, DateTime.UtcNow);
-                return (true, elementRect);
-            }
-            catch (ElementNotAvailableException)
-            {
-                // element became stale, reset cache
-                Logger.Warn("Taskbar XAML element became stale, resetting cache: " + elementName);
-                elementCache = null;
-                _automationBoundsCache.Remove(elementName);
-                return (false, Rect.Empty);
-            }
-        }
-        catch (COMException ex)
-        {
-            Logger.Warn(ex, "COM error retrieving taskbar XAML element Rect: " + elementName);
-            elementCache = null; // reset cache on error
-            return (false, Rect.Empty);
-        }
-        catch (ElementNotAvailableException)
-        {
-            Logger.Warn("Taskbar XAML element not available, resetting cache: " + elementName);
-            elementCache = null;
-            return (false, Rect.Empty);
+            element ??= AutomationElement.FromHandle(taskbarHandle).FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.AutomationIdProperty, elementName));
+            return (element, element?.Current.BoundingRectangle ?? Rect.Empty);
         }
         catch (Exception ex)
         {
-            Logger.Error(ex, "Error retrieving taskbar XAML element Rect: " + elementName);
-            elementCache = null; // reset cache on error
-            return (false, Rect.Empty);
+            Logger.Debug(ex, "Taskbar automation unavailable: " + elementName);
+            return (null, Rect.Empty);
         }
+    }
+
+    private static async Task ObserveTaskbarQuery(Task<(AutomationElement? element, Rect rect)> query,
+        WeakReference<TaskbarWindow> owner, string elementName, int version)
+    {
+        // A slow/stalled Explorer request must not keep a closed widget alive.
+        var result = await query.ConfigureAwait(false);
+        if (!owner.TryGetTarget(out var window) || window._closed || window.Dispatcher.HasShutdownStarted) return;
+        try
+        {
+            await window.Dispatcher.InvokeAsync(() =>
+            {
+                if (window._closed) return;
+                window._pendingAutomationTasks.Remove(elementName);
+                if (version == window._automationQueryVersion)
+                {
+                    window._automationBoundsCache[elementName] = (result.rect, DateTime.UtcNow);
+                    switch (elementName)
+                    {
+                        case "WidgetsButton": window._widgetElement = result.element; break;
+                        case "SystemTrayIcon": window._trayElement = result.element; break;
+                        case "TaskbarFrame": window._taskbarFrameElement = result.element; break;
+                    }
+                }
+                window.UpdatePosition(force: true);
+            }, DispatcherPriority.Background);
+        }
+        catch (OperationCanceledException) { /* The dispatcher closed during delivery. */ }
+        catch (InvalidOperationException) { /* The dispatcher has already shut down. */ }
     }
 
     /// <summary>
