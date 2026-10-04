@@ -720,6 +720,9 @@ You can help contribute translations on</System:String>
     <System:String x:Key="DictationHotkeyTitle">Shortcut to hold</System:String>
     <System:String x:Key="DictationHotkeyDescription">The same shortcut starts and finishes dictation in your chosen mode. For hands-free mode, a combination avoids activating it when using Ctrl in other apps.</System:String>
     <System:String x:Key="DictationToggleTitle">Hands-free dictation</System:String>
+    <System:String x:Key="DictationHistoryTitle">Recover transcriptions</System:String>
+    <System:String x:Key="DictationHistoryDescription">Local text-file copies saved in the background after attempting to write at the cursor. Automatically deleted once seven days old.</System:String>
+    <System:String x:Key="DictationHistoryOpen">Open transcriptions folder</System:String>
     <System:String x:Key="DictationToggleDescription">On: tap the shortcut for hands-free recording; tap again to finish. Holding the shortcut finishes when you release it. Off: hold only. Esc cancels. No two-minute cutoff.</System:String>
     <System:String x:Key="IslandDictationHandsFree">Listening…</System:String>
     <System:String x:Key="IslandDictationTooltipHandsFree">Hands-free recording. Press {0} to finish; Esc to cancel.</System:String>

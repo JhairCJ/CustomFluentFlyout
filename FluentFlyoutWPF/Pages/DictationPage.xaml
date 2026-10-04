@@ -14,6 +14,18 @@
       d:Background="White">
 
     <StackPanel MaxWidth="1000" Margin="16">
+        <ui:CardControl x:Name="DictationHistoryCard" Tag="Indexable" Icon="{ui:SymbolIcon Folder24}" Margin="0,0,0,20">
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="{DynamicResource DictationHistoryTitle}" FontSize="14" FontWeight="SemiBold" />
+                    <TextBlock Text="{DynamicResource DictationHistoryDescription}" FontSize="12" Opacity="0.65"
+                               TextWrapping="Wrap" MaxWidth="520" />
+                    <TextBlock x:Name="HistoryStatus" FontSize="12" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,4,0,0" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <Button Content="{DynamicResource DictationHistoryOpen}" Click="OpenTranscriptions_Click" />
+        </ui:CardControl>
+
         <TextBlock Text="{DynamicResource DictationTitle}" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,20" />
         <TextBlock Text="{DynamicResource DictationDescription}" FontSize="14" FontWeight="Regular"
                    Opacity="0.75" TextWrapping="WrapWithOverflow" MaxWidth="720" Margin="0,0,0,20" />

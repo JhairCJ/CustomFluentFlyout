@@ -49,6 +49,7 @@ public sealed class DictationService : IDisposable
 
     private readonly MicCapture _capture = new();
     private readonly ExternalAsrTranscriber _externalTranscriber = new();
+    private readonly DictationTranscriptHistory _transcriptHistory = new();
     private readonly HashSet<int> _pressed = [];
     private readonly SemaphoreSlim _engineLock = new(1, 1);
     private readonly SemaphoreSlim _vadLock = new(1, 1);
@@ -96,6 +97,8 @@ public sealed class DictationService : IDisposable
     public float Level => _capture.Level;
 
     public bool HandsFree => Phase == DictationPhase.Listening && _handsFreeLatched;
+
+    public void CleanupTranscriptHistory() => _transcriptHistory.QueueCleanup();
 
     /// <summary>Localization key of the current message (error or notice); null if none.</summary>
     public string? MessageKey { get; private set; }
@@ -521,6 +524,7 @@ public sealed class DictationService : IDisposable
         _lifetimeCts.Cancel();
         CancelTranscription();
         _capture.Dispose();
+        _transcriptHistory.Dispose();
         _externalTranscriber.Dispose();
         _vadFactory?.Dispose();
         _vadFactory = null;
@@ -1006,7 +1010,13 @@ public sealed class DictationService : IDisposable
         {
             if (_disposed || !SettingsManager.Current.DictationEnabled || !IsCurrentTranscription(sessionCts))
                 return;
-            SendText(text);
+            try { SendText(text); }
+            finally
+            {
+                // Queue the recovery copy AFTER attempting insertion. Missing focus,
+                // a non-editable target or SendInput failure must not lose the result.
+                _transcriptHistory.SaveAfterSubmission(text);
+            }
         }
     }
 

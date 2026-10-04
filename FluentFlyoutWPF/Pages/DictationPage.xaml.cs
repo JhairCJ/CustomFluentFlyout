@@ -745,6 +745,27 @@ public partial class DictationPage : Page
         }
     }
 
+    private void OpenTranscriptions_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(DictationTranscriptHistory.Folder);
+            if (Application.Current.MainWindow is MainWindow mainWindow)
+                mainWindow.Dictation.CleanupTranscriptHistory();
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = DictationTranscriptHistory.Folder,
+                UseShellExecute = true,
+            });
+            HistoryStatus.Visibility = Visibility.Collapsed;
+        }
+        catch (Exception ex)
+        {
+            HistoryStatus.Text = ex.Message;
+            HistoryStatus.Visibility = Visibility.Visible;
+        }
+    }
+
     /// <summary>A row of the model list: what the XAML template draws.</summary>
     public partial class DictationModelRow : ObservableObject
     {

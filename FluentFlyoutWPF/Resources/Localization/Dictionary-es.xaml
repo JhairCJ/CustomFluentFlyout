@@ -720,6 +720,9 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="DictationHotkeyTitle">Atajo a mantener</system:String>
     <system:String x:Key="DictationHotkeyDescription">El mismo atajo inicia y finaliza el dictado según el modo elegido. En manos libres, una combinación evita activarlo al usar Ctrl en otras aplicaciones.</system:String>
     <system:String x:Key="DictationToggleTitle">Dictado manos libres</system:String>
+    <system:String x:Key="DictationHistoryTitle">Recuperar transcripciones</system:String>
+    <system:String x:Key="DictationHistoryDescription">Copias locales en archivos de texto, guardadas en segundo plano después de intentar escribir en el cursor. Se eliminan automáticamente al cumplir siete días.</system:String>
+    <system:String x:Key="DictationHistoryOpen">Abrir carpeta de transcripciones</system:String>
     <system:String x:Key="DictationToggleDescription">Activado: una pulsación breve deja el dictado en manos libres; otra pulsación lo termina. Si mantienes el atajo pulsado, termina al soltarlo. Desactivado: solo mantener pulsado. Esc cancela. Sin corte a los dos minutos.</system:String>
     <system:String x:Key="IslandDictationHandsFree">Escuchando…</system:String>
     <system:String x:Key="IslandDictationTooltipHandsFree">Grabando en manos libres. Pulsa {0} para terminar; Esc para cancelar.</system:String>
