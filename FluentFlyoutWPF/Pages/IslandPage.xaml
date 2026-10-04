@@ -16,6 +16,18 @@
     <StackPanel MaxWidth="1000" Margin="16">
         <TextBlock Text="Fluent Island" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,8" />
         <TextBlock Text="{DynamicResource IslandPage_Intro}" FontSize="14" Opacity="0.75" Margin="0,0,0,20" MaxWidth="600" HorizontalAlignment="Left" TextWrapping="WrapWithOverflow" />
+            <ui:CardControl x:Name="AlbumArtChangeAnimationTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon Image24}" Margin="0,0,0,8">
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="{DynamicResource AlbumArtChangeAnimationTitle}" FontSize="14" />
+                        <TextBlock Text="{DynamicResource AlbumArtChangeAnimationDescription}" FontSize="12" Opacity="0.5" TextWrapping="Wrap" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ComboBox SelectedIndex="{Binding AlbumArtChangeAnimation, Mode=TwoWay}">
+                    <ComboBoxItem Content="{DynamicResource TaskbarWidgetSongChangeAnimationCrossfade}" />
+                    <ComboBoxItem Content="{DynamicResource AlbumArtChangeAnimationFlip}" />
+                </ComboBox>
+            </ui:CardControl>
         <Grid x:Name="IslandSettingsGrid">
             <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />

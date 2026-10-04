@@ -908,9 +908,10 @@ public partial class IslandWindow
         // artwork the SAME song flipped by itself when shown again. It does not flip
         // for a repaint, nor for a late thumbnail (that already changes the key), nor
         // on the first paint.
-        if (trackChanged || forceAlbumFlip)
+        if (trackChanged || forceAlbumFlip
+            || (_compactAlbumCrossfade?.IsRunning == true && !ReferenceEquals(art, _displayedAlbumArt)))
             StartAlbumFlip(art);
-        else if (!_albumFlipRunning)
+        else if (!_albumFlipRunning && _compactAlbumCrossfade?.IsRunning != true)
             SetAlbumArt(art);
         if (trackChanged && SettingsManager.Current.IslandShowOnTrackChange) PlayTrackPop();
         BitmapHelper.GetDominantColors();
@@ -950,6 +951,8 @@ public partial class IslandWindow
     /// first, thumbnail later) neither restarts the flip midway nor lets a stale
     /// artwork through.
     /// </summary>
+    private AlbumArtCrossfade? _compactAlbumCrossfade, _expandedAlbumCrossfade;
+
     private void StartAlbumFlip(BitmapImage? art)
     {
         _albumFlipArt = art;
@@ -958,6 +961,23 @@ public partial class IslandWindow
             SetAlbumArt(art);
             return;
         }
+        if (SettingsManager.Current.AlbumArtChangeAnimation == 0)
+        {
+            if (ReferenceEquals(art, _displayedAlbumArt) && !_albumFlipRunning) return;
+            _albumFlipVersion++;
+            _albumFlipRunning = false;
+            CompactArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            ExpandedArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            CompactArtFlipScale.ScaleX = ExpandedArtFlipScale.ScaleX = 1;
+            _compactAlbumCrossfade ??= new AlbumArtCrossfade(CompactArtWrap);
+            _expandedAlbumCrossfade ??= new AlbumArtCrossfade(ExpandedArtWrap);
+            // Both snapshots must capture the old cover before the shared swap.
+            _compactAlbumCrossfade.Fade(() => { }, MainWindow.getDuration());
+            _expandedAlbumCrossfade.Fade(() => ApplyAlbumArt(art), MainWindow.getDuration());
+            return;
+        }
+        _compactAlbumCrossfade?.Stop();
+        _expandedAlbumCrossfade?.Stop();
         if (_albumFlipRunning) return; // el volteo en vuelo ya aplicará la última portada pedida
 
         _albumFlipRunning = true;
@@ -1009,6 +1029,8 @@ public partial class IslandWindow
 
     private void StopAlbumFlip()
     {
+        _compactAlbumCrossfade?.Stop();
+        _expandedAlbumCrossfade?.Stop();
         _albumFlipVersion++;
         _albumFlipRunning = false;
         CompactArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);

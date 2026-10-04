@@ -528,6 +528,18 @@
                     <ComboBoxItem Content="{DynamicResource TaskbarWidgetSongChangeAnimationSlide}" />
                 </ComboBox>
             </ui:CardControl>
+            <ui:CardControl x:Name="AlbumArtChangeAnimationTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon Image24}" Margin="0,0,0,8">
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="{DynamicResource AlbumArtChangeAnimationTitle}" FontSize="14" />
+                        <TextBlock Text="{DynamicResource AlbumArtChangeAnimationDescription}" FontSize="12" Opacity="0.5" TextWrapping="Wrap" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ComboBox SelectedIndex="{Binding AlbumArtChangeAnimation, Mode=TwoWay}">
+                    <ComboBoxItem Content="{DynamicResource TaskbarWidgetSongChangeAnimationCrossfade}" />
+                    <ComboBoxItem Content="{DynamicResource AlbumArtChangeAnimationFlip}" />
+                </ComboBox>
+            </ui:CardControl>
             <ui:CardControl x:Name="TaskbarWidgetResizeAnimationTitleCard" Tag="Indexable" Grid.Row="13" Icon="{ui:SymbolIcon ArrowAutofitWidth24}" Margin="0,0,0,76">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">

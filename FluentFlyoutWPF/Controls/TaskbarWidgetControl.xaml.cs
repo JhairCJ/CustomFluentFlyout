@@ -62,6 +62,7 @@ public partial class TaskbarWidgetControl : UserControl
     private GlobalSystemMediaTransportControlsSession? _publishedAlbumSession;
     private BitmapImage? _compactFlipArt, _compactDisplayedArt;
     private bool _compactFlipRunning;
+    private AlbumArtCrossfade? _compactAlbumCrossfade;
     private int _compactFlipVersion;
 
     // reference to main window for flyout functions
@@ -1592,7 +1593,7 @@ public partial class TaskbarWidgetControl : UserControl
         SongImagePlaceholder.Foreground = AlbumAccent.Brush;
 
         _lastIcon = icon;
-        if (flipAlbum || _compactFlipRunning) StartCompactAlbumFlip(icon);
+        if (flipAlbum || _compactFlipRunning || _compactAlbumCrossfade?.IsRunning == true) StartCompactAlbumFlip(icon);
         else SetCompactAlbumArt(icon);
         SetBackground(icon);
         SongImageBorder.Margin = new Thickness(0, 0, 0, icon != null ? -2 : -3);
@@ -1613,6 +1614,7 @@ public partial class TaskbarWidgetControl : UserControl
 
     private void SetCompactAlbumArt(BitmapImage? art)
     {
+        _compactAlbumCrossfade?.Stop();
         ++_compactFlipVersion;
         _compactFlipRunning = false;
         _compactFlipArt = art;
@@ -1629,6 +1631,18 @@ public partial class TaskbarWidgetControl : UserControl
             SetCompactAlbumArt(art);
             return;
         }
+        if (SettingsManager.Current.AlbumArtChangeAnimation == 0)
+        {
+            if (ReferenceEquals(art, _compactDisplayedArt) && !_compactFlipRunning) return;
+            ++_compactFlipVersion;
+            _compactFlipRunning = false;
+            CompactAlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            CompactAlbumFlipScale.ScaleX = 1;
+            (_compactAlbumCrossfade ??= new AlbumArtCrossfade(CompactAlbumSurface))
+                .Fade(() => ApplyCompactAlbumArt(art), TaskbarWidgetAnimationEnvironment.GetDurationMs());
+            return;
+        }
+        _compactAlbumCrossfade?.Stop();
         if (_compactFlipRunning) return;
         _compactFlipRunning = true;
         int version = _compactFlipVersion;

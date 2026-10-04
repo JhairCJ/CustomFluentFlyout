@@ -812,4 +812,7 @@ You can help contribute translations on</System:String>
     <System:String x:Key="IslandDictationFailed">Could not transcribe the audio</System:String>
     <System:String x:Key="TaskbarWidgetExpandedBackgroundDarknessTitle">Expanded background darkness</System:String>
     <System:String x:Key="TaskbarWidgetExpandedBackgroundDarknessDescription">Adjust shading while expanded. An opaque base prevents the desktop from showing through.</System:String>
+    <System:String x:Key="AlbumArtChangeAnimationTitle">Album animation</System:String>
+    <System:String x:Key="AlbumArtChangeAnimationDescription">Choose how covers change in the Island and taskbar widget.</System:String>
+    <System:String x:Key="AlbumArtChangeAnimationFlip">Flip</System:String>
 </ResourceDictionary>

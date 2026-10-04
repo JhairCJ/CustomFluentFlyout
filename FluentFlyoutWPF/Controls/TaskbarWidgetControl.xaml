@@ -51,7 +51,7 @@
                                     </Style.Triggers>
                                 </Style>
                             </Border.Style>
-                            <Border CornerRadius="5" ClipToBounds="True" RenderTransformOrigin="0.5,0.5">
+                            <Border x:Name="CompactAlbumSurface" CornerRadius="5" ClipToBounds="True" RenderTransformOrigin="0.5,0.5">
                                 <Border.RenderTransform><ScaleTransform x:Name="CompactAlbumFlipScale" /></Border.RenderTransform>
                                 <Border.Background><ImageBrush x:Name="SongImage" Stretch="UniformToFill" /></Border.Background>
                                 <ui:SymbolIcon Name="SongImagePlaceholder" Symbol="MusicNote220" FontSize="24" Filled="True" Foreground="{DynamicResource MicaWPF.Brushes.SystemAccentColorTertiary}" />

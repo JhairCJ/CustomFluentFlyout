@@ -812,4 +812,7 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="IslandDictationFailed">No se pudo transcribir el audio</system:String>
     <system:String x:Key="TaskbarWidgetExpandedBackgroundDarknessTitle">Oscuridad del fondo expandido</system:String>
     <system:String x:Key="TaskbarWidgetExpandedBackgroundDarknessDescription">Ajusta el oscurecimiento al ampliar. Una base opaca evita que se filtre el escritorio.</system:String>
+    <system:String x:Key="AlbumArtChangeAnimationTitle">Animación del álbum</system:String>
+    <system:String x:Key="AlbumArtChangeAnimationDescription">Elige cómo cambian las portadas en la isla y el widget de la barra de tareas.</system:String>
+    <system:String x:Key="AlbumArtChangeAnimationFlip">Volteo</system:String>
 </ResourceDictionary>

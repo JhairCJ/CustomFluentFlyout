@@ -692,6 +692,11 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial int TaskbarWidgetSongChangeAnimation { get; set; }
 
+    /// <summary>Shared album transition: 0 crossfade, 1 flip.</summary>
+    [ObservableProperty]
+    public partial int AlbumArtChangeAnimation { get; set; }
+
+
     /// <summary>
     /// Whether the taskbar widget smoothly morphs its width when the song changes.
     /// When false, width changes snap instantly (interior and exterior together).
@@ -1838,6 +1843,7 @@ public partial class UserSettings : ObservableObject
         TaskbarWidgetControlsPosition = 1;
         TaskbarWidgetAnimated = true;
         TaskbarWidgetSongChangeAnimation = 1;
+        AlbumArtChangeAnimation = 1;
         TaskbarWidgetResizeAnimated = true;
         TaskbarWidgetFontFamily = "Quicksand";
         TaskbarWidgetTextStyle = 0;

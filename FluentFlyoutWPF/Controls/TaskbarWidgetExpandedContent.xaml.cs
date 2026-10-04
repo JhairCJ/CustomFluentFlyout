@@ -29,6 +29,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
     private GlobalSystemMediaTransportControlsSession? _seekSession, _observedSession, _publishedSession;
     private int _progressRefreshAgain, _albumFlipVersion;
     private bool _albumFlipRunning;
+    private AlbumArtCrossfade? _albumCrossfade;
     private bool _canPrevious, _canPlayPause, _canNext;
     private double _morphProgress;
     private double _compactPreviousIconSize = 16, _compactPlayIconSize = 16, _compactNextIconSize = 16;
@@ -114,7 +115,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         }
         TitleText.ToolTip = title;
         ArtistText.ToolTip = artist;
-        if (flip || _albumFlipRunning) StartAlbumFlip(art);
+        if (flip || _albumFlipRunning || _albumCrossfade?.IsRunning == true) StartAlbumFlip(art);
         else SetAlbumArt(art);
         Interlocked.Increment(ref _progressVersion);
         if (_active)
@@ -320,6 +321,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     private void SetAlbumArt(BitmapImage? art)
     {
+        _albumCrossfade?.Stop();
         ++_albumFlipVersion;
         _albumFlipRunning = false;
         _albumFlipArt = art;
@@ -336,6 +338,18 @@ public partial class TaskbarWidgetExpandedContent : UserControl
             SetAlbumArt(art);
             return;
         }
+        if (SettingsManager.Current.AlbumArtChangeAnimation == 0)
+        {
+            if (ReferenceEquals(art, _displayedArt) && !_albumFlipRunning) return;
+            ++_albumFlipVersion;
+            _albumFlipRunning = false;
+            AlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            AlbumFlipScale.ScaleX = 1;
+            (_albumCrossfade ??= new AlbumArtCrossfade(AlbumFlipSurface))
+                .Fade(() => ApplyAlbumArt(art), TaskbarWidgetAnimationEnvironment.GetDurationMs());
+            return;
+        }
+        _albumCrossfade?.Stop();
         if (_albumFlipRunning) return;
         _albumFlipRunning = true;
         int version = _albumFlipVersion;
