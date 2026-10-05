@@ -12,6 +12,13 @@
               TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Ideal"
               FontFamily="{Binding TaskbarWidgetFontSource, FallbackValue='Segoe UI Variable'}"
               FlowDirection="{Binding FlowDirection}">
+    <UserControl.ContextMenu>
+        <ContextMenu Style="{StaticResource UiContextMenu}" Opened="PlayerMenu_Opened">
+            <ui:MenuItem x:Name="OpenPlayerMenuItem" Header="{DynamicResource TaskbarOpenPlayerText}" Click="OpenPlayerMenuItem_Click">
+                <ui:MenuItem.Icon><ui:SymbolIcon Symbol="Open20" /></ui:MenuItem.Icon>
+            </ui:MenuItem>
+        </ContextMenu>
+    </UserControl.ContextMenu>
     <Border Name="MainBorder" CornerRadius="6" ClipToBounds="True">
         <Grid x:Name="RootGrid">
             <!-- Opacity reaches one when expanded, regardless of artwork intensity. -->

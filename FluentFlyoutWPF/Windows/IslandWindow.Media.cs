@@ -161,7 +161,7 @@ public partial class IslandWindow
         MediaSession? best = null;
         foreach (var s in _main.mediaManager.CurrentMediaSessions.Values)
         {
-            if (!_main.IsSessionAllowed(s)) continue;
+            if (!_main.IsWidgetSessionAllowed(s)) continue;
             if (SafeStatus(s) != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing) continue;
             if (best == null || (_lastPlay.TryGetValue(s.Id, out var t) && (!_lastPlay.TryGetValue(best.Id, out var bt) || t > bt)))
                 best = s;
@@ -187,14 +187,14 @@ public partial class IslandWindow
         var id = DisplayedMediaId;
         if (id == null) return null;
         foreach (var s in _main.mediaManager.CurrentMediaSessions.Values)
-            if (s.Id == id && _main.IsSessionAllowed(s)) return s;
+            if (s.Id == id && _main.IsWidgetSessionAllowed(s)) return s;
         return null;
     }
 
     private MediaSession? FirstAllowed()
     {
         foreach (var s in _main.mediaManager.CurrentMediaSessions.Values)
-            if (_main.IsSessionAllowed(s)) return s;
+            if (_main.IsWidgetSessionAllowed(s)) return s;
         return null;
     }
 
@@ -573,7 +573,7 @@ public partial class IslandWindow
         Dispatcher.BeginInvoke(new Action(() =>
         {
             if (_disposed) return;
-            if (!_main.IsSessionAllowed(session)) return;
+            if (!_main.IsWidgetSessionAllowed(session)) return;
             // An event is the only reliable notice that something changed: the memos are
             // dropped whole (properties too, because the player may have announced
             // the new track only through the state: 001 MOD RF-1).
@@ -612,7 +612,7 @@ public partial class IslandWindow
         Dispatcher.BeginInvoke(new Action(() =>
         {
             if (_disposed) return;
-            if (!_main.IsSessionAllowed(session)) return;
+            if (!_main.IsWidgetSessionAllowed(session)) return;
             // The event ALREADY carries the new properties: they are stored without
             // asking the system anything, and the repaint behind finds them ready.
             if (props != null) _propsMemo[session.Id] = FromProperties(props);
@@ -755,7 +755,7 @@ public partial class IslandWindow
     {
         foreach (var s in _main.mediaManager.CurrentMediaSessions.Values)
         {
-            if (!_main.IsSessionAllowed(s)) continue;
+            if (!_main.IsWidgetSessionAllowed(s)) continue;
             if (SafeStatus(s) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused) return s;
         }
         return null;
@@ -889,11 +889,10 @@ public partial class IslandWindow
         string title = string.IsNullOrWhiteSpace(mediaProps?.Title)
             ? IslandStrings.Get("IslandUnknownTitle", "Unknown title")
             : mediaProps!.Title;
-        string artist = string.IsNullOrWhiteSpace(mediaProps?.Artist)
-            ? IslandStrings.Get("IslandUnknownArtist", "Unknown artist")
-            : mediaProps!.Artist;
+        string artist = string.IsNullOrWhiteSpace(mediaProps?.Artist) ? string.Empty : mediaProps!.Artist;
         SongTitle.Text = title;
         SongArtist.Text = artist;
+        SongArtist.Visibility = string.IsNullOrEmpty(artist) ? Visibility.Collapsed : Visibility.Visible;
         CompactTitle.Text = title;
         SetBackground(art);
         // Include actual thumbnail hash so a thumbnail-only change (Chrome fires
@@ -1113,16 +1112,18 @@ public partial class IslandWindow
 
     private void UpdateSeek(MediaSession session)
     {
+        if (_drag) return;
         try
         {
             var tl = session.ControlSession.GetTimelineProperties();
             if (tl.MaxSeekTime.TotalSeconds >= 1)
             {
                 bool playing = session.ControlSession.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-                var pos = playing ? tl.Position + (DateTime.Now - tl.LastUpdatedTime.DateTime) : tl.Position;
-                if (pos < TimeSpan.Zero) pos = TimeSpan.Zero;
-                if (pos > tl.EndTime) pos = tl.EndTime;
+                var pos = playing ? tl.Position + (DateTimeOffset.UtcNow - tl.LastUpdatedTime) : tl.Position;
+                if (pos < tl.MinSeekTime) pos = tl.MinSeekTime;
+                if (pos > tl.MaxSeekTime) pos = tl.MaxSeekTime;
                 Seekbar.Maximum = tl.MaxSeekTime.TotalSeconds;
+                Seekbar.Minimum = tl.MinSeekTime.TotalSeconds;
                 if (!_drag) { Seekbar.Value = pos.TotalSeconds; PosText.Text = Fmt(pos); }
                 DurText.Text = FmtRemaining(tl.MaxSeekTime - pos);
                 UpdateTimelineVisual();
@@ -1130,7 +1131,7 @@ public partial class IslandWindow
             }
         }
         catch { }
-        Seekbar.Maximum = 100; Seekbar.Value = 0; PosText.Text = "0:00"; DurText.Text = "0:00";
+        Seekbar.Minimum = 0; Seekbar.Maximum = 100; Seekbar.Value = 0; PosText.Text = "0:00"; DurText.Text = "0:00";
         UpdateTimelineVisual();
     }
 
@@ -1184,7 +1185,7 @@ public partial class IslandWindow
     private void Album_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true; // el clic del álbum SOLO cambia de medio (001 MOD RF-5)
-        var all = _main.mediaManager.CurrentMediaSessions.Values.Where(s => _main.IsSessionAllowed(s)).ToList();
+        var all = _main.mediaManager.CurrentMediaSessions.Values.Where(s => _main.IsWidgetSessionAllowed(s)).ToList();
         if (!MusicAvailable() || all.Count <= 1) return;
         int i = all.FindIndex(s => s.Id == (Current()?.Id ?? DisplayedMediaId));
         var next = all[(i + 1) % all.Count];

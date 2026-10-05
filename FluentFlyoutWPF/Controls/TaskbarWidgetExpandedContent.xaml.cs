@@ -143,9 +143,11 @@ public partial class TaskbarWidgetExpandedContent : UserControl
             || SettingsManager.Current.TaskbarWidgetSongChangeAnimation != 1 || string.IsNullOrEmpty(row.Text))
         {
             row.Text = text;
+            if (ReferenceEquals(row, ArtistText)) ArtistMorph.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
             transform.X = 0;
             return;
         }
+        if (ReferenceEquals(row, ArtistText) && !string.IsNullOrEmpty(text)) ArtistMorph.Visibility = Visibility.Visible;
         var half = TimeSpan.FromMilliseconds(TaskbarWidgetAnimationEnvironment.GetDurationMs() / 2.0);
         double distance = row.ActualWidth + 8;
         var exit = new DoubleAnimation(from, backwards ? distance : -distance, half)
@@ -156,6 +158,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
             transform.BeginAnimation(TranslateTransform.XProperty, null);
             transform.X = backwards ? -distance : distance;
             row.Text = text;
+            if (ReferenceEquals(row, ArtistText)) ArtistMorph.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
             transform.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(transform.X, 0, half)
             { EasingFunction = TaskbarWidgetAnimationEnvironment.GetEasing(_mainWindow, true) });
         };

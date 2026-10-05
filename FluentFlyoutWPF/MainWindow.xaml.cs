@@ -245,7 +245,10 @@ public partial class MainWindow : MicaWindow
         }
     }
 
-    public bool IsSessionAllowed(MediaSession? session)
+    public bool IsSessionAllowed(MediaSession? session) => IsSessionAllowedCore(session, exactName: false);
+    public bool IsWidgetSessionAllowed(MediaSession? session) => IsSessionAllowedCore(session, exactName: true);
+
+    private bool IsSessionAllowedCore(MediaSession? session, bool exactName)
     {
         if (session == null) return false;
         if (!SettingsManager.Current.AppFilteringEnabled) return true;
@@ -253,11 +256,13 @@ public partial class MainWindow : MicaWindow
         string appId = session.Id ?? string.Empty;
         string appName = MediaPlayerData.GetAndCacheMediaPlayerData(appId).Item1 ?? appId;
 
+        bool Matches(string entry) => exactName ? MatchesWidgetFilter(entry, appName, appId)
+            : appName.Contains(entry, StringComparison.OrdinalIgnoreCase) || appId.Contains(entry, StringComparison.OrdinalIgnoreCase);
+
         if (SettingsManager.Current.AppFilteringMode == 0) // Blacklist mode
         {
             if (SettingsManager.Current.BlockedApps != null && SettingsManager.Current.BlockedApps.Any(b =>
-                    appName.Contains(b, StringComparison.OrdinalIgnoreCase) ||
-                    appId.Contains(b, StringComparison.OrdinalIgnoreCase)))
+                    Matches(b)))
                 return false;
 
             return true;
@@ -265,13 +270,19 @@ public partial class MainWindow : MicaWindow
         else // Whitelist mode
         {
             if (SettingsManager.Current.AllowedApps != null && SettingsManager.Current.AllowedApps.Any(a =>
-                    appName.Contains(a, StringComparison.OrdinalIgnoreCase) ||
-                    appId.Contains(a, StringComparison.OrdinalIgnoreCase)))
+                    Matches(a)))
                 return true;
 
             return false;
         }
     }
+
+    internal static bool MatchesWidgetFilter(string entry, string appName, string appId) =>
+        !string.IsNullOrWhiteSpace(entry) &&
+        (appName.Equals(entry, StringComparison.OrdinalIgnoreCase) || appId.Contains(entry, StringComparison.OrdinalIgnoreCase));
+
+    private List<MediaSession> GetWidgetSessions() =>
+        mediaManager.CurrentMediaSessions.Values.Where(IsWidgetSessionAllowed).ToList();
 
     private List<MediaSession> GetValidMediaSessions()
     {
@@ -297,7 +308,7 @@ public partial class MainWindow : MicaWindow
     /// </summary>
     public MediaSession? GetTaskbarSession()
     {
-        var validSessions = GetValidMediaSessions();
+        var validSessions = GetWidgetSessions();
         if (validSessions.Count == 0) return null;
 
         if (_taskbarPinnedSessionId != null)
@@ -307,7 +318,8 @@ public partial class MainWindow : MicaWindow
                 return pinned;
         }
 
-        return GetActiveMediaSession();
+        var focused = mediaManager.GetFocusedSession();
+        return focused != null && validSessions.Any(s => s.Id == focused.Id) ? focused : validSessions.FirstOrDefault();
     }
 
     /// <summary>
@@ -332,7 +344,7 @@ public partial class MainWindow : MicaWindow
     /// </summary>
     public int GetTaskbarSessionCount()
     {
-        return GetValidMediaSessions().Count;
+        return GetWidgetSessions().Count;
     }
 
     /// <summary>
@@ -341,7 +353,7 @@ public partial class MainWindow : MicaWindow
     /// </summary>
     public void CycleTaskbarSession()
     {
-        var validSessions = GetValidMediaSessions();
+        var validSessions = GetWidgetSessions();
         if (validSessions.Count <= 1) return;
 
         var current = GetTaskbarSession();
@@ -762,7 +774,7 @@ public partial class MainWindow : MicaWindow
         MediaSession? sessionToShow;
         if (_taskbarPinnedSessionId != null
             && mediaSession.Id == _taskbarPinnedSessionId
-            && IsSessionAllowed(mediaSession)
+            && IsWidgetSessionAllowed(mediaSession)
             && mediaSession.ControlSession != null)
         {
             sessionToShow = mediaSession;

@@ -549,15 +549,7 @@ public partial class IslandWindow
     }
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e) =>
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            if (_disposed) return;
-            _ctxValid = false;
-            RefreshContextSnapshot();
-            PositionTopCenter();
-            RefreshAppearance();
-            PostActivity(IslandActivityReason.Context | IslandActivityReason.Recovery);
-        }));
+        Dispatcher.BeginInvoke(new Action(QueueIslandDisplayRefresh));
 
     private void OnSessionSwitch(object? sender, SessionSwitchEventArgs e)
     {

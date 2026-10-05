@@ -1102,7 +1102,7 @@ namespace FluentFlyoutWPF.Classes
                 if (barHeight > 0)
                 {
                     // Clamp radius per bar
-                    float radius = ClampRadius(baseRadius, barWidth, barHeight);
+                    float radius = ClampRadius(baseRadius, barWidth, barEndY - barY);
                     float radiusSq = radius * radius;
 
                     RasterizeBar(
@@ -1233,9 +1233,9 @@ namespace FluentFlyoutWPF.Classes
             int xs = Math.Max(barX, 0);
             int xe = Math.Min(xEnd, ImageWidth);
             // Integer span covered by the center fast path (same predicate as the
-            // per-pixel version: x >= innerLeft && x <= innerRight).
-            int solidXs = Math.Max(xs, (int)Math.Ceiling(innerLeft));
-            int solidXe = Math.Min(xe, (int)Math.Floor(innerRight) + 1);
+            // per-pixel version: x + 0.5 >= innerLeft && x + 0.5 <= innerRight).
+            int solidXs = Math.Max(xs, (int)Math.Ceiling(innerLeft - 0.5f));
+            int solidXe = Math.Min(xe, (int)Math.Floor(innerRight - 0.5f) + 1);
 
             fixed (byte* ptr = buffer)
             {
@@ -1245,7 +1245,8 @@ namespace FluentFlyoutWPF.Classes
 
                     // Fully straight rows (sides / flat bottom): the whole span is
                     // solid, no corner math at all.
-                    if ((y >= innerTop && y <= innerBottom) || (!centeredBars && y >= innerBottom))
+                    float py = y + 0.5f;
+                    if ((py >= innerTop && py <= innerBottom) || (!centeredBars && py >= innerBottom))
                     {
                         for (int x = xs; x < xe; x++)
                             row32[x] = packed;
@@ -1280,12 +1281,13 @@ namespace FluentFlyoutWPF.Classes
             float invAA,
             byte b, byte g, byte r)
         {
-            // CORNERS (same SDF math as before, pixel-identical output)
-            float cx = x < innerLeft ? innerLeft : (x > innerRight ? innerRight : x);
-            float cy = y < innerTop ? innerTop : (y > innerBottom ? innerBottom : y);
+            // Sample pixel centers for symmetric coverage on opposite edges.
+            float px = x + 0.5f, py = y + 0.5f;
+            float cx = Math.Clamp(px, innerLeft, innerRight);
+            float cy = Math.Clamp(py, innerTop, innerBottom);
 
-            float dx = x - cx;
-            float dy = y - cy;
+            float dx = px - cx;
+            float dy = py - cy;
 
             float distSq = dx * dx + dy * dy;
             float sdf = (distSq - radiusSq) / (2f * radius);

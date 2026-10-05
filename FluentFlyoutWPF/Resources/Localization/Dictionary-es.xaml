@@ -826,4 +826,5 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="AlbumArtChangeAnimationFlip">Volteo</system:String>
     <system:String x:Key="VisualizerBarRadiusTitle">Radio de las barras</system:String>
     <system:String x:Key="VisualizerBarRadiusDescription">0 deja las esquinas rectas; valores mayores redondean los extremos.</system:String>
+    <system:String x:Key="TaskbarOpenPlayerText">Abrir reproductor</system:String>
 </ResourceDictionary>

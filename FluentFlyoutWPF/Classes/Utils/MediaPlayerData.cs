@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 namespace FluentFlyout.Classes.Utils;
 
-public static class MediaPlayerData
+public static partial class MediaPlayerData
 {
     private class CachedMediaPlayerInfo
     {
@@ -17,12 +18,14 @@ public static class MediaPlayerData
         public int ProcessId { get; set; }
     }
     // cache for media player info to avoid redundant process lookups
-    private static readonly Dictionary<string, CachedMediaPlayerInfo> mediaPlayerCache = [];
+    private static readonly ConcurrentDictionary<string, CachedMediaPlayerInfo> mediaPlayerCache = [];
 
     // id variants of media players where the key is the mediaPlayerId and the value is the mediaPlayerCache key
-    private static readonly Dictionary<string, string> mediaPlayerIdVariants = [];
+    private static readonly ConcurrentDictionary<string, string> mediaPlayerIdVariants = [];
 
-    private static Process[]? cachedProcesses = null;
+    private sealed record ProcessSnapshot(string Name, string Path, string Title, int ProcessId, bool HasWindow);
+    private static ProcessSnapshot[]? cachedProcesses;
+    private static readonly object processCacheGate = new();
     private static DateTime lastCacheTime = DateTime.MinValue;
     private const int CACHE_DURATION_SECONDS = 5;
 
@@ -51,51 +54,17 @@ public static class MediaPlayerData
 
         // add original id to the end of the array to ensure at least one variant
         variants.Add(mediaPlayerId);
+        if (variants.Any(v => v.Contains("MicrosoftEdge", StringComparison.OrdinalIgnoreCase) || v.EndsWith("MSEdge", StringComparison.OrdinalIgnoreCase)))
+            variants.Add("msedge");
 
-        Process[] processes;
-
-        // use cache to avoid frequent process enumeration
-        if (cachedProcesses == null || (DateTime.Now - lastCacheTime).TotalSeconds > CACHE_DURATION_SECONDS)
-        {
-            cachedProcesses = Process.GetProcesses();
-            lastCacheTime = DateTime.Now;
-        }
-
-        processes = cachedProcesses;
-
-        var processData = processes.Select(p =>
-            {
-                try
-                {
-                    // pre-filter processes without a main window handle
-                    if (p.MainWindowHandle == IntPtr.Zero)
-                    {
-                        return null;
-                    }
-
-                    var mainModule = p.MainModule;
-                    if (mainModule == null) return null;
-
-                    string path = mainModule.FileName;
-
-                    if (variants.Any(v => path.Contains(v, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        // prioritize the FileDescription for a user-friendly name
-                        // fall back to MainWindowTitle if the description is empty
-                        string title = !string.IsNullOrWhiteSpace(mainModule.FileVersionInfo.FileDescription)
-                                        ? mainModule.FileVersionInfo.FileDescription
-                                        : p.MainWindowTitle;
-
-                        return new { Title = title, Path = path, ProcessId = p.Id };
-                    }
-                }
-                catch (System.ComponentModel.Win32Exception)
-                {
-                    // silently ignore the exception for inaccessible processes
-                }
-                return null;
-            })
-            .FirstOrDefault(data => data != null); // use first result
+        // Cache immutable metadata, not Process objects whose handles can be disposed
+        // by another reader. Exact process names win over a path substring match.
+        var processData = GetProcessSnapshots()
+            .Where(p => (p.HasWindow || variants.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
+                && (variants.Contains(p.Name, StringComparer.OrdinalIgnoreCase)
+                    || variants.Any(v => p.Path.Contains(v, StringComparison.OrdinalIgnoreCase))))
+            .OrderByDescending(p => variants.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
+            .FirstOrDefault();
 
         if (processData == null)
         {
@@ -115,7 +84,7 @@ public static class MediaPlayerData
         mediaTitle = !string.IsNullOrWhiteSpace(processData.Title) ? processData.Title : mediaPlayerId;
 
         // check cache again because we have the sanitized title
-        if (mediaPlayerCache.TryGetValue(mediaTitle, out cachedInfo))
+        if (mediaPlayerCache.TryGetValue(mediaTitle, out cachedInfo) && cachedInfo.ProcessId == processData.ProcessId)
         {
             // map the original id to the sanitized title for future lookups
             mediaPlayerIdVariants[mediaPlayerId] = mediaTitle;
@@ -132,6 +101,36 @@ public static class MediaPlayerData
         };
 
         return (mediaTitle, mediaIcon);
+    }
+
+    private static ProcessSnapshot[] GetProcessSnapshots(bool refresh = false)
+    {
+        lock (processCacheGate)
+        {
+            if (!refresh && cachedProcesses != null && (DateTime.UtcNow - lastCacheTime).TotalSeconds < CACHE_DURATION_SECONDS)
+                return cachedProcesses;
+            var snapshots = new List<ProcessSnapshot>();
+            foreach (var process in Process.GetProcesses())
+            {
+                using (process)
+                {
+                    try
+                    {
+                        bool hasWindow = process.MainWindowHandle != IntPtr.Zero;
+                        if (!hasWindow) continue;
+                        var module = process.MainModule;
+                        if (module == null) continue;
+                        string title = module.FileVersionInfo.FileDescription ?? process.MainWindowTitle;
+                        snapshots.Add(new(process.ProcessName, module.FileName, title, process.Id, hasWindow));
+                    }
+                    catch (System.ComponentModel.Win32Exception) { }
+                    catch (InvalidOperationException) { }
+                }
+            }
+            cachedProcesses = snapshots.ToArray();
+            lastCacheTime = DateTime.UtcNow;
+            return cachedProcesses;
+        }
     }
 
     /// <summary>
@@ -152,7 +151,7 @@ public static class MediaPlayerData
                 }
             }
 
-            var process = Process.GetProcessById(processId);
+            using var process = Process.GetProcessById(processId);
             var path = process.MainModule?.FileName;
             if (path == null) return null;
 

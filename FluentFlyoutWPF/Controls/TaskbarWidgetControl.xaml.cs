@@ -1385,7 +1385,7 @@ public partial class TaskbarWidgetControl : UserControl
             _noMediaDebounceTimer = null;
 
             string newTitle = !string.IsNullOrEmpty(title) ? title : "-";
-            string newArtist = !string.IsNullOrEmpty(artist) ? artist : "-";
+            string newArtist = string.IsNullOrWhiteSpace(artist) ? string.Empty : artist;
 
             // NOTE: the navigation direction note is deliberately NOT consumed here.
             // Intermediate same-song events (playback-state flaps caused by the button
@@ -1408,7 +1408,7 @@ public partial class TaskbarWidgetControl : UserControl
                     PlayPauseButton.Icon = _isPaused ? _playIcon : _pauseIcon;
                 SongImagePlaceholder.Foreground = AlbumAccent.Brush;
                 UpdateAlbumArtOverlay();
-                ApplyCommitTail(settings, artist);
+                ApplyCommitTail(settings);
                 UpdateRotationPauseState();
                 return;
             }
@@ -1602,7 +1602,7 @@ public partial class TaskbarWidgetControl : UserControl
 
         ExpandedContent.PublishSong(newTitle, newArtist, icon, slideBackwards);
         UpdateAlbumArtOverlay();
-        ApplyCommitTail(settings, newArtist);
+        ApplyCommitTail(settings);
         UpdateRotationPauseState();
     }
 
@@ -1674,14 +1674,13 @@ public partial class TaskbarWidgetControl : UserControl
     /// Shared visibility tail for commits and same-song updates: row visibility,
     /// background/controls visibility, and the appear fade when (re)showing.
     /// </summary>
-    /// <param name="artist">Raw artist string, used for the empty-artist collapse.</param>
-    private void ApplyCommitTail(TaskbarWidgetSettingsSnapshot settings, string artist)
+    private void ApplyCommitTail(TaskbarWidgetSettingsSnapshot settings)
     {
         SongTitle.Visibility = Visibility.Visible;
         // While a slide is in flight the transition owns the artist row visibility
         // (kept visible for the outgoing text, collapsed on completion if empty).
         if (!_songChangeSlideActive)
-            SongArtist.Visibility = !string.IsNullOrEmpty(artist) ? Visibility.Visible : Visibility.Collapsed; // hide artist if it's not available
+            SongArtist.Visibility = SongArtistContainer.Visibility = !string.IsNullOrEmpty(_actualArtist) ? Visibility.Visible : Visibility.Collapsed; // hide artist if it's not available
         SongInfoStackPanel.Visibility = Visibility.Visible;
         // The canvas owns both background layers (front + incoming crossfade layer).
         BackgroundCanvas.Visibility = settings.BackgroundBlur ? Visibility.Visible : Visibility.Collapsed;
@@ -1933,7 +1932,7 @@ public partial class TaskbarWidgetControl : UserControl
                 // The artist row appears for the incoming text; it collapses
                 // again on completion when empty.
                 if (artistHasIncoming)
-                    SongArtist.Visibility = Visibility.Visible;
+                    SongArtist.Visibility = SongArtistContainer.Visibility = Visibility.Visible;
             }
 
             bool parkTitle = !animateTitle && wasActive && prevAnimatedTitle;
@@ -2193,7 +2192,7 @@ public partial class TaskbarWidgetControl : UserControl
         }
 
         if (collapseArtist)
-            SongArtist.Visibility = Visibility.Collapsed;
+            SongArtist.Visibility = SongArtistContainer.Visibility = Visibility.Collapsed;
 
         UpdateMarquees(restartTitle, restartArtist);
     }

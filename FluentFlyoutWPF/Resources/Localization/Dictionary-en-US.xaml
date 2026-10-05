@@ -826,4 +826,5 @@ You can help contribute translations on</System:String>
     <System:String x:Key="AlbumArtChangeAnimationFlip">Flip</System:String>
     <System:String x:Key="VisualizerBarRadiusTitle">Bar corner radius</System:String>
     <System:String x:Key="VisualizerBarRadiusDescription">0 gives square corners; higher values round the ends.</System:String>
+    <System:String x:Key="TaskbarOpenPlayerText">Open media player</System:String>
 </ResourceDictionary>

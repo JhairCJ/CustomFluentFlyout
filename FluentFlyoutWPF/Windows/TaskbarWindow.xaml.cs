@@ -151,8 +151,42 @@ public partial class TaskbarWindow : Window
         source.AddHook(WindowProc);
     }
 
+    private bool _displayRefreshPending;
+
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        QueueTaskbarDisplayRefresh();
+    }
+
+    private void QueueTaskbarDisplayRefresh()
+    {
+        if (_closed || _displayRefreshPending || Dispatcher.HasShutdownStarted) return;
+        _displayRefreshPending = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            _displayRefreshPending = false;
+            if (_closed) return;
+            // Invalidate old coordinates and asynchronous automation results, without
+            // recreating the window or changing its shell-menu/z-order protections.
+            ++_automationQueryVersion;
+            _pendingAutomationTasks.Clear();
+            _automationBoundsCache.Clear();
+            _widgetElement = _trayElement = _taskbarFrameElement = null;
+            _trayHandle = IntPtr.Zero;
+            _hasTaskbarRect = false;
+            _taskbarScreenRect = Rect.Empty;
+            _monitorGeometryCheckedUtc = DateTime.MinValue;
+            UpdatePosition(force: true);
+        });
+    }
+
     private IntPtr WindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (msg == 0x007E || (msg == 0x001A && (wParam.ToInt64() == 0x002F
+            || (lParam != IntPtr.Zero && System.Runtime.InteropServices.Marshal.PtrToStringUni(lParam) == "SystemDockMode"))))
+            QueueTaskbarDisplayRefresh();
+        // DPI notifications stay unhandled so WPF can apply the new scale.
         if (msg == 0x0084) // WM_NCHITTEST
         {
             bool transparent = !IsHitTestVisible || Opacity <= 0.01;
@@ -1571,6 +1605,7 @@ on_error:
 
     private bool ClickInsideWidget(int x, int y)
     {
+        if (Widget.IsPlayerMenuOpen) return true;
         if (!_widgetExpanded) return true;
         Rect rect = LiveWidgetRect();
         rect.Offset(_taskbarScreenRect.Left, _taskbarScreenRect.Top);
