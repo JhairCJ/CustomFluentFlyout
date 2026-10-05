@@ -168,15 +168,11 @@ public partial class IslandWindow : Window
     // que corre en cada movimiento y no puede consultar nada caro.
     private bool _lineShown;
     private double _lineTopDip;
-    private string _lastTrackKey = "";
     private bool _popPlaying;
     private double _pop; // 0..1 pulso de cambio de pista
     private bool _albumArtHovering;
     private bool _hasAlbumCover;
     private BitmapImage? _displayedAlbumArt;
-    private BitmapImage? _albumFlipArt; // última portada pedida por un volteo en curso
-    private int _albumFlipVersion;
-    private bool _albumFlipRunning;
 
     // Album-art background, matching the taskbar widget's blurred/rotating viewport.
     private BitmapImage? _backgroundIcon;
@@ -381,6 +377,7 @@ public partial class IslandWindow : Window
     {
         if (_disposed) return;
         _disposed = true;
+        _artworkPublication?.Cancel();
         LocalizationManager.LanguageChanged -= OnLanguageChanged;
         ShutdownActivity();
         ShutdownBluetooth();

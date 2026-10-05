@@ -22,6 +22,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Windows.ApplicationModel;
@@ -684,7 +685,7 @@ public partial class MainWindow : MicaWindow
 
         var playbackInfo = activeSession.ControlSession.GetPlaybackInfo();
         var thumbnail = BitmapHelper.GetThumbnail(songInfo.Thumbnail);
-        BitmapHelper.GetDominantColors();
+        BitmapHelper.GetDominantColors(thumbnail);
         widget.UpdateUi(songInfo.Title, songInfo.Artist, thumbnail, playbackInfo.PlaybackStatus, playbackInfo.Controls);
     }
 
@@ -798,7 +799,6 @@ public partial class MainWindow : MicaWindow
         if (tbSongInfo != null)
         {
             var tbThumbnail = BitmapHelper.GetThumbnail(tbSongInfo.Thumbnail);
-            BitmapHelper.GetDominantColors();
             var tbPlayback = sessionToShow.ControlSession.GetPlaybackInfo();
 
             taskbarWindow?.UpdateUi(tbSongInfo.Title, tbSongInfo.Artist, tbThumbnail, tbPlayback?.PlaybackStatus, tbPlayback?.Controls);
@@ -813,7 +813,7 @@ public partial class MainWindow : MicaWindow
 
     // for determining whether MediaPropertyChanged has no changes
     private string previousMediaProperty = "";
-    private int previousMediaPropertyThumbnail = 0;
+    private BitmapImage? previousMediaPropertyThumbnail;
     private string? previousMediaPropertySessionId = null;
     private void MediaManager_OnAnyMediaPropertyChanged(MediaSession mediaSession, GlobalSystemMediaTransportControlsSessionMediaProperties mediaProperties)
     {
@@ -837,7 +837,7 @@ public partial class MainWindow : MicaWindow
         {
             previousMediaPropertySessionId = currentActiveSession.Id;
             previousMediaProperty = "";
-            previousMediaPropertyThumbnail = 0;
+            previousMediaPropertyThumbnail = null;
         }
 
         var songInfo = TryGetMediaProperties(currentActiveSession.ControlSession);
@@ -847,20 +847,18 @@ public partial class MainWindow : MicaWindow
         var playbackInfo = currentActiveSession.ControlSession.GetPlaybackInfo();
 
         string check = songInfo.Title + songInfo.Artist + playbackInfo.PlaybackStatus;
-        int checkThumbnail = BitmapHelper.GetStableThumbnailHash(songInfo.Thumbnail);
+        var thumbnail = BitmapHelper.GetThumbnail(songInfo.Thumbnail);
         bool onlyThumbnailChanged = false;
         if (previousMediaProperty == check)
         {
             onlyThumbnailChanged = true;
-            if (previousMediaPropertyThumbnail == checkThumbnail)
+            if (ReferenceEquals(previousMediaPropertyThumbnail, thumbnail))
                 return; // prevent multiple calls for the same song info
         }
 
         previousMediaProperty = check;
-        previousMediaPropertyThumbnail = checkThumbnail;
+        previousMediaPropertyThumbnail = thumbnail;
 
-        var thumbnail = BitmapHelper.GetThumbnailWithHash(songInfo.Thumbnail, checkThumbnail);
-        BitmapHelper.GetDominantColors();
 
         taskbarWindow?.UpdateUi(songInfo.Title, songInfo.Artist, thumbnail, playbackInfo.PlaybackStatus, playbackInfo.Controls);
 
@@ -1358,7 +1356,7 @@ public partial class MainWindow : MicaWindow
 
                 // refresh the accent from the new artwork and repaint the button
                 // (it was painted with the previous song's color above)
-                BitmapHelper.GetDominantColors();
+                BitmapHelper.GetDominantColors(image);
                 ControlPlayPause.Background = AlbumAccent.Brush;
 
                 // set tooltip
@@ -1922,7 +1920,7 @@ public partial class MainWindow : MicaWindow
             Logger.Error(ex, "Failed to initialize tray icon");
         }
 
-        BitmapHelper.GetDominantColors();
+        BitmapHelper.RefreshAccentTheme();
         UpdateTaskbar();
     }
 

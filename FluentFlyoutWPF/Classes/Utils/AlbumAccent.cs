@@ -4,112 +4,77 @@
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using FluentFlyout.Classes.Settings;
+using System.Runtime.CompilerServices;
 using Wpf.Ui.Appearance;
 
 namespace FluentFlyout.Classes.Utils;
 
 /// <summary>
-/// Single source of truth for the album-derived accent color.
-/// Holds the raw album color (theme-independent) plus a frozen brush
-/// already tuned for the current theme. One accent for every consumer
-/// (play button, placeholders, visualizer).
+/// Shared color extraction and theming, with separate global and widget-owned palettes.
 /// </summary>
 internal static class AlbumAccent
 {
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-    private static Color? _raw;
-    private static SolidColorBrush? _brush;
-    private static int _sourceHash;
-    private static double _lastThreshold = 0.65;
-    private static double _lastAmount;
+    private static readonly Palette Global = new(), Taskbar = new();
+    public static SolidColorBrush Brush => Global.Brush;
+    public static SolidColorBrush TaskbarBrush => Taskbar.Brush;
+    public static bool HasAlbumColor => Global.HasColor;
 
-    public static SolidColorBrush Brush => _brush ??= SystemFallback();
-
-    public static int SourceHash => _sourceHash;
-
-    public static bool HasAlbumColor => _raw.HasValue;
-
-    /// <summary>
-    /// Recomputes the accent from a thumbnail, or returns the cached brush
-    /// when the hash matches. Falls back to the system accent when album
-    /// art must not be used or yields no usable color.
-    /// </summary>
-    /// <param name="threshold01">Saturation threshold (0-1) below which colors are left untouched.</param>
-    /// <param name="amount01">How much of the saturation excess above the threshold to remove (0-1).</param>
-    public static SolidColorBrush Refresh(BitmapSource? thumbnail, int hash, bool useAlbumArt, bool isDark, double threshold01 = 0.65, double amount01 = 0)
+    // Separate ownership, shared extraction and theme/cache rules.
+    private sealed class Palette
     {
-        if (!useAlbumArt || thumbnail == null || hash == 0)
+        private int _hash;
+        private SolidColorBrush? _brush;
+        private (bool Dark, bool Enabled, double Threshold, double Amount)? _theme;
+        public Color? Raw { get; private set; }
+        public bool HasColor => Raw.HasValue && _theme?.Enabled == true;
+        public SolidColorBrush Brush => _brush ??= SystemFallback();
+
+        public void SetArtwork(BitmapSource? artwork, int hash)
         {
-            _raw = null;
-            _sourceHash = 0;
-            _lastThreshold = threshold01;
-            _lastAmount = amount01;
-            _brush = SystemFallback();
+            if (_hash == hash && (artwork == null || Raw.HasValue)) return;
+            _hash = hash;
+            try { Raw = artwork == null ? null : Extract(artwork); }
+            catch (Exception ex) { Logger.Error(ex, "Error extracting album accent color"); Raw = null; }
+            _brush = null;
+        }
+
+        public SolidColorBrush Refresh(bool dark, bool enabled, double threshold, double amount, bool force = false)
+        {
+            var theme = (dark, enabled, threshold, amount);
+            if (force || _brush == null || _theme != theme)
+            {
+                _brush = enabled && Raw is { } raw
+                    ? Freeze(new SolidColorBrush(ToThemed(raw, dark, threshold, amount))) : SystemFallback();
+                _theme = theme;
+            }
             return _brush;
         }
-
-        // Same artwork: return cached brush unless theme/desaturation params changed,
-        // in which case just re-derive from the cached raw color (no pixel scan).
-        if (hash == _sourceHash && _brush != null && _raw.HasValue
-            && threshold01 == _lastThreshold && amount01 == _lastAmount)
-            return _brush;
-
-        if (hash == _sourceHash && _raw.HasValue)
-        {
-            _lastThreshold = threshold01;
-            _lastAmount = amount01;
-            _brush = Freeze(new SolidColorBrush(ToThemed(_raw.Value, isDark, threshold01, amount01)));
-            return _brush;
-        }
-
-        Color? raw;
-        try
-        {
-            raw = Extract(thumbnail);
-        }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "Error extracting album accent color");
-            raw = null;
-        }
-
-        _sourceHash = hash;
-        if (raw == null)
-        {
-            _raw = null;
-            _lastThreshold = threshold01;
-            _lastAmount = amount01;
-            _brush = SystemFallback();
-            return _brush;
-        }
-
-        _raw = raw.Value;
-        _lastThreshold = threshold01;
-        _lastAmount = amount01;
-        _brush = Freeze(new SolidColorBrush(ToThemed(raw.Value, isDark, threshold01, amount01)));
-        return _brush;
     }
 
-    /// <summary>
-    /// Re-derives the themed brush from the cached raw color without
-    /// re-scanning pixels. Call on theme changes and setting toggles.
-    /// </summary>
-    public static SolidColorBrush RefreshTheme(bool isDark, double threshold01 = 0.65, double amount01 = 0)
+    public static SolidColorBrush Refresh(BitmapSource? thumbnail, int hash, bool useAlbumArt, bool isDark, double threshold01 = 0.65, double amount01 = 0)
     {
-        if (_raw == null)
-        {
-            _sourceHash = 0;
-            _lastThreshold = threshold01;
-            _lastAmount = amount01;
-            _brush = SystemFallback();
-            return _brush;
-        }
+        Global.SetArtwork(hash != 0 ? thumbnail : null, hash);
+        return Global.Refresh(isDark, useAlbumArt, threshold01, amount01);
+    }
 
-        _lastThreshold = threshold01;
-        _lastAmount = amount01;
-        _brush = Freeze(new SolidColorBrush(ToThemed(_raw.Value, isDark, threshold01, amount01)));
-        return _brush;
+    public static SolidColorBrush RefreshTheme(bool isDark, double threshold01 = 0.65, double amount01 = 0, bool useAlbumArt = true)
+        => Global.Refresh(isDark, useAlbumArt, threshold01, amount01, force: true);
+
+    public static void SetTaskbarArtwork(BitmapSource? artwork)
+    {
+        Taskbar.SetArtwork(artwork, artwork == null ? 0 : RuntimeHelpers.GetHashCode(artwork));
+        RefreshTaskbarTheme(force: false);
+    }
+
+    public static void RefreshTaskbarTheme(bool force = true)
+    {
+        var settings = SettingsManager.Current;
+        Taskbar.Refresh(IsDarkTheme(), settings.UseAlbumArtAsAccentColor,
+            settings.AlbumAccentDesaturationThreshold / 100.0, settings.AlbumAccentDesaturationAmount / 100.0,
+            force);
     }
 
     public static bool IsDarkTheme()
@@ -272,7 +237,7 @@ internal static class AlbumAccent
         return Color.FromRgb(r, g, b);
     }
 
-    private static SolidColorBrush SystemFallback()
+    internal static SolidColorBrush SystemFallback()
     {
         try
         {

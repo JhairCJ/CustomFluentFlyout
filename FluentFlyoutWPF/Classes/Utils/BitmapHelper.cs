@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2024-2026 The FluentFlyout Authors
+// Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
@@ -7,6 +7,8 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Windows.Storage.Streams;
+using Windows.Media.Control;
+using FluentFlyoutWPF.Classes;
 
 namespace FluentFlyout.Classes.Utils;
 
@@ -14,7 +16,7 @@ internal static class BitmapHelper
 {
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-    // LRU cache implementation for caching thumbnails and their dominant colors
+    // Bounded, synchronized thumbnail cache: foreground events and async re-reads share it.
     private sealed class LruCache<TKey, TValue> where TKey : notnull
     {
         private readonly int _capacity;
@@ -88,17 +90,6 @@ internal static class BitmapHelper
     // cached thumbnails to prevent reprocessing
     private static readonly LruCache<int, BitmapImage> _thumbnailCache = new(_cacheEntryLimit);
 
-    // hash of the most recently requested thumbnail; GetDominantColors
-    // derives the accent from this entry. Calls are sequential on the UI
-    // thread (GetThumbnail then GetDominantColors), so no AsyncLocal needed.
-    private static int _latestThumbnailHash;
-
-    /// <summary>
-    /// Current accent brush. Single color shared by every consumer
-    /// (play button, placeholders, visualizer). See <see cref="AlbumAccent"/>.
-    /// </summary>
-    public static List<SolidColorBrush> SavedDominantColors => [AlbumAccent.Brush];
-
     /// <summary>
     /// Fast non-cryptographic hash (FNV-1a) of raw thumbnail bytes, used for
     /// cache lookup and change detection. Thumbnails are small; the previous
@@ -129,23 +120,6 @@ internal static class BitmapHelper
         return copy.ToArray();
     }
 
-    public static int GetStableThumbnailHash(IRandomAccessStreamReference thumbnail)
-    {
-        if (thumbnail == null)
-            return 0;
-
-        try
-        {
-            byte[] bytes = ReadThumbnailBytes(thumbnail, out long length);
-            return HashThumbnailBytes(bytes, length);
-        }
-        catch (Exception ex)
-        {
-            Logger.Info(ex, "Failed to compute thumbnail hash; falling back to object hash");
-            return thumbnail.GetHashCode();
-        }
-    }
-
     internal static BitmapImage? GetThumbnail(IRandomAccessStreamReference? thumbnail, int maxThumbnailSize = _maxThumbnailSize)
     {
         if (thumbnail == null)
@@ -174,31 +148,10 @@ internal static class BitmapHelper
         return GetThumbnailFromBytes(bytes, hashCode, maxThumbnailSize);
     }
 
-    /// <summary>
-    /// Cache-hit path for callers that already hashed the thumbnail for change
-    /// detection (e.g. the media-property dedup): skips hashing a second time.
-    /// </summary>
-    internal static BitmapImage? GetThumbnailWithHash(IRandomAccessStreamReference? thumbnail, int hashCode, int maxThumbnailSize = _maxThumbnailSize)
-    {
-        if (thumbnail == null || hashCode == 0)
-            return null;
-
-        if (_thumbnailCache.TryGetValue(hashCode, out var cachedImage) && cachedImage != null)
-        {
-            _latestThumbnailHash = hashCode;
-            return cachedImage;
-        }
-
-        // Cache miss with a known hash (thumbnail changed): fall back to the normal
-        // single-open path rather than decoding from a stale buffer.
-        return GetThumbnail(thumbnail, maxThumbnailSize);
-    }
-
     private static BitmapImage? GetThumbnailFromBytes(byte[] bytes, int hashCode, int maxThumbnailSize)
     {
         if (_thumbnailCache.TryGetValue(hashCode, out var cachedImage) && cachedImage != null)
         {
-            _latestThumbnailHash = hashCode;
             return cachedImage;
         }
 
@@ -214,10 +167,7 @@ internal static class BitmapHelper
         }
         image.Freeze();
 
-        // add bitmap to thumbnail cache with empty brush
         _thumbnailCache.Set(hashCode, image);
-
-        _latestThumbnailHash = hashCode;
         return image;
     }
 
@@ -251,61 +201,30 @@ internal static class BitmapHelper
         return (threshold, amount);
     }
 
-    /// <summary>
-    /// Refreshes the single album accent from the latest cached thumbnail
-    /// (see <see cref="GetThumbnail"/>) and returns it as a one-item list.
-    /// The list shape is kept for compatibility; new code should use
-    /// <see cref="AlbumAccent.Brush"/> directly.
-    /// </summary>
-    /// <returns>List containing the current accent brush.</returns>
-    public static List<SolidColorBrush> GetDominantColors()
+    public static void GetDominantColors(BitmapImage? artwork)
     {
         var (threshold, amount) = GetDesaturation();
-        if (!SettingsManager.Current.UseAlbumArtAsAccentColor)
-            return [AlbumAccent.Refresh(null, 0, false, AlbumAccent.IsDarkTheme(), threshold, amount)];
-
-        // Re-derive from the latest thumbnail. AlbumAccent caches by hash,
-        // so repeat calls for the same artwork are free.
-        int hashCode = _latestThumbnailHash;
-        BitmapImage? sourceBitmap = null;
-        if (hashCode != 0)
-            _thumbnailCache.TryGetValue(hashCode, out sourceBitmap);
-
-        if (sourceBitmap == null)
-        {
-            // No usable thumbnail (or first run): fall back to system accent.
-            return [AlbumAccent.Refresh(null, 0, false, AlbumAccent.IsDarkTheme(), threshold, amount)];
-        }
-
-        try
-        {
-#if DEBUG
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-#endif
-            var brush = AlbumAccent.Refresh(sourceBitmap, hashCode, true, AlbumAccent.IsDarkTheme(), threshold, amount);
-#if DEBUG
-            stopwatch.Stop();
-            Logger.Debug($"Dominant color extraction took {stopwatch.Elapsed.TotalMilliseconds} ms");
-#endif
-            return [brush];
-        }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "Error extracting dominant colors");
-            return [AlbumAccent.Brush];
-        }
+        AlbumAccent.Refresh(artwork, artwork == null ? 0 : System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(artwork),
+            SettingsManager.Current.UseAlbumArtAsAccentColor, AlbumAccent.IsDarkTheme(), threshold, amount);
     }
 
-    /// <summary>
-    /// Re-derives the themed accent from the cached album color without
-    /// re-scanning pixels. Call after theme changes or setting toggles.
-    /// </summary>
-    public static List<SolidColorBrush> RefreshAccentTheme()
+    public static void RefreshAccentTheme()
     {
+        AlbumAccent.RefreshTaskbarTheme();
         var (threshold, amount) = GetDesaturation();
-        if (!SettingsManager.Current.UseAlbumArtAsAccentColor)
-            return [AlbumAccent.Refresh(null, 0, false, AlbumAccent.IsDarkTheme(), threshold, amount)];
+        AlbumAccent.RefreshTheme(AlbumAccent.IsDarkTheme(), threshold, amount, SettingsManager.Current.UseAlbumArtAsAccentColor);
+    }
 
-        return [AlbumAccent.RefreshTheme(AlbumAccent.IsDarkTheme(), threshold, amount)];
+    internal static async Task<MediaArtworkSnapshot?> ReadMediaArtworkAsync(MediaArtworkSnapshot pending)
+    {
+        if (pending.Session is not GlobalSystemMediaTransportControlsSession session) return null;
+        try
+        {
+            var props = await session.TryGetMediaPropertiesAsync();
+            if (props == null) return null;
+            var art = await Task.Run(() => GetThumbnail(props.Thumbnail));
+            return new MediaArtworkSnapshot(session, props.Title ?? "", props.Artist ?? "", art);
+        }
+        catch (Exception) { return null; }
     }
 }

@@ -9,14 +9,10 @@ using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Classes.Utils;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Input;
-using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using System.Text;
 using Windows.Media.Control;
 using static WindowsMediaController.MediaManager;
 
@@ -70,12 +66,13 @@ public partial class IslandWindow
     // emits no event is still detected exactly as before.
     private readonly Dictionary<string, GlobalSystemMediaTransportControlsSessionPlaybackStatus?> _statusMemo = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IslandMediaProps> _propsMemo = new(StringComparer.Ordinal);
+    private MediaArtworkPublication? _artworkPublication;
+    private MediaArtworkSnapshot? _lastPresentedTrack;
 
     /// <summary>
-    /// A session's properties, already ready to draw: title, artist, artwork and the
-    /// hash that detects an artwork change.
+    /// A session's metadata with its decoded artwork.
     /// </summary>
-    private sealed record IslandMediaProps(string Title, string Artist, BitmapImage? Artwork, int ArtworkHash);
+    private sealed record IslandMediaProps(string Title, string Artist, BitmapImage? Artwork);
 
     private bool MusicAvailable() => _music != null;
 
@@ -337,22 +334,7 @@ public partial class IslandWindow
     /// same ones) into the value the view consumes, resolving the artwork only once.
     /// </summary>
     private static IslandMediaProps FromProperties(GlobalSystemMediaTransportControlsSessionMediaProperties props)
-    {
-        string title = props.Title ?? "";
-        string artist = props.Artist ?? "";
-        BitmapImage? art = null;
-        int hash = 0;
-        if (props.Thumbnail != null)
-        {
-            try { hash = BitmapHelper.GetStableThumbnailHash(props.Thumbnail); } catch { hash = 0; }
-            art = hash != 0
-                ? BitmapHelper.GetThumbnailWithHash(props.Thumbnail, hash)
-                : BitmapHelper.GetThumbnail(props.Thumbnail);
-            // Fallback if hash path missed the cache and re-read failed
-            if (art == null && hash != 0) art = BitmapHelper.GetThumbnail(props.Thumbnail);
-        }
-        return new IslandMediaProps(title, artist, art, hash);
-    }
+        => new(props.Title ?? "", props.Artist ?? "", BitmapHelper.GetThumbnail(props.Thumbnail));
 
     /// <summary>
     /// Reconciled music presentation (001 MOD RF-1): called ONCE per burst of media
@@ -654,6 +636,7 @@ public partial class IslandWindow
         Dispatcher.BeginInvoke(new Action(() =>
         {
             if (_disposed) return;
+            if (IsDisplayedSession(session)) _artworkPublication?.Cancel();
             _lastPlay.Remove(session.Id);
             _statusMemo.Remove(session.Id);
             _propsMemo.Remove(session.Id);
@@ -668,6 +651,7 @@ public partial class IslandWindow
     // immediately (001 MOD RF-24, 002 MOD RF-14).
     private void OnMusicUnavailable()
     {
+        _artworkPublication?.Cancel();
         _mediaPinnedSessionId = null;
         _currentId = null;
         // What was known about the sessions no longer holds (they may have changed with
@@ -702,7 +686,7 @@ public partial class IslandWindow
     private void ClearMusicResidue()
     {
         _lastStatus = null;
-        // NOTE: _lastTrackKey is deliberately NOT cleared here. It is the identity of
+        // NOTE: _lastPresentedTrack is deliberately NOT cleared here. It is the identity of
         // the last PRESENTED song, not view data: clearing it made the same song,
         // returning from inactive rest, read as a track change and flip the artwork
         // on its own (001 RF-22: the flip only happens on a song change).
@@ -834,12 +818,12 @@ public partial class IslandWindow
     }
 
     private void ShowMusicCompact(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null,
-        bool forceAlbumFlip = false, bool forceNotice = false)
+        bool forceNotice = false)
     {
         if (_timer.State == IslandTimerState.Alerting) return;
         if (!MusicAvailable()) return; // sin snapshot musical no hay vista musical (RF-13)
         ShowCompactView(IslandContentMode.Media, MediaFeature,
-            () => RefreshUi(session, knownStatus, forceAlbumFlip), forceNotice: forceNotice);
+            () => RefreshUi(session, knownStatus), forceNotice: forceNotice);
     }
 
     private void ExpandSession(MediaSession session)
@@ -855,7 +839,7 @@ public partial class IslandWindow
 
     // --- presentation ---
 
-    private void RefreshUi(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null, bool forceAlbumFlip = false)
+    private void RefreshUi(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackStatus? knownStatus = null)
     {
         // Modal timer alert: music events wait for X or restart.
         if (_timer.State == Classes.IslandTimerState.Alerting) return;
@@ -884,42 +868,48 @@ public partial class IslandWindow
         // The properties come from the memo (or from a single read if not known yet):
         // the repaint stops crossing to the media system on every event (001 MOD RF-1).
         var mediaProps = MediaPropsOf(session);
-        BitmapImage? art = mediaProps?.Artwork;
-        int thumbHash = mediaProps?.ArtworkHash ?? 0;
-        string title = string.IsNullOrWhiteSpace(mediaProps?.Title)
+        if (mediaProps != null)
+        {
+            var snapshot = new MediaArtworkSnapshot(session.ControlSession, mediaProps.Title, mediaProps.Artist, mediaProps.Artwork);
+            _artworkPublication ??= new MediaArtworkPublication(Dispatcher, BitmapHelper.ReadMediaArtworkAsync, PublishIslandSong);
+            _artworkPublication.Observe(snapshot);
+            // Rest clears view data but retains publication history. Restore without a new track notice.
+            if (_artworkPublication.Published == snapshot
+                && (_lastPresentedTrack != snapshot || string.IsNullOrEmpty(SongTitle.Text)))
+                PublishIslandSong(snapshot);
+        }
+        ApplyCapabilities(session);
+        UpdateSeek(session);
+        UpdateEqButton();
+    }
+
+    private void PublishIslandSong(MediaArtworkSnapshot snapshot)
+    {
+        if (_disposed || !MediaContentAvailable()) return;
+        var session = Current() ?? ActiveMediaSession();
+        if (session == null || !Equals(session.ControlSession, snapshot.Session)) return;
+        _propsMemo[session.Id] = new IslandMediaProps(snapshot.Title, snapshot.Artist, snapshot.Artwork);
+        if (_timer.State == Classes.IslandTimerState.Alerting) return;
+        BitmapImage? art = snapshot.Artwork;
+        string title = string.IsNullOrWhiteSpace(snapshot.Title)
             ? IslandStrings.Get("IslandUnknownTitle", "Unknown title")
-            : mediaProps!.Title;
-        string artist = string.IsNullOrWhiteSpace(mediaProps?.Artist) ? string.Empty : mediaProps!.Artist;
+            : snapshot.Title;
+        string artist = string.IsNullOrWhiteSpace(snapshot.Artist) ? string.Empty : snapshot.Artist;
+        BitmapHelper.GetDominantColors(art);
         SongTitle.Text = title;
         SongArtist.Text = artist;
         SongArtist.Visibility = string.IsNullOrEmpty(artist) ? Visibility.Collapsed : Visibility.Visible;
         CompactTitle.Text = title;
         SetBackground(art);
-        // Include actual thumbnail hash so a thumbnail-only change (Chrome fires
-        // title first with stale art, then thumbnail late) is detected and not
-        // swallowed while a flip animation is in flight.
-        string trackKey = title + "\n" + artist + "\n" + thumbHash;
-        bool trackChanged = _lastTrackKey != "" && trackKey != _lastTrackKey;
-        _lastTrackKey = trackKey;
-        // The flip is EXCLUSIVE to a song change (001 RF-22) and to an explicit media
-        // change (forceAlbumFlip). It used to also fire when the shown artwork did
-        // not match the incoming one, and since inactive rest clears the state's
-        // artwork the SAME song flipped by itself when shown again. It does not flip
-        // for a repaint, nor for a late thumbnail (that already changes the key), nor
-        // on the first paint.
-        bool albumCrossfadeRunning = _compactAlbumCrossfade?.IsRunning == true || _expandedAlbumCrossfade?.IsRunning == true;
-        if (trackChanged || forceAlbumFlip
-            || (albumCrossfadeRunning && !ReferenceEquals(art, _displayedAlbumArt)))
-            StartAlbumFlip(art);
-        else if (!_albumFlipRunning && !albumCrossfadeRunning)
-            SetAlbumArt(art);
+        bool trackChanged = _lastPresentedTrack != null && !snapshot.SameTrack(_lastPresentedTrack);
+        _lastPresentedTrack = snapshot;
+        StartAlbumFlip(art);
         if (trackChanged && SettingsManager.Current.IslandShowOnTrackChange) PlayTrackPop();
-        BitmapHelper.GetDominantColors();
-        ApplyCapabilities(session);
-        UpdateSeek(session);
-        UpdateEqButton();
-        SyncMeasuredHeight();
-        if (_expanded || _p > 0.05) ApplyFrame();
+        if (MediaOwnsView())
+        {
+            SyncMeasuredHeight();
+            if (_expanded || _p > 0.05) ApplyFrame();
+        }
     }
 
     /// <summary>
@@ -938,106 +928,15 @@ public partial class IslandWindow
         UpdateAlbumArtOverlay();
     }
 
-    private void SetAlbumArt(BitmapImage? art)
-    {
-        StopAlbumFlip();
-        ApplyAlbumArt(art);
-    }
+    private AlbumArtTransition? _albumTransition;
+    private AlbumArtTransition AlbumTransition => _albumTransition ??=
+        new(ApplyAlbumArt, (CompactArtWrap, CompactArtFlipScale), (ExpandedArtWrap, ExpandedArtFlipScale));
 
-    /// <summary>
-    /// Artwork flip on a song or media change (001 RF-22): the outgoing artwork
-    /// narrows until it disappears, it is swapped at the blind spot and the incoming
-    /// one opens. The LAST requested artwork wins, so a burst from the player (title
-    /// first, thumbnail later) neither restarts the flip midway nor lets a stale
-    /// artwork through.
-    /// </summary>
-    private AlbumArtCrossfade? _compactAlbumCrossfade, _expandedAlbumCrossfade;
+    private void SetAlbumArt(BitmapImage? art) => AlbumTransition.Set(art);
+    private void StopAlbumFlip() => _albumTransition?.Stop();
 
-    private void StartAlbumFlip(BitmapImage? art)
-    {
-        _albumFlipArt = art;
-        if (!AnimationsEnabled)
-        {
-            SetAlbumArt(art);
-            return;
-        }
-        if (SettingsManager.Current.AlbumArtChangeAnimation == 0)
-        {
-            if (ReferenceEquals(art, _displayedAlbumArt) && !_albumFlipRunning) return;
-            _albumFlipVersion++;
-            _albumFlipRunning = false;
-            CompactArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-            ExpandedArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-            CompactArtFlipScale.ScaleX = ExpandedArtFlipScale.ScaleX = 1;
-            _compactAlbumCrossfade ??= new AlbumArtCrossfade(CompactArtWrap);
-            _expandedAlbumCrossfade ??= new AlbumArtCrossfade(ExpandedArtWrap);
-            // Both snapshots must capture the old cover before the shared swap.
-            _compactAlbumCrossfade.Fade(() => { }, MainWindow.getDuration());
-            _expandedAlbumCrossfade.Fade(() => ApplyAlbumArt(art), MainWindow.getDuration());
-            return;
-        }
-        _compactAlbumCrossfade?.Stop();
-        _expandedAlbumCrossfade?.Stop();
-        if (_albumFlipRunning) return; // el volteo en vuelo ya aplicará la última portada pedida
-
-        _albumFlipRunning = true;
-        int version = _albumFlipVersion;
-        CompactArtFlipScale.ScaleX = ExpandedArtFlipScale.ScaleX = 1;
-        CompactArtFlipScale.ScaleY = ExpandedArtFlipScale.ScaleY = 1;
-        _hasAlbumCover = _displayedAlbumArt != null;
-        UpdateAlbumArtOverlay();
-
-        // Each phase lasts a fraction of the global animation duration: the flip feels
-        // part of the Island's family without becoming slow.
-        double halfMs = Math.Clamp(MainWindow.getDuration() * 0.35, 90, 200);
-        var outgoing = new DoubleAnimation
-        {
-            From = 1,
-            To = 0,
-            Duration = TimeSpan.FromMilliseconds(halfMs),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
-        };
-        outgoing.Completed += (_, _) =>
-        {
-            if (version != _albumFlipVersion) return;
-            ApplyAlbumArt(_albumFlipArt);
-
-            var incoming = new DoubleAnimation
-            {
-                From = 0,
-                To = 1,
-                Duration = TimeSpan.FromMilliseconds(halfMs),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-            incoming.Completed += (_, _) =>
-            {
-                if (version != _albumFlipVersion) return;
-                _albumFlipRunning = false;
-                CompactArtFlipScale.ScaleX = ExpandedArtFlipScale.ScaleX = 1;
-                CompactArtFlipScale.ScaleY = ExpandedArtFlipScale.ScaleY = 1;
-                UpdateAlbumArtOverlay();
-                // Another song arrived while we were flipping: another flip, now clean.
-                if (!ReferenceEquals(_albumFlipArt, _displayedAlbumArt)) StartAlbumFlip(_albumFlipArt);
-            };
-            CompactArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, incoming);
-            ExpandedArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, incoming.Clone());
-        };
-
-        CompactArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, outgoing);
-        ExpandedArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, outgoing.Clone());
-    }
-
-    private void StopAlbumFlip()
-    {
-        _compactAlbumCrossfade?.Stop();
-        _expandedAlbumCrossfade?.Stop();
-        _albumFlipVersion++;
-        _albumFlipRunning = false;
-        CompactArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-        ExpandedArtFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-        CompactArtFlipScale.ScaleX = CompactArtFlipScale.ScaleY = 1;
-        ExpandedArtFlipScale.ScaleX = ExpandedArtFlipScale.ScaleY = 1;
-    }
+    private void StartAlbumFlip(BitmapImage? art) => AlbumTransition.Show(art, AnimationsEnabled,
+        MainWindow.getDuration(), SettingsManager.Current.AlbumArtChangeAnimation == 0);
 
     private void ApplyCapabilities(MediaSession session)
     {
@@ -1192,8 +1091,8 @@ public partial class IslandWindow
         PinMediaSession(next);
         var nextStatus = SafeStatus(next) ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
         ApplyMediaSnapshot(new IslandMediaSnapshot(next.Id, nextStatus));
-        if (_expanded) RefreshUi(next, nextStatus, true);
-        else ShowMusicCompact(next, nextStatus, true);
+        if (_expanded) RefreshUi(next, nextStatus);
+        else ShowMusicCompact(next, nextStatus);
     }
 
     private void Seekbar_Down(object sender, MouseButtonEventArgs e) { _drag = true; if (sender is Slider sl) { var p = e.GetPosition(sl); double ratio = sl.ActualWidth > 0 ? Math.Clamp(p.X / sl.ActualWidth, 0, 1) : 0; sl.Value = ratio * sl.Maximum; } }

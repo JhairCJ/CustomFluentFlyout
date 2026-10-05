@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2024-2026 The FluentFlyout Authors
+// Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
@@ -56,11 +56,14 @@ namespace FluentFlyoutWPF.Classes
             public Func<int> Sensitivity = () => SettingsManager.Current.TaskbarVisualizerAudioSensitivity;
             public Func<int> PeakLevel = () => SettingsManager.Current.TaskbarVisualizerAudioPeakLevel;
             public Func<int> Smoothing = () => SettingsManager.Current.TaskbarVisualizerSmoothing;
+            public Func<SolidColorBrush> AccentBrush = () => SettingsManager.Current.TaskbarWidgetEnabled
+                ? AlbumAccent.TaskbarBrush : AlbumAccent.Brush;
             public Action<bool> SetHasContent = v => SettingsManager.Current.TaskbarVisualizerHasContent = v;
 
             public static Options Taskbar { get; } = new();
             public static Options Island { get; } = new()
             {
+                AccentBrush = () => AlbumAccent.Brush,
                 Enabled = () => SettingsManager.Current.IslandEqEnabled,
                 HighRefreshRate = () => false, // ponytail: barras pequeñas, 30 FPS basta
                 BarCount = () => SettingsManager.Current.IslandEqBarCount,
@@ -928,7 +931,7 @@ namespace FluentFlyoutWPF.Classes
             // normal path below on the very next frame.
             if (resting)
             {
-                SolidColorBrush idleBrush = AlbumAccent.Brush;
+                SolidColorBrush idleBrush = _opts.AccentBrush();
                 int idleArgb = (idleBrush.Color.R << 16) | (idleBrush.Color.G << 8) | idleBrush.Color.B;
                 if (idleArgb == _drawnArgb && GetCornerRadius() == _drawnCornerRadius)
                     return;
@@ -1037,7 +1040,7 @@ namespace FluentFlyoutWPF.Classes
             dirtyX = dirtyY = dirtyW = dirtyH = 0;
 
             // Resolve brush once
-            SolidColorBrush brush = AlbumAccent.Brush;
+            SolidColorBrush brush = _opts.AccentBrush();
 
             int targetArgb = (brush.Color.R << 16) | (brush.Color.G << 8) | brush.Color.B;
             // Smooth accent transition instead of an instant snap (see ResolveBarColor).

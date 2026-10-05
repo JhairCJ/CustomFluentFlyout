@@ -6,6 +6,7 @@ using FluentFlyout.Classes.Utils;
 using FluentFlyout.Controls.TaskbarWidget;
 using FluentFlyout.Windows;
 using FluentFlyoutWPF;
+using FluentFlyoutWPF.Classes;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -54,16 +55,10 @@ public partial class TaskbarWidgetControl : UserControl
     private string _actualTitle = string.Empty;
     private string _actualArtist = string.Empty;
 
-    // Last artwork instance handed to UpdateUi. Media sessions deliver a song change
-    // in two phases (title first, cover art in a later event), so the art must be
-    // tracked separately: its arrival deserves its own entrance transition.
-    // Instances come from the thumbnail cache, so reference comparison is exact.
+    // Last committed artwork; thumbnail instances are cached independently of metadata.
     private BitmapImage? _lastIcon;
-    private GlobalSystemMediaTransportControlsSession? _publishedAlbumSession;
-    private BitmapImage? _compactFlipArt, _compactDisplayedArt;
-    private bool _compactFlipRunning;
-    private AlbumArtCrossfade? _compactAlbumCrossfade;
-    private int _compactFlipVersion;
+    private MediaArtworkPublication? _artworkPublication;
+    private AlbumArtTransition? _compactAlbumTransition;
 
     // reference to main window for flyout functions
     private MainWindow? _mainWindow;
@@ -161,18 +156,8 @@ public partial class TaskbarWidgetControl : UserControl
     private DateTime _slideDirectionNotedUtc = DateTime.MinValue;
     private static readonly TimeSpan SlideDirectionLifetime = TimeSpan.FromSeconds(3);
 
-    // Atomic song commit: a song change arrives as a burst (texts first, cover art in
-    // later events). A complete song (cover present) publishes synchronously in the same
-    // UI block that starts the text entrance, so letters and background crossfade start
-    // together; only an incomplete burst waits on the commit timer below. Each burst
-    // event re-arms the timer; the last one wins. Playback state (pause/controls/overlay)
-    // never waits: it is applied immediately in UpdateUi.
-    private const int SongCommitWaitMs = 350;
-    private DispatcherTimer? _commitTimer;
-    private bool _hasPendingSong;
-    private string _pendingTitle = string.Empty;
-    private string _pendingArtist = string.Empty;
-    private BitmapImage? _pendingIcon;
+    // Shared publication waits for missing/repeated artwork on a new identity.
+    // Playback controls apply immediately; metadata, cover and background commit together.
 
     // Slide settle tracking: the slide finishes when its slowest enter animation
     // completes (stagger of the artist row included), not on a wall-clock timer that
@@ -1332,12 +1317,12 @@ public partial class TaskbarWidgetControl : UserControl
         {
             // Media truly stopped (or the transient gap while switching tracks).
             // A pending atomic commit must never publish after the stop.
-            CancelPendingSong();
             // No media playing right now. This is often a transient gap while switching
             // tracks, so keep the last song visible instead of blinking to the music-note
             // placeholder; only collapse after a short debounce if media truly stopped.
             Dispatcher.Invoke(() =>
             {
+                CancelPendingSong();
                 _isPaused = true;
                 ExpandedContent.ApplyPlaybackState(true, playbackControls);
                 UpdateRotationPauseState();
@@ -1396,41 +1381,23 @@ public partial class TaskbarWidgetControl : UserControl
             bool infoChanged = _actualTitle != newTitle || _actualArtist != newArtist;
             bool artChanged = !ReferenceEquals(icon, _lastIcon);
 
-            bool pendingChanged = !_hasPendingSong
-                || _pendingTitle != newTitle
-                || _pendingArtist != newArtist
-                || !ReferenceEquals(_pendingIcon, icon);
+            var session = (object?)_mainWindow?.GetTaskbarSession()?.ControlSession ?? this;
+            bool sessionChanged = !Equals(session, _artworkPublication?.Published?.Session);
+            (_artworkPublication ??= new MediaArtworkPublication(Dispatcher,
+                BitmapHelper.ReadMediaArtworkAsync, CommitPendingSong))
+                .Observe(new MediaArtworkSnapshot(session, title ?? "", artist ?? "", icon));
 
-            if (!infoChanged && !artChanged && !pendingChanged)
+            if (!infoChanged && !artChanged && !sessionChanged)
             {
                 // Same song (e.g. pause toggle): no commit, just refresh the instant UI.
                 if (settings.ControlsEnabled)
                     PlayPauseButton.Icon = _isPaused ? _playIcon : _pauseIcon;
-                SongImagePlaceholder.Foreground = AlbumAccent.Brush;
+                SongImagePlaceholder.Foreground = AlbumAccent.TaskbarBrush;
                 UpdateAlbumArtOverlay();
                 ApplyCommitTail(settings);
                 UpdateRotationPauseState();
                 return;
             }
-
-            _pendingTitle = newTitle;
-            _pendingArtist = newArtist;
-            _pendingIcon = icon;
-            _hasPendingSong = true;
-
-            // Fast path: a complete song (cover present) publishes synchronously in this
-            // very block, so the text entrance and the background crossfade start in the
-            // same instant with the same duration/easing and land together. Only an
-            // incomplete burst (cover still on its way) waits on the timer; when the
-            // cover arrives it takes this same fast path and publishes immediately.
-            if (icon != null)
-            {
-                _commitTimer?.Stop();
-                CommitPendingSong();
-                return;
-            }
-
-            ArmCommitTimer();
 
             if (settings.ControlsEnabled)
             {
@@ -1438,7 +1405,7 @@ public partial class TaskbarWidgetControl : UserControl
             }
 
             // change color of icon
-            SongImagePlaceholder.Foreground = AlbumAccent.Brush;
+            SongImagePlaceholder.Foreground = AlbumAccent.TaskbarBrush;
 
             UpdateAlbumArtOverlay();
             UpdateRotationPauseState();
@@ -1474,55 +1441,27 @@ public partial class TaskbarWidgetControl : UserControl
     }
 
     /// <summary>
-    /// (Re)arms the atomic song-commit timer. Every burst event re-arms it, so the last
-    /// event wins and intermediate songs of rapid skips are never published.
-    /// </summary>
-    private void ArmCommitTimer()
-    {
-        if (_commitTimer == null)
-        {
-            _commitTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(SongCommitWaitMs)
-            };
-            _commitTimer.Tick += (s, e) =>
-            {
-                _commitTimer.Stop();
-                CommitPendingSong();
-            };
-        }
-
-        _commitTimer.Stop();
-        _commitTimer.Start();
-    }
-
-    /// <summary>
     /// Drops a buffered song without publishing it (media stopped).
     /// </summary>
     private void CancelPendingSong()
     {
-        _hasPendingSong = false;
-        _pendingIcon = null;
+        _artworkPublication?.Cancel();
         _slideBackwardsPending = false;
-        _commitTimer?.Stop();
     }
 
     /// <summary>
     /// Publishes the buffered song as one atomic transition: texts, cover and
     /// background change together. A commit without cover is definitive (placeholder
-    /// immediately); a late cover arrives as its own commit with its own entrance.
+    /// immediately); a late cover only updates artwork, with no text entrance or flip.
     /// Must run on the UI thread.
     /// </summary>
-    private void CommitPendingSong()
+    private void CommitPendingSong(MediaArtworkSnapshot snapshot)
     {
-        if (!_hasPendingSong)
-            return;
-
-        _hasPendingSong = false;
-        string newTitle = _pendingTitle;
-        string newArtist = _pendingArtist;
-        BitmapImage? icon = _pendingIcon;
-        _pendingIcon = null;
+        if (_mainWindow != null && !Equals(_mainWindow.GetTaskbarSession()?.ControlSession, snapshot.Session)) return;
+        string newTitle = string.IsNullOrEmpty(snapshot.Title) ? "-" : snapshot.Title;
+        string newArtist = string.IsNullOrWhiteSpace(snapshot.Artist) ? string.Empty : snapshot.Artist;
+        BitmapImage? icon = snapshot.Artwork;
+        BitmapHelper.GetDominantColors(icon);
 
         // Consume the pending navigation direction here — and only here — so it applies
         // to the song change that actually publishes. Anything later (e.g. auto-advance
@@ -1534,13 +1473,6 @@ public partial class TaskbarWidgetControl : UserControl
 
         var settings = TaskbarWidgetSettingsSnapshot.Capture();
 
-        // Title/artist and cover art arrive in separate events on song change:
-        // each half gets its own entrance so nothing pops in without a fade.
-        var albumSession = _mainWindow?.GetTaskbarSession()?.ControlSession;
-        bool flipAlbum = !string.IsNullOrEmpty(_actualTitle)
-            && (_actualTitle != newTitle || _actualArtist != newArtist
-                || !ReferenceEquals(albumSession, _publishedAlbumSession));
-        _publishedAlbumSession = albumSession;
         bool infoChanged = _actualTitle != newTitle || _actualArtist != newArtist;
         bool artChanged = !ReferenceEquals(icon, _lastIcon);
 
@@ -1573,7 +1505,7 @@ public partial class TaskbarWidgetControl : UserControl
             if (!slid)
             {
                 // changed info
-                if (settings.Animated)
+                if (settings.Animated && infoChanged)
                 {
                     AnimateEntrance();
                 }
@@ -1592,11 +1524,10 @@ public partial class TaskbarWidgetControl : UserControl
         }
 
         // change color of icon
-        SongImagePlaceholder.Foreground = AlbumAccent.Brush;
+        SongImagePlaceholder.Foreground = AlbumAccent.TaskbarBrush;
 
         _lastIcon = icon;
-        if (flipAlbum || _compactFlipRunning || _compactAlbumCrossfade?.IsRunning == true) StartCompactAlbumFlip(icon);
-        else SetCompactAlbumArt(icon);
+        StartCompactAlbumFlip(icon);
         SetBackground(icon);
         SongImageBorder.Margin = new Thickness(0, 0, 0, icon != null ? -2 : -3);
 
@@ -1608,67 +1539,21 @@ public partial class TaskbarWidgetControl : UserControl
 
     private void ApplyCompactAlbumArt(BitmapImage? art)
     {
-        _compactDisplayedArt = art;
+        if (!_songInfoExpanded) AlbumAccent.SetTaskbarArtwork(art);
+        SongImagePlaceholder.Foreground = AlbumAccent.TaskbarBrush;
         SongImage.ImageSource = art;
         _hasAlbumCover = art != null;
         UpdateAlbumArtOverlay();
     }
 
-    private void SetCompactAlbumArt(BitmapImage? art)
-    {
-        _compactAlbumCrossfade?.Stop();
-        ++_compactFlipVersion;
-        _compactFlipRunning = false;
-        _compactFlipArt = art;
-        CompactAlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-        CompactAlbumFlipScale.ScaleX = 1;
-        ApplyCompactAlbumArt(art);
-    }
+    private AlbumArtTransition CompactAlbumTransition => _compactAlbumTransition ??=
+        new(ApplyCompactAlbumArt, (CompactAlbumSurface, CompactAlbumFlipScale));
 
-    private void StartCompactAlbumFlip(BitmapImage? art)
-    {
-        _compactFlipArt = art;
-        if (!AreAnimationsEnabled || _songInfoExpanded || _expansionTransition)
-        {
-            SetCompactAlbumArt(art);
-            return;
-        }
-        if (SettingsManager.Current.AlbumArtChangeAnimation == 0)
-        {
-            if (ReferenceEquals(art, _compactDisplayedArt) && !_compactFlipRunning) return;
-            ++_compactFlipVersion;
-            _compactFlipRunning = false;
-            CompactAlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-            CompactAlbumFlipScale.ScaleX = 1;
-            (_compactAlbumCrossfade ??= new AlbumArtCrossfade(CompactAlbumSurface))
-                .Fade(() => ApplyCompactAlbumArt(art), TaskbarWidgetAnimationEnvironment.GetDurationMs());
-            return;
-        }
-        _compactAlbumCrossfade?.Stop();
-        if (_compactFlipRunning) return;
-        _compactFlipRunning = true;
-        int version = _compactFlipVersion;
-        double halfMs = Math.Clamp(TaskbarWidgetAnimationEnvironment.GetDurationMs() * 0.35, 90, 200);
-        var outgoing = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(halfMs))
-        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
-        outgoing.Completed += (_, _) =>
-        {
-            if (version != _compactFlipVersion) return;
-            ApplyCompactAlbumArt(_compactFlipArt);
-            var incoming = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(halfMs))
-            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-            incoming.Completed += (_, _) =>
-            {
-                if (version != _compactFlipVersion) return;
-                CompactAlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-                CompactAlbumFlipScale.ScaleX = 1;
-                _compactFlipRunning = false;
-                if (!ReferenceEquals(_compactFlipArt, _compactDisplayedArt)) StartCompactAlbumFlip(_compactFlipArt);
-            };
-            CompactAlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, incoming);
-        };
-        CompactAlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, outgoing);
-    }
+    private void SetCompactAlbumArt(BitmapImage? art) => CompactAlbumTransition.Set(art);
+
+    private void StartCompactAlbumFlip(BitmapImage? art) => CompactAlbumTransition.Show(art,
+        AreAnimationsEnabled && !_songInfoExpanded && !_expansionTransition,
+        TaskbarWidgetAnimationEnvironment.GetDurationMs(), SettingsManager.Current.AlbumArtChangeAnimation == 0);
 
     /// <summary>
     /// Shared visibility tail for commits and same-song updates: row visibility,
@@ -1707,8 +1592,9 @@ public partial class TaskbarWidgetControl : UserControl
         ClosePlayerMenu();
         SetCompactAlbumArt(null);
         ExpandedContent.DisposeResources();
+        AlbumAccent.SetTaskbarArtwork(null);
         CancelPendingSong();
-        _commitTimer = null;
+        _artworkPublication = null;
         _noMediaDebounceTimer?.Stop();
         _noMediaDebounceTimer = null;
 
@@ -1749,7 +1635,8 @@ public partial class TaskbarWidgetControl : UserControl
         (Window.GetWindow(this) as TaskbarWindow)?.CloseWidgetExpansion();
 
         SetCompactAlbumArt(null);
-        _publishedAlbumSession = null;
+        _artworkPublication?.Cancel();
+        _artworkPublication = null;
         _lastIcon = null;
         _actualTitle = string.Empty;
         _actualArtist = string.Empty;
@@ -2453,6 +2340,7 @@ public partial class TaskbarWidgetControl : UserControl
         ApplyCornerRadius();
         UpdateBackgroundMode(preserveCrossfade: true);
         ExpandedContent.SetActive(expanded);
+        if (!expanded) AlbumAccent.SetTaskbarArtwork(SongImage.ImageSource as BitmapImage);
     }
 
     private void ApplyExpansionProgress(double progress)

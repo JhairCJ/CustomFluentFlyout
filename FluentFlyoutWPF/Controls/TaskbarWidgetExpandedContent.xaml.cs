@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
+using FluentFlyout.Classes.Utils;
 using FluentFlyout.Controls.TaskbarWidget;
 using FluentFlyoutWPF;
 using System.Windows;
@@ -31,14 +32,12 @@ public partial class TaskbarWidgetExpandedContent : UserControl
     private int _progressRefreshPending, _progressVersion;
     private int _titleVersion, _artistVersion;
     private string _titleTarget = string.Empty, _artistTarget = string.Empty;
-    private GlobalSystemMediaTransportControlsSession? _seekSession, _observedSession, _publishedSession;
-    private int _progressRefreshAgain, _albumFlipVersion;
-    private bool _albumFlipRunning;
-    private AlbumArtCrossfade? _albumCrossfade;
+    private GlobalSystemMediaTransportControlsSession? _seekSession, _observedSession;
+    private int _progressRefreshAgain;
+    private AlbumArtTransition? _albumTransition;
     private bool _canPrevious, _canPlayPause, _canNext;
     private double _morphProgress;
     private double _compactPreviousIconSize = 16, _compactPlayIconSize = 16, _compactNextIconSize = 16;
-    private BitmapImage? _albumFlipArt, _displayedArt;
     private readonly SymbolIcon _playIcon = new(SymbolRegular.Play24, filled: true) { FontSize = 22 };
     private readonly SymbolIcon _pauseIcon = new(SymbolRegular.Pause24, filled: true) { FontSize = 22 };
     public Action<bool>? TrackNavigation { get; set; }
@@ -105,10 +104,6 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     public void PublishSong(string title, string artist, BitmapImage? art, bool backwards = false)
     {
-        var session = _mainWindow?.GetTaskbarSession()?.ControlSession;
-        bool flip = _active && !string.IsNullOrEmpty(_titleTarget)
-            && (_titleTarget != title || _artistTarget != artist || !ReferenceEquals(session, _publishedSession));
-        _publishedSession = session;
         if (_titleTarget != title)
         {
             _titleTarget = title;
@@ -123,8 +118,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         }
         TitleText.ToolTip = title;
         ArtistText.ToolTip = artist;
-        if (flip || _albumFlipRunning || _albumCrossfade?.IsRunning == true) StartAlbumFlip(art);
-        else SetAlbumArt(art);
+        StartAlbumFlip(art);
         Interlocked.Increment(ref _progressVersion);
         if (_active)
         {
@@ -190,7 +184,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         UpdateProgressTimer();
         if (!active)
         {
-            SetAlbumArt(_albumFlipArt ?? _displayedArt);
+            SetAlbumArt(AlbumTransition.Target);
             ++_titleVersion;
             ++_artistVersion;
             UpdateTextRow(TitleText, _titleTarget, false, () => true);
@@ -374,66 +368,19 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     private void ApplyAlbumArt(BitmapImage? art)
     {
-        _displayedArt = art;
+        if (_active) AlbumAccent.SetTaskbarArtwork(art);
         AlbumArt.ImageSource = art;
         UpdateAlbumOverlay();
     }
 
-    private void SetAlbumArt(BitmapImage? art)
-    {
-        _albumCrossfade?.Stop();
-        ++_albumFlipVersion;
-        _albumFlipRunning = false;
-        _albumFlipArt = art;
-        AlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-        AlbumFlipScale.ScaleX = 1;
-        ApplyAlbumArt(art);
-    }
+    private AlbumArtTransition AlbumTransition => _albumTransition ??=
+        new(ApplyAlbumArt, (AlbumFlipSurface, AlbumFlipScale));
 
-    private void StartAlbumFlip(BitmapImage? art)
-    {
-        _albumFlipArt = art;
-        if (!TaskbarWidgetAnimationEnvironment.AreAnimationsEnabled || !_active)
-        {
-            SetAlbumArt(art);
-            return;
-        }
-        if (SettingsManager.Current.AlbumArtChangeAnimation == 0)
-        {
-            if (ReferenceEquals(art, _displayedArt) && !_albumFlipRunning) return;
-            ++_albumFlipVersion;
-            _albumFlipRunning = false;
-            AlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-            AlbumFlipScale.ScaleX = 1;
-            (_albumCrossfade ??= new AlbumArtCrossfade(AlbumFlipSurface))
-                .Fade(() => ApplyAlbumArt(art), TaskbarWidgetAnimationEnvironment.GetDurationMs());
-            return;
-        }
-        _albumCrossfade?.Stop();
-        if (_albumFlipRunning) return;
-        _albumFlipRunning = true;
-        int version = _albumFlipVersion;
-        double halfMs = Math.Clamp(TaskbarWidgetAnimationEnvironment.GetDurationMs() * 0.35, 90, 200);
-        var outgoing = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(halfMs))
-        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
-        outgoing.Completed += (_, _) =>
-        {
-            if (version != _albumFlipVersion) return;
-            ApplyAlbumArt(_albumFlipArt);
-            var incoming = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(halfMs))
-            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-            incoming.Completed += (_, _) =>
-            {
-                if (version != _albumFlipVersion) return;
-                AlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-                AlbumFlipScale.ScaleX = 1;
-                _albumFlipRunning = false;
-                if (!ReferenceEquals(_albumFlipArt, _displayedArt)) StartAlbumFlip(_albumFlipArt);
-            };
-            AlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, incoming);
-        };
-        AlbumFlipScale.BeginAnimation(ScaleTransform.ScaleXProperty, outgoing);
-    }
+    private void SetAlbumArt(BitmapImage? art) => AlbumTransition.Set(art);
+
+    private void StartAlbumFlip(BitmapImage? art) => AlbumTransition.Show(art,
+        TaskbarWidgetAnimationEnvironment.AreAnimationsEnabled && _active,
+        TaskbarWidgetAnimationEnvironment.GetDurationMs(), SettingsManager.Current.AlbumArtChangeAnimation == 0);
 
     private void ApplyProgress(double minimumSeconds, double positionSeconds, double maximumSeconds, bool seekable)
     {

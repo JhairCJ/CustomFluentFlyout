@@ -6,8 +6,103 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using FluentFlyout.Classes.Utils;
 
 namespace FluentFlyout.Controls.TaskbarWidget;
+
+/// <summary>One transition lifecycle for the widget and both island cover surfaces.</summary>
+internal sealed class AlbumArtTransition(Action<BitmapImage?> apply,
+    params (Border Surface, ScaleTransform Scale)[] surfaces)
+{
+    private AlbumArtCrossfade[]? _fades;
+    private BitmapImage? _visible;
+    private int _version;
+    private bool _flipping, _hasPresentedArtwork, _preferFade;
+    private double _durationMs;
+    public BitmapImage? Target { get; private set; }
+    private bool IsRunning => _flipping || _fades?.Any(fade => fade.IsRunning) == true;
+
+    public void Set(BitmapImage? art)
+    {
+        Stop();
+        Target = art;
+        Apply(art);
+    }
+
+    public void Show(BitmapImage? art, bool animated, double durationMs, bool preferFade)
+    {
+        if (!animated) { Set(art); return; }
+        if (ReferenceEquals(art, Target) && IsRunning) return;
+        Target = art;
+        _durationMs = durationMs;
+        _preferFade = preferFade;
+        if (_flipping) return;
+        var transition = AlbumArtworkSimilarity.ChooseTransition(_visible, art, _hasPresentedArtwork, preferFade);
+        if (transition == AlbumArtworkTransition.Direct) { Set(art); return; }
+        if (transition == AlbumArtworkTransition.Fade)
+        {
+            ResetFlip();
+            _fades ??= surfaces.Select(surface => new AlbumArtCrossfade(surface.Surface)).ToArray();
+            // Capture every outgoing surface before the shared artwork swap.
+            for (int i = 0; i < _fades.Length; i++)
+                _fades[i].Fade(i == _fades.Length - 1 ? () => Apply(art) : () => { }, durationMs);
+            return;
+        }
+
+        Stop();
+        _flipping = true;
+        int version = _version;
+        double halfMs = Math.Clamp(durationMs * 0.35, 90, 200);
+        var outgoing = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(halfMs))
+        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
+        outgoing.Completed += (_, _) =>
+        {
+            if (version != _version) return;
+            Apply(Target);
+            var incoming = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(halfMs))
+            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+            incoming.Completed += (_, _) =>
+            {
+                if (version != _version) return;
+                ResetFlip();
+                if (!ReferenceEquals(Target, _visible)) Show(Target, true, _durationMs, _preferFade);
+            };
+            Animate(incoming);
+        };
+        Animate(outgoing);
+    }
+
+    public void Stop()
+    {
+        ResetFlip();
+        if (_fades != null) foreach (var fade in _fades) fade.Stop();
+    }
+
+    private void ResetFlip()
+    {
+        ++_version;
+        _flipping = false;
+        foreach (var (_, scale) in surfaces)
+        {
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.ScaleX = scale.ScaleY = 1;
+        }
+    }
+
+    private void Animate(DoubleAnimation animation)
+    {
+        // Only the first surface owns completion callbacks; all others share its timing.
+        for (int i = surfaces.Length - 1; i >= 0; i--)
+            surfaces[i].Scale.BeginAnimation(ScaleTransform.ScaleXProperty, i == 0 ? animation : animation.Clone());
+    }
+
+    private void Apply(BitmapImage? art)
+    {
+        _visible = art;
+        if (art != null) _hasPresentedArtwork = true;
+        apply(art);
+    }
+}
 
 /// <summary>A small artwork-only snapshot dissolves over the live incoming cover.</summary>
 internal sealed class AlbumArtCrossfade

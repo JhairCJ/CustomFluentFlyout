@@ -3170,7 +3170,8 @@ public partial class UserSettings : ObservableObject
     partial void OnUseAlbumArtAsAccentColorChanged(bool oldValue, bool newValue)
     {
         if (oldValue == newValue || _initializing) return;
-        BitmapHelper.GetDominantColors();
+        BitmapHelper.RefreshAccentTheme();
+        RepaintAlbumAccent();
     }
 
     partial void OnAlbumAccentDesaturationThresholdChanged(uint oldValue, uint newValue)
