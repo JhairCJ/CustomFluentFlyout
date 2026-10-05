@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 The FluentFlyout Authors
+﻿// Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -1199,6 +1199,9 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial int IslandEqBarCount { get; set; }
 
+    [ObservableProperty]
+    public partial double IslandEqBarCornerRadius { get; set; } = 6;
+
     /// <summary>
     /// Fluent Island: equalizer sensitivity (1-3).
     /// </summary>
@@ -1650,6 +1653,9 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial int TaskbarVisualizerBarCount { get; set; }
 
+    [ObservableProperty]
+    public partial double TaskbarVisualizerBarCornerRadius { get; set; } = 6;
+
     /// <summary>
     /// Whether the visualizer should be symmetrical/mirrored.
     /// </summary>
@@ -1896,6 +1902,7 @@ public partial class UserSettings : ObservableObject
         IslandEqEnabled = true;
         IslandEqCenteredBars = true;
         IslandEqBarCount = 8;
+        IslandEqBarCornerRadius = 6;
         IslandEqSensitivity = 3;
         IslandEqSmoothing = 50;
         IslandAnimated = true;
@@ -1980,6 +1987,7 @@ public partial class UserSettings : ObservableObject
         TaskbarVisualizerPosition = 1;
         TaskbarVisualizerClickable = false;
         TaskbarVisualizerBarCount = 8;
+        TaskbarVisualizerBarCornerRadius = 6;
         TaskbarVisualizerCenteredBars = false;
         TaskbarVisualizerBaseline = false;
         TaskbarVisualizerAudioSensitivity = 3;

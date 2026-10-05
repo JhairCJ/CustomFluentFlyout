@@ -1,4 +1,4 @@
-<Page x:Class="FluentFlyoutWPF.Pages.IslandPage"
+﻿<Page x:Class="FluentFlyoutWPF.Pages.IslandPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -197,7 +197,8 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandEqEnabled, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandEqBarsCard" Tag="Music" Grid.Row="12" Icon="{ui:SymbolIcon DataBarVertical24, Filled=True}" Margin="0,0,0,3" IsEnabled="{Binding IslandEqEnabled}">
+            <StackPanel Tag="Music" Grid.Row="12">
+            <ui:CardControl x:Name="IslandEqBarsCard" Tag="Music"  Icon="{ui:SymbolIcon DataBarVertical24, Filled=True}" Margin="0,0,0,3" IsEnabled="{Binding IslandEqEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_BarCount}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -208,6 +209,19 @@
                     <ui:TextBlock Text="{Binding IslandEqBarCount}" Width="24" TextAlignment="Center" Margin="12,0,0,0" />
                 </StackPanel>
             </ui:CardControl>
+            <ui:CardControl x:Name="IslandEqBarRadiusCard" IsEnabled="{Binding IslandEqEnabled}" Icon="{ui:SymbolIcon DataBarVertical24, Filled=True}" Margin="0,0,0,3">
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="{DynamicResource VisualizerBarRadiusTitle}" FontSize="14" />
+                        <TextBlock Text="{DynamicResource VisualizerBarRadiusDescription}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <StackPanel Orientation="Horizontal">
+                    <Slider Minimum="0" Maximum="120" Value="{Binding IslandEqBarCornerRadius, Mode=TwoWay}" TickFrequency="0.5" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
+                    <ui:TextBlock Text="{Binding IslandEqBarCornerRadius, StringFormat={}{0:0.#}}" Width="24" TextAlignment="Center" Margin="12,0,0,0" />
+                </StackPanel>
+            </ui:CardControl>
+            </StackPanel>
             <ui:CardControl x:Name="IslandEqCenteredBarsCard" Tag="Music" Grid.Row="13" Icon="{ui:SymbolIcon AlignCenterHorizontal24, Filled=True}" Margin="0,0,0,3" IsEnabled="{Binding IslandEqEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">

@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 The FluentFlyout Authors
+﻿// Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
@@ -48,6 +48,7 @@ namespace FluentFlyoutWPF.Classes
         {
             public Func<bool> Enabled = () => SettingsManager.Current.TaskbarVisualizerEnabled;
             public Func<bool> HighRefreshRate = () => SettingsManager.Current.TaskbarVisualizerHighRefreshRate;
+            public Func<double> CornerRadius = () => SettingsManager.Current.TaskbarVisualizerBarCornerRadius;
             public Func<int> BarCount = () => SettingsManager.Current.TaskbarVisualizerBarCount;
             public Func<bool> CenteredBars = () => SettingsManager.Current.TaskbarVisualizerCenteredBars;
             public Func<bool> Baseline = () => SettingsManager.Current.TaskbarVisualizerBaseline;
@@ -63,6 +64,7 @@ namespace FluentFlyoutWPF.Classes
                 Enabled = () => SettingsManager.Current.IslandEqEnabled,
                 HighRefreshRate = () => false, // ponytail: barras pequeñas, 30 FPS basta
                 BarCount = () => SettingsManager.Current.IslandEqBarCount,
+                CornerRadius = () => SettingsManager.Current.IslandEqBarCornerRadius,
                 CenteredBars = () => SettingsManager.Current.IslandEqCenteredBars,
                 Baseline = () => false,
                 BaselineAutoHide = () => false,
@@ -191,6 +193,7 @@ namespace FluentFlyoutWPF.Classes
         // _drawnArgb doubles as the dirty-check color: a frame whose resolved
         // color differs repaints every bar.
         private int _drawnArgb = -1;
+        private float _drawnCornerRadius = float.NaN;
         private int _colorFromArgb = -1;
         private int _colorToArgb = -1;
         private DateTime _colorAnimStartUtc = DateTime.MinValue;
@@ -927,7 +930,7 @@ namespace FluentFlyoutWPF.Classes
             {
                 SolidColorBrush idleBrush = AlbumAccent.Brush;
                 int idleArgb = (idleBrush.Color.R << 16) | (idleBrush.Color.G << 8) | idleBrush.Color.B;
-                if (idleArgb == _drawnArgb)
+                if (idleArgb == _drawnArgb && GetCornerRadius() == _drawnCornerRadius)
                     return;
             }
 
@@ -1072,7 +1075,8 @@ namespace FluentFlyoutWPF.Classes
                 _drawnArgb = -1; // force a full repaint below
             }
 
-            bool colorChanged = argb != _drawnArgb;
+            bool appearanceChanged = argb != _drawnArgb || baseRadius != _drawnCornerRadius;
+            _drawnCornerRadius = baseRadius;
             _drawnArgb = argb;
 
             int minX = ImageWidth, minY = ImageHeight, maxX = 0, maxY = 0;
@@ -1088,7 +1092,7 @@ namespace FluentFlyoutWPF.Classes
                 int prevY = _prevBarY[i];
                 int prevEndY = _prevBarEndY[i];
 
-                if (!colorChanged && barY == prevY && barEndY == prevEndY)
+                if (!appearanceChanged && barY == prevY && barEndY == prevEndY)
                     continue;
 
                 int clearTop = Math.Min(barY, prevY);
@@ -1189,7 +1193,8 @@ namespace FluentFlyoutWPF.Classes
 
         private float GetCornerRadius()
         {
-            return 6f / MathF.Max(1f, _barCount / 10f);
+            double radius = _opts.CornerRadius();
+            return double.IsFinite(radius) ? (float)Math.Clamp(radius, 0, 120) : 6f;
         }
 
         private static float ClampRadius(float r, int width, int height)
