@@ -5,6 +5,7 @@
              xmlns:classes="clr-namespace:FluentFlyout.Classes"
              StartupUri="MainWindow.xaml"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:primitives="clr-namespace:System.Windows.Controls.Primitives;assembly=PresentationFramework"
              xmlns:mica="clr-namespace:MicaWPF.Styles;assembly=MicaWPF"
              xmlns:converters="clr-namespace:FluentFlyoutWPF.Classes.Converters"
              ShutdownMode="OnExplicitShutdown">
@@ -20,6 +21,29 @@
                 <ResourceDictionary Source="Resources/Localization/Dictionary-en-US.xaml"/>
             </ResourceDictionary.MergedDictionaries>
             <FontFamily x:Key="SegoeFluentIcons">pack://application:,,,/;component/Fonts/#Segoe Fluent Icons</FontFamily>
+            <!-- ContextMenu's internal popup reads this resource independently of its template. -->
+            <primitives:PopupAnimation x:Key="{x:Static SystemParameters.MenuPopupAnimationKey}">None</primitives:PopupAnimation>
+            <!-- Keep WPF-UI's menu styling, with a stationary template and no opening storyboard. -->
+            <Style x:Key="InstantContextMenu" TargetType="ContextMenu" BasedOn="{StaticResource UiContextMenu}">
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ContextMenu">
+                            <ui:EffectThicknessDecorator Thickness="30">
+                                <Border Padding="0,3,0,3" Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="8">
+                                    <Border.Effect>
+                                        <DropShadowEffect BlurRadius="20" Direction="270" Opacity="0.135"
+                                                          ShadowDepth="10" Color="#202020" />
+                                    </Border.Effect>
+                                    <StackPanel ClipToBounds="True" IsItemsHost="True"
+                                                KeyboardNavigation.DirectionalNavigation="Cycle" />
+                                </Border>
+                            </ui:EffectThicknessDecorator>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style TargetType="ContextMenu" BasedOn="{StaticResource InstantContextMenu}" />
             
             <!-- override default background colors -->
             <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />

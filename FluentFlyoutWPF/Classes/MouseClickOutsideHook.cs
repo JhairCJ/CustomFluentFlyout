@@ -8,8 +8,8 @@ using static FluentFlyout.Classes.NativeMethods;
 namespace FluentFlyoutWPF.Classes;
 
 /// <summary>
-/// Queues dismissal when a mouse press falls outside the expanded widget. Installed
-/// only during expansion: the no-activate widget cannot use focus loss to dismiss.
+/// Queues dismissal when a mouse press falls outside the current transient surface.
+/// Installed only while needed: no-activate windows cannot rely on focus loss.
 /// The native callback never consumes a click or blocks on window/layout work.
 /// </summary>
 internal sealed class MouseClickOutsideHook : IDisposable
@@ -20,6 +20,7 @@ internal sealed class MouseClickOutsideHook : IDisposable
     // The delegate must stay alive: the native hook stores the function pointer.
     private LowLevelMouseProc? _proc;
     private IntPtr _hook = IntPtr.Zero;
+    private int _version;
 
     /// <summary>Did the native hook get installed? Only then is there real notification.</summary>
     public bool IsInstalled => _hook != IntPtr.Zero;
@@ -40,10 +41,8 @@ internal sealed class MouseClickOutsideHook : IDisposable
         if (_hook != IntPtr.Zero) return true;
         try
         {
-            using var process = System.Diagnostics.Process.GetCurrentProcess();
-            using var module = process.MainModule!;
             _proc = HookProc;
-            _hook = SetWindowsHookExMouse(WH_MOUSE_LL, _proc, GetModuleHandle(module.ModuleName), 0);
+            _hook = SetWindowsHookExMouse(WH_MOUSE_LL, _proc, GetModuleHandle(null!), 0);
         }
         catch
         {
@@ -63,7 +62,11 @@ internal sealed class MouseClickOutsideHook : IDisposable
                 {
                     // The hook must return fast: the close is queued so the input
                     // thread never blocks on window teardown.
-                    _dispatcher.BeginInvoke(_onOutsideClick, DispatcherPriority.Normal);
+                    int version = _version;
+                    _dispatcher.BeginInvoke(() =>
+                    {
+                        if (_hook != IntPtr.Zero && version == _version) _onOutsideClick();
+                    }, DispatcherPriority.Normal);
                 }
             }
             catch
@@ -84,6 +87,7 @@ internal sealed class MouseClickOutsideHook : IDisposable
     /// </summary>
     public void Dispose()
     {
+        ++_version;
         if (_hook != IntPtr.Zero)
         {
             try { UnhookWindowsHookEx(_hook); } catch { }

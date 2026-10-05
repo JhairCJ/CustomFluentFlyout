@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Utils;
+using FluentFlyout.Windows;
 using System.Windows;
-using System.Windows.Controls;
 using WindowsMediaController;
 
 namespace FluentFlyout.Controls;
@@ -18,6 +18,18 @@ public partial class TaskbarWidgetControl
     {
         _playerMenuSession = _mainWindow?.GetTaskbarSession();
         OpenPlayerMenuItem.IsEnabled = !_openingPlayer && _playerMenuSession != null;
+        (Window.GetWindow(this) as TaskbarWindow)?.RefreshOutsideClickHook();
+    }
+
+    private void PlayerMenu_Closed(object sender, RoutedEventArgs e)
+    {
+        _playerMenuSession = null;
+        (Window.GetWindow(this) as TaskbarWindow)?.RefreshOutsideClickHook();
+    }
+
+    public void ClosePlayerMenu()
+    {
+        if (ContextMenu != null) ContextMenu.IsOpen = false;
     }
 
     private async void OpenPlayerMenuItem_Click(object sender, RoutedEventArgs e)

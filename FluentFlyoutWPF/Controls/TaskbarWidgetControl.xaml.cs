@@ -1704,6 +1704,7 @@ public partial class TaskbarWidgetControl : UserControl
     /// </summary>
     private void CleanupWidgetResources()
     {
+        ClosePlayerMenu();
         SetCompactAlbumArt(null);
         ExpandedContent.DisposeResources();
         CancelPendingSong();

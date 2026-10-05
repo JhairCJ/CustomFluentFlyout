@@ -91,7 +91,8 @@ public partial class TaskbarWindow : Window
     private bool _expansionOwnsLayout;
     private bool _expansionAnimating;
     private int _expansionVersion;
-    private MouseClickOutsideHook? _expansionOutsideHook;
+    private MouseClickOutsideHook? _outsideClickHook;
+    private IntPtr _playerMenuHandle;
     private Rect _compactWidgetRect = Rect.Empty; // taskbar-local physical pixels
     private Rect _visualizerRect = Rect.Empty;
     private Rect _taskbarScreenRect = Rect.Empty;
@@ -1329,6 +1330,7 @@ on_error:
             BeginAnimation(OpacityProperty, null);
             Opacity = 1;
             IsHitTestVisible = false;
+            Widget.ClosePlayerMenu();
             Visibility = Visibility.Collapsed;
             CloseWidgetExpansion(animate: false);
         }
@@ -1395,6 +1397,7 @@ on_error:
     /// </summary>
     private void CollapseWindowWithFade()
     {
+        Widget.ClosePlayerMenu();
         if (_widgetExpanded && SettingsManager.Current.TaskbarWidgetEnabled) return;
         if (_windowFadingOut) return;
         int version = ++_visibilityVersion;
@@ -1464,9 +1467,7 @@ on_error:
             _expansionOwnsLayout = true;
         }
         Widget.SetExpandedState(true);
-        _expansionOutsideHook ??= new MouseClickOutsideHook(ClickInsideWidget, () => CloseWidgetExpansion(), Dispatcher);
-        if (!_expansionOutsideHook.Install())
-            Logger.Warn("Widget outside-click hook unavailable; click the song again to collapse.");
+        RefreshOutsideClickHook();
         MorphWidgetExpansion(ExpandedWidgetRect());
     }
 
@@ -1474,8 +1475,7 @@ on_error:
     {
         if (!_expansionOwnsLayout) return;
         _widgetExpanded = false;
-        _expansionOutsideHook?.Dispose();
-        _expansionOutsideHook = null;
+        RefreshOutsideClickHook();
         Widget.SetExpandedState(false);
         MorphWidgetExpansion(_compactWidgetRect, animate);
     }
@@ -1603,9 +1603,27 @@ on_error:
             (int)host.Width, (int)host.Height, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
     }
 
+    internal void RefreshOutsideClickHook()
+    {
+        // One owner and one hook for both surfaces. Replacing its target invalidates
+        // any dismissal queued for the previous menu/expansion in the shared helper.
+        _outsideClickHook?.Dispose();
+        if (_closed || _fullscreenSuppressed || (!_widgetExpanded && !Widget.IsPlayerMenuOpen)) return;
+        _playerMenuHandle = Widget.IsPlayerMenuOpen
+            ? (PresentationSource.FromVisual(Widget.ContextMenu) as HwndSource)?.Handle ?? IntPtr.Zero : IntPtr.Zero;
+        _outsideClickHook ??= new MouseClickOutsideHook(ClickInsideWidget, () =>
+        {
+            if (Widget.IsPlayerMenuOpen) Widget.ClosePlayerMenu();
+            else CloseWidgetExpansion();
+        }, Dispatcher);
+        if (!_outsideClickHook.Install()) Logger.Warn("Widget outside-click hook unavailable");
+    }
+
     private bool ClickInsideWidget(int x, int y)
     {
-        if (Widget.IsPlayerMenuOpen) return true;
+        if (Widget.IsPlayerMenuOpen)
+            return _playerMenuHandle != IntPtr.Zero && GetWindowRect(_playerMenuHandle, out var menu)
+                && x >= menu.Left && x < menu.Right && y >= menu.Top && y < menu.Bottom;
         if (!_widgetExpanded) return true;
         Rect rect = LiveWidgetRect();
         rect.Offset(_taskbarScreenRect.Left, _taskbarScreenRect.Top);
@@ -1615,6 +1633,7 @@ on_error:
     protected override void OnClosed(EventArgs e)
     {
         _closed = true;
+        Widget.ClosePlayerMenu();
         if (_shellZOrderHook != IntPtr.Zero) UnhookWinEvent(_shellZOrderHook);
         if (_shellForegroundHook != IntPtr.Zero) UnhookWinEvent(_shellForegroundHook);
         _shellZOrderHook = _shellForegroundHook = IntPtr.Zero;
@@ -1624,7 +1643,7 @@ on_error:
         _widgetElement = _trayElement = _taskbarFrameElement = null;
         _timer.Stop();
         _autoHideTimer?.Stop();
-        _expansionOutsideHook?.Dispose();
+        _outsideClickHook?.Dispose();
         ++_expansionVersion;
         _widgetExpanded = _expansionOwnsLayout = false;
         base.OnClosed(e);
