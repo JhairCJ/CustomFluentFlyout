@@ -28,15 +28,20 @@ internal static class WhisperCudaRuntimeChecks
             string target = Path.Combine(root, "extracted");
             Directory.CreateDirectory(target);
             using (var archive = ZipFile.Open(zip, ZipArchiveMode.Create))
-                foreach (string name in new[] { "bin/x64/cublas64_13.dll", "bin/x64/cublasLt64_13.dll", "bin/x64/cudart64_13.dll", "LICENSE", "include/header.h", "../../outside.txt" })
+                foreach (string name in new[] { "bin/x64/cublas64_13.dll", "bin/x64/cublasLt64_13.dll", "bin/x64/cudart64_13.dll", "LICENSE", "include/header.h", "../../outside.txt",
+                    "build/win-x64/ggml-base-whisper.dll", "build/win-x64/ggml-cpu-whisper.dll", "build/win-x64/ggml-cuda-whisper.dll", "build/win-x64/ggml-whisper.dll", "build/win-x64/whisper.dll" })
                 {
-                    using var writer = new StreamWriter(archive.CreateEntry("package/" + name).Open());
+                    using var writer = new StreamWriter(archive.CreateEntry(name.StartsWith("build/") ? name : "package/" + name).Open());
                     writer.Write("fixture");
                 }
             Extract(zip, target, "libcublas", ["cublas64_13.dll", "cublasLt64_13.dll"]);
             Extract(zip, target, "cuda_cudart", ["cudart64_13.dll"]);
+            Check(!(bool)Call("IsComplete", target)!, "NVIDIA files alone do not count as a complete Whisper CUDA installation");
+            Call("ExtractWhisperPackage", zip, target, CancellationToken.None);
             Check((bool)Call("IsComplete", target)!, "DLLs and both NVIDIA licenses are required for a complete installation");
-            Check(Directory.GetFiles(target).Length == 5 && !File.Exists(Path.Combine(root, "outside.txt")), "Extraction keeps only runtime DLLs and licenses, ignoring headers and traversal entries");
+            Check(Directory.GetFiles(target).Length == 5
+                && Directory.GetFiles(Path.Combine(target, "runtimes", "cuda", "win-x64")).Length == 5
+                && !File.Exists(Path.Combine(root, "outside.txt")), "Extraction keeps only runtime DLLs and licenses, ignoring headers and traversal entries");
             File.Delete(Path.Combine(target, "cudart64_13.dll"));
             Check(!(bool)Call("IsComplete", target)!, "Partial extraction never counts as installed");
             Check(Rejects(() => Extract(zip, target, "missing", ["missing.dll"])), "Missing required DLLs reject installation");

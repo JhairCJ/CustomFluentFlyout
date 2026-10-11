@@ -13,9 +13,13 @@ namespace FluentFlyoutWPF.Classes.Dictation;
 internal static class WhisperCudaRuntime
 {
     public const string Version = "13.4.1";
-    public const long DownloadBytes = 426_356_852;
+    public const long DownloadBytes = 568_943_374;
     private const string Marker = ".remove-on-restart";
-    private static readonly string[] RequiredFiles = ["cublasLt64_13.dll", "cublas64_13.dll", "cudart64_13.dll"];
+    private const string WhisperPackageVersion = "1.9.1";
+    private const long WhisperPackageBytes = 142_586_522;
+    private const string WhisperPackageSha256 = "3B765C9690C114825AF1E9FD48E8F2E6F8B798C314D29E27E09640DA479DFCEB";
+    private static readonly string[] NvidiaFiles = ["cublasLt64_13.dll", "cublas64_13.dll", "cudart64_13.dll"];
+    private static readonly string[] WhisperFiles = ["ggml-base-whisper.dll", "ggml-cpu-whisper.dll", "ggml-cuda-whisper.dll", "ggml-whisper.dll", "whisper.dll"];
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static readonly List<nint> Handles = [];
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
@@ -43,10 +47,14 @@ internal static class WhisperCudaRuntime
     public static bool IsInstalling { get; private set; }
     public static bool IsSupported => RuntimeInformation.ProcessArchitecture == Architecture.X64;
 
-    internal static bool IsComplete(string folder) => RequiredFiles.All(name =>
+    private static bool HasNvidiaFiles(string folder) => NvidiaFiles.All(name =>
         File.Exists(Path.Combine(folder, name)) && new FileInfo(Path.Combine(folder, name)).Length > 0)
         && File.Exists(Path.Combine(folder, "libcublas-LICENSE.txt"))
         && File.Exists(Path.Combine(folder, "cuda_cudart-LICENSE.txt"));
+
+    internal static bool IsComplete(string folder) => HasNvidiaFiles(folder) && WhisperFiles.All(name =>
+        File.Exists(Path.Combine(folder, "runtimes", "cuda", "win-x64", name))
+        && new FileInfo(Path.Combine(folder, "runtimes", "cuda", "win-x64", name)).Length > 0);
 
     public static async Task InstallAsync(IProgress<double>? progress, CancellationToken cancellationToken)
     {
@@ -61,7 +69,13 @@ internal static class WhisperCudaRuntime
             DeleteManagedFolder(staging, RootFolder);
             Directory.CreateDirectory(staging);
             long completed = 0;
-            foreach (var package in Packages)
+            if (HasNvidiaFiles(Folder))
+            {
+                foreach (string file in NvidiaFiles.Append("libcublas-LICENSE.txt").Append("cuda_cudart-LICENSE.txt"))
+                    File.Copy(Path.Combine(Folder, file), Path.Combine(staging, file));
+                completed = DownloadBytes - WhisperPackageBytes;
+            }
+            else foreach (var package in Packages)
             {
                 string zip = Path.Combine(staging, package.Name + ".zip");
                 using var response = await Http.GetAsync(package.Url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -79,6 +93,21 @@ internal static class WhisperCudaRuntime
                 File.Delete(zip);
                 completed += package.Bytes;
             }
+            string whisperZip = Path.Combine(staging, "whisper-cuda.nupkg");
+            using (var response = await Http.GetAsync(
+                $"https://api.nuget.org/v3-flatcontainer/whisper.net.runtime.cuda.windows/{WhisperPackageVersion}/whisper.net.runtime.cuda.windows.{WhisperPackageVersion}.nupkg",
+                HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+            {
+                response.EnsureSuccessStatusCode();
+                await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+                await using var destination = new FileStream(whisperZip, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                    81_920, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                await CopyVerifiedAsync(source, destination, WhisperPackageBytes, WhisperPackageSha256,
+                    new Progress<double>(value => progress?.Report(0.9 * (completed + value * WhisperPackageBytes) / DownloadBytes)),
+                    cancellationToken);
+            }
+            await Task.Run(() => ExtractWhisperPackage(whisperZip, staging, cancellationToken), cancellationToken);
+            File.Delete(whisperZip);
             cancellationToken.ThrowIfCancellationRequested();
             if (!IsComplete(staging)) throw new InvalidDataException("The NVIDIA runtime is incomplete.");
             DeleteManagedFolder(Folder, RootFolder);
@@ -128,16 +157,31 @@ internal static class WhisperCudaRuntime
         }
     }
 
+    internal static void ExtractWhisperPackage(string zip, string folder, CancellationToken cancellationToken)
+    {
+        using var archive = ZipFile.OpenRead(zip);
+        string target = Path.Combine(folder, "runtimes", "cuda", "win-x64");
+        Directory.CreateDirectory(target);
+        foreach (string name in WhisperFiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var entry = archive.GetEntry("build/win-x64/" + name);
+            if (entry == null || entry.Length == 0)
+                throw new InvalidDataException($"The Whisper CUDA package is missing {name}.");
+            entry.ExtractToFile(Path.Combine(target, name), overwrite: false);
+        }
+    }
+
     // CUDA/Whisper libraries live for the process lifetime. Never free them underneath Whisper.
     public static bool TryPrepare()
     {
         lock (Handles)
         {
-            if (Handles.Count == RequiredFiles.Length) return !RemovalPending;
+            if (Handles.Count == NvidiaFiles.Length) return !RemovalPending;
             if (!IsSupported || !IsInstalled) return false;
             try
             {
-                foreach (string file in RequiredFiles.Skip(Handles.Count))
+                foreach (string file in NvidiaFiles.Skip(Handles.Count))
                 {
                     nint handle = LoadLibraryEx(Path.Combine(Folder, file), 0, 0x00000100 | 0x00001000);
                     if (handle == 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());

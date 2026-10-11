@@ -1005,7 +1005,9 @@ public sealed class DictationService : IDisposable
         WhisperCudaRuntime.CompletePendingRemoval();
         bool whisperModel = (DictationModelStore.Find(DictationDevices.ModelKey(SettingsManager.Current.DictationModel))?.Backend
             ?? DictationModelBackend.Whisper) == DictationModelBackend.Whisper;
-        RuntimeOptions.RuntimeLibraryOrder = useGpu && whisperModel && WhisperCudaRuntime.TryPrepare()
+        bool cudaReady = useGpu && whisperModel && WhisperCudaRuntime.TryPrepare();
+        RuntimeOptions.LibraryPath = cudaReady ? Path.Combine(WhisperCudaRuntime.Folder, "whisper.dll") : null;
+        RuntimeOptions.RuntimeLibraryOrder = cudaReady
             ? [RuntimeLibrary.Cuda, RuntimeLibrary.Cpu, RuntimeLibrary.CpuNoAvx]
             : [RuntimeLibrary.Cpu, RuntimeLibrary.CpuNoAvx];
     }

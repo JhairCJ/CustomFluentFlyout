@@ -774,7 +774,7 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="DictationRuntimeCrispAsrCuda13Reinstall">Reinstalar Ultra NVIDIA CUDA 13 (511 MB)</system:String>
     <system:String x:Key="DictationRuntimeCrispAsrCuda13Installed">CrispASR {0} · CUDA 13 instalado para NVIDIA</system:String>
     <system:String x:Key="DictationRuntimeCrispAsrCuda13Missing">CUDA 13 opcional: GTX 16 / RTX o posteriores y controlador NVIDIA R580+. Sin Toolkit. Instalarlo conserva tu selección actual.</system:String>
-    <system:String x:Key="DictationWhisperCudaDescription">Dependencias de Whisper para GPU · descarga de 426 MB. No requiere CUDA Toolkit. Necesita una GPU NVIDIA y un controlador compatibles.</system:String>
+    <system:String x:Key="DictationWhisperCudaDescription">Dependencias de Whisper para GPU · descarga de hasta 569 MB. No requiere CUDA Toolkit. Necesita una GPU NVIDIA y un controlador compatibles.</system:String>
     <system:String x:Key="DictationWhisperCudaMissing">Descarga Whisper NVIDIA CUDA en Runtimes para usar la GPU dedicada.</system:String>
     <system:String x:Key="DictationWhisperCudaReady">Whisper CUDA instalado. Reinicia la aplicación antes de usar la GPU NVIDIA.</system:String>
     <system:String x:Key="DictationWhisperCudaRemovalPending">Reinicia la aplicación para completar la desinstalación.</system:String>
