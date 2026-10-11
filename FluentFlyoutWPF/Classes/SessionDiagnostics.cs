@@ -1,13 +1,18 @@
 using System.IO;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace FluentFlyoutWPF.Classes;
 
 [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<DiagnosticStage>))]
-internal enum DiagnosticStage { Startup, TaskbarAttach, TaskbarGeometry, Expansion, CaptureOpen, CaptureReady, CaptureStop, CaptureTimeout, CaptureRelease, CaptureError, PreloadStart, PreloadComplete, PreloadFailure, Recognition, RecognitionComplete, RecognitionFailure, Phase, InputRecovery, Shutdown, Fatal, RenderFailure }
+internal enum DiagnosticStage { Startup, TaskbarAttach, TaskbarGeometry, Expansion, CaptureOpen, CaptureReady, CaptureStop, CaptureTimeout, CaptureRelease, CaptureError, PreloadStart, PreloadComplete, PreloadFailure, Recognition, RecognitionComplete, RecognitionFailure, Phase, InputRecovery, Shutdown, Fatal, RenderFailure, Resources }
+internal readonly record struct ResourceSnapshot(long PrivateBytes, long WorkingSetBytes, long ManagedBytes,
+    int Handles, long CommitLimitBytes, long AvailableCommitBytes, long AvailablePhysicalBytes);
 internal readonly record struct DiagnosticMilestone(DateTime Utc, DiagnosticStage Stage,
-    long Generation, double DurationMs, double X, double Y, double Width, double Height, double Dpi, int Phase, long Sequence);
+    long Generation, double DurationMs, double X, double Y, double Width, double Height, double Dpi, int Phase, long Sequence,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ResourceSnapshot? Resources = null);
 
 /// <summary>Fixed metadata and numeric milestones only. Never receives text, audio or paths from dictation.</summary>
 internal sealed class BoundedSessionDiagnostics : IDisposable
@@ -17,6 +22,7 @@ internal sealed class BoundedSessionDiagnostics : IDisposable
     private readonly long _limit;
     private StreamWriter? _writer;
     private readonly System.Threading.Timer _timer;
+    private int _flushTicks;
     private long _lastWritten, _sequence;
     private readonly string _metadata;
     internal BoundedSessionDiagnostics(string directory, bool software, long limit = 1024 * 1024)
@@ -25,6 +31,7 @@ internal sealed class BoundedSessionDiagnostics : IDisposable
         _metadata = JsonSerializer.Serialize(new
         {
             Version = typeof(App).Assembly.GetName().Version?.ToString(),
+            BuildId = typeof(App).Assembly.ManifestModule.ModuleVersionId,
             Windows = Environment.OSVersion.VersionString,
             Architecture = RuntimeInformation.ProcessArchitecture.ToString(), SoftwareRendering = software,
         });
@@ -40,7 +47,12 @@ internal sealed class BoundedSessionDiagnostics : IDisposable
             _writer.Flush();
         }
         catch { try { _writer?.Dispose(); } catch { } _writer = null; }
-        _timer = new(_ => Flush(), null, 2000, 2000);
+        SampleResources();
+        _timer = new(_ =>
+        {
+            if (Interlocked.Increment(ref _flushTicks) % 15 == 0) SampleResources();
+            Flush();
+        }, null, 2000, 2000);
     }
     internal void Mark(DiagnosticStage stage, long generation = 0, double durationMs = 0,
         double x = 0, double y = 0, double width = 0, double height = 0, double dpi = 0, int phase = 0)
@@ -52,6 +64,37 @@ internal sealed class BoundedSessionDiagnostics : IDisposable
         }
     }
     internal DiagnosticMilestone[] Recent { get { lock (_gate) return _recent.ToArray(); } }
+    internal void SampleResources()
+    {
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            var memory = new MemoryStatus { Length = (uint)Marshal.SizeOf<MemoryStatus>() };
+            if (!GlobalMemoryStatusEx(ref memory)) return;
+            var sample = new ResourceSnapshot(process.PrivateMemorySize64, process.WorkingSet64,
+                GC.GetTotalMemory(false), process.HandleCount, (long)memory.TotalPageFile,
+                (long)memory.AvailablePageFile, (long)memory.AvailablePhysical);
+            lock (_gate)
+            {
+                if (_recent.Count == 64) _recent.Dequeue();
+                _recent.Enqueue(new(DateTime.UtcNow, DiagnosticStage.Resources, 0, 0, 0, 0, 0, 0, 0, 0,
+                    ++_sequence, sample));
+            }
+        }
+        catch { /* Diagnostics must never terminate the application. */ }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MemoryStatus
+    {
+        public uint Length, MemoryLoad;
+        public ulong TotalPhysical, AvailablePhysical, TotalPageFile, AvailablePageFile;
+        public ulong TotalVirtual, AvailableVirtual, AvailableExtendedVirtual;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
     internal void Flush()
     {
         lock (_fileGate)
@@ -115,5 +158,6 @@ internal static class SessionDiagnostics
         Mark(IsRenderFailure(exception) ? DiagnosticStage.RenderFailure : DiagnosticStage.Fatal);
         _session?.Flush();
     }
+    internal static void Flush() => _session?.Flush();
     internal static void Stop() { Mark(DiagnosticStage.Shutdown); _session?.Dispose(); _session = null; }
 }

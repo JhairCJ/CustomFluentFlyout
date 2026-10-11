@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Xml.Serialization;
@@ -287,12 +288,17 @@ internal static class StabilityChecks
             for (int i = 0; i < 12; i++) File.WriteAllText(Path.Combine(folder, $"session-old-{i}.jsonl"), "{}");
             using (var log = new BoundedSessionDiagnostics(folder, software, 4096))
             {
+                var resources = log.Recent.Single(entry => entry.Stage == DiagnosticStage.Resources).Resources;
+                Check(resources is { PrivateBytes: > 0, CommitLimitBytes: > 0, AvailableCommitBytes: > 0 },
+                    "Resource diagnostics did not capture process and system memory");
                 for (int i = 0; i < 10000; i++) { log.Mark(DiagnosticStage.Phase, i); if (i % 64 == 0) log.Flush(); }
                 Check(log.Recent.Length == 64 && log.Recent[^1].Generation == 9999, "Recent milestones are not bounded/last wins");
                 log.Flush();
             }
             Check(Directory.GetFiles(folder).Length == 10, "Diagnostics retention exceeded ten sessions");
             Check(Directory.GetFiles(folder).All(file => new FileInfo(file).Length <= 4096), "Diagnostics byte cap failed");
+            Check(Directory.GetFiles(folder).Any(file => File.ReadLines(file).FirstOrDefault()?.Contains("\"BuildId\"") == true),
+                "Diagnostics did not identify the build used during the session");
             Check(Directory.GetFiles(folder).Any(file => File.ReadLines(file).Any(line => line.Contains("\"Generation\":9999"))),
                 "Bounded diagnostics lost the latest context after rolling its file");
             string blocker = Path.Combine(folder, "blocked"); File.WriteAllText(blocker, "");
@@ -300,6 +306,37 @@ internal static class StabilityChecks
             unavailable.Mark(DiagnosticStage.Fatal); unavailable.Flush();
             Check(SessionDiagnostics.IsRenderFailure(new COMException("Test", unchecked((int)0x88980406)))
                 && !SessionDiagnostics.IsRenderFailure(new IOException()), "Fatal rendering classification failed");
+
+            string source = Path.Combine(folder, "share-source");
+            string diagnostics = Path.Combine(source, "diagnostics");
+            Directory.CreateDirectory(diagnostics);
+            for (int i = 0; i < 12; i++)
+            {
+                string file = Path.Combine(source, $"logs.{i}.txt");
+                File.WriteAllText(file, $"log {i}");
+                File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddMinutes(i - 10));
+            }
+            for (int i = 0; i < 12; i++)
+            {
+                string file = Path.Combine(diagnostics, $"session-{i}.jsonl");
+                File.WriteAllText(file, $"session {i}");
+                File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddMinutes(i - 10));
+            }
+            File.WriteAllText(Path.Combine(source, "settings.xml"), "private settings");
+            File.WriteAllText(Path.Combine(source, "transcription.txt"), "private text");
+            string large = Path.Combine(source, "logs.large.txt");
+            File.WriteAllBytes(large, new byte[2 * 1024 * 1024 + 10]);
+            File.SetLastWriteTimeUtc(large, DateTime.UtcNow);
+            string package = DiagnosticPackage.Create(source, Path.Combine(folder, "share-output"), DateTime.Now);
+            using (var archive = ZipFile.OpenRead(package))
+            {
+                Check(archive.Entries.Count == 21 && archive.Entries.Any(entry => entry.Name == "README.txt"),
+                    "Diagnostic package did not contain the selected logs and session files");
+                Check(archive.Entries.All(entry => !entry.Name.Contains("settings") && !entry.Name.Contains("transcription")),
+                    "Diagnostic package included private application data");
+                Check(archive.Entries.Single(entry => entry.Name == "logs.large.txt").Length == 2 * 1024 * 1024,
+                    "Diagnostic package failed to cap a large log");
+            }
         }
         finally { Directory.Delete(folder, true); }
 

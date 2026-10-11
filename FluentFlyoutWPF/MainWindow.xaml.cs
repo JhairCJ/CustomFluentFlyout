@@ -15,6 +15,7 @@ using MicaWPF.Controls;
 using MicaWPF.Core.Extensions;
 using Microsoft.Win32;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -743,6 +744,32 @@ public partial class MainWindow : MicaWindow
         catch (Exception ex)
         {
             Logger.Error(ex, "Failed to open logs folder");
+        }
+    }
+
+    private async void ExportDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            string archivePath = await Task.Run(() =>
+            {
+                NLog.LogManager.Flush();
+                SessionDiagnostics.Flush();
+                string downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+                return DiagnosticPackage.Create(FileSystemHelper.GetLogsPath(), downloads, DateTime.Now);
+            });
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"/select,\"{archivePath}\"",
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to prepare diagnostic package");
+            MessageBox.Show(IslandStrings.Get("DiagnosticExportFailed", "Could not prepare the diagnostic package."),
+                "FluentFlyout", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

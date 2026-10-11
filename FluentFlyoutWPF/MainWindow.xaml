@@ -200,6 +200,11 @@
                             <ui:SymbolIcon Symbol="FolderOpen20"/>
                         </ui:MenuItem.Icon>
                     </ui:MenuItem>
+                    <ui:MenuItem x:Name="NotifyIconExportDiagnostics" Header="{DynamicResource TrayIcon_ExportDiagnosticsOption}" Click="ExportDiagnostics_Click">
+                        <ui:MenuItem.Icon>
+                            <ui:SymbolIcon Symbol="DocumentArrowDown20"/>
+                        </ui:MenuItem.Icon>
+                    </ui:MenuItem>
                     <ui:MenuItem x:Name="NotifyIconReportBug" Header="{DynamicResource TrayIcon_ReportBugOption}" Click="reportBug">
                         <ui:MenuItem.Icon>
                             <ui:SymbolIcon Symbol="Bug20"/>

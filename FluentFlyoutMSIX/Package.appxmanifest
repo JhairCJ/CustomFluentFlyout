@@ -9,13 +9,13 @@
   IgnorableNamespaces="uap rescap">
 
   <Identity
-    Name="unchihugo.FluentFlyout"
-    Publisher="CN=49793F74-1457-4B66-A672-4ED3A640FC76"
-    Version="2.13.1.0" />
+    Name="jhaircj.FluentFlyout"
+    Publisher="CN=jhaircj"
+    Version="2.130.1.0" />
 
   <Properties>
     <DisplayName>FluentFlyout</DisplayName>
-    <PublisherDisplayName>unchihugo</PublisherDisplayName>
+    <PublisherDisplayName>jhaircj</PublisherDisplayName>
     <Logo>Images\StoreLogo.png</Logo>
   </Properties>
 

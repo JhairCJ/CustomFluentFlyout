@@ -532,6 +532,8 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="TaskbarWidgetManualPaddingTitle">Margen Personalizado</system:String>
     <system:String x:Key="TaskbarWidgetManualPaddingDescription">Añadir margen extra (por defecto: 0px)</system:String>
     <system:String x:Key="TrayIcon_ViewLogsOption">Ver los registros</system:String>
+    <system:String x:Key="TrayIcon_ExportDiagnosticsOption">Preparar diagnóstico</system:String>
+    <system:String x:Key="DiagnosticExportFailed">No se pudo preparar el diagnóstico.</system:String>
     <system:String x:Key="PixelsUnit">px</system:String>
     <system:String x:Key="UpdateToastTitle">¡FluentFlyout se ha actualizado!</system:String>
     <system:String x:Key="UpdateToastMessage">Estás usando la versión {0}.</system:String>
