@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 The FluentFlyout Authors
+﻿// Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
@@ -85,8 +85,7 @@ public partial class TaskbarWindow : Window
     private GlobalSystemMediaTransportControlsSessionPlaybackStatus? _lastPlaybackStatus;
     private DispatcherTimer? _autoHideTimer;
 
-    // One top-level transparent HWND throughout; reparenting a WPF layered window
-    // can leave its surface invisible even though the native hit region survives.
+    // Stable compact child + independent expansion HWND; only the control transfers.
     private bool _widgetExpanded;
     private bool _expansionOwnsLayout;
     private bool _expansionAnimating;
@@ -117,16 +116,39 @@ public partial class TaskbarWindow : Window
     private bool _hasEverBeenPositioned;
     private int _visibilityVersion;
     private bool _windowFadingOut;
-    private WinEventProc? _shellZOrderProc;
-    private IntPtr _shellZOrderHook, _shellForegroundHook;
-    private bool _topmostRefreshPending, _closed, _fullscreenSuppressed, _shellPositionDeferred;
-    private IntPtr _taskbarOwner;
+    private bool _closed, _fullscreenSuppressed, _shellPositionDeferred;
+    private readonly TaskbarAttachment _attachment = new();
+    private TaskbarExpansionWindow? _expansionHost;
+    private IntPtr _nativeRegionWindow;
+    private Rect _compactHostScreenRect = Rect.Empty;
+    private bool _recoveryQueued, _shutdownRequested;
+    internal Action? RecoveryRequested { get; set; }
+    internal Func<Rect, bool> DetectFullscreen { get; set; } = FullscreenDetector.IsFullscreenOrAwayState;
+
+    private void QueueRecovery()
+    {
+        if (_recoveryQueued || _shutdownRequested || MainWindow.ExplorerRestarting) return;
+        _recoveryQueued = true;
+        _timer.Stop();
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+        {
+            if (MainWindow.ExplorerRestarting || _shutdownRequested) return;
+            if (RecoveryRequested != null) RecoveryRequested();
+            else _mainWindow?.RecreateTaskbarWindow();
+        });
+    }
+
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        _shutdownRequested = true;
+        base.OnClosing(e);
+    }
 
     public TaskbarWindow()
     {
         WindowHelper.SetNoActivate(this);
         InitializeComponent();
-        WindowHelper.SetTopmost(this);
+        Widget.TaskbarOwner = this;
 
         // Set DataContext for bindings
         DataContext = SettingsManager.Current;
@@ -168,6 +190,7 @@ public partial class TaskbarWindow : Window
         {
             _displayRefreshPending = false;
             if (_closed) return;
+            CloseWidgetExpansion(animate: false);
             // Invalidate old coordinates and asynchronous automation results, without
             // recreating the window or changing its shell-menu/z-order protections.
             ++_automationQueryVersion;
@@ -184,6 +207,9 @@ public partial class TaskbarWindow : Window
 
     private IntPtr WindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (msg == 0x0082) QueueRecovery();
+        if (msg == 0x0021) { handled = true; return new IntPtr(3); }
+        if (msg is 0x02E0 or 0x02E3) QueueTaskbarDisplayRefresh();
         if (msg == 0x007E || (msg == 0x001A && (wParam.ToInt64() == 0x002F
             || (lParam != IntPtr.Zero && System.Runtime.InteropServices.Marshal.PtrToStringUni(lParam) == "SystemDockMode"))))
             QueueTaskbarDisplayRefresh();
@@ -344,12 +370,8 @@ public partial class TaskbarWindow : Window
 
             IntPtr taskbarHandle = GetSelectedTaskbarHandle(out bool isMainTaskbarSelected);
 
-            int style = GetWindowLong(taskbarWindowHandle, GWL_STYLE);
-            style = (style & ~WS_CHILD) | WS_POPUP;
-            SetWindowLong(taskbarWindowHandle, GWL_STYLE, style);
-
+            AttachToTaskbar(taskbarHandle, taskbarWindowHandle);
             CalculateAndSetPosition(taskbarHandle, taskbarWindowHandle, isMainTaskbarSelected);
-            InstallShellZOrderHooks();
         }
         catch (Exception ex)
         {
@@ -359,7 +381,9 @@ public partial class TaskbarWindow : Window
 
     private void UpdateWindowRegion(IntPtr windowHandle, params Rect[] rects)
     {
-        if (_nativeRegionOffset == _canvasOffsetPhysical && _nativeRegions.SequenceEqual(rects)) return;
+        Vector regionOffset = _expansionHost != null && windowHandle == new WindowInteropHelper(_expansionHost).Handle
+            ? _canvasOffsetPhysical : new Vector();
+        if (_nativeRegionWindow == windowHandle && _nativeRegionOffset == regionOffset && _nativeRegions.SequenceEqual(rects)) return;
         IntPtr rgn = CreateRectRgn(0, 0, 0, 0);
         foreach (var r in rects)
         {
@@ -368,10 +392,10 @@ public partial class TaskbarWindow : Window
                 continue;
 
             IntPtr newRgn = CreateRectRgn(
-                (int)Math.Floor(r.Left + _canvasOffsetPhysical.X),
-                (int)Math.Floor(r.Top + _canvasOffsetPhysical.Y),
-                (int)Math.Ceiling(r.Right + _canvasOffsetPhysical.X),
-                (int)Math.Ceiling(r.Bottom + _canvasOffsetPhysical.Y));
+                (int)Math.Floor(r.Left + regionOffset.X),
+                (int)Math.Floor(r.Top + regionOffset.Y),
+                (int)Math.Ceiling(r.Right + regionOffset.X),
+                (int)Math.Ceiling(r.Bottom + regionOffset.Y));
             if (newRgn == IntPtr.Zero)
             {
                 Logger.Error($"Taskbar Widget error during CreateRectRgn({(int)r.Left}, {(int)r.Top}, {(int)r.Right}, {(int)r.Bottom}).");
@@ -395,7 +419,8 @@ public partial class TaskbarWindow : Window
         }
 
         _nativeRegions = (Rect[])rects.Clone();
-        _nativeRegionOffset = _canvasOffsetPhysical;
+        _nativeRegionOffset = regionOffset;
+        _nativeRegionWindow = windowHandle;
 
         // Simple debugging to display the window region:
 #if false
@@ -436,32 +461,15 @@ on_error:
             if (RefreshFullscreenSuppression()) return;
             var interop = new WindowInteropHelper(this);
             IntPtr taskbarHandle = GetSelectedTaskbarHandle(out bool isMainTaskbarSelected);
-            RaiseWidgetAboveTaskbar();
 
-            if (interop.Handle == IntPtr.Zero)
+            if (interop.Handle == IntPtr.Zero || !IsWindow(interop.Handle))
             {
-                if (MainWindow.ExplorerRestarting)
-                {
-                    Logger.Info("Skipping TaskbarWindow recovery during Explorer restart");
-                    return;
-                }
-
-                _timer.Stop();
-
-                Dispatcher.BeginInvoke(() =>
-                {
-                    try
-                    {
-                        _mainWindow?.RecreateTaskbarWindow();
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error(ex, "Failed to signal MainWindow to recover Taskbar Widget window");
-                    }
-                }, DispatcherPriority.Background);
-
+                QueueRecovery();
                 return;
             }
+
+            if (taskbarHandle == IntPtr.Zero || !IsWindow(taskbarHandle)) return;
+            if (AttachToTaskbar(taskbarHandle, interop.Handle)) force = true;
 
             if (KeepAnchorDuringShellInteraction())
             {
@@ -617,7 +625,7 @@ on_error:
             // Vertical taskbar support: rotate and reposition widget when taskbar is taller than wide
             bool isVertical = taskbarHeight > taskbarWidth;
             _taskbarHandle = taskbarHandle;
-            AttachTaskbarOwner(taskbarHandle);
+            AttachToTaskbar(taskbarHandle, taskbarWindowHandle);
             _positionDpiScale = dpiScale;
             var barScreenRect = new Rect(taskbarRect.Left, taskbarRect.Top, taskbarWidth, taskbarHeight);
             if (_monitorWorkArea.IsEmpty || barScreenRect != _taskbarScreenRect
@@ -629,6 +637,8 @@ on_error:
                 _monitorGeometryCheckedUtc = DateTime.UtcNow;
             }
             _taskbarScreenRect = barScreenRect;
+            SessionDiagnostics.Mark(DiagnosticStage.TaskbarGeometry, Widget.SongCommitVersion,
+                x: barScreenRect.X, y: barScreenRect.Y, width: barScreenRect.Width, height: barScreenRect.Height, dpi: dpiScale);
             _widgetResizeWindowHandle = taskbarWindowHandle;
             // A new song-identity commit means a new width: morph to it in sync with the
             // text/background entrance. Every other path (timer ticks, setup, settings)
@@ -1280,7 +1290,6 @@ on_error:
         // Repeated metadata/position events must leave a running reveal alone.
         if (Visibility == Visibility.Visible && !_windowFadingOut)
         {
-            RaiseWidgetAboveTaskbar();
             return;
         }
         double fromOpacity = Visibility == Visibility.Visible ? Opacity : 0;
@@ -1316,12 +1325,11 @@ on_error:
             // A fade-out may have just been cancelled; restore full opacity immediately.
             Opacity = 1;
         }
-        RaiseWidgetAboveTaskbar();
     }
 
     private bool RefreshFullscreenSuppression()
     {
-        bool fullscreen = FullscreenDetector.IsFullscreenOrAwayState(_monitorArea);
+        bool fullscreen = DetectFullscreen(_monitorArea);
         _fullscreenSuppressed = fullscreen;
         if (fullscreen && Visibility == Visibility.Visible)
         {
@@ -1337,59 +1345,19 @@ on_error:
         return fullscreen;
     }
 
-    private void AttachTaskbarOwner(IntPtr taskbarHandle)
+    private bool AttachToTaskbar(IntPtr taskbar, IntPtr child)
     {
-        if (_taskbarOwner == taskbarHandle || taskbarHandle == IntPtr.Zero || !IsWindow(taskbarHandle)) return;
-        try
-        {
-            // A top-level owned popup stays above its owner when Explorer raises
-            // the taskbar. Ownership preserves the layered WPF HWND and its screen
-            // coordinates; making it a WS_CHILD would break transparent rendering.
-            new WindowInteropHelper(this).Owner = taskbarHandle;
-            _taskbarOwner = taskbarHandle;
-        }
-        catch (Exception ex)
-        {
-            Logger.Warn(ex, "Unable to attach taskbar widget ownership to Explorer");
-        }
-    }
-
-    private void RaiseWidgetAboveTaskbar()
-    {
-        if (_closed || _fullscreenSuppressed || _windowFadingOut || !SettingsManager.Current.TaskbarWidgetEnabled
-            || Visibility != Visibility.Visible) return;
-        // Native ownership already keeps us above Explorer's taskbar. Repeatedly
-        // raising an owned popup also reorders the owner's group and disrupts menus.
-        if (_taskbarOwner != IntPtr.Zero && IsWindow(_taskbarOwner)) return;
-        var hwnd = new WindowInteropHelper(this).Handle;
-        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
-    }
-
-    private void InstallShellZOrderHooks()
-    {
-        if (_shellZOrderProc != null) return;
-        _shellZOrderProc = (_, eventType, hwnd, _, _, _, _) =>
-        {
-            if (_closed || (eventType != EVENT_SYSTEM_FOREGROUND && hwnd != _taskbarHandle)
-                || eventType == 0x8003 // EVENT_OBJECT_HIDE
-                || _topmostRefreshPending || Dispatcher.HasShutdownStarted) return;
-            _topmostRefreshPending = true;
-            Dispatcher.BeginInvoke(() =>
-            {
-                _topmostRefreshPending = false;
-                UpdatePosition();
-            }, DispatcherPriority.Render);
-        };
-        // Observe only shell show/reorder and foreground changes, outside its
-        // process. Skip our own events so raising this HWND cannot loop the hook.
-        const uint skipOwnProcess = 0x0002;
-        _shellZOrderHook = SetWinEventHook(0x8002, 0x8004, IntPtr.Zero,
-            _shellZOrderProc, 0, 0, WINEVENT_OUTOFCONTEXT | skipOwnProcess);
-        _shellForegroundHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
-            IntPtr.Zero, _shellZOrderProc, 0, 0, WINEVENT_OUTOFCONTEXT | skipOwnProcess);
-        if (_shellZOrderHook == IntPtr.Zero || _shellForegroundHook == IntPtr.Zero)
-            Logger.Warn("Taskbar Z-order hook unavailable; native visibility polling remains active.");
+        if (!_attachment.Attach(child, taskbar)) return false;
+        ++_automationQueryVersion;
+        _pendingAutomationTasks.Clear();
+        _automationBoundsCache.Clear();
+        _widgetElement = _trayElement = _taskbarFrameElement = null;
+        _trayHandle = IntPtr.Zero;
+        _hasTaskbarRect = false;
+        _compactHostScreenRect = _nativeHostScreenRect = Rect.Empty;
+        _nativeRegions = [];
+        SessionDiagnostics.Mark(DiagnosticStage.TaskbarAttach);
+        return true;
     }
 
     /// <summary>
@@ -1465,10 +1433,14 @@ on_error:
             TaskbarVisualizer.BeginAnimation(Canvas.LeftProperty, null);
             TaskbarVisualizer.BeginAnimation(Canvas.TopProperty, null);
             _expansionOwnsLayout = true;
+            _expansionHost ??= new TaskbarExpansionWindow { DataContext = DataContext };
+            WidgetCanvas.Children.Remove(Widget);
+            _expansionHost.Surface.Children.Add(Widget);
         }
         Widget.SetExpandedState(true);
         RefreshOutsideClickHook();
         MorphWidgetExpansion(ExpandedWidgetRect());
+        if (_widgetExpanded && _expansionHost is { IsVisible: false }) _expansionHost.Show();
     }
 
     public void CloseWidgetExpansion(bool animate = true)
@@ -1517,6 +1489,7 @@ on_error:
         Widget.ExpansionProgress = fromProgress;
         ParkExpansionGeometry(from);
         int version = ++_expansionVersion;
+        SessionDiagnostics.Mark(DiagnosticStage.Expansion, version);
         _expansionTargetRect = target;
         _expansionFlightRect = from;
         _expansionFlightRect.Union(target);
@@ -1556,10 +1529,29 @@ on_error:
         Widget.UpdateLayout();
         ApplyWidgetHostBounds(_expansionTargetRect);
         if (_widgetExpanded) return;
+        _expansionHost?.Surface.Children.Remove(Widget);
+        if (!WidgetCanvas.Children.Contains(Widget)) WidgetCanvas.Children.Add(Widget);
         _expansionOwnsLayout = false;
-        _lastWidgetIsVertical = null;
+        _nativeHostScreenRect = Rect.Empty;
+        // Returning the visual does not restore the child's native region. During
+        // expansion that region contains only the visualizer; a positioning pass
+        // can be deferred by shell interaction or an update already in progress.
+        // Restore the current compact destination before withdrawing the popup.
+        bool vertical = _taskbarScreenRect.Height > _taskbarScreenRect.Width;
+        ParkExpansionGeometry(_compactWidgetRect);
+        if (vertical)
+        {
+            Widget.Width = _compactWidgetRect.Height / _positionDpiScale;
+            Widget.Height = _compactWidgetRect.Width / _positionDpiScale;
+            Widget.LayoutTransform = new RotateTransform(90);
+            Widget.SetVerticalMode(true);
+        }
+        _lastWidgetIsVertical = vertical;
+        Widget.UpdateLayout();
+        ApplyWidgetHostBounds(_compactWidgetRect);
         var hwnd = new WindowInteropHelper(this).Handle;
         CalculateAndSetPosition(_taskbarHandle, hwnd, GetSelectedTaskbarHandle(out bool main) == _taskbarHandle && main);
+        _expansionHost?.Hide();
         if (SettingsManager.Current.TaskbarWidgetAutoHide
             && _lastPlaybackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
             StartAutoHideTimer();
@@ -1567,36 +1559,35 @@ on_error:
 
     private void ApplyWidgetHostBounds(Rect widgetRegion)
     {
-        var hwnd = new WindowInteropHelper(this).Handle;
-        // Reserve one fixed band for both layouts. Only the
-        // visible region changes; DWM never presents new native bounds with an old
-        // canvas transform, which produced the down-left flash during metadata ticks.
-        Rect host = _monitorArea;
-        if (host.IsEmpty) return;
-        switch (TaskbarWidgetExpansion.EdgeOf(ToBox(_taskbarScreenRect), ToBox(_monitorWorkArea)))
+        var compact = new WindowInteropHelper(this).Handle;
+        if (_taskbarScreenRect.IsEmpty || !IsWindow(compact) || !IsWindow(_taskbarHandle)) return;
+        WidgetCanvas.RenderTransform = Transform.Identity;
+        if (_compactHostScreenRect != _taskbarScreenRect)
         {
-            case TaskbarWidgetExpansion.Edge.Bottom:
-                double top = Math.Max(host.Top, _taskbarScreenRect.Top - 180 * _positionDpiScale);
-                host = new Rect(host.Left, top, host.Width, host.Bottom - top);
-                break;
-            case TaskbarWidgetExpansion.Edge.Top:
-                host.Height = Math.Min(host.Height, _taskbarScreenRect.Bottom + 180 * _positionDpiScale - host.Top);
-                break;
-            case TaskbarWidgetExpansion.Edge.Left:
-                host.Width = Math.Min(host.Width, _taskbarScreenRect.Right + 380 * _positionDpiScale - host.Left);
-                break;
-            case TaskbarWidgetExpansion.Edge.Right:
-                double left = Math.Max(host.Left, _taskbarScreenRect.Left - 380 * _positionDpiScale);
-                host = new Rect(left, host.Top, host.Right - left, host.Height);
-                break;
+            var origin = _attachment.ClientPoint(_taskbarHandle, (int)_taskbarScreenRect.Left, (int)_taskbarScreenRect.Top);
+            if (!SetWindowPos(compact, 0, origin.X, origin.Y,
+                (int)_taskbarScreenRect.Width, (int)_taskbarScreenRect.Height,
+                SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            _compactHostScreenRect = _taskbarScreenRect;
         }
+        UpdateWindowRegion(compact, _expansionOwnsLayout ? Rect.Empty : widgetRegion, _visualizerRect);
+        if (!_expansionOwnsLayout || _expansionHost == null) return;
+        var hwnd = new WindowInteropHelper(_expansionHost).Handle;
+        // The independent host follows the physical union for the current flight.
+        // At settle it shrinks to the exact destination; the compact child has no band.
+        if (widgetRegion.IsEmpty) return;
+        Rect host = widgetRegion;
+        host.Offset(_taskbarScreenRect.Left, _taskbarScreenRect.Top);
+        double left = Math.Floor(host.Left), top = Math.Floor(host.Top);
+        host = new Rect(left, top, Math.Ceiling(host.Right) - left, Math.Ceiling(host.Bottom) - top);
         _canvasOffsetPhysical = new Vector(_taskbarScreenRect.Left - host.Left,
             _taskbarScreenRect.Top - host.Top);
-        if (WidgetCanvas.RenderTransform is not TranslateTransform offset)
-            WidgetCanvas.RenderTransform = offset = new TranslateTransform();
+        if (_expansionHost.Surface.RenderTransform is not TranslateTransform offset)
+            _expansionHost.Surface.RenderTransform = offset = new TranslateTransform();
         offset.X = _canvasOffsetPhysical.X / _positionDpiScale;
         offset.Y = _canvasOffsetPhysical.Y / _positionDpiScale;
-        UpdateWindowRegion(hwnd, widgetRegion, _visualizerRect);
+        UpdateWindowRegion(hwnd, widgetRegion);
         if (host == _nativeHostScreenRect) return;
         _nativeHostScreenRect = host;
         SetWindowPos(hwnd, 0, (int)host.Left, (int)host.Top,
@@ -1634,10 +1625,10 @@ on_error:
     {
         _closed = true;
         Widget.ClosePlayerMenu();
-        if (_shellZOrderHook != IntPtr.Zero) UnhookWinEvent(_shellZOrderHook);
-        if (_shellForegroundHook != IntPtr.Zero) UnhookWinEvent(_shellForegroundHook);
-        _shellZOrderHook = _shellForegroundHook = IntPtr.Zero;
-        _shellZOrderProc = null;
+        Widget.DestroyWidgetResources();
+        _expansionHost?.Surface.Children.Remove(Widget);
+        _expansionHost?.Close();
+        _expansionHost = null;
         _pendingAutomationTasks.Clear();
         _automationBoundsCache.Clear();
         _widgetElement = _trayElement = _taskbarFrameElement = null;

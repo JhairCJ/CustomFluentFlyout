@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 The FluentFlyout Authors
+﻿// Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes;
@@ -40,8 +40,7 @@ public partial class MainWindow : MicaWindow
 
     private int WM_TASKBARCREATED, WM_SHELLHOOK;
 
-    private IntPtr _hookId = IntPtr.Zero;
-    private LowLevelKeyboardProc? _hookProc;
+    private FluentFlyoutWPF.Classes.KeyboardInputThread? _keyboardInput;
 
     private CancellationTokenSource cts; // to close the flyout after a certain time
     private long _lastFlyoutTime = 0;
@@ -956,18 +955,6 @@ public partial class MainWindow : MicaWindow
         UpdateTaskbar();
     }
 
-    private static IntPtr SetHook(LowLevelKeyboardProc proc) // set the keyboard hook
-    {
-        using Process curProcess = Process.GetCurrentProcess();
-        using ProcessModule? curModule = curProcess.MainModule;
-        if (curModule == null)
-        {
-            Logger.Warn("Failed to set keyboard hook - FluentFlyout will now rely on WndProc only");
-            return IntPtr.Zero;
-        }
-        return SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(curModule.ModuleName), 0);
-    }
-
     /// <summary>
     /// The keyboard hook is only needed when a feature that relies on it is enabled:
     /// the lock keys flyout, the volume mixer, or the media flyout triggered by media keys.
@@ -981,20 +968,23 @@ public partial class MainWindow : MicaWindow
     }
 
     // installs or removes the low-level keyboard hook depending on which features are enabled
-    public void RefreshKeyboardHook()
+    private bool _keyboardHookClosing;
+    public async void RefreshKeyboardHook()
     {
+        if (_keyboardHookClosing) return;
         bool shouldInstall = ShouldInstallKeyboardHook();
 
-        if (shouldInstall && _hookId == IntPtr.Zero)
+        if (shouldInstall && (_keyboardInput == null || !_keyboardInput.IsAlive))
+            _keyboardInput = new(HookCallback, Dictation.ResetKeyboardRouting,
+                Dictation.ObserveInputKey, Dictation.ObservePhysicalInput, () => Dictation.InputStateAvailable());
+        else if (!shouldInstall && _keyboardInput != null)
         {
-            _hookProc = HookCallback;
-            _hookId = SetHook(_hookProc);
-        }
-        else if (!shouldInstall && _hookId != IntPtr.Zero)
-        {
-            UnhookWindowsHookEx(_hookId);
-            _hookId = IntPtr.Zero;
-            Dictation.ResetKeyboardRouting();
+            _keyboardHookClosing = true;
+            _keyboardInput.Dispose();
+            await _keyboardInput.Completion;
+            _keyboardInput = null;
+            _keyboardHookClosing = false;
+            if (!Dispatcher.HasShutdownStarted) RefreshKeyboardHook();
         }
     }
 
@@ -1036,7 +1026,7 @@ public partial class MainWindow : MicaWindow
                     new GlobalKeyWork(vkCode, (int)wParam, mediaKeysPressed, volumeKeysPressed));
             }
         }
-        return CallNextHookEx(_hookId, nCode, wParam, lParam);
+        return IntPtr.Zero;
     }
 
     /// <summary>
@@ -1678,11 +1668,8 @@ public partial class MainWindow : MicaWindow
             TaskbarVisualizerControl.DisposeVisualizer();
 
             // unhook hooks
-            if (_hookId != IntPtr.Zero)
-            {
-                UnhookWindowsHookEx(_hookId);
-                _hookId = IntPtr.Zero;
-            }
+            _keyboardInput?.Dispose();
+            _keyboardInput = null;
 
             DeregisterShellHookWindow(new WindowInteropHelper(this).Handle);
 
@@ -1837,6 +1824,7 @@ public partial class MainWindow : MicaWindow
                         Logger.Info("Explorer stabilized, resuming taskbar integration");
 
                         // Now it is safe to recreate tray icon
+                        RecreateTaskbarWindow();
                         RecreateTrayIconSafely();
                     }
                     else

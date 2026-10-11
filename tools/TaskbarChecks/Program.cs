@@ -10,6 +10,7 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
+        AttachmentChecks.Run();
         int dismissed = 0;
         bool inside = true;
         using var hook = new MouseClickOutsideHook((_, _) => inside, () => dismissed++, Dispatcher.CurrentDispatcher);
@@ -54,6 +55,11 @@ namespace FluentFlyout.Classes
     // Only the native boundary is stubbed; the production callback and Dispatcher run unchanged.
     internal static class NativeMethods
     {
+        internal static bool IsWindow(IntPtr window) => throw new NotSupportedException();
+        internal static IntPtr GetParent(IntPtr window) => throw new NotSupportedException();
+        internal static int GetWindowLong(IntPtr window, int index) => throw new NotSupportedException();
+        internal static IntPtr SetParent(IntPtr window, IntPtr parent) => throw new NotSupportedException();
+        internal static bool ScreenToClient(IntPtr window, ref POINT point) => throw new NotSupportedException();
         internal const int WH_MOUSE_LL = 14, WM_LBUTTONDOWN = 0x201, WM_RBUTTONDOWN = 0x204, WM_MBUTTONDOWN = 0x207;
         internal delegate IntPtr LowLevelMouseProc(int code, IntPtr message, IntPtr data);
         [StructLayout(LayoutKind.Sequential)]

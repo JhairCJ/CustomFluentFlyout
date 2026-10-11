@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 The FluentFlyout Authors
+﻿// Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
@@ -26,6 +26,9 @@ namespace FluentFlyout.Controls;
 /// </summary>
 public partial class TaskbarWidgetControl : UserControl
 {
+    internal TaskbarWindow? TaskbarOwner { get; set; }
+    internal void DestroyWidgetResources() => CleanupWidgetResources();
+
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
     private readonly double _scale = 0.9;
@@ -244,7 +247,7 @@ public partial class TaskbarWidgetControl : UserControl
     {
         InitializeComponent();
         ExpandedContent.TrackNavigation = NoteTrackNavigation;
-        ExpandedContent.ToggleExpansion = () => (Window.GetWindow(this) as TaskbarWindow)?.ToggleWidgetExpansion();
+        ExpandedContent.ToggleExpansion = () => TaskbarOwner?.ToggleWidgetExpansion();
 
         // Apply Windows theme colors (independent of the app theme setting)
         ApplyWindowsTheme();
@@ -278,7 +281,7 @@ public partial class TaskbarWidgetControl : UserControl
 
         // Release timers, clocks and slide state when the host window goes away so
         // the control never keeps itself (or its DispatcherTimers) alive after teardown.
-        Unloaded += (s, e) => CleanupWidgetResources();
+        Unloaded += (s, e) => { if (TaskbarOwner == null) CleanupWidgetResources(); };
     }
 
     public void ApplyCornerRadius()
@@ -1632,7 +1635,7 @@ public partial class TaskbarWidgetControl : UserControl
             return;
         }
         // Media genuinely stopped: the extended panel has nothing left to show.
-        (Window.GetWindow(this) as TaskbarWindow)?.CloseWidgetExpansion();
+        TaskbarOwner?.CloseWidgetExpansion();
 
         SetCompactAlbumArt(null);
         _artworkPublication?.Cancel();
@@ -2251,7 +2254,7 @@ public partial class TaskbarWidgetControl : UserControl
             return;
 
         e.Handled = true;
-        (Window.GetWindow(this) as TaskbarWindow)?.ToggleWidgetExpansion();
+        TaskbarOwner?.ToggleWidgetExpansion();
     }
 
     private void SongInfo_MouseEnter(object sender, MouseEventArgs e)

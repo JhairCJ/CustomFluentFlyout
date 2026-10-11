@@ -10,6 +10,15 @@ using NAudio.Wave;
 // Integration checks using the installed CrispASR runtime and a local speech fixture.
 // No microphone, text injection, UI, or user settings file is touched.
 // dotnet run --project tools/DictationChecks -c Release -- <model.gguf> <speech.wav>
+if (args is ["--input"]) { await StabilityChecks.Input(); return; }
+if (args is ["--capture"]) { await StabilityChecks.Capture(); return; }
+if (args is ["--capture-device"]) { await StabilityChecks.CaptureDevice(); return; }
+if (args is ["--taskbar"])
+{
+    var thread = new Thread(TaskbarHostChecks.Run);
+    thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join(); return;
+}
+if (args.Length >= 1 && args[0] == "--diagnostics") { await StabilityChecks.Diagnostics(args); return; }
 if (args is ["--whisper-benchmark", var whisperPath, var whisperAudio, var whisperDevice])
 {
     await WhisperInferenceChecks.Run(whisperPath, whisperAudio, whisperDevice == "gpu");

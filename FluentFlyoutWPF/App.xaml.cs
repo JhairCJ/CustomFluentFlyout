@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes;
+using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Windows;
 using Microsoft.Toolkit.Uwp.Notifications;
 using System.Windows;
@@ -15,9 +16,13 @@ public partial class App : Application
 {
     protected override async void OnStartup(StartupEventArgs e)
     {
+        ConfigureRendering(e.Args);
+        SessionDiagnostics.Start(System.Windows.Media.RenderOptions.ProcessRenderMode == System.Windows.Interop.RenderMode.SoftwareOnly);
+        SessionDiagnostics.Mark(DiagnosticStage.Startup);
         // log unhandled exceptions before crashing
         AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
         {
+            SessionDiagnostics.Fatal(args.ExceptionObject as Exception);
             NLog.LogManager.GetCurrentClassLogger().Error(args.ExceptionObject as Exception, "Unhandled exception occurred");
             NLog.LogManager.Flush(); // Ensure logs are written before application dies
             // Y se devuelve el OSD nativo de Windows a explorer: morir con el OSD
@@ -37,5 +42,16 @@ public partial class App : Application
 
         FluentFlyoutWPF.Classes.Dictation.WhisperCudaRuntime.CompletePendingRemoval();
         base.OnStartup(e);
+    }
+
+    internal static void ConfigureRendering(string[] args)
+    {
+        if (args.Contains("--software-rendering", StringComparer.OrdinalIgnoreCase))
+            System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
+    }
+    protected override void OnExit(ExitEventArgs e)
+    {
+        SessionDiagnostics.Stop();
+        base.OnExit(e);
     }
 }

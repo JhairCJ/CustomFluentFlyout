@@ -27,6 +27,23 @@ internal sealed class DictationKeyRouter
 
     public bool InputHeld => _captured.Count > 0 || _physicalDown.Any(IsModifier);
 
+    public void Disarm() => _bypassUntilRelease = true;
+
+    public void ObservePhysical(int vk, bool down)
+    {
+        if (down) _physicalDown.Add(vk);
+        else { _physicalDown.Remove(vk); _captured.Remove(vk); }
+        _bypassUntilRelease = _physicalDown.Count != 0;
+    }
+
+    // Unaccepted artificial downs never reached the target. Their physical ups
+    // must remain captured, even after a denied/partial SendInput call.
+    public void ReplayAccepted(IReadOnlyList<Key> replay, int accepted)
+    {
+        for (int i = accepted; i < replay.Count; i++)
+            if (replay[i].Down) _captured[replay[i].VirtualKey] = replay[i];
+    }
+
     public void Reset()
     {
         _physicalDown.Clear();

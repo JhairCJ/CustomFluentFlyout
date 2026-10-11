@@ -1,6 +1,8 @@
 using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Models;
 
+DictationRoutingChecks.Run();
+
 // Comprobación ejecutable de la lógica PURA del Island. Cada bloque cubre una regla que
 // hasta ahora solo se podía validar a ojo: el parseo de pantallas, la física del motor,
 // el detector de cambio de pista, la política del aviso temporal y el desempate de la

@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../FluentFlyoutWPF/Classes/MouseClickOutsideHook.cs" Link="MouseClickOutsideHook.cs" />
+    <Compile Include="../../FluentFlyoutWPF/Classes/TaskbarAttachment.cs" Link="TaskbarAttachment.cs" />
   </ItemGroup>
 </Project>

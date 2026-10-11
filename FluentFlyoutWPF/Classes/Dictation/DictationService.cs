@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 The FluentFlyout Authors
+﻿// Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes;
@@ -47,7 +47,31 @@ public sealed class DictationService : IDisposable
 {
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-    private readonly MicCapture _capture = new();
+    private readonly DictationCapture _capture;
+    private readonly Func<string?> _startModelPath;
+    private readonly Func<Task>? _prefetchOverride;
+    private readonly Func<CancellationToken, Task>? _loadOverride;
+    internal Func<NativeMethods.INPUT[], uint> InputSender { get; set; } = inputs =>
+        NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
+    internal Func<bool> ModifiersHeld { get; set; } = NativeModifiersHeld;
+    internal Func<bool> InputStateAvailable { get; set; } = NativeInputDesktopAvailable;
+    internal Action<string>? RecoveryWriter { get; set; }
+    internal Task Completion => _commands.Completion;
+    internal Task DrainCommandsAsync()
+    {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _commands.Enqueue(() => { done.TrySetResult(); return Task.CompletedTask; });
+        return done.Task;
+    }
+    private readonly DictationCommandQueue _commands = new();
+    private readonly object _inputGate = new();
+    private long _gestureGeneration;
+    private long _recordingGeneration, _transcriptionGeneration;
+    private bool _gestureActive, _gestureLatched, _gestureToggle;
+    private long _gestureTick;
+    private readonly object _workersGate = new();
+    private readonly HashSet<Task> _workers = [];
+    private int _resourceUsers;
     private readonly ExternalAsrTranscriber _externalTranscriber = new();
     private readonly DictationTranscriptHistory _transcriptHistory = new();
     private readonly DictationKeyRouter _keyRouter = new();
@@ -85,7 +109,8 @@ public sealed class DictationService : IDisposable
     private volatile bool _disposed;
     private volatile bool _runtimeMaintenance;
 
-    public DictationPhase Phase { get; private set; } = DictationPhase.Idle;
+    private volatile DictationPhase _phase = DictationPhase.Idle;
+    public DictationPhase Phase { get => _phase; private set => _phase = value; }
 
     /// <summary>Is dictation running (recording or transcribing)?</summary>
     public bool Active => Phase is DictationPhase.Listening or DictationPhase.Transcribing;
@@ -106,9 +131,26 @@ public sealed class DictationService : IDisposable
 
     internal void ResetKeyboardRouting()
     {
-        _keyRouter.Reset();
-        _inputHeld = false;
-        _finishHandsFreeOnRelease = false;
+        lock (_inputGate)
+        {
+            _keyRouter.Disarm();
+            _inputHeld = _keyRouter.InputHeld;
+            _gestureActive = _gestureLatched = false;
+            Interlocked.Increment(ref _gestureGeneration);
+            _commands.Enqueue(CancelCoreAsync);
+        }
+    }
+
+    internal bool ObserveInputKey(int vk) => DictationKeyRouter.IsModifier(vk)
+        || DictationHotkey.Parse(SettingsManager.Current.DictationHotkey).Contains(DictationHotkey.Normalize(vk));
+
+    internal void ObservePhysicalInput(int vk, bool down)
+    {
+        lock (_inputGate)
+        {
+            _keyRouter.ObservePhysical(vk, down);
+            _inputHeld = _keyRouter.InputHeld;
+        }
     }
 
     /// <summary>Localization key of the current message (error or notice); null if none.</summary>
@@ -169,15 +211,19 @@ public sealed class DictationService : IDisposable
     /// <summary>Raised on any phase change, message level change, or end of dictation.</summary>
     public event Action? Changed;
 
-    public DictationService()
+    public DictationService() : this(new DictationCapture()) { }
+
+    internal DictationService(DictationCapture capture, Func<string?>? startModelPath = null,
+        Func<Task>? prefetch = null, Func<CancellationToken, Task>? load = null)
     {
-        // Device callbacks never close their own device. Report disk errors on the UI
-        // thread immediately instead of silently leaving a recording running.
+        _capture = capture;
+        _startModelPath = startModelPath ?? (() => DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel));
+        _prefetchOverride = prefetch;
+        _loadOverride = load;
+        // Device callbacks only enqueue a stop; they never close their own device.
         _capture.StorageFailed += () =>
         {
-            var dispatcher = System.Windows.Application.Current?.Dispatcher;
-            if (!_disposed && dispatcher is { HasShutdownStarted: false })
-                dispatcher.BeginInvoke(new Action(Stop));
+            if (!_disposed) Stop();
         };
     }
 
@@ -189,63 +235,70 @@ public sealed class DictationService : IDisposable
     public bool HandleKey(int virtualKey, bool down, bool injected = false, int scanCode = 0, bool extended = false)
     {
         if (_disposed || injected || virtualKey == 0) return false;
-        string configured = SettingsManager.Current.DictationHotkey;
-        if (_configuredHotkeyText != configured)
+        lock (_inputGate)
         {
-            _configuredHotkeyText = configured;
-            _configuredHotkey = DictationHotkey.Parse(configured);
-        }
-        var hotkey = Phase == DictationPhase.Listening ? _sessionHotkey : _configuredHotkey;
-        var routing = _keyRouter.Route(new(virtualKey, scanCode, extended, down), hotkey,
-            SettingsManager.Current.DictationEnabled && !HotkeyCaptureActive,
-            Active && !HotkeyCaptureActive);
-        _inputHeld = _keyRouter.InputHeld;
-
-        if (routing.Replay is { } replay) ReplayShortcut(replay);
-        if (routing.Cancel) { Cancel(); return routing.Consume; }
-        if (HotkeyCaptureActive || !SettingsManager.Current.DictationEnabled) return routing.Consume;
-
-        if (routing.ForeignChord)
-        {
-            _finishHandsFreeOnRelease = false;
-            // A native Ctrl+Shift+C typed right after the modifiers is a shortcut,
-            // not a new dictation. Leave an established hands-free session running.
-            if (Phase == DictationPhase.Listening && !_handsFreeLatched
-                && Environment.TickCount64 - _hotkeyStartedTick < HotkeyHoldThresholdMs) Cancel();
-        }
-        if (routing.Completed)
-        {
-            if (!Active) Start();
-            else if (Phase == DictationPhase.Listening && _handsFreeLatched)
+            string configured = SettingsManager.Current.DictationHotkey;
+            if (_configuredHotkeyText != configured && !_gestureActive)
+            { _configuredHotkeyText = configured; _configuredHotkey = DictationHotkey.Parse(configured); }
+            var hotkey = _gestureActive ? _sessionHotkey : _configuredHotkey;
+            var routing = _keyRouter.Route(new(virtualKey, scanCode, extended, down), hotkey,
+                SettingsManager.Current.DictationEnabled && !HotkeyCaptureActive,
+                (_gestureActive || Active) && !HotkeyCaptureActive);
+            _inputHeld = _keyRouter.InputHeld;
+            if (routing.Replay is { } replay)
             {
-                // Modifier-only chords are ambiguous until release: a following C
-                // must still mean Ctrl+Shift+C, without ending hands-free recording.
-                if (hotkey.All(DictationKeyRouter.IsModifier)) _finishHandsFreeOnRelease = true;
-                else Stop();
+                try { _keyRouter.ReplayAccepted(replay, ReplayShortcut(replay)); }
+                catch { _keyRouter.ReplayAccepted(replay, 0); throw; }
             }
-        }
-
-        int normalized = DictationHotkey.Normalize(virtualKey);
-        if (!down && Phase == DictationPhase.Listening && DictationHotkey.Ends(hotkey, normalized)
-            && !_keyRouter.IsDown(normalized))
-        {
-            if (_finishHandsFreeOnRelease)
+            if (routing.Cancel || (routing.ForeignChord && _gestureActive && !_gestureLatched
+                && Environment.TickCount64 - _gestureTick < HotkeyHoldThresholdMs))
             {
-                _finishHandsFreeOnRelease = false;
-                Stop();
+                _gestureActive = _gestureLatched = _finishHandsFreeOnRelease = false;
+                Interlocked.Increment(ref _gestureGeneration);
+                _commands.Enqueue(CancelCoreAsync);
             }
-            else if (!_sessionToggle || (!_handsFreeLatched
-                && Environment.TickCount64 - _hotkeyStartedTick >= HotkeyHoldThresholdMs)) Stop();
-            else if (!_handsFreeLatched)
+            if (routing.ForeignChord) _finishHandsFreeOnRelease = false;
+            if (routing.Completed)
             {
-                _handsFreeLatched = true;
-                Changed?.Invoke();
+                if (!_gestureActive && !Active)
+                {
+                    _gestureActive = true;
+                    _gestureLatched = false;
+                    _gestureTick = Environment.TickCount64;
+                    _gestureToggle = SettingsManager.Current.DictationToggleMode;
+                    _sessionHotkey = hotkey.ToArray();
+                    long generation = Interlocked.Increment(ref _gestureGeneration);
+                    _commands.Enqueue(() => StartCoreAsync(generation));
+                }
+                else if (_gestureLatched)
+                {
+                    if (hotkey.All(DictationKeyRouter.IsModifier)) _finishHandsFreeOnRelease = true;
+                    else { _gestureActive = _gestureLatched = false; _commands.Enqueue(StopCoreAsync); }
+                }
             }
+            if (!down && _gestureActive && DictationHotkey.Ends(hotkey, DictationHotkey.Normalize(virtualKey))
+                && !_keyRouter.IsDown(DictationHotkey.Normalize(virtualKey)))
+            {
+                if (_finishHandsFreeOnRelease || !_gestureToggle
+                    || (!_gestureLatched && Environment.TickCount64 - _gestureTick >= HotkeyHoldThresholdMs))
+                {
+                    _gestureActive = _gestureLatched = _finishHandsFreeOnRelease = false;
+                    if (Phase != DictationPhase.Listening)
+                        Interlocked.Increment(ref _gestureGeneration);
+                    _commands.Enqueue(StopCoreAsync);
+                }
+                else if (!_gestureLatched)
+                {
+                    _gestureLatched = true;
+                    _commands.Enqueue(() => { if (!_disposed && Phase == DictationPhase.Listening)
+                        { _handsFreeLatched = true; NotifyChanged(); } return Task.CompletedTask; });
+                }
+            }
+            return routing.Consume;
         }
-        return routing.Consume;
     }
 
-    private static void ReplayShortcut(IReadOnlyList<DictationKeyRouter.Key> keys)
+    private int ReplayShortcut(IReadOnlyList<DictationKeyRouter.Key> keys)
     {
         var inputs = new NativeMethods.INPUT[keys.Count];
         for (int i = 0; i < keys.Count; i++)
@@ -255,8 +308,10 @@ public sealed class DictationService : IDisposable
             inputs[i].ki.wScan = (ushort)key.ScanCode;
             if (key.Extended) inputs[i].ki.dwFlags |= 0x0001; // KEYEVENTF_EXTENDEDKEY
         }
-        uint sent = NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
-        if (sent != inputs.Length) Logger.Warn($"Could not replay all native shortcut events ({sent}/{inputs.Length})");
+        uint sent = InputSender(inputs);
+        if (sent != inputs.Length) ThreadPool.QueueUserWorkItem(_ =>
+            Logger.Warn($"Could not replay all native shortcut events ({sent}/{inputs.Length})"));
+        return (int)Math.Min(sent, (uint)inputs.Length);
     }
 
     // ------------------------------------------------------------------
@@ -266,12 +321,25 @@ public sealed class DictationService : IDisposable
     /// <summary>Opens the microphone and presents the Island card (RF-1).</summary>
     public void Start()
     {
-        if (_disposed || Active) return;
+        lock (_inputGate)
+        {
+            _sessionHotkey = DictationHotkey.Parse(SettingsManager.Current.DictationHotkey);
+            _gestureTick = Environment.TickCount64;
+            _gestureToggle = SettingsManager.Current.DictationToggleMode;
+        }
+        long generation = Interlocked.Increment(ref _gestureGeneration);
+        _commands.Enqueue(() => StartCoreAsync(generation));
+    }
+
+    private async Task StartCoreAsync(long generation)
+    {
+        if (_disposed || Active || generation != Volatile.Read(ref _gestureGeneration)) return;
         long gestureStartedTick = Environment.TickCount64;
 
-        string? modelPath = DictationModelStore.ResolveActivePath(SettingsManager.Current.DictationModel);
+        string? modelPath = _startModelPath();
         if (modelPath == null)
         {
+            EndFailedGesture(generation);
             Fail("IslandDictationNoModel", "Download a speech model in Settings → Dictation");
             return;
         }
@@ -283,35 +351,57 @@ public sealed class DictationService : IDisposable
             _resourceSessionStarting = true;
         }
 
-        // The microphone is opened HERE and not on a separate thread on purpose: the
-        // keyboard hook has a ~300 ms deadline and opening the device takes a few tens of
-        // ms, while deferring it would open the door to the key being released before the
-        // recording exists. Transcription, which is the slow part, runs on its own thread.
         try
         {
-            _capture.Start();
+            await _capture.StartAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {
+            EndFailedGesture(generation);
             lock (_resourceStateGate) _resourceSessionStarting = false;
             Logger.Warn(ex, "No se pudo abrir el micrófono");
-            if (ex is IOException or UnauthorizedAccessException)
+            if (_capture.HasDevice)
+                Fail("IslandDictationCaptureTimeout", "The microphone driver is still stopping. Try again after it releases.", 5000);
+            else if (ex is IOException or UnauthorizedAccessException)
                 Fail("IslandDictationCaptureFailed", "Could not save the recording. Check free disk space.");
             else Fail("IslandDictationNoMic", "No microphone available");
             ScheduleResourceRelease();
             return;
         }
 
-        _cancelRequested = false;
-        _sessionToggle = SettingsManager.Current.DictationToggleMode;
-        _handsFreeLatched = false;
-        _finishHandsFreeOnRelease = false;
-        _hotkeyStartedTick = gestureStartedTick;
-        _sessionHotkey = DictationHotkey.Parse(SettingsManager.Current.DictationHotkey);
-        SetPhase(DictationPhase.Listening);
+        bool stale;
+        lock (_inputGate)
+        {
+            stale = _disposed || generation != Volatile.Read(ref _gestureGeneration);
+            if (!stale)
+            {
+                _cancelRequested = false;
+                _recordingGeneration = generation;
+                _sessionToggle = _gestureToggle;
+                _handsFreeLatched = _gestureLatched;
+                _hotkeyStartedTick = gestureStartedTick;
+                SetPhase(DictationPhase.Listening, notify: false);
+            }
+        }
+        if (stale)
+        {
+            (await _capture.StopAsync().ConfigureAwait(false))?.Dispose();
+            lock (_resourceStateGate) _resourceSessionStarting = false;
+            return;
+        }
+        NotifyChanged();
         Logger.Info("Dictado: grabación iniciada; precarga en segundo plano");
-        _ = Task.Run(PrefetchEngineAsync);
+        RunEngineWorker(_prefetchOverride ?? PrefetchEngineAsync);
         lock (_resourceStateGate) _resourceSessionStarting = false;
+    }
+
+    private void EndFailedGesture(long generation)
+    {
+        lock (_inputGate)
+        {
+            if (generation == Volatile.Read(ref _gestureGeneration))
+                _gestureActive = _gestureLatched = _finishHandsFreeOnRelease = false;
+        }
     }
 
     /// <summary>
@@ -357,7 +447,7 @@ public sealed class DictationService : IDisposable
 
             Logger.Info($"Dictado: modelo listo tras {preloadClock.ElapsedMilliseconds} ms de precarga "
                 + $"({Path.GetFileName(path)}, fase {Phase})");
-            Changed?.Invoke();
+            NotifyChanged();
 
             // The gate skips the neural VAD unless the level is ambiguous, but when it
             // does need it the model has to be there: fetching it here keeps the network
@@ -377,10 +467,17 @@ public sealed class DictationService : IDisposable
     /// <summary>Closes the microphone, drops the audio and writes nothing (RF-4).</summary>
     public void Cancel()
     {
+        Interlocked.Increment(ref _gestureGeneration);
+        CancelTranscription();
+        _commands.Enqueue(CancelCoreAsync);
+    }
+
+    private async Task CancelCoreAsync()
+    {
         if (Phase == DictationPhase.Listening)
         {
             _cancelRequested = true;
-            Stop();
+            await StopCoreAsync().ConfigureAwait(false);
             return;
         }
 
@@ -392,20 +489,24 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>Closes the microphone and transcribes what was captured, if there is voice (RF-3/RF-5).</summary>
-    public void Stop()
+    public void Stop() => _commands.Enqueue(StopCoreAsync);
+
+    private async Task StopCoreAsync()
     {
         if (Phase != DictationPhase.Listening) return;
 
         CapturedRecording? recording;
-        try { recording = _capture.Stop(); }
+        try { recording = await _capture.StopAsync().ConfigureAwait(false); }
         catch (Exception ex)
         {
             Logger.Error(ex, "Dictation recording failed");
-            Fail("IslandDictationCaptureFailed", "Could not save the recording. Check free disk space.");
+            if (ex is TimeoutException)
+                Fail("IslandDictationCaptureTimeout", "The microphone driver is still stopping. Try again after it releases.", 5000);
+            else Fail("IslandDictationCaptureFailed", "Could not save the recording. Check free disk space.");
             FinishSessionWithoutTranscription();
             return;
         }
-        bool cancelled = _cancelRequested;
+        bool cancelled = _cancelRequested || _disposed || _recordingGeneration != Volatile.Read(ref _gestureGeneration);
         _cancelRequested = false;
 
         if (cancelled || recording == null || recording.Length == 0)
@@ -420,12 +521,14 @@ public sealed class DictationService : IDisposable
         Logger.Info("Dictado: grabación finalizada; comienza la transcripción");
         string language = SettingsManager.Current.DictationLanguage;
         var sessionCts = new CancellationTokenSource();
+        long generation = _recordingGeneration;
+        _transcriptionGeneration = generation;
         lock (_transcriptionGate)
         {
             CancellationTokenSource? previousCts = Interlocked.Exchange(ref _transcriptionCts, sessionCts);
             previousCts?.Cancel();
         }
-        _ = Task.Run(() => TranscribeAndSendAsync(recording, language, sessionCts));
+        RunEngineWorker(() => TranscribeAndSendAsync(recording, language, sessionCts, generation));
     }
 
     /// <summary>
@@ -438,7 +541,9 @@ public sealed class DictationService : IDisposable
     }
 
     /// <summary>Releases locked runtime files and suspends preloading/new recordings during removal.</summary>
-    public async Task RunRuntimeMaintenanceAsync(Func<Task> action)
+    public Task RunRuntimeMaintenanceAsync(Func<Task> action) => TrackWorker(() => RunRuntimeMaintenanceCoreAsync(action));
+
+    private async Task RunRuntimeMaintenanceCoreAsync(Func<Task> action)
     {
         lock (_resourceStateGate)
         {
@@ -488,7 +593,7 @@ public sealed class DictationService : IDisposable
             _resourcePolicyCts = work;
         }
 
-        _ = Task.Run(() => ApplyResourcePolicyAsync(work));
+        RunWorker(() => ApplyResourcePolicyAsync(work));
     }
 
     /// <summary>Restarts the release timer with the new slider value.</summary>
@@ -511,17 +616,7 @@ public sealed class DictationService : IDisposable
     /// <summary>Hot setting change: if dictation is no longer enabled, it is cut on the spot.</summary>
     public void RefreshSettings()
     {
-        if (!SettingsManager.Current.DictationEnabled && Active)
-        {
-            _cancelRequested = true;
-            if (Phase == DictationPhase.Listening) Stop();
-            else
-            {
-                CancelTranscription();
-                SetPhase(DictationPhase.Idle);
-            }
-        }
-
+        if (!SettingsManager.Current.DictationEnabled) Cancel();
         RefreshResourcePolicy();
     }
 
@@ -539,7 +634,7 @@ public sealed class DictationService : IDisposable
         // Reload the model context, not the native DLL. CUDA can also run CPU contexts;
         // a CPU-only library needs a restart before it can offer CUDA.
         RefreshResourcePolicy();
-        Changed?.Invoke();
+        NotifyChanged();
     }
 
     public void Dispose()
@@ -555,23 +650,57 @@ public sealed class DictationService : IDisposable
         }
         _lifetimeCts.Cancel();
         CancelTranscription();
-        _capture.Dispose();
-        _transcriptHistory.Dispose();
-        _externalTranscriber.Dispose();
-        _vadFactory?.Dispose();
-        _vadFactory = null;
-        _engineLock.Dispose();
-        _vadLock.Dispose();
-        _factory?.Dispose();
-        _factory = null;
-        _lifetimeCts.Dispose();
-        // Clean shutdown with CUDA loaded: that is not a failure, the notice is withdrawn.
-        DictationGpuSafety.Disarm();
+        _commands.Enqueue(async () =>
+        {
+            await _capture.DisposeAsync().ConfigureAwait(false);
+            Task[] pending;
+            lock (_workersGate) pending = _workers.ToArray();
+            try { await Task.WhenAll(pending).ConfigureAwait(false); } catch { }
+            _transcriptHistory.Dispose();
+            _externalTranscriber.Dispose();
+            _vadFactory?.Dispose();
+            _factory?.Dispose();
+            _engineLock.Dispose();
+            _vadLock.Dispose();
+            _resourcePolicyLock.Dispose();
+            _lifetimeCts.Dispose();
+            DictationGpuSafety.Disarm();
+        });
+        _commands.Complete();
+    }
+
+    private void RunWorker(Func<Task> action)
+        => _ = TrackWorker(action);
+
+    private void RunEngineWorker(Func<Task> action)
+    {
+        Interlocked.Increment(ref _resourceUsers);
+        RunWorker(async () =>
+        {
+            try { await action().ConfigureAwait(false); }
+            finally
+            {
+                if (Interlocked.Decrement(ref _resourceUsers) == 0 && !_disposed) RefreshResourcePolicy();
+            }
+        });
+    }
+
+    private Task TrackWorker(Func<Task> action)
+    {
+        lock (_workersGate)
+        {
+            if (_disposed) return Task.CompletedTask;
+            var task = Task.Run(action);
+            _workers.Add(task);
+            _ = task.ContinueWith(done => { lock (_workersGate) _workers.Remove(done); }, TaskScheduler.Default);
+            return task;
+        }
     }
 
     private bool IsResourceBusyUnsafe() =>
         _runtimeMaintenance
         || _resourceSessionStarting
+        || Volatile.Read(ref _resourceUsers) != 0
         || Active
         || Volatile.Read(ref _transcriptionCts) != null;
 
@@ -624,6 +753,7 @@ public sealed class DictationService : IDisposable
     private async Task ApplyResourcePolicyAsync(CancellationTokenSource work)
     {
         bool lockTaken = false;
+        Stopwatch? preloadClock = null;
         try
         {
             await _resourcePolicyLock.WaitAsync(work.Token);
@@ -668,7 +798,11 @@ public sealed class DictationService : IDisposable
                 }
             }
 
-            await LoadResourcesCoreAsync(work.Token);
+            preloadClock = Stopwatch.StartNew();
+            SessionDiagnostics.Mark(DiagnosticStage.PreloadStart, Volatile.Read(ref _gestureGeneration));
+            if (_loadOverride != null) await _loadOverride(work.Token);
+            else await LoadResourcesCoreAsync(work.Token);
+            SessionDiagnostics.Mark(DiagnosticStage.PreloadComplete, Volatile.Read(ref _gestureGeneration), preloadClock.ElapsedMilliseconds);
         }
         catch (OperationCanceledException) when (work.IsCancellationRequested || _disposed)
         {
@@ -676,6 +810,8 @@ public sealed class DictationService : IDisposable
         }
         catch (Exception ex)
         {
+            if (preloadClock != null) SessionDiagnostics.Mark(DiagnosticStage.PreloadFailure,
+                Volatile.Read(ref _gestureGeneration), preloadClock.ElapsedMilliseconds);
             Logger.Warn(ex, "No se pudo aplicar la política de carga del dictado");
         }
         finally
@@ -712,7 +848,7 @@ public sealed class DictationService : IDisposable
         }
 
         Logger.Info($"Dictado: recursos preparados para {Path.GetFileName(modelPath)}");
-        Changed?.Invoke();
+        NotifyChanged();
     }
 
     private async Task ReleaseLoadedResourcesCoreAsync()
@@ -746,7 +882,7 @@ public sealed class DictationService : IDisposable
             }
 
             Logger.Info("Dictado: pesos, contextos, VAD y workers liberados");
-            Changed?.Invoke();
+            NotifyChanged();
         }
         catch (Exception ex)
         {
@@ -771,7 +907,7 @@ public sealed class DictationService : IDisposable
             _resourceReleaseCts = timer;
         }
 
-        _ = Task.Run(() => ReleaseWhenIdleAsync(timer, TimeSpan.FromSeconds(delaySeconds)));
+        RunWorker(() => ReleaseWhenIdleAsync(timer, TimeSpan.FromSeconds(delaySeconds)));
     }
 
     private async Task ReleaseWhenIdleAsync(
@@ -879,7 +1015,7 @@ public sealed class DictationService : IDisposable
         _runtimeLoaded = RuntimeOptions.LoadedLibrary.HasValue;
         _runtimeInfo = _runtimeLoaded ? WhisperFactory.GetRuntimeInfo() : "";
         Logger.Info($"Runtime nativo de dictado: {RuntimeOptions.LoadedLibrary?.ToString() ?? "desconocido"} ({_runtimeInfo})");
-        Changed?.Invoke();
+        NotifyChanged();
     }
 
     private async Task<WhisperFactory> EnsureFactoryAsync(CancellationToken cancellationToken)
@@ -960,7 +1096,7 @@ public sealed class DictationService : IDisposable
         ApplyRuntimeLibraryOrder(false);
         DictationGpuSafety.Disarm();
         DisableGpuPreference();
-        Changed?.Invoke();
+        NotifyChanged();
     }
 
     /// <summary>Dictation sample rate (also Whisper's native format): 16 kHz.</summary>
@@ -1041,11 +1177,12 @@ public sealed class DictationService : IDisposable
         bool released = await WaitForInputReleaseAsync(token);
         lock (_transcriptionGate)
         {
-            if (_disposed || !SettingsManager.Current.DictationEnabled || !IsCurrentTranscription(sessionCts))
+            if (_disposed || token.IsCancellationRequested || !SettingsManager.Current.DictationEnabled
+                || _transcriptionGeneration != Volatile.Read(ref _gestureGeneration) || !IsCurrentTranscription(sessionCts))
                 return;
             try
             {
-                if (!released || _inputHeld || NativeModifiersHeld())
+                if (!released || _inputHeld || !InputStateAvailable() || ModifiersHeld())
                 {
                     Fail("IslandDictationKeysHeld", "Text was not inserted while shortcut keys were held. Check the recovery folder.", 5000);
                     return;
@@ -1056,7 +1193,8 @@ public sealed class DictationService : IDisposable
             {
                 // Queue the recovery copy AFTER attempting insertion. Missing focus,
                 // a non-editable target or SendInput failure must not lose the result.
-                _transcriptHistory.SaveAfterSubmission(text);
+                if (RecoveryWriter != null) RecoveryWriter(text);
+                else _transcriptHistory.SaveAfterSubmission(text);
             }
         }
     }
@@ -1068,6 +1206,26 @@ public sealed class DictationService : IDisposable
         || (NativeMethods.GetAsyncKeyState(0x5B) & 0x8000) != 0
         || (NativeMethods.GetAsyncKeyState(0x5C) & 0x8000) != 0;
 
+    private static bool NativeInputDesktopAvailable()
+    {
+        var desktop = OpenInputDesktop(0, false, 1); // DESKTOP_READOBJECTS
+        if (desktop == IntPtr.Zero) return false;
+        try
+        {
+            var inputName = new StringBuilder(128);
+            var threadName = new StringBuilder(128);
+            return GetUserObjectInformation(desktop, 2, inputName, 256, out _)
+                && GetUserObjectInformation(GetThreadDesktop(GetCurrentThreadId()), 2, threadName, 256, out _)
+                && inputName.ToString() == threadName.ToString();
+        }
+        finally { CloseDesktop(desktop); }
+    }
+    [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
+    [DllImport("user32.dll")] private static extern bool CloseDesktop(IntPtr desktop);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool GetUserObjectInformation(IntPtr handle, int index, StringBuilder info, uint length, out uint needed);
+    [DllImport("user32.dll")] private static extern IntPtr GetThreadDesktop(uint thread);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+
     private async Task<bool> WaitForInputReleaseAsync(CancellationToken token)
     {
         long deadline = Environment.TickCount64 + 5000;
@@ -1077,7 +1235,7 @@ public sealed class DictationService : IDisposable
             token.ThrowIfCancellationRequested();
             // This runs on the transcription worker, never inside the keyboard hook
             // (Windows has not updated asynchronous key state inside that callback).
-            stableChecks = !_inputHeld && !NativeModifiersHeld() ? stableChecks + 1 : 0;
+            stableChecks = !_inputHeld && InputStateAvailable() && !ModifiersHeld() ? stableChecks + 1 : 0;
             if (stableChecks >= 2) return true;
             await Task.Delay(16, token);
         } while (Environment.TickCount64 < deadline);
@@ -1087,9 +1245,10 @@ public sealed class DictationService : IDisposable
     private async Task TranscribeAndSendAsync(
         CapturedRecording recording,
         string language,
-        CancellationTokenSource sessionCts)
+        CancellationTokenSource sessionCts, long generation)
     {
         var clock = Stopwatch.StartNew();
+        SessionDiagnostics.Mark(DiagnosticStage.Recognition, generation);
         long vadMs = 0, engineMs = 0, decodeMs = 0;
         int segments = 0, characters = 0;
         try
@@ -1207,12 +1366,14 @@ public sealed class DictationService : IDisposable
         }
         catch (Exception ex)
         {
+            SessionDiagnostics.Mark(DiagnosticStage.RecognitionFailure, generation, clock.ElapsedMilliseconds);
             Logger.Error(ex, "Dictation transcription failed");
             if (!_disposed && IsCurrentTranscription(sessionCts))
                 Fail("IslandDictationFailed", "Could not transcribe the audio");
         }
         finally
         {
+            SessionDiagnostics.Mark(DiagnosticStage.RecognitionComplete, generation, clock.ElapsedMilliseconds);
             recording.Dispose();
             bool current;
             lock (_transcriptionGate)
@@ -1502,23 +1663,28 @@ public sealed class DictationService : IDisposable
     // State
     // ------------------------------------------------------------------
 
-    private void SetPhase(DictationPhase phase)
+    private void NotifyChanged() { if (!_disposed) Changed?.Invoke(); }
+
+    private void SetPhase(DictationPhase phase, bool notify = true)
     {
+        if (_disposed) return;
+        SessionDiagnostics.Mark(DiagnosticStage.Phase, Volatile.Read(ref _gestureGeneration), phase: (int)phase);
         Phase = phase;
         if (phase is DictationPhase.Listening or DictationPhase.Transcribing or DictationPhase.Idle)
         {
             MessageKey = null;
             MessageFallback = null;
         }
-        Changed?.Invoke();
+        if (notify) NotifyChanged();
     }
 
     private void Fail(string messageKey, string fallback, int hideAfterMs = 2500)
     {
+        if (_disposed) return;
         Phase = DictationPhase.Error;
         MessageKey = messageKey;
         MessageFallback = fallback;
-        Changed?.Invoke();
+        NotifyChanged();
         _ = Task.Delay(hideAfterMs).ContinueWith(_ =>
         {
             if (_disposed || Phase != DictationPhase.Error) return;
@@ -1535,7 +1701,7 @@ public sealed class DictationService : IDisposable
     /// language, it does not touch the clipboard, and it respects the app in front.
     /// System limit: Windows does not allow injecting into elevated windows (UIPI).
     /// </summary>
-    private static void SendText(string text)
+    private void SendText(string text)
     {
         // Some engines return accented letters as a base letter plus a combining
         // accent. SendInput delivers individual UTF-16 units and plenty of apps do
@@ -1567,8 +1733,19 @@ public sealed class DictationService : IDisposable
             inputs[count++] = UnicodeInput(c, true);
         }
         if (count == 0) return;
-        uint sent = NativeMethods.SendInput((uint)count, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
+        if (count != inputs.Length) Array.Resize(ref inputs, count);
+        uint sent = InputSender(inputs);
         if (sent != count) Logger.Warn($"SendInput wrote {sent} of {count} dictation events");
+        bool physicalKeyHeld;
+        lock (_inputGate) physicalKeyHeld = sent > 0 && sent < count
+            && _keyRouter.IsDown(DictationHotkey.Normalize(inputs[sent - 1].ki.wVk));
+        if (sent > 0 && sent < count && (inputs[sent - 1].ki.dwFlags & NativeMethods.KEYEVENTF_KEYUP) == 0
+            && ((inputs[sent - 1].ki.dwFlags & NativeMethods.KEYEVENTF_UNICODE) != 0 || !physicalKeyHeld))
+        {
+            var release = inputs[sent - 1];
+            release.ki.dwFlags |= NativeMethods.KEYEVENTF_KEYUP;
+            InputSender([release]);
+        }
     }
 
     private static NativeMethods.INPUT KeyInput(ushort virtualKey, bool up) => new()
@@ -1578,6 +1755,7 @@ public sealed class DictationService : IDisposable
         {
             wVk = virtualKey,
             dwFlags = up ? NativeMethods.KEYEVENTF_KEYUP : 0,
+            dwExtraInfo = new IntPtr(0x46464449),
         },
     };
 
@@ -1588,6 +1766,7 @@ public sealed class DictationService : IDisposable
         {
             wScan = c,
             dwFlags = NativeMethods.KEYEVENTF_UNICODE | (up ? NativeMethods.KEYEVENTF_KEYUP : 0),
+            dwExtraInfo = new IntPtr(0x46464449),
         },
     };
 
@@ -1606,254 +1785,4 @@ public sealed class DictationService : IDisposable
     /// came back, with three seconds of audio and no voice in it. The watchdog now spots
     /// that and reopens capture without leaving dictation, keeping what was recorded.</para>
     /// </summary>
-    private sealed class MicCapture : IDisposable
-    {
-        private const int SampleRate = 16_000;
-        /// <summary>Without a single device buffer in this time, capture is dead (the same criterion the visualizer uses).</summary>
-        private const int StallMs = 2000;
-
-        // The device is opened in Start(), not in the constructor: on a machine with no
-        // microphone building the object already throws, and this service is born with
-        // the main window (dictation being off must not stop the app from starting).
-        private WaveIn? _wave;
-        /// <summary>PCM is spooled locally; recording duration does not grow the audio buffer.</summary>
-        private CapturedRecording? _recording;
-        private Exception? _writeError;
-        /// <summary>Samples: the audio thread writes them, the transcription thread reads them.</summary>
-        private readonly Lock _lock = new();
-        /// <summary>Device and recording: touched by the UI, the watchdog and the teardown.</summary>
-        private readonly Lock _deviceLock = new();
-        private System.Timers.Timer? _watchdog;
-        private volatile float _level;
-        private volatile bool _active;
-        private long _lastDataTick;
-        private int _revives;
-
-        /// <summary>Level of the last buffer (0..1) for the visualizer.</summary>
-        public float Level => _level;
-
-        public event Action? StorageFailed;
-
-        /// <summary>Capture restarts during this dictation (0 = the device behaved).</summary>
-        public int Revives => _revives;
-
-        public void Start()
-        {
-            lock (_lock)
-            {
-                _recording?.Dispose();
-                _recording = new CapturedRecording();
-                _writeError = null;
-                _level = 0;
-            }
-            _revives = 0;
-            try
-            {
-                lock (_deviceLock)
-                {
-                    OpenAndRecord();
-                    _active = true;
-                }
-                StartWatchdog();
-            }
-            catch { Dispose(); throw; }
-        }
-
-        /// <summary>Closes the microphone and returns what was captured.</summary>
-        public CapturedRecording? Stop()
-        {
-            _active = false; // before the watchdog: an in-flight tick must not reopen anything
-            StopWatchdog();
-            lock (_deviceLock)
-            {
-                try
-                {
-                    CloseDevice();
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warn(ex, "Failed to close the microphone");
-                }
-            }
-            _level = 0;
-            lock (_lock)
-            {
-                var recording = _recording;
-                _recording = null; // Ownership passes to transcription; another Stop returns null.
-                if (_writeError != null)
-                {
-                    recording?.Dispose();
-                    throw new IOException("Could not save the dictation audio", _writeError);
-                }
-                return recording;
-            }
-        }
-
-        public void Dispose()
-        {
-            _active = false;
-            StopWatchdog();
-            lock (_deviceLock)
-            {
-                try
-                {
-                    CloseDevice();
-                }
-                catch
-                {
-                    // The device may already have been closed.
-                }
-            }
-            lock (_lock)
-            {
-                _recording?.Dispose();
-                _recording = null;
-            }
-        }
-
-        /// <summary>Opens the device if needed and starts recording.</summary>
-        private void OpenAndRecord()
-        {
-            if (_wave == null)
-            {
-                var wave = new WaveIn
-                {
-                    WaveFormat = new WaveFormat(SampleRate, 16, 1),
-                    BufferMilliseconds = 100,
-                    NumberOfBuffers = 4,
-                };
-                wave.DataAvailable += OnData;
-                _wave = wave;
-            }
-            _wave.StartRecording();
-            Volatile.Write(ref _lastDataTick, Environment.TickCount64);
-        }
-
-        /// <summary>Releases the device (the next dictation opens a fresh one).</summary>
-        private void CloseDevice()
-        {
-            var wave = _wave;
-            _wave = null;
-            if (wave == null) return;
-            wave.DataAvailable -= OnData;
-            wave.StopRecording();
-            wave.Dispose();
-        }
-
-        private void OnData(object? sender, WaveInEventArgs e)
-        {
-            Volatile.Write(ref _lastDataTick, Environment.TickCount64);
-            int count = e.BytesRecorded / 2;
-            if (count <= 0) return;
-            var pcm = e.Buffer.AsSpan(0, count * 2);
-            float sum = 0;
-            lock (_lock)
-            {
-                if (_recording == null || _writeError != null) return;
-                try { _recording.Append(pcm); }
-                catch (Exception ex)
-                {
-                    _writeError = ex;
-                    _level = 0;
-                    Logger.Error(ex, "Dictation audio storage failed");
-                    StorageFailed?.Invoke();
-                    return;
-                }
-                for (int i = 0; i < count; i++)
-                {
-                    short raw = (short)(pcm[i * 2] | (pcm[i * 2 + 1] << 8));
-                    float sample = raw / 32768f;
-                    sum += sample * sample;
-                }
-            }
-
-            // Buffer RMS -> visualizer level (the Island does the smoothing).
-            float rms = MathF.Sqrt(sum / count);
-            _level = Math.Clamp(rms * 9f, 0f, 1f);
-        }
-
-        /// <summary>Samples stored so far, in seconds (for the watchdog notices).</summary>
-        private double CapturedSeconds()
-        {
-            lock (_lock) return (_recording?.Length ?? 0) / (2.0 * SampleRate);
-        }
-
-        private void StartWatchdog()
-        {
-            StopWatchdog();
-            var watchdog = new System.Timers.Timer(StallMs / 2.0) { AutoReset = true };
-            watchdog.Elapsed += (_, _) =>
-            {
-                if (!_active) return;
-                if (Environment.TickCount64 - Volatile.Read(ref _lastDataTick) < StallMs) return;
-                Revive();
-            };
-            watchdog.Start();
-            _watchdog = watchdog;
-        }
-
-        private void StopWatchdog()
-        {
-            var watchdog = _watchdog;
-            _watchdog = null;
-            if (watchdog == null) return;
-            watchdog.Stop();
-            watchdog.Dispose();
-        }
-
-        /// <summary>
-        /// The device stopped delivering audio halfway through the dictation: it is
-        /// reopened and recording CONTINUES in the same session, keeping what was already
-        /// captured. If stopping and starting the same device fails, it is released and a
-        /// new one is opened (which also picks up a change of default microphone).
-        /// </summary>
-        private void Revive()
-        {
-            lock (_deviceLock)
-            {
-                if (!_active) return; // the session already closed: nothing to revive
-                Volatile.Write(ref _lastDataTick, Environment.TickCount64); // one attempt at a time
-                _revives++;
-                bool first = _revives <= 3 || _revives % 10 == 0; // without flooding the log
-                double captured = CapturedSeconds();
-                var wave = _wave;
-                if (wave != null)
-                {
-                    try
-                    {
-                        wave.StopRecording();
-                        wave.StartRecording();
-                        if (first)
-                            Logger.Warn($"Dictation: the microphone stopped delivering audio; "
-                                + $"capture resumes with {captured:F1} s already stored");
-                        return;
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warn(ex, "Dictation: could not resume capture on the same device; opening another one");
-                        try
-                        {
-                            CloseDevice();
-                        }
-                        catch
-                        {
-                            // The device was already gone.
-                        }
-                    }
-                }
-
-                try
-                {
-                    OpenAndRecord();
-                    Logger.Warn($"Dictado: micrófono reabierto con un dispositivo nuevo ({captured:F1} s guardados)");
-                }
-                catch (Exception ex)
-                {
-                    // Without a microphone: the rest of the dictation cannot be captured, but the
-                    // watchdog keeps trying and what was captured is not lost.
-                    if (first) Logger.Error(ex, "Dictado: el micrófono no volvió a abrirse");
-                }
-            }
-        }
-    }
 }

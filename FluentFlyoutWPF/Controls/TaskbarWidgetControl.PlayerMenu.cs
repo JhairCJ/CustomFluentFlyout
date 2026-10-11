@@ -18,13 +18,13 @@ public partial class TaskbarWidgetControl
     {
         _playerMenuSession = _mainWindow?.GetTaskbarSession();
         OpenPlayerMenuItem.IsEnabled = !_openingPlayer && _playerMenuSession != null;
-        (Window.GetWindow(this) as TaskbarWindow)?.RefreshOutsideClickHook();
+        TaskbarOwner?.RefreshOutsideClickHook();
     }
 
     private void PlayerMenu_Closed(object sender, RoutedEventArgs e)
     {
         _playerMenuSession = null;
-        (Window.GetWindow(this) as TaskbarWindow)?.RefreshOutsideClickHook();
+        TaskbarOwner?.RefreshOutsideClickHook();
     }
 
     public void ClosePlayerMenu()
