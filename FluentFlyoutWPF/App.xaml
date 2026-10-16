@@ -20,6 +20,7 @@
                 <!-- default language en-US -->
                 <ResourceDictionary Source="Resources/Localization/Dictionary-en-US.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+            <converters:HexColorToBrushConverter x:Key="HexColorToBrushConverter" />
             <FontFamily x:Key="SegoeFluentIcons">pack://application:,,,/;component/Fonts/#Segoe Fluent Icons</FontFamily>
             <!-- ContextMenu's internal popup reads this resource independently of its template. -->
             <primitives:PopupAnimation x:Key="{x:Static SystemParameters.MenuPopupAnimationKey}">None</primitives:PopupAnimation>

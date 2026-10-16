@@ -69,6 +69,9 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     public void ApplyTextStyle(System.Windows.Controls.TextBlock title, System.Windows.Controls.TextBlock artist)
     {
+        // Both rows grow by the same factor, preserving the user's typography.
+        TitleText.FontSize = title.FontSize / TaskbarWidgetControl.CompactContentScale;
+        ArtistText.FontSize = artist.FontSize / TaskbarWidgetControl.CompactContentScale;
         TitleText.FontFamily = title.FontFamily;
         TitleText.FontWeight = title.FontWeight;
         ArtistText.FontFamily = artist.FontFamily;
@@ -89,15 +92,26 @@ public partial class TaskbarWidgetExpandedContent : UserControl
     {
         _morphProgress = Math.Clamp(progress, 0, 1);
         SeekRow.Opacity = Math.Clamp((progress - 0.35) / 0.65, 0, 1);
-        // The button bounds already follow the host's transition; interpolate the glyph
-        // itself too, so swapping back to the compact tree has identical pixels.
-        PreviousIcon.FontSize = _compactPreviousIconSize + (22 - _compactPreviousIconSize) * _morphProgress;
-        NextIcon.FontSize = _compactNextIconSize + (22 - _compactNextIconSize) * _morphProgress;
-        _playIcon.FontSize = _pauseIcon.FontSize = _compactPlayIconSize + (22 - _compactPlayIconSize) * _morphProgress;
+        // Keep glyph layout fixed. Changing FontSize here remeasures/recenters the
+        // button template on every frame, fighting the shared-element transform.
+        ScaleGlyph(PreviousIcon, _compactPreviousIconSize);
+        ScaleGlyph(NextIcon, _compactNextIconSize);
+        ScaleGlyph(_playIcon, _compactPlayIconSize);
+        ScaleGlyph(_pauseIcon, _compactPlayIconSize);
         double visibility = SettingsManager.Current.TaskbarWidgetControlsEnabled ? 1 : _morphProgress;
         PreviousButton.Opacity = (_canPrevious ? 1 : 0.5) * visibility;
         PlayPauseButton.Opacity = (_canPlayPause ? 1 : 0.5) * visibility;
         NextButton.Opacity = (_canNext ? 1 : 0.5) * visibility;
+    }
+
+    private void ScaleGlyph(SymbolIcon icon, double compactSize)
+    {
+        double from = compactSize / (22 * TaskbarWidgetControl.CompactContentScale);
+        double scale = from + (1 - from) * _morphProgress;
+        icon.RenderTransformOrigin = new Point(0.5, 0.5);
+        if (icon.RenderTransform is not ScaleTransform transform || transform.IsFrozen)
+            icon.RenderTransform = transform = new ScaleTransform();
+        transform.ScaleX = transform.ScaleY = scale;
     }
 
     public void SetMainWindow(MainWindow mainWindow) => _mainWindow = mainWindow;

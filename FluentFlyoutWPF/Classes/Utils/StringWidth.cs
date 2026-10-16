@@ -55,11 +55,13 @@ namespace FluentFlyout.Classes.Utils
         /// <see cref="FontFamily"/> (which may point at an embedded resource via a
         /// pack URI), weight and size.
         /// </summary>
-        public static double GetStringWidth(string? text, FontFamily family, int fontWeight = 500, int fontSize = 14)
+        public static double GetStringWidth(string? text, FontFamily family, int fontWeight = 500, double fontSize = 14,
+            TextFormattingMode formattingMode = TextFormattingMode.Ideal, double pixelsPerDip = 1, bool italic = false)
         {
             if (string.IsNullOrEmpty(text)) return 0;
 
-            string cacheKey = family.Source + "|" + fontWeight + "|" + fontSize + "|" + text;
+            string cacheKey = family.Source + "|" + fontWeight + "|" + fontSize + "|" + formattingMode
+                + "|" + pixelsPerDip + "|" + italic + "|" + text;
             lock (_widthCacheSync)
             {
                 if (_widthCache.TryGetValue(cacheKey, out double cached))
@@ -70,11 +72,13 @@ namespace FluentFlyout.Classes.Utils
                 text,
                 System.Globalization.CultureInfo.CurrentCulture,
                 FlowDirection.LeftToRight,
-                GetTypeface(family, fontWeight),
+                italic ? new Typeface(family, FontStyles.Italic, ToFontWeight(fontWeight), FontStretches.Normal)
+                    : GetTypeface(family, fontWeight),
                 fontSize,
                 Brushes.Black,
                 null,
-                1);
+                formattingMode,
+                pixelsPerDip);
 
             double width = formattedText.Width;
             lock (_widthCacheSync)

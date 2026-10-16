@@ -355,7 +355,7 @@
     <system:String x:Key="TaskbarWidgetBackgroundRotateDirectionTitle">Dirección del giro</system:String>
     <system:String x:Key="TaskbarWidgetBackgroundRotateDirectionDescription">Gira la carátula hacia abajo o hacia arriba</system:String>
     <system:String x:Key="TaskbarWidgetBackgroundRotateDurationTitle">Tiempo de giro</system:String>
-    <system:String x:Key="TaskbarWidgetBackgroundRotateDurationDescription">Cuántos segundos tarda una vuelta completa</system:String>
+    <system:String x:Key="TaskbarWidgetBackgroundRotateDurationDescription">Cuántos segundos tarda una vuelta completa (5–600)</system:String>
     <system:String x:Key="TaskbarWidgetBackgroundRotateHighRefreshRateTitle">Modo de frecuencia alta</system:String>
     <system:String x:Key="TaskbarWidgetBackgroundRotateHighRefreshRateDescription">Hace girar a la frecuencia de refresco del monitor. Apagado, la animación se limita a 30 FPS para reducir el coste de GPU/CPU.</system:String>
     <system:String x:Key="TaskbarWidgetBorderRadiusTitle">Radio de las esquinas</system:String>
@@ -822,8 +822,9 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="IslandDictationNoModel">Sin modelo de voz: descarga uno en Ajustes → Dictado</system:String>
     <system:String x:Key="IslandDictationNoMic">No hay micrófono disponible</system:String>
     <system:String x:Key="IslandDictationFailed">No se pudo transcribir el audio</system:String>
-    <system:String x:Key="TaskbarWidgetExpandedBackgroundDarknessTitle">Oscuridad del fondo expandido</system:String>
-    <system:String x:Key="TaskbarWidgetExpandedBackgroundDarknessDescription">Ajusta el oscurecimiento al ampliar. Una base opaca evita que se filtre el escritorio.</system:String>
+    <system:String x:Key="TaskbarWidgetExpandedBackgroundTranslucencyTitle">Translucidez del fondo expandido</system:String>
+    <system:String x:Key="TaskbarWidgetExpandedBackgroundTranslucencyDescription">Ajusta cuánto se ve detrás del panel al ampliarlo (0 % opaco, 100 % transparente).</system:String>
+    <system:String x:Key="TaskbarWidgetExpandedBackgroundColorTitle">Color del fondo (HEX)</system:String>
     <system:String x:Key="AlbumArtChangeAnimationTitle">Animación del álbum</system:String>
     <system:String x:Key="AlbumArtChangeAnimationDescription">Elige cómo cambian las portadas en la isla y el widget de la barra de tareas.</system:String>
     <system:String x:Key="AlbumArtChangeAnimationFlip">Volteo</system:String>

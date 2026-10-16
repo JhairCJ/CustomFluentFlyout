@@ -29,7 +29,6 @@ public partial class TaskbarWindow : Window
 
     private readonly DispatcherTimer _timer;
     private readonly int _nativeWidgetsPadding = 216;
-    private readonly double _scale = 0.9;
 
     private IntPtr _trayHandle;
     private AutomationElement? _widgetElement;
@@ -90,6 +89,11 @@ public partial class TaskbarWindow : Window
     private bool _expansionOwnsLayout;
     private bool _expansionAnimating;
     private int _expansionVersion;
+    private Rect _expansionFromRect;
+    private double _expansionFromProgress, _expansionToProgress;
+    private static readonly DependencyProperty ExpansionFrameProperty = DependencyProperty.Register(
+        "ExpansionFrame", typeof(double), typeof(TaskbarWindow),
+        new PropertyMetadata(0.0, (d, e) => ((TaskbarWindow)d).ApplyExpansionFrame((double)e.NewValue)));
     private MouseClickOutsideHook? _outsideClickHook;
     private IntPtr _playerMenuHandle;
     private Rect _compactWidgetRect = Rect.Empty; // taskbar-local physical pixels
@@ -121,6 +125,10 @@ public partial class TaskbarWindow : Window
     private TaskbarExpansionWindow? _expansionHost;
     private IntPtr _nativeRegionWindow;
     private Rect _compactHostScreenRect = Rect.Empty;
+    private Image? _handoffImage;
+    private Rect _handoffRect;
+    private EventHandler? _handoffRendering;
+    private Action? _pendingExpansionAnimation;
     private bool _recoveryQueued, _shutdownRequested;
     internal Action? RecoveryRequested { get; set; }
     internal Func<Rect, bool> DetectFullscreen { get; set; } = FullscreenDetector.IsFullscreenOrAwayState;
@@ -608,8 +616,8 @@ on_error:
 
             // Once the user expands, Explorer auto-hiding its bar must not drag or
             // dismiss the detached surface. Keep the visible anchor until explicit
-            // collapse, monitor selection, orientation or display-size changes.
-            if (_widgetExpanded && !_taskbarScreenRect.IsEmpty
+            // return to the compact host, monitor selection, orientation or display-size changes.
+            if (_expansionOwnsLayout && !_taskbarScreenRect.IsEmpty
                 && _lastSelectedMonitor == SettingsManager.Current.TaskbarWidgetSelectedMonitor
                 && Math.Abs(dpiScale - _positionDpiScale) < 0.001
                 && Math.Abs(taskbarRect.Right - taskbarRect.Left - _taskbarScreenRect.Width) < 2
@@ -692,7 +700,9 @@ on_error:
         // Calculate widget size
         var (logicalWidth, logicalHeight) = Widget.CalculateSize(dpiScale);
 
-        int physicalWidth = (int)(logicalWidth * dpiScale * _scale);
+        // logicalWidth already comes in compact units (TaskbarWidgetControl's compact
+        // metrics carry the 10%): scaling again here would shrink the host a second time.
+        int physicalWidth = (int)(logicalWidth * dpiScale);
         int physicalHeight = (int)(logicalHeight * dpiScale);
 
         int taskbarHeight = taskbarRect.Bottom - taskbarRect.Top;
@@ -1426,6 +1436,7 @@ on_error:
                 live = new Rect(Canvas.GetLeft(Widget) * _positionDpiScale,
                     Canvas.GetTop(Widget) * _positionDpiScale,
                     Widget.Height * _positionDpiScale, Widget.Width * _positionDpiScale);
+            CaptureWidgetHandoff(live);
             _widgetResizeVersion++;
             _widgetResizeRunning = false;
             ParkExpansionGeometry(live);
@@ -1434,18 +1445,25 @@ on_error:
             TaskbarVisualizer.BeginAnimation(Canvas.TopProperty, null);
             _expansionOwnsLayout = true;
             _expansionHost ??= new TaskbarExpansionWindow { DataContext = DataContext };
+            if (!_expansionHost.IsVisible) _expansionHost.Opacity = 0;
             WidgetCanvas.Children.Remove(Widget);
             _expansionHost.Surface.Children.Add(Widget);
         }
         Widget.SetExpandedState(true);
         RefreshOutsideClickHook();
         MorphWidgetExpansion(ExpandedWidgetRect());
-        if (_widgetExpanded && _expansionHost is { IsVisible: false }) _expansionHost.Show();
+        // Reused popups retain their last screen position. Prepare the flight and
+        // layout before showing, so the first frame uses the new anchor.
+        _expansionHost!.UpdateLayout();
+        if (!_expansionHost.IsVisible) _expansionHost.Show();
+        if (_handoffImage == null) _expansionHost.Opacity = 1;
+        RetireWidgetHandoff();
     }
 
     public void CloseWidgetExpansion(bool animate = true)
     {
         if (!_expansionOwnsLayout) return;
+        if (!_widgetExpanded && animate) return;
         _widgetExpanded = false;
         RefreshOutsideClickHook();
         Widget.SetExpandedState(false);
@@ -1464,8 +1482,13 @@ on_error:
 
     private static TaskbarWidgetExpansion.Box ToBox(Rect rect) => new(rect.Left, rect.Top, rect.Width, rect.Height);
 
-    private Rect LiveWidgetRect() => new(Canvas.GetLeft(Widget) * _positionDpiScale,
-        Canvas.GetTop(Widget) * _positionDpiScale, Widget.Width * _positionDpiScale, Widget.Height * _positionDpiScale);
+    private Rect LiveWidgetRect()
+    {
+        var translation = Widget.RenderTransform as TranslateTransform;
+        return new Rect((Canvas.GetLeft(Widget) + (translation?.X ?? 0)) * _positionDpiScale,
+            (Canvas.GetTop(Widget) + (translation?.Y ?? 0)) * _positionDpiScale,
+            Widget.Width * _positionDpiScale, Widget.Height * _positionDpiScale);
+    }
 
     private void ParkExpansionGeometry(Rect rect)
     {
@@ -1474,6 +1497,7 @@ on_error:
         Widget.BeginAnimation(WidthProperty, null);
         Widget.BeginAnimation(HeightProperty, null);
         Widget.LayoutTransform = null;
+        Widget.RenderTransform = Transform.Identity;
         Widget.SetVerticalMode(false);
         Canvas.SetLeft(Widget, rect.Left / _positionDpiScale);
         Canvas.SetTop(Widget, rect.Top / _positionDpiScale);
@@ -1485,15 +1509,28 @@ on_error:
     {
         Rect from = LiveWidgetRect();
         double fromProgress = Widget.ExpansionProgress;
+        _expansionAnimating = false;
+        _pendingExpansionAnimation = null;
+        BeginAnimation(ExpansionFrameProperty, null);
         Widget.BeginAnimation(FluentFlyout.Controls.TaskbarWidgetControl.ExpansionProgressProperty, null);
         Widget.ExpansionProgress = fromProgress;
         ParkExpansionGeometry(from);
         int version = ++_expansionVersion;
         SessionDiagnostics.Mark(DiagnosticStage.Expansion, version);
         _expansionTargetRect = target;
+        _expansionFromRect = from;
+        _expansionFromProgress = fromProgress;
+        _expansionToProgress = _widgetExpanded ? 1 : 0;
         _expansionFlightRect = from;
         _expansionFlightRect.Union(target);
         _expansionAnimating = animate && AreAnimationsEnabled && from != target;
+        _expansionFlightRect.Inflate(2, 2);
+        if (_expansionHost is { IsVisible: true } && !_nativeHostScreenRect.IsEmpty)
+        {
+            var previousHost = _nativeHostScreenRect;
+            previousHost.Offset(-_taskbarScreenRect.Left, -_taskbarScreenRect.Top);
+            _expansionFlightRect.Union(previousHost);
+        }
         ApplyWidgetHostBounds(_expansionFlightRect);
         if (!_expansionAnimating)
         {
@@ -1501,34 +1538,59 @@ on_error:
             FinishWidgetExpansion(version);
             return;
         }
-        // Preserve the responsive timing without a spring or elastic deformation.
+        // One clock owns geometry and content. Independent layout clocks can be
+        // sampled on opposite sides of arrange, visibly pulling the content sideways.
         double durationMs = FluentFlyout.Controls.TaskbarWidget.TaskbarWidgetAnimationEnvironment.GetDurationMs();
-        DoubleAnimation Animation(double a, double b) => new(a, b,
-            TimeSpan.FromMilliseconds(durationMs * 0.55))
+        var frame = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(
+            Math.Clamp(durationMs * (_widgetExpanded ? 0.8 : 0.65), 140, 360)))
         { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-        _expansionFlightRect.Inflate(2, 2);
-        ApplyWidgetHostBounds(_expansionFlightRect);
-        var height = Animation(from.Height / _positionDpiScale, target.Height / _positionDpiScale);
-        height.Completed += (_, _) => FinishWidgetExpansion(version);
-        Widget.BeginAnimation(WidthProperty, Animation(from.Width / _positionDpiScale, target.Width / _positionDpiScale));
-        Widget.BeginAnimation(Canvas.LeftProperty, Animation(from.Left / _positionDpiScale, target.Left / _positionDpiScale));
-        Widget.BeginAnimation(Canvas.TopProperty, Animation(from.Top / _positionDpiScale, target.Top / _positionDpiScale));
-        Widget.BeginAnimation(FluentFlyout.Controls.TaskbarWidgetControl.ExpansionProgressProperty,
-            Animation(fromProgress, _widgetExpanded ? 1 : 0));
-        Widget.BeginAnimation(HeightProperty, height);
+        frame.Completed += (_, _) => FinishWidgetExpansion(version);
+        SetValue(ExpansionFrameProperty, 0.0);
+        ApplyExpansionFrame(0);
+        void StartFrameClock()
+        {
+            if (version == _expansionVersion && _expansionAnimating)
+                BeginAnimation(ExpansionFrameProperty, frame);
+        }
+        if (_handoffImage != null && _expansionHost is { Opacity: 0 })
+            _pendingExpansionAnimation = StartFrameClock;
+        else StartFrameClock();
+    }
+
+    private void ApplyExpansionFrame(double progress)
+    {
+        if (!_expansionAnimating) return;
+        double Mix(double a, double b) => a + (b - a) * progress;
+        Widget.Width = Mix(_expansionFromRect.Width, _expansionTargetRect.Width) / _positionDpiScale;
+        Widget.Height = Mix(_expansionFromRect.Height, _expansionTargetRect.Height) / _positionDpiScale;
+        if (Widget.RenderTransform is not TranslateTransform translation || translation.IsFrozen)
+            Widget.RenderTransform = translation = new TranslateTransform();
+        translation.X = (Mix(_expansionFromRect.Left, _expansionTargetRect.Left) - _expansionFromRect.Left) / _positionDpiScale;
+        translation.Y = (Mix(_expansionFromRect.Top, _expansionTargetRect.Top) - _expansionFromRect.Top) / _positionDpiScale;
+        Widget.ExpansionProgress = Mix(_expansionFromProgress, _expansionToProgress);
     }
 
     private void FinishWidgetExpansion(int version)
     {
         if (version != _expansionVersion) return;
         _expansionAnimating = false;
+        _pendingExpansionAnimation = null;
+        BeginAnimation(ExpansionFrameProperty, null);
         ParkExpansionGeometry(_expansionTargetRect);
         Widget.BeginAnimation(FluentFlyout.Controls.TaskbarWidgetControl.ExpansionProgressProperty, null);
         Widget.ExpansionProgress = _widgetExpanded ? 1 : 0;
+        Widget.UpdateLayout();
+        if (!_widgetExpanded) CaptureWidgetHandoff(_expansionTargetRect);
         Widget.CompleteExpansionTransition();
         Widget.UpdateLayout();
-        ApplyWidgetHostBounds(_expansionTargetRect);
-        if (_widgetExpanded) return;
+        if (_widgetExpanded)
+        {
+            ApplyWidgetHostBounds(_expansionTargetRect);
+            return;
+        }
+        // Keep the popup's flight bounds until it is hidden. Moving/resizing a
+        // visible layered HWND while rebasing its canvas can present an old frame
+        // at the new origin, making the compact widget flash above the taskbar.
         _expansionHost?.Surface.Children.Remove(Widget);
         if (!WidgetCanvas.Children.Contains(Widget)) WidgetCanvas.Children.Add(Widget);
         _expansionOwnsLayout = false;
@@ -1551,10 +1613,86 @@ on_error:
         ApplyWidgetHostBounds(_compactWidgetRect);
         var hwnd = new WindowInteropHelper(this).Handle;
         CalculateAndSetPosition(_taskbarHandle, hwnd, GetSelectedTaskbarHandle(out bool main) == _taskbarHandle && main);
-        _expansionHost?.Hide();
+        if (_handoffImage == null) _expansionHost?.Hide();
+        else RetireWidgetHandoff();
         if (SettingsManager.Current.TaskbarWidgetAutoHide
             && _lastPlaybackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
             StartAutoHideTimer();
+    }
+
+    private void CaptureWidgetHandoff(Rect rect)
+    {
+        ClearWidgetHandoff();
+        if (_fullscreenSuppressed || Visibility != Visibility.Visible
+            || Widget.Parent is not Canvas canvas || !canvas.IsVisible) return;
+        try
+        {
+            // Keep the outgoing pixels until the receiving HWND has presented its
+            // first frame. Moving a WPF visual between two composition targets is
+            // otherwise allowed to show an empty frame, even after UpdateLayout.
+            var visual = new DrawingVisual();
+            using (var drawing = visual.RenderOpen())
+            {
+                var rotation = Widget.LayoutTransform?.Value ?? Matrix.Identity;
+                var bounds = new MatrixTransform(rotation).TransformBounds(new Rect(Widget.RenderSize));
+                rotation.Translate(-bounds.Left, -bounds.Top);
+                drawing.PushTransform(new MatrixTransform(rotation));
+                drawing.DrawRectangle(new VisualBrush(Widget) { Stretch = Stretch.Fill }, null,
+                    new Rect(Widget.RenderSize));
+            }
+            var bitmap = new RenderTargetBitmap(Math.Max(1, (int)Math.Ceiling(rect.Width)),
+                Math.Max(1, (int)Math.Ceiling(rect.Height)), 96 * _positionDpiScale,
+                96 * _positionDpiScale, PixelFormats.Pbgra32);
+            bitmap.Render(visual);
+            bitmap.Freeze();
+            _handoffImage = new Image { Source = bitmap, Width = rect.Width / _positionDpiScale,
+                Height = rect.Height / _positionDpiScale, IsHitTestVisible = false, Stretch = Stretch.Fill };
+            _handoffRect = rect;
+            Canvas.SetLeft(_handoffImage, rect.Left / _positionDpiScale);
+            Canvas.SetTop(_handoffImage, rect.Top / _positionDpiScale);
+            Panel.SetZIndex(_handoffImage, int.MaxValue);
+            canvas.Children.Add(_handoffImage);
+        }
+        catch (Exception error) { Logger.Warn(error, "Could not preserve widget transfer frame"); }
+    }
+
+    private void RetireWidgetHandoff()
+    {
+        if (_handoffImage == null || _handoffRendering != null) return;
+        var image = _handoffImage;
+        int frames = 0;
+        _handoffRendering = (_, _) =>
+        {
+            // A reused layered HWND can retain its old bitmap. Reveal it only
+            // with the newly arranged visual, then start motion after that frame.
+            if (_expansionOwnsLayout && _expansionHost is { Opacity: 0 })
+                _expansionHost.Opacity = 1;
+            if (++frames < 2) return;
+            CompositionTarget.Rendering -= _handoffRendering;
+            _handoffRendering = null;
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+            {
+                if (!ReferenceEquals(image, _handoffImage)) return;
+                var start = _pendingExpansionAnimation;
+                _pendingExpansionAnimation = null;
+                ClearWidgetHandoff();
+                if (_closed) return;
+                start?.Invoke();
+                ApplyWidgetHostBounds(_expansionOwnsLayout
+                    ? (_expansionAnimating ? _expansionFlightRect : LiveWidgetRect()) : _compactWidgetRect);
+                if (!_expansionOwnsLayout) _expansionHost?.Hide();
+            });
+        };
+        CompositionTarget.Rendering += _handoffRendering;
+    }
+
+    private void ClearWidgetHandoff()
+    {
+        if (_handoffRendering != null) CompositionTarget.Rendering -= _handoffRendering;
+        _handoffRendering = null;
+        if (_handoffImage?.Parent is Panel parent) parent.Children.Remove(_handoffImage);
+        if (_handoffImage != null) _handoffImage.Source = null;
+        _handoffImage = null;
     }
 
     private void ApplyWidgetHostBounds(Rect widgetRegion)
@@ -1571,13 +1709,16 @@ on_error:
                 throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
             _compactHostScreenRect = _taskbarScreenRect;
         }
-        UpdateWindowRegion(compact, _expansionOwnsLayout ? Rect.Empty : widgetRegion, _visualizerRect);
+        UpdateWindowRegion(compact, _expansionOwnsLayout
+            ? (_handoffImage?.Parent == WidgetCanvas ? _handoffRect : Rect.Empty) : widgetRegion, _visualizerRect);
         if (!_expansionOwnsLayout || _expansionHost == null) return;
         var hwnd = new WindowInteropHelper(_expansionHost).Handle;
-        // The independent host follows the physical union for the current flight.
-        // At settle it shrinks to the exact destination; the compact child has no band.
+        // The independent host retains the flight union; its region controls the
+        // visible/hit-testable destination without rebasing the layered bitmap.
         if (widgetRegion.IsEmpty) return;
-        Rect host = widgetRegion;
+        // Keep a fixed compositor surface throughout the flight AND its settled
+        // state. Only the native hit region contracts; no final HWND rebase flashes.
+        Rect host = _expansionFlightRect.IsEmpty ? widgetRegion : _expansionFlightRect;
         host.Offset(_taskbarScreenRect.Left, _taskbarScreenRect.Top);
         double left = Math.Floor(host.Left), top = Math.Floor(host.Top);
         host = new Rect(left, top, Math.Ceiling(host.Right) - left, Math.Ceiling(host.Bottom) - top);
@@ -1588,10 +1729,26 @@ on_error:
         offset.X = _canvasOffsetPhysical.X / _positionDpiScale;
         offset.Y = _canvasOffsetPhysical.Y / _positionDpiScale;
         UpdateWindowRegion(hwnd, widgetRegion);
-        if (host == _nativeHostScreenRect) return;
+        if (host == _nativeHostScreenRect)
+        {
+            WindowHelper.SetTopmost(_expansionHost);
+            return;
+        }
+        // Keep WPF's own layout box in sync with the native placement. SetWindowPos moves
+        // and sizes the HWND, but WPF keeps laying this popup's content out at the size it
+        // picked when the window was first shown (measured in isolation: a 425x155 px
+        // window whose VisualTreeHelper layout stayed 344x128 DIP), and a layered window
+        // paints from that layout, not from the HWND. The SetWindowPos below still owns the
+        // exact pixel rectangle; this only stops the two from disagreeing.
+        _expansionHost.Width = host.Width / _positionDpiScale;
+        _expansionHost.Height = host.Height / _positionDpiScale;
+        // Native placement owns screen coordinates; WPF Left/Top setters would
+        // issue additional moves while the layered surface is being resized.
+        if (!SetWindowPos(hwnd, 0, (int)host.Left, (int)host.Top,
+            (int)host.Width, (int)host.Height, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER))
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
         _nativeHostScreenRect = host;
-        SetWindowPos(hwnd, 0, (int)host.Left, (int)host.Top,
-            (int)host.Width, (int)host.Height, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER);
+        WindowHelper.SetTopmost(_expansionHost);
     }
 
     internal void RefreshOutsideClickHook()
@@ -1624,6 +1781,10 @@ on_error:
     protected override void OnClosed(EventArgs e)
     {
         _closed = true;
+        _pendingExpansionAnimation = null;
+        ClearWidgetHandoff();
+        _expansionAnimating = false;
+        BeginAnimation(ExpansionFrameProperty, null);
         Widget.ClosePlayerMenu();
         Widget.DestroyWidgetResources();
         _expansionHost?.Surface.Children.Remove(Widget);

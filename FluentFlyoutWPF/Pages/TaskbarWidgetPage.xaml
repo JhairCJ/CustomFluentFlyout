@@ -69,16 +69,21 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding TaskbarWidgetExpandOnClick, Mode=TwoWay}" IsEnabled="{Binding TaskbarWidgetEnabled}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="TaskbarWidgetExpandedBackgroundDarknessTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon Color24}" Margin="0,0,0,3">
+            <ui:CardControl x:Name="TaskbarWidgetExpandedBackgroundTranslucencyTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon Color24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
                     <StackPanel>
-                        <TextBlock Text="{DynamicResource TaskbarWidgetExpandedBackgroundDarknessTitle}" FontSize="14" />
-                        <TextBlock Text="{DynamicResource TaskbarWidgetExpandedBackgroundDarknessDescription}" FontSize="12" Opacity="0.5" TextWrapping="Wrap" />
+                        <TextBlock Text="{DynamicResource TaskbarWidgetExpandedBackgroundTranslucencyTitle}" FontSize="14" />
+                        <TextBlock Text="{DynamicResource TaskbarWidgetExpandedBackgroundTranslucencyDescription}" FontSize="12" Opacity="0.5" TextWrapping="Wrap" />
                     </StackPanel>
                 </ui:CardControl.Header>
                 <StackPanel Orientation="Horizontal" IsEnabled="{Binding TaskbarWidgetEnabled}">
-                    <Slider Minimum="0" Maximum="100" Value="{Binding TaskbarWidgetExpandedBackgroundDarkness, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150" />
-                    <TextBlock Text="{Binding TaskbarWidgetExpandedBackgroundDarkness, StringFormat={}{0}%}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                    <Slider Minimum="0" Maximum="100" Value="{Binding TaskbarWidgetExpandedBackgroundTranslucency, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150" />
+                    <TextBlock Text="{Binding TaskbarWidgetExpandedBackgroundTranslucency, StringFormat={}{0}%}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                    <StackPanel Margin="20,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="{DynamicResource TaskbarWidgetExpandedBackgroundColorTitle}" FontSize="12" Opacity="0.65" />
+                        <ui:TextBox Width="90" ClearButtonEnabled="False" MaxLength="7"
+                                    Text="{Binding TaskbarWidgetExpandedBackgroundColor, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+                    </StackPanel>
                 </StackPanel>
             </ui:CardControl>
             <ui:CardControl x:Name="TaskbarWidgetPositionCard" Tag="Indexable" Grid.Row="4" Icon="{ui:SymbolIcon ArrowMove24}" Margin="0,0,0,3">
@@ -274,9 +279,10 @@
                                 <TextBlock Text="{DynamicResource TaskbarWidgetBackgroundRotateDurationDescription}" FontSize="12" Opacity="0.5" />
                             </StackPanel>
                         </ui:CardControl.Header>
-                        <StackPanel Orientation="Horizontal">
-                            <Slider Minimum="5" Maximum="60" Value="{Binding TaskbarWidgetBackgroundRotateDuration, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsEnabled="{Binding TaskbarWidgetBackgroundRotateEnabled}" />
-                            <TextBlock Text="{Binding TaskbarWidgetBackgroundRotateDurationText}" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" IsEnabled="{Binding TaskbarWidgetBackgroundRotateEnabled}">
+                            <Slider Minimum="5" Maximum="600" Value="{Binding TaskbarWidgetBackgroundRotateDuration, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" />
+                            <ui:TextBox Width="60" MaxLength="3" ClearButtonEnabled="False" Text="{Binding TaskbarWidgetBackgroundRotateDurationText, Mode=TwoWay}" Margin="10,0,0,0" />
+                            <TextBlock Text="s" FontSize="14" FontWeight="Regular" Margin="6,0,0,0" VerticalAlignment="Center" />
                         </StackPanel>
                     </ui:CardControl>
                     <ui:CardControl Grid.Row="7" Icon="{ui:SymbolIcon Circle24}" Background="Transparent" BorderBrush="{ui:ThemeResource CardStrokeColorDefaultSolidBrush}" BorderThickness="0,0,0,1" CornerRadius="0" Padding="52,16,16,16">

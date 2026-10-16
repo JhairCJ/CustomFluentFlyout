@@ -9,7 +9,8 @@
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance viewModels:UserSettings}"
              Height="40" Width="100"
-              TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Ideal"
+              UseLayoutRounding="True" SnapsToDevicePixels="True"
+              TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Display"
               FontFamily="{Binding TaskbarWidgetFontSource, FallbackValue='Segoe UI Variable'}"
               FlowDirection="{Binding FlowDirection}">
     <UserControl.ContextMenu>
@@ -21,8 +22,11 @@
     </UserControl.ContextMenu>
     <Border Name="MainBorder" CornerRadius="6" ClipToBounds="True">
         <Grid x:Name="RootGrid">
-            <!-- Opacity reaches one when expanded, regardless of artwork intensity. -->
-            <Border x:Name="ExpandedBackdropBase" Background="#151515" Opacity="0" IsHitTestVisible="False" />
+            <!-- Expansion opacity animates the color surface; its own opacity reveals the desktop. -->
+            <Border x:Name="ExpandedBackdropBase" Opacity="0" IsHitTestVisible="False">
+                <Border Background="{Binding TaskbarWidgetExpandedBackgroundColor, Converter={StaticResource HexColorToBrushConverter}}"
+                        Opacity="{Binding TaskbarWidgetExpandedBackgroundTranslucency, Converter={StaticResource PercentageToOpacityConverter}, ConverterParameter=Translucency}" />
+            </Border>
             <!-- The rotating background lives in a Canvas so it is arranged at its exact
                  square size, independent of the widget's rectangular layout slot. The widget
                  (MainBorder, ClipToBounds) acts purely as the viewport over that square. -->
@@ -42,12 +46,13 @@
                 </Image>
             </Canvas>
             <Border Name="TopBorder" BorderThickness="0,1.25,0,0" CornerRadius="5" Margin="0,0,0,1.25">
-                <Grid Name="MainGrid" HorizontalAlignment="Left" VerticalAlignment="Center" RenderTransformOrigin="0,0.5">
-                    <Grid.RenderTransform>
-                        <ScaleTransform ScaleX="0.9" ScaleY="0.9" />
-                    </Grid.RenderTransform>
-                    <StackPanel Name="MainStackPanel" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Width="Auto" Margin="4,0,-100,0">
-                        <Border Name="SongImageBorder" CornerRadius="5" ClipToBounds="True" Width="36" Height="36" Panel.ZIndex="2" MouseLeftButtonUp="SongImage_MouseLeftButtonUp" MouseEnter="SongImageBorder_MouseEnter" MouseLeave="SongImageBorder_MouseLeave">
+                <!-- The compact content is drawn 1:1. The 10% smaller look lives in the
+                     metrics below (32.4 album art, 11.7/10.8 type, 28.8 buttons), never in a
+                     render scale: a ScaleTransform re-rasterizes every glyph on a sub-pixel
+                     phase, so stems split across two columns and the text reads as rough. -->
+                <Grid Name="MainGrid" HorizontalAlignment="Left" VerticalAlignment="Center">
+                    <StackPanel Name="MainStackPanel" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Width="Auto" Margin="3.6,0,-90,0">
+                        <Border Name="SongImageBorder" CornerRadius="4.5" ClipToBounds="True" Width="32.4" Height="32.4" Panel.ZIndex="2" MouseLeftButtonUp="SongImage_MouseLeftButtonUp" MouseEnter="SongImageBorder_MouseEnter" MouseLeave="SongImageBorder_MouseLeave">
                             <Border.Style>
                                 <Style TargetType="Border">
                                     <Setter Property="Visibility" Value="Visible" />
@@ -58,14 +63,14 @@
                                     </Style.Triggers>
                                 </Style>
                             </Border.Style>
-                            <Border x:Name="CompactAlbumSurface" CornerRadius="5" ClipToBounds="True" RenderTransformOrigin="0.5,0.5">
+                            <Border x:Name="CompactAlbumSurface" CornerRadius="4.5" ClipToBounds="True" RenderTransformOrigin="0.5,0.5">
                                 <Border.RenderTransform><ScaleTransform x:Name="CompactAlbumFlipScale" /></Border.RenderTransform>
                                 <Border.Background><ImageBrush x:Name="SongImage" Stretch="UniformToFill" /></Border.Background>
-                                <ui:SymbolIcon Name="SongImagePlaceholder" Symbol="MusicNote220" FontSize="24" Filled="True" Foreground="{DynamicResource MicaWPF.Brushes.SystemAccentColorTertiary}" />
+                                <ui:SymbolIcon Name="SongImagePlaceholder" Symbol="MusicNote220" FontSize="21.6" Filled="True" Foreground="{DynamicResource MicaWPF.Brushes.SystemAccentColorTertiary}" />
                             </Border>
                         </Border>
 
-                        <StackPanel Name="SongInfoStackPanel" Orientation="Vertical" VerticalAlignment="Center" Width="Auto" Margin="8,0,0,0" 
+                        <StackPanel Name="SongInfoStackPanel" Orientation="Vertical" VerticalAlignment="Center" Width="Auto" Margin="7.2,0,0,0"
                                     ToolTipService.InitialShowDelay="800"
                                     ToolTipService.Placement="RelativePoint"
                                     ToolTipService.VerticalOffset="-16">
@@ -74,20 +79,20 @@
                                  makes the whole block hit-testable, not just the glyphs. -->
                             <!-- No tooltip here: the outer panel already shows the song info,
                                  and an inner tooltip would mask it for long, clipped titles. -->
-                            <Border x:Name="SongInfoHitArea" Background="Transparent" CornerRadius="6" Cursor="Hand"
+                            <Border x:Name="SongInfoHitArea" Background="Transparent" CornerRadius="5.4" Cursor="Hand"
                                     MouseLeftButtonUp="SongInfo_MouseLeftButtonUp"
                                     MouseEnter="SongInfo_MouseEnter"
                                     MouseLeave="SongInfo_MouseLeave">
                                 <StackPanel Orientation="Vertical">
-                                    <Canvas x:Name="SongTitleContainer" ClipToBounds="True" Height="20">
-                                        <TextBlock x:Name="SongTitle" Text="" FontSize="13" FontWeight="SemiBold">
+                                    <Canvas x:Name="SongTitleContainer" ClipToBounds="True" Height="18">
+                                        <TextBlock x:Name="SongTitle" Text="" FontSize="11.7" FontWeight="SemiBold">
                                             <TextBlock.RenderTransform>
                                                 <TranslateTransform />
                                             </TextBlock.RenderTransform>
                                         </TextBlock>
                                     </Canvas>
-                                    <Canvas x:Name="SongArtistContainer" ClipToBounds="True" Margin="0,-1,0,0" Height="18">
-                                        <TextBlock x:Name="SongArtist" Text="" FontSize="12" FontWeight="Normal" Opacity="0.65">
+                                    <Canvas x:Name="SongArtistContainer" ClipToBounds="True" Margin="0,-0.9,0,0" Height="16.2">
+                                        <TextBlock x:Name="SongArtist" Text="" FontSize="10.8" FontWeight="Normal" Opacity="0.65">
                                             <TextBlock.RenderTransform>
                                                 <TranslateTransform />
                                             </TextBlock.RenderTransform>
@@ -108,18 +113,15 @@
                                     </Style.Triggers>
                                 </Style>
                             </StackPanel.Style>
-                            <ui:Button Name="PreviousButton" Appearance="Transparent" Icon="{ui:SymbolIcon Previous20, Filled=True}" Height="32" Width="32" Padding="0" BorderThickness="0" Margin="0,0,0,-1" Click="Previous_Click"/>
-                            <ui:Button Name="PlayPauseButton" Appearance="Transparent" Icon="{ui:SymbolIcon Pause16, Filled=True}" Height="32" Width="32" Padding="0" BorderThickness="0" Margin="0,0,0,-1" Click="PlayPause_Click"/>
-                            <ui:Button Name="NextButton" Appearance="Transparent" Icon="{ui:SymbolIcon Next20, Filled=True}" Height="32" Width="32" Padding="0" BorderThickness="0" Margin="0,0,0,-1" Click="Next_Click"/>
+                            <ui:Button Name="PreviousButton" Appearance="Transparent" Icon="{ui:SymbolIcon Previous20, Filled=True}" Height="28.8" Width="28.8" Padding="0" BorderThickness="0" Margin="0,0,0,-0.9" Click="Previous_Click"/>
+                            <ui:Button Name="PlayPauseButton" Appearance="Transparent" Icon="{ui:SymbolIcon Pause16, Filled=True}" Height="28.8" Width="28.8" Padding="0" BorderThickness="0" Margin="0,0,0,-0.9" Click="PlayPause_Click"/>
+                            <ui:Button Name="NextButton" Appearance="Transparent" Icon="{ui:SymbolIcon Next20, Filled=True}" Height="28.8" Width="28.8" Padding="0" BorderThickness="0" Margin="0,0,0,-0.9" Click="Next_Click"/>
                         </StackPanel>
 
                     </StackPanel>
                 </Grid>
             </Border>
-            <Grid x:Name="ExpandedBackdropShade" Opacity="0" IsHitTestVisible="False">
-                <Border Background="#151515" Margin="-16" Opacity="{Binding TaskbarWidgetExpandedBackgroundDarkness, Converter={StaticResource PercentageToOpacityConverter}}" />
-            </Grid>
-            <controls:TaskbarWidgetExpandedContent x:Name="ExpandedContent" Width="340" Height="124" HorizontalAlignment="Left" VerticalAlignment="Top" Visibility="Collapsed" Opacity="0"/>
+            <controls:TaskbarWidgetExpandedContent x:Name="ExpandedContent" Width="340" Height="124" HorizontalAlignment="Left" VerticalAlignment="Top" UseLayoutRounding="False" SnapsToDevicePixels="False" Visibility="Collapsed" Opacity="0"/>
             <!-- Snapshot layer: holds a render of the previous album while a song change
                  is underway so it can crossfade into the new content underneath. -->
             <Border x:Name="CrossfadeOverlay" CornerRadius="6" ClipToBounds="True" IsHitTestVisible="False" Opacity="0" Visibility="Collapsed" />

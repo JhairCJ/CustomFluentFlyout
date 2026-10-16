@@ -418,7 +418,7 @@ hides repeat, shuffle and player info</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundRotateDirectionTitle">Rotation Direction</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundRotateDirectionDescription">Spin the album art down or up</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundRotateDurationTitle">Rotation Time</System:String>
-    <System:String x:Key="TaskbarWidgetBackgroundRotateDurationDescription">How many seconds one full rotation takes</System:String>
+    <System:String x:Key="TaskbarWidgetBackgroundRotateDurationDescription">How many seconds one full rotation takes (5–600)</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundRotateSizeTitle">Disc Size</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundRotateSizeDescription">How large the rotating album disc is relative to the widget (default: 300%)</System:String>
     <System:String x:Key="TaskbarWidgetBackgroundRotateHighRefreshRateTitle">High Refresh Rate Mode</System:String>
@@ -822,8 +822,9 @@ You can help contribute translations on</System:String>
     <System:String x:Key="IslandDictationNoModel">No speech model: download one in Settings → Dictation</System:String>
     <System:String x:Key="IslandDictationNoMic">No microphone available</System:String>
     <System:String x:Key="IslandDictationFailed">Could not transcribe the audio</System:String>
-    <System:String x:Key="TaskbarWidgetExpandedBackgroundDarknessTitle">Expanded background darkness</System:String>
-    <System:String x:Key="TaskbarWidgetExpandedBackgroundDarknessDescription">Adjust shading while expanded. An opaque base prevents the desktop from showing through.</System:String>
+    <System:String x:Key="TaskbarWidgetExpandedBackgroundTranslucencyTitle">Expanded background translucency</System:String>
+    <System:String x:Key="TaskbarWidgetExpandedBackgroundTranslucencyDescription">Adjust how much shows through the panel when expanded (0% opaque, 100% transparent).</System:String>
+    <System:String x:Key="TaskbarWidgetExpandedBackgroundColorTitle">Background color (HEX)</System:String>
     <System:String x:Key="AlbumArtChangeAnimationTitle">Album animation</System:String>
     <System:String x:Key="AlbumArtChangeAnimationDescription">Choose how covers change in the Island and taskbar widget.</System:String>
     <System:String x:Key="AlbumArtChangeAnimationFlip">Flip</System:String>

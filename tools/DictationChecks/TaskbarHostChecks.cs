@@ -4,6 +4,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
+using System.Windows.Media;
+using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 using FluentFlyout.Classes;
 using FluentFlyout.Classes.Settings;
@@ -70,6 +72,25 @@ internal static class TaskbarHostChecks
             Pump(100);
             var widget = (TaskbarWidgetControl)window.FindName("Widget");
             var compact = (Canvas)window.FindName("WidgetCanvas");
+            var expanded = (TaskbarWidgetExpandedContent)widget.FindName("ExpandedContent");
+            int originalTitleSize = SettingsManager.Current.TaskbarWidgetTitleFontSize;
+            int originalArtistSize = SettingsManager.Current.TaskbarWidgetArtistFontSize;
+            foreach (var sizes in new[] { (13, 12), (16, 10), (12, 16) })
+            {
+                SettingsManager.Current.TaskbarWidgetTitleFontSize = sizes.Item1;
+                SettingsManager.Current.TaskbarWidgetArtistFontSize = sizes.Item2;
+                widget.ApplyTextStyle();
+                var title = (System.Windows.Controls.TextBlock)widget.FindName("SongTitle");
+                var artist = (System.Windows.Controls.TextBlock)widget.FindName("SongArtist");
+                var expandedTitle = (System.Windows.Controls.TextBlock)expanded.FindName("TitleText");
+                var expandedArtist = (System.Windows.Controls.TextBlock)expanded.FindName("ArtistText");
+                Check(expandedTitle.FontSize > title.FontSize && expandedArtist.FontSize > artist.FontSize
+                    && Math.Abs(expandedTitle.FontSize / title.FontSize - expandedArtist.FontSize / artist.FontSize) < 0.001,
+                    "Expansion must enlarge both text rows proportionally, including an artist larger than the title");
+            }
+            SettingsManager.Current.TaskbarWidgetTitleFontSize = originalTitleSize;
+            SettingsManager.Current.TaskbarWidgetArtistFontSize = originalArtistSize;
+            widget.ApplyTextStyle();
             var handle = new WindowInteropHelper(window).Handle;
             Check(NativeMethods.GetParent(handle) != IntPtr.Zero
                 && (NativeMethods.GetWindowLong(handle, -16) & 0x40000000) != 0,
@@ -90,7 +111,18 @@ internal static class TaskbarHostChecks
             publication.Observe(initial);
             publication.Observe(initial with { Title = "Pending title", Artwork = null });
             int version = widget.SongCommitVersion;
-            window.ToggleWidgetExpansion(); Pump(30);
+            window.ToggleWidgetExpansion();
+            var handoff = Read(window, "_handoffImage") as Image;
+            Check(handoff?.Source is BitmapSource, "Opening must preserve the outgoing frame during transfer");
+            Check(((TaskbarExpansionWindow)Read(window, "_expansionHost")!).Opacity == 0
+                && widget.ExpansionProgress == 0,
+                "A reused popup must be prepared before revealing or advancing its first frame");
+            var handoffBitmap = (BitmapSource)handoff!.Source;
+            var handoffPixels = new byte[handoffBitmap.PixelWidth * handoffBitmap.PixelHeight * 4];
+            handoffBitmap.CopyPixels(handoffPixels, handoffBitmap.PixelWidth * 4, 0);
+            Check(Enumerable.Range(0, handoffPixels.Length / 4).Any(i => handoffPixels[i * 4 + 3] > 0),
+                "The outgoing transfer frame is blank");
+            Pump(30);
             var host = (TaskbarExpansionWindow?)Read(window, "_expansionHost");
             Check(host != null && host.Surface.Children.Contains(widget) && !compact.Children.Contains(widget),
                 "Expansion duplicated/lost the interactive widget instance");
@@ -101,9 +133,41 @@ internal static class TaskbarHostChecks
             var union = (Rect)Read(window, "_expansionFlightRect")!;
             Check(union.Contains((Rect)Read(window, "_expansionTargetRect")!)
                 && union.Contains((Rect)Read(window, "_expandedAnchorRect")!), "Expansion clipped its flight union");
+            CheckMorphContinuity(window, widget, expanded);
+            window.CloseWidgetExpansion();
+            CheckMorphContinuity(window, widget, expanded);
+            Pump(80);
+            window.ToggleWidgetExpansion();
+            Pump(400);
+            int popupMovesDuringReturn = 0;
+            bool returning = false;
+            host!.LocationChanged += (_, _) => { if (returning && host.IsVisible) popupMovesDuringReturn++; };
+            window.CloseWidgetExpansion();
+            var returnHost = (Rect)Read(window, "_nativeHostScreenRect")!;
+            returning = true;
+            int returnVersion = (int)Read(window, "_expansionVersion")!;
+            window.CloseWidgetExpansion();
+            Check((int)Read(window, "_expansionVersion")! == returnVersion,
+                "Duplicate outside-close restarted the return animation");
+            for (int frame = 0; frame < 100 && (bool)Read(window, "_expansionOwnsLayout")!; frame++)
+            {
+                Pump(10);
+                if (!(bool)Read(window, "_expansionOwnsLayout")!) break;
+                Check((Rect)Read(window, "_nativeHostScreenRect")! == returnHost,
+                    "Return moved the popup instead of animating inside its flight bounds");
+                var live = (Rect)Call(window, "LiveWidgetRect")!;
+                var bar = (Rect)Read(window, "_taskbarScreenRect")!;
+                var screen = widget.PointToScreen(new Point());
+                Check(Math.Abs(screen.X - bar.Left - live.Left) <= 2
+                    && Math.Abs(screen.Y - bar.Top - live.Top) <= 2,
+                    "Animated widget teleported away from its taskbar anchor");
+            }
+            returning = false;
+            Check(popupMovesDuringReturn == 0, "Closing moved a visible popup at the handoff");
+            window.ToggleWidgetExpansion(); Pump(30);
             // A shell/automation positioning pass may already own the geometry gate.
             Write(window, "_positionUpdateInProgress", true);
-            window.CloseWidgetExpansion(false); Pump(30);
+            window.CloseWidgetExpansion(false); Pump(80);
             Check(compact.Children.Contains(widget) && host!.Surface.Children.Count == 0 && !host.IsVisible,
                 "Collapse did not return the same instance to its child host");
             CheckCompactRegion(window, widget, handle);
@@ -132,7 +196,8 @@ internal static class TaskbarHostChecks
                 Check(!(bool)Read(window, "_expansionOwnsLayout")! && compact.Children.Contains(widget),
                     "Cycle settled in an obsolete host");
                 CheckCompactRegion(window, widget, handle);
-                CheckPresented(window, compact, handle, cycle == 99);
+                try { CheckPresented(window, compact, handle, cycle == 99); }
+                catch { Console.WriteLine($"Presentation cycle: {cycle}"); throw; }
                 Write(window, "_positionUpdateInProgress", false);
             }
             SettingsManager.Current.TaskbarWidgetAnimated = true;
@@ -170,8 +235,7 @@ internal static class TaskbarHostChecks
             var destination = (Rect)Read(window, "_expansionTargetRect")!;
             destination.Offset(((Rect)Read(window, "_taskbarScreenRect")!).X, ((Rect)Read(window, "_taskbarScreenRect")!).Y);
             var nativeHost = (Rect)Read(window, "_nativeHostScreenRect")!;
-            Check(Math.Abs(nativeHost.Width - destination.Width) < 2 && Math.Abs(nativeHost.Height - destination.Height) < 2,
-                "Expanded host did not settle to its exact destination");
+            Check(nativeHost.Contains(destination), "Stable expanded surface clips its destination");
             window.DetectFullscreen = _ => true;
             Call(window, "UpdatePosition", true); Pump(50);
             Check(window.Visibility == Visibility.Collapsed && !host!.IsVisible,
@@ -181,6 +245,9 @@ internal static class TaskbarHostChecks
             window.ToggleWidgetExpansion();
             Call(window, "QueueTaskbarDisplayRefresh"); Pump(300);
             Check(!(bool)Read(window, "_expansionOwnsLayout")!, "DPI/shell geometry refresh left the obsolete expanded host active");
+            Check(Read(window, "_handoffImage") == null && Read(window, "_handoffRendering") == null
+                && Read(window, "_pendingExpansionAnimation") == null,
+                "Settling retained a transfer bitmap, rendering subscription or deferred clock");
             int recovered = 0;
             window.RecoveryRequested = () => recovered++;
             Call(window, "QueueRecovery"); Call(window, "QueueRecovery"); Pump(20);
@@ -188,6 +255,80 @@ internal static class TaskbarHostChecks
             Console.WriteLine("Taskbar WPF checks passed: real child attachment, no activation, same-instance expansion/collapse reversal, pending publication, both styles, geometry refresh and unique recovery.");
         }
         finally { window.Close(); app.Shutdown(); }
+    }
+
+    private static void CheckMorphContinuity(TaskbarWindow window, TaskbarWidgetControl widget,
+        TaskbarWidgetExpandedContent expanded)
+    {
+        var clock = (DependencyProperty)typeof(TaskbarWindow).GetField("ExpansionFrameProperty",
+            BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        window.BeginAnimation(clock, null);
+        var root = (FrameworkElement)widget.FindName("RootGrid");
+        var elements = ((FrameworkElement element, Rect from, Rect to, double scale, bool visible)[])
+            Read(widget, "_expansionElements")!;
+        Check(elements.Length == 6, "Shared-element endpoints were not prepared");
+        widget.UpdateLayout();
+        var slots = elements.Select(e => LayoutInformation.GetLayoutSlot(e.element)).ToArray();
+        var surface = (Rect)Read(window, "_nativeHostScreenRect")!;
+        var samples = new List<(BitmapSource bitmap, Rect rect)>();
+        var flight = (Rect)Read(window, "_expansionFlightRect")!;
+        double dpi = (double)Read(window, "_positionDpiScale")!;
+        bool opening = (bool)Read(window, "_widgetExpanded")!;
+        for (int sample = 0; sample <= 40; sample++)
+        {
+            Call(window, "ApplyExpansionFrame", sample / 40.0);
+            widget.UpdateLayout();
+            for (int i = 0; i < elements.Length; i++)
+            {
+                var (element, from, to, _, _) = elements[i];
+                var point = element.TransformToAncestor(root).Transform(new Point());
+                double p = widget.ExpansionProgress;
+                var expected = new Point(from.Left + (to.Left - from.Left) * p,
+                    from.Top + (to.Top - from.Top) * p);
+                Check((point - expected).Length < 0.05,
+                    $"Shared element {i} wobbled at sample {sample}: {point} vs {expected}");
+                Check(LayoutInformation.GetLayoutSlot(element) == slots[i],
+                    $"Shared element {i} was reflowed during motion");
+            }
+            foreach (string name in new[] { "PreviousIcon", "NextIcon" })
+                Check(((Wpf.Ui.Controls.SymbolIcon)expanded.FindName(name)).FontSize == 22,
+                    "Animating a glyph's font size invalidates its centered layout");
+            Check((Rect)Read(window, "_nativeHostScreenRect")! == surface,
+                "The compositor surface moved during the shared-element animation");
+            if (sample % 10 == 0)
+            {
+                var rect = (Rect)Call(window, "LiveWidgetRect")!;
+                var frame = new RenderTargetBitmap((int)Math.Ceiling(rect.Width), (int)Math.Ceiling(rect.Height),
+                    96 * dpi, 96 * dpi, PixelFormats.Pbgra32);
+                var drawing = new DrawingVisual();
+                using (var context = drawing.RenderOpen())
+                    context.DrawRectangle(new VisualBrush(widget) { Stretch = Stretch.Fill }, null, new Rect(widget.RenderSize));
+                frame.Render(drawing); frame.Freeze(); samples.Add((frame, rect));
+            }
+        }
+        var strip = new DrawingVisual();
+        double cellWidth = flight.Width + 16;
+        using (var context = strip.RenderOpen())
+        {
+            context.DrawRectangle(new SolidColorBrush(Color.FromRgb(32, 32, 32)), null,
+                new Rect(0, 0, cellWidth * samples.Count, flight.Height + 16));
+            for (int i = 0; i < samples.Count; i++)
+            {
+                var (bitmap, rect) = samples[i];
+                context.DrawImage(bitmap, new Rect(i * cellWidth + rect.Left - flight.Left + 8,
+                    rect.Top - flight.Top + 8, rect.Width, rect.Height));
+            }
+        }
+        var evidence = new RenderTargetBitmap((int)Math.Ceiling(cellWidth * samples.Count),
+            (int)Math.Ceiling(flight.Height + 16), 96, 96, PixelFormats.Pbgra32);
+        evidence.Render(strip);
+        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(evidence));
+        string evidencePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+            opening ? "FluentFlyout-motion-open.png" : "FluentFlyout-motion-close.png");
+        using (var output = System.IO.File.Create(evidencePath)) encoder.Save(output);
+        Console.WriteLine($"Motion evidence: {evidencePath}");
+        Call(window, "FinishWidgetExpansion", (int)Read(window, "_expansionVersion")!);
+        Console.WriteLine("Motion continuity passed: 41 samples, six shared elements, fixed layout and one clock.");
     }
 
     private static void CheckCompactRegion(TaskbarWindow window, TaskbarWidgetControl widget, IntPtr handle)
@@ -227,8 +368,16 @@ internal static class TaskbarHostChecks
                 {
                     int x = origin.X + (int)(rect.Left + rect.Width * fraction);
                     int y = origin.Y + (int)(rect.Top + rect.Height / 2);
-                    var displayed = CapturePixels(dc, x, y, 1, 1);
-                    uint actual = (uint)(displayed[2] | displayed[1] << 8 | displayed[0] << 16);
+                    uint actual = 0;
+                    // WPF commits its layered surface asynchronously to the desktop.
+                    // A dispatcher tick alone does not guarantee compositor presentation.
+                    for (int attempt = 0; attempt < 25; attempt++)
+                    {
+                        var displayed = CapturePixels(dc, x, y, 1, 1);
+                        actual = (uint)(displayed[2] | displayed[1] << 8 | displayed[0] << 16);
+                        if (actual == 0x00FF00FF) break;
+                        Pump(20);
+                    }
                     if (actual != 0x00FF00FF) Console.WriteLine($"Presentation failure: pixel={actual:X8}, point={x},{y}, marker={markers[0].PointToScreen(new Point(3,3))}, dpi={System.Windows.Media.VisualTreeHelper.GetDpi(canvas)}, hit={WindowFromPoint(new NativeMethods.POINT { X = x, Y = y })}, expected={handle}, parent={NativeMethods.GetParent(handle)}, opacity={window.Opacity}, region={rect}");
                     Check(actual == 0x00FF00FF, "Real desktop hides part of the compact surface behind another window");
                     Check(WindowFromPoint(new NativeMethods.POINT { X = x, Y = y }) == handle,

@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2024-2026 The FluentFlyout Authors
+// Copyright (c) 2024-2026 The FluentFlyout Authors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
@@ -31,24 +31,29 @@ public partial class TaskbarWidgetControl : UserControl
 
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
-    private readonly double _scale = 0.9;
+    // The compact widget is drawn 10% smaller than the card it shares metrics with. Only the
+    // type size carries that factor (it comes from a setting); every other compact number is
+    // written out below, already scaled. It is never a render transform: scaling glyph
+    // outlines puts every stem on a sub-pixel phase, and that is what made text look rough.
+    internal const double CompactContentScale = 0.9;
     private readonly int _nativeWidgetsPadding = 216;
 
-    private readonly int _coverImageMargin = 55;
+    private readonly double _coverImageMargin = 49.5; // card 55
 
     // Physical left margins that stay on screen even when the album art is hidden
-    // (MainStackPanel 4px + SongInfoStackPanel 8px). These must still be reserved in the
+    // (MainStackPanel 3.6px + SongInfoStackPanel 7.2px). These must still be reserved in the
     // width calculation, otherwise the media buttons overflow to the right.
-    private readonly int _noCoverReservedMargin = 12;
+    private readonly double _noCoverReservedMargin = 10.8; // card 12
 
     // Cached width calculations
     private string _cachedTitleText = string.Empty;
     private string _cachedArtistText = string.Empty;
     private double _cachedTitleWidth = 0;
     private double _cachedArtistWidth = 0;
+    private double _cachedTextDpi;
     private double _cachedTitleContainerWidth = -1;
     private double _cachedArtistContainerWidth = -1;
-    private readonly int _extraMarginForText = 6; // additional margin to avoid text clipping
+    private readonly double _extraMarginForText = 5.4; // card 6; margin that avoids text clipping
 
     private double _cachedTitleOpacityMaskWidth = -1;
     private double _cachedArtistOpacityMaskWidth = -1;
@@ -343,6 +348,15 @@ public partial class TaskbarWidgetControl : UserControl
         Math.Clamp(SettingsManager.Current.TaskbarWidgetArtistFontSize, 10, 16);
 
     /// <summary>
+    /// Compact (drawn) type sizes: the setting names the card size, the widget draws it 10%
+    /// smaller. Rendering and width measurement must both use these, or the width reserved
+    /// for the text stops matching the width that is actually painted.
+    /// </summary>
+    private static double CompactTitleFontSize => WidgetTitleFontSize * CompactContentScale;
+
+    private static double CompactArtistFontSize => WidgetArtistFontSize * CompactContentScale;
+
+    /// <summary>
     /// Title weight for the current text style preset (0 Modern: 600, 1 Classic: 400,
     /// 2 Bold: 700, 3 Soft: 500).
     /// </summary>
@@ -387,13 +401,10 @@ public partial class TaskbarWidgetControl : UserControl
     {
         FontFamily family = WidgetFontFamily;
 
-        int titleSize = WidgetTitleFontSize;
-        int artistSize = WidgetArtistFontSize;
-
         SongTitle.FontFamily = family;
         SongArtist.FontFamily = family;
-        SongTitle.FontSize = titleSize;
-        SongArtist.FontSize = artistSize;
+        SongTitle.FontSize = CompactTitleFontSize;
+        SongArtist.FontSize = CompactArtistFontSize;
         SongTitle.FontWeight = ToWidgetFontWeight(WidgetTitleWeight);
         SongArtist.FontWeight = ToWidgetFontWeight(WidgetArtistWeight);
         SongArtist.FontStyle = WidgetArtistItalic ? FontStyles.Italic : FontStyles.Normal;
@@ -401,8 +412,11 @@ public partial class TaskbarWidgetControl : UserControl
         if (!_songChangeSlideActive)
             SongArtist.Opacity = WidgetArtistOpacity;
 
-        SongTitleContainer.Height = Math.Ceiling(titleSize * 1.5);
-        SongArtistContainer.Height = Math.Ceiling(artistSize * 1.5);
+        // The row height rounds in CARD units, where this design has always rounded it, and
+        // only then drops to compact units. Rounding after the 0.9 instead would give the
+        // artist row 17 DIP where the old render scale produced 18 * 0.9 = 16.2 DIP.
+        SongTitleContainer.Height = Math.Ceiling(WidgetTitleFontSize * 1.5) * CompactContentScale;
+        SongArtistContainer.Height = Math.Ceiling(WidgetArtistFontSize * 1.5) * CompactContentScale;
 
         // The rows live in top-anchored Canvases (needed for the slide/marquee X
         // transforms), so without an explicit offset the glyphs hug the top edge and
@@ -436,7 +450,10 @@ public partial class TaskbarWidgetControl : UserControl
             live.FontSize,
             Brushes.Black,
             null,
-            1);
+            TextOptions.GetTextFormattingMode(live),
+            VisualTreeHelper.GetDpi(live).PixelsPerDip);
+        // UseLayoutRounding (set on this control) rounds this offset onto the device pixel
+        // grid, so a fractional centre cannot smear the glyphs across two half-lit rows.
         double top = (container.Height - probe.Height) / 2;
         Canvas.SetTop(live, Math.Max(0, top));
     }
@@ -1053,6 +1070,12 @@ public partial class TaskbarWidgetControl : UserControl
     /// <returns>
     /// The logical width and whether the underlying text changed since the last call.
     /// </returns>
+    private double MeasureCompactText(string text, bool title) => StringWidth.GetStringWidth(text,
+        WidgetFontFamily, title ? WidgetTitleWeight : WidgetArtistWeight,
+        title ? CompactTitleFontSize : CompactArtistFontSize,
+        TextOptions.GetTextFormattingMode(this), VisualTreeHelper.GetDpi(this).PixelsPerDip,
+        !title && WidgetArtistItalic);
+
     private (double logicalWidth, bool textChanged) ComputeTextLogicalWidth()
     {
         // calculate widget width - use cached values if text hasn't changed
@@ -1060,22 +1083,25 @@ public partial class TaskbarWidgetControl : UserControl
         string currentArtist = _actualArtist;
 
         bool textChanged = false;
+        double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        bool dpiChanged = dpi != _cachedTextDpi;
+        _cachedTextDpi = dpi;
 
-        if (!string.Equals(currentTitle, _cachedTitleText, StringComparison.Ordinal))
+        if (dpiChanged || !string.Equals(currentTitle, _cachedTitleText, StringComparison.Ordinal))
         {
-            _cachedTitleWidth = Math.Round(StringWidth.GetStringWidth(currentTitle, WidgetFontFamily, WidgetTitleWeight, WidgetTitleFontSize), 2);
+            _cachedTitleWidth = Math.Round(MeasureCompactText(currentTitle, true), 2);
             _cachedTitleText = currentTitle;
             textChanged = true;
         }
-        if (!string.Equals(currentArtist, _cachedArtistText, StringComparison.Ordinal))
+        if (dpiChanged || !string.Equals(currentArtist, _cachedArtistText, StringComparison.Ordinal))
         {
-            _cachedArtistWidth = Math.Round(StringWidth.GetStringWidth(currentArtist, WidgetFontFamily, WidgetArtistWeight, WidgetArtistFontSize), 2);
+            _cachedArtistWidth = Math.Round(MeasureCompactText(currentArtist, false), 2);
             _cachedArtistText = currentArtist;
             textChanged = true;
         }
 
-        // maximum width limit, same as Windows native widget
-        double maxLogicalWidth = _nativeWidgetsPadding / _scale;
+        // maximum width limit, same as Windows native widget (already in compact units)
+        double maxLogicalWidth = _nativeWidgetsPadding;
         double logicalWidth;
 
         double coverImageReserved = SettingsManager.Current.TaskbarWidgetShowAlbumArt ? _coverImageMargin : _noCoverReservedMargin;
@@ -1083,7 +1109,7 @@ public partial class TaskbarWidgetControl : UserControl
         if (SettingsManager.Current.TaskbarWidgetFixedWidth)
         {
             // pin to the user-configured width so right-aligned controls don't shift between songs
-            logicalWidth = SettingsManager.Current.TaskbarWidgetFixedWidthPx / _scale;
+            logicalWidth = SettingsManager.Current.TaskbarWidgetFixedWidthPx;
             logicalWidth = Math.Min(logicalWidth, maxLogicalWidth);
         }
         else
@@ -1138,7 +1164,7 @@ public partial class TaskbarWidgetControl : UserControl
         // add space for playback controls if enabled and visible
         if (SettingsManager.Current.TaskbarWidgetControlsEnabled && ControlsStackPanel.Visibility == Visibility.Visible)
         {
-            logicalWidth += 104;
+            logicalWidth += 93.6; // card 104
         }
 
         double logicalHeight = 40; // default height
@@ -1220,7 +1246,7 @@ public partial class TaskbarWidgetControl : UserControl
                 string spacer = "\u00A0\u00A0\u00A0\u00A0\u00A0";
                 textBlock.Text = origText + spacer + origText;
 
-                double spacerWidth = StringWidth.GetStringWidth(spacer, WidgetFontFamily, isTitle ? WidgetTitleWeight : WidgetArtistWeight, isTitle ? WidgetTitleFontSize : WidgetArtistFontSize);
+                double spacerWidth = MeasureCompactText(spacer, isTitle);
                 double scrollDistance = textWidth + spacerWidth;
 
                 double durationToScroll = scrollDistance / speed;
@@ -1939,7 +1965,7 @@ public partial class TaskbarWidgetControl : UserControl
         const double exitMargin = 8.0;
         const double enterEpsilon = 4.0;
         double oldTextWidth = hasOld
-            ? StringWidth.GetStringWidth(oldText, WidgetFontFamily, isTitleRow ? WidgetTitleWeight : WidgetArtistWeight, isTitleRow ? WidgetTitleFontSize : WidgetArtistFontSize)
+            ? MeasureCompactText(oldText, isTitleRow)
             : 0;
         double exitTo = slideBackwards
             ? Math.Max(oldContainerWidth, newContainerWidth) + exitMargin
@@ -2282,6 +2308,10 @@ public partial class TaskbarWidgetControl : UserControl
         bool wasTransitioning = _expansionTransition;
         _songInfoExpanded = expanded;
         _expansionTransition = true;
+        // Spatial motion must remain continuous between physical pixels. Restore
+        // crisp pixel alignment only after all shared elements have landed.
+        UseLayoutRounding = false;
+        SnapsToDevicePixels = false;
         _isFadingOut = false;
         BeginAnimation(OpacityProperty, null);
         Opacity = 1;
@@ -2305,6 +2335,13 @@ public partial class TaskbarWidgetControl : UserControl
             (PreviousButton.Icon as SymbolIcon)?.FontSize ?? 16,
             (PlayPauseButton.Icon as SymbolIcon)?.FontSize ?? 16,
             (NextButton.Icon as SymbolIcon)?.FontSize ?? 16);
+        // A newly reparented visual can belong to a hidden HWND. UpdateLayout
+        // alone does not arrange that root: measuring endpoints then records
+        // zero offsets, followed by a visible jump when the popup first renders.
+        var expandedSize = new Size(ExpandedContent.Width, ExpandedContent.Height);
+        ExpandedContent.Measure(expandedSize);
+        ExpandedContent.Arrange(new Rect(expandedSize));
+        ExpandedContent.UpdateLayout();
         if (!wasTransitioning)
         {
             var destinations = ExpandedContent.MorphElements;
@@ -2316,6 +2353,7 @@ public partial class TaskbarWidgetControl : UserControl
                 destinations[i].RenderTransformOrigin = new Point(0, 0);
                 destinations[i].RenderTransform = Transform.Identity;
                 destinations[i].Clip = null;
+                destinations[i].CacheMode = new BitmapCache();
                 var to = destinations[i].TransformToAncestor(RootGrid).TransformBounds(
                     new Rect(destinations[i].RenderSize));
                 var from = sources[i].TransformToAncestor(RootGrid).TransformBounds(new Rect(sources[i].RenderSize));
@@ -2325,14 +2363,14 @@ public partial class TaskbarWidgetControl : UserControl
                 if (i == 1 || i == 2)
                 {
                     double textTop = Canvas.GetTop(i == 1 ? SongTitle : SongArtist);
-                    if (!double.IsNaN(textTop)) from.Offset(0, textTop * _scale);
+                    if (!double.IsNaN(textTop)) from.Offset(0, textTop);
                 }
                 bool visible = i == 0 ? SettingsManager.Current.TaskbarWidgetShowAlbumArt
                     : i < 3 ? SongInfoStackPanel.Visibility == Visibility.Visible
                         && (i != 2 || SongArtist.Visibility == Visibility.Visible)
                     : SettingsManager.Current.TaskbarWidgetControlsEnabled;
-                double scale = i == 1 ? _scale * SongTitle.FontSize / 13 : i == 2 ? _scale * SongArtist.FontSize / 11
-                    : to.Width > 0 && from.Width > 0 ? from.Width / to.Width : _scale;
+                double scale = i == 1 || i == 2 ? CompactContentScale
+                    : to.Width > 0 && from.Width > 0 ? from.Width / to.Width : CompactContentScale;
                 if (!visible || from.IsEmpty || from.Width <= 0)
                     from = new Rect(ActualWidth / 2, 20, to.Width * scale, to.Height * scale);
                 _expansionElements[i] = (destinations[i], from, to, scale, visible);
@@ -2370,13 +2408,14 @@ public partial class TaskbarWidgetControl : UserControl
             }
         }
         ExpandedBackdropBase.Opacity = alpha;
-        ExpandedBackdropShade.Opacity = alpha;
         ExpandedContent.SetMorphProgress(alpha);
     }
 
     public void CompleteExpansionTransition()
     {
         _expansionTransition = false;
+        UseLayoutRounding = true;
+        SnapsToDevicePixels = true;
 
         MainGrid.BeginAnimation(OpacityProperty, null);
         ExpandedContent.BeginAnimation(OpacityProperty, null);
@@ -2388,13 +2427,14 @@ public partial class TaskbarWidgetControl : UserControl
             element.RenderTransform = Transform.Identity;
             element.Clip = null;
             element.Opacity = 1;
+            element.CacheMode = null;
         }
         _expansionElements = [];
         ExpandedContent.SetMorphProgress(_songInfoExpanded ? 1 : 0);
         MainGrid.Opacity = _songInfoExpanded ? 0 : 1;
         ExpandedContent.Visibility = _songInfoExpanded ? Visibility.Visible : Visibility.Collapsed;
         ExpandedContent.Opacity = _songInfoExpanded ? 1 : 0;
-        ExpandedBackdropBase.Opacity = ExpandedBackdropShade.Opacity = _songInfoExpanded ? 1 : 0;
+        ExpandedBackdropBase.Opacity = _songInfoExpanded ? 1 : 0;
         UpdateBackgroundMode(preserveCrossfade: true);
         if (!_songInfoExpanded && _noMediaWhileExpanded)
         {

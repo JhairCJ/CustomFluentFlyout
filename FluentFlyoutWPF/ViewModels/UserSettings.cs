@@ -368,9 +368,13 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial bool TaskbarWidgetExpandOnClick { get; set; }
 
-    /// <summary>Additional shading of the expanded widget, from 0 to 100 percent.</summary>
+    /// <summary>How much of the desktop shows through the expanded widget, from 0 to 100 percent.</summary>
     [ObservableProperty]
-    public partial int TaskbarWidgetExpandedBackgroundDarkness { get; set; }
+    public partial int TaskbarWidgetExpandedBackgroundTranslucency { get; set; }
+
+    /// <summary>Base color for the expanded taskbar widget, stored as a HEX string.</summary>
+    [ObservableProperty]
+    public partial string TaskbarWidgetExpandedBackgroundColor { get; set; } = "#151515";
 
 
     /// <summary>
@@ -577,7 +581,17 @@ public partial class UserSettings : ObservableObject
     public partial int TaskbarWidgetBackgroundRotateDuration { get; set; }
 
     [XmlIgnore]
-    public string TaskbarWidgetBackgroundRotateDurationText => TaskbarWidgetBackgroundRotateDuration > 1 ? $"{TaskbarWidgetBackgroundRotateDuration} seconds" : $"{TaskbarWidgetBackgroundRotateDuration} second";
+    public string TaskbarWidgetBackgroundRotateDurationText
+    {
+        get => TaskbarWidgetBackgroundRotateDuration.ToString();
+        set
+        {
+            TaskbarWidgetBackgroundRotateDuration = int.TryParse(value, out int duration)
+                ? Math.Clamp(duration, 5, 600)
+                : 60;
+            OnPropertyChanged();
+        }
+    }
 
     /// <summary>
     /// Gets or sets the size multiplier (in percent) of the rotating album disc relative to
@@ -1825,7 +1839,8 @@ public partial class UserSettings : ObservableObject
         VolumeMixerAcrylicWindowEnabled = true;
         TaskbarWidgetEnabled = true;
         TaskbarWidgetExpandOnClick = true;
-        TaskbarWidgetExpandedBackgroundDarkness = 0;
+        TaskbarWidgetExpandedBackgroundTranslucency = 0;
+        TaskbarWidgetExpandedBackgroundColor = "#151515";
         TaskbarWidgetSelectedMonitor = 0;
         TaskbarWidgetAutoHide = false;
         TaskbarWidgetPosition = 0;
@@ -2234,6 +2249,7 @@ public partial class UserSettings : ObservableObject
         GoogleCalendarReminderMinutes = Math.Clamp(GoogleCalendarReminderMinutes, 1, 60);
         GoogleCalendarRefreshMinutes = Math.Clamp(GoogleCalendarRefreshMinutes, 1, 60);
         GoogleCalendarDaysAhead = Math.Clamp(GoogleCalendarDaysAhead, 1, 14);
+        TaskbarWidgetBackgroundRotateDuration = Math.Clamp(TaskbarWidgetBackgroundRotateDuration, 5, 600);
         _initializing = false;
     }
 

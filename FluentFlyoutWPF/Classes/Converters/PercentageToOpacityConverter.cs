@@ -13,7 +13,10 @@ public class PercentageToOpacityConverter : IValueConverter
     {
         if (value is int intValue)
         {
-            return Math.Clamp(intValue, 0, 100) / 100.0;
+            double opacity = Math.Clamp(intValue, 0, 100) / 100.0;
+            return string.Equals(parameter as string, "Translucency", StringComparison.OrdinalIgnoreCase)
+                ? 1.0 - opacity
+                : opacity;
         }
         return 0.0;
     }

@@ -15,8 +15,15 @@ if (args is ["--capture"]) { await StabilityChecks.Capture(); return; }
 if (args is ["--capture-device"]) { await StabilityChecks.CaptureDevice(); return; }
 if (args is ["--taskbar"])
 {
-    var thread = new Thread(TaskbarHostChecks.Run);
-    thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join(); return;
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try { TaskbarHostChecks.Run(); }
+        catch (Exception error) { failure = error; }
+    });
+    thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
+    if (failure != null) { Console.Error.WriteLine(failure); Environment.ExitCode = 1; }
+    return;
 }
 if (args.Length >= 1 && args[0] == "--diagnostics") { await StabilityChecks.Diagnostics(args); return; }
 if (args is ["--whisper-benchmark", var whisperPath, var whisperAudio, var whisperDevice])
