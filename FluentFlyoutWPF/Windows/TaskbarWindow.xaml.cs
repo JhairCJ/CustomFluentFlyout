@@ -157,6 +157,7 @@ public partial class TaskbarWindow : Window
         WindowHelper.SetNoActivate(this);
         InitializeComponent();
         Widget.TaskbarOwner = this;
+        Widget.LayoutInvalidated += OnWidgetLayoutInvalidated;
 
         // Set DataContext for bindings
         DataContext = SettingsManager.Current;
@@ -452,8 +453,14 @@ on_error:
             Logger.Error("Taskbar Widget error during window region reset.");
     }
 
+    private void OnWidgetLayoutInvalidated() => UpdatePosition(true);
+
     private void UpdatePosition(bool force = false)
     {
+        if (_closed) return;
+        // A deferred publication can change the content while Explorer's geometry
+        // and the HWND visibility stay unchanged. Retry if a positioning pass was busy.
+        force |= Widget.SongCommitVersion != _lastSeenSongCommitVersion;
         if (MainWindow.ExplorerRestarting)
         {
             // Explorer is restarting -- do NOTHING
@@ -1211,17 +1218,33 @@ on_error:
             Widget.SetMainWindow(mw);
         }
 
-        // First real song ever: from here on the window is allowed to be visible.
-        // Pure stop/idle events before that keep it hidden (no startup placeholder flash).
-        if (title != "-" || artist != "-")
+        // Paused media and an unavailable playback snapshot are still present.
+        // Only explicit absence/closure uses Hide Completely.
+        bool hasMedia = playbackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed
+            && (title != "-" || artist != "-");
+        if (hasMedia || !SettingsManager.Current.TaskbarWidgetHideCompletely)
             _hasPublishedMedia = true;
+        if (!hasMedia && SettingsManager.Current.TaskbarWidgetHideCompletely)
+        {
+            _hasPublishedMedia = false;
+            Dispatcher.Invoke(() =>
+            {
+                _lastPlaybackStatus = GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed;
+                _autoHideTimer?.Stop();
+                _autoHideTimer = null;
+                Widget.UpdateUi(title, artist, icon, playbackStatus, playbackControls);
+                CloseWidgetExpansion(animate: false);
+                CollapseWindowWithFade();
+            });
+            return;
+        }
 
         // Autohide - Widget hides when playback is paused
-        _lastPlaybackStatus = playbackStatus;
+        if (playbackStatus != null) _lastPlaybackStatus = playbackStatus;
 
-        if ((SettingsManager.Current.TaskbarWidgetAutoHide))
+        if (SettingsManager.Current.TaskbarWidgetAutoHide)
         {
-            if (playbackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing || _widgetExpanded)
+            if (_lastPlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing || _widgetExpanded)
             {
                 _autoHideTimer?.Stop();
                 _autoHideTimer = null;
@@ -1232,6 +1255,11 @@ on_error:
             {
                 StartAutoHideTimer();
             }
+        }
+        else
+        {
+            _autoHideTimer?.Stop();
+            _autoHideTimer = null;
         }
 
         if (!_timer.IsEnabled)
@@ -1266,13 +1294,15 @@ on_error:
     /// </summary>
     private void StartAutoHideTimer()
     {
-        if (_autoHideTimer != null) return;
+        if (!SettingsManager.Current.TaskbarWidgetAutoHide || _autoHideTimer != null) return;
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(750) };
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            if (_autoHideTimer == timer) _autoHideTimer = null;
-            if (!_widgetExpanded && _lastPlaybackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+            if (_autoHideTimer != timer) return;
+            _autoHideTimer = null;
+            if (SettingsManager.Current.TaskbarWidgetAutoHide && !_widgetExpanded
+                && _lastPlaybackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
                 CollapseWindowWithFade();
         };
         _autoHideTimer = timer;
@@ -1296,6 +1326,7 @@ on_error:
     /// </summary>
     private void EnsureWindowVisible()
     {
+        if (!_hasPublishedMedia) return;
         if (RefreshFullscreenSuppression()) return;
         // Repeated metadata/position events must leave a running reveal alone.
         if (Visibility == Visibility.Visible && !_windowFadingOut)
@@ -1449,7 +1480,7 @@ on_error:
             WidgetCanvas.Children.Remove(Widget);
             _expansionHost.Surface.Children.Add(Widget);
         }
-        Widget.SetExpandedState(true);
+        Widget.SetExpandedState(true, _widgetTargetWidthDips);
         RefreshOutsideClickHook();
         MorphWidgetExpansion(ExpandedWidgetRect());
         // Reused popups retain their last screen position. Prepare the flight and
@@ -1466,7 +1497,7 @@ on_error:
         if (!_widgetExpanded && animate) return;
         _widgetExpanded = false;
         RefreshOutsideClickHook();
-        Widget.SetExpandedState(false);
+        Widget.SetExpandedState(false, _widgetTargetWidthDips);
         MorphWidgetExpansion(_compactWidgetRect, animate);
     }
 
@@ -1563,6 +1594,7 @@ on_error:
         double Mix(double a, double b) => a + (b - a) * progress;
         Widget.Width = Mix(_expansionFromRect.Width, _expansionTargetRect.Width) / _positionDpiScale;
         Widget.Height = Mix(_expansionFromRect.Height, _expansionTargetRect.Height) / _positionDpiScale;
+        Widget.ApplyCornerRadius();
         if (Widget.RenderTransform is not TranslateTransform translation || translation.IsFrozen)
             Widget.RenderTransform = translation = new TranslateTransform();
         translation.X = (Mix(_expansionFromRect.Left, _expansionTargetRect.Left) - _expansionFromRect.Left) / _positionDpiScale;
@@ -1781,6 +1813,7 @@ on_error:
     protected override void OnClosed(EventArgs e)
     {
         _closed = true;
+        Widget.LayoutInvalidated -= OnWidgetLayoutInvalidated;
         _pendingExpansionAnimation = null;
         ClearWidgetHandoff();
         _expansionAnimating = false;

@@ -36,7 +36,7 @@
             <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Background="Transparent" Cursor="Hand" MouseLeftButtonUp="SongInfo_Click">
                 <Border x:Name="TitleMorph" ClipToBounds="True"><TextBlock x:Name="TitleText" FontSize="13" FontWeight="SemiBold" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}"
                            TextTrimming="CharacterEllipsis"><TextBlock.RenderTransform><TranslateTransform/></TextBlock.RenderTransform></TextBlock></Border>
-                <Border x:Name="ArtistMorph" Visibility="Collapsed" ClipToBounds="True" Margin="0,4,0,0"><TextBlock x:Name="ArtistText" FontSize="12" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}" Opacity="0.75"
+                <Border x:Name="ArtistMorph" Visibility="Hidden" ClipToBounds="True" Margin="0,4,0,0"><TextBlock x:Name="ArtistText" FontSize="12" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=UserControl}}" Opacity="0.75"
                            TextTrimming="CharacterEllipsis"><TextBlock.RenderTransform><TranslateTransform/></TextBlock.RenderTransform></TextBlock></Border>
             </StackPanel>
         </Grid>
@@ -54,7 +54,7 @@
                        Opacity="0.6" VerticalAlignment="Center" FontFamily="Segoe UI" Typography.NumeralAlignment="Tabular"/>
             <Grid x:Name="TimelineHost" Grid.Column="1" Margin="8,0,8,0" Height="14"
                   VerticalAlignment="Center" SizeChanged="TimelineHost_SizeChanged">
-                <Border x:Name="TimelineTrack" Height="5" CornerRadius="2.5" Background="#3F3F3F"
+                <Border x:Name="TimelineTrack" Height="5" CornerRadius="2.5" Background="#40606060"
                         VerticalAlignment="Center"/>
                 <Border x:Name="TimelineProgress" Width="0" Height="5" CornerRadius="2.5" Background="#969696"
                         HorizontalAlignment="Left" VerticalAlignment="Center"/>

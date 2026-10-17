@@ -18,6 +18,16 @@
         <TextBlock Text="{DynamicResource AdvancedSettingsTitle}" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,24" />
         <StackPanel Margin="0,0,0,76">
             <TextBlock Text="{DynamicResource AppearanceBehaviorSectionTitle}" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,6" />
+
+            <ui:CardControl x:Name="SoftwareRenderingTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon Wrench24}" Margin="0,0,0,3">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="{DynamicResource SoftwareRenderingTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="{DynamicResource SoftwareRenderingDescription}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:ToggleSwitch IsChecked="{Binding UseSoftwareRendering, Mode=TwoWay}" />
+            </ui:CardControl>
             
             <ui:CardExpander Icon="{ui:SymbolIcon Wrench24}" ContentPadding="0" Margin="0,0,0,3">
                 <ui:CardExpander.Header>

@@ -620,6 +620,8 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="UseAlbumArtAccentColorTitle">Usar el Color de Acento de la Caratula del Álbum</system:String>
     <system:String x:Key="UseAlbumArtAccentColorDescription">Algunos elementos de IU usaran el color de la portada en vez de el del sistema</system:String>
     <system:String x:Key="AdvancedSettingsTitle">Ajustes Avanzados</system:String>
+    <system:String x:Key="SoftwareRenderingTitle">Renderizado por software</system:String>
+    <system:String x:Key="SoftwareRenderingDescription">Desactiva la aceleración gráfica de WPF. Se aplica al reiniciar Fluent Flyout y puede aumentar el uso de CPU.</system:String>
     <system:String x:Key="LegacyTaskbarWidthTitle">Sistema Antiguo del Ancho del Widget de la Barra de Tareas</system:String>
     <system:String x:Key="TaskbarWidgetAutoHideTitle">Ocultar Widget Automáticamente</system:String>
     <system:String x:Key="TaskbarWidgetAutoHideDescription">Oculta automáticamente el widget cuando la reproducción se pausa</system:String>

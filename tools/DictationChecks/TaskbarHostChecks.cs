@@ -248,6 +248,7 @@ internal static class TaskbarHostChecks
             Check(Read(window, "_handoffImage") == null && Read(window, "_handoffRendering") == null
                 && Read(window, "_pendingExpansionAnimation") == null,
                 "Settling retained a transfer bitmap, rendering subscription or deferred clock");
+            TaskbarContentChecks.Run(window, widget, expanded, a, b);
             int recovered = 0;
             window.RecoveryRequested = () => recovered++;
             Call(window, "QueueRecovery"); Call(window, "QueueRecovery"); Pump(20);
@@ -264,10 +265,14 @@ internal static class TaskbarHostChecks
             BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
         window.BeginAnimation(clock, null);
         var root = (FrameworkElement)widget.FindName("RootGrid");
+        var border = (Border)widget.FindName("MainBorder");
         var elements = ((FrameworkElement element, Rect from, Rect to, double scale, bool visible)[])
             Read(widget, "_expansionElements")!;
         Check(elements.Length == 6, "Shared-element endpoints were not prepared");
         widget.UpdateLayout();
+        var contentSize = root.RenderSize;
+        Check(contentSize.Width >= expanded.Width && contentSize.Height >= expanded.Height,
+            "Expansion content was not laid out at full size before the flight");
         var slots = elements.Select(e => LayoutInformation.GetLayoutSlot(e.element)).ToArray();
         var surface = (Rect)Read(window, "_nativeHostScreenRect")!;
         var samples = new List<(BitmapSource bitmap, Rect rect)>();
@@ -278,6 +283,15 @@ internal static class TaskbarHostChecks
         {
             Call(window, "ApplyExpansionFrame", sample / 40.0);
             widget.UpdateLayout();
+            Check(root.RenderSize == contentSize && border.RenderSize == contentSize,
+                "Resizing the viewport reflowed the widget's content");
+            var viewport = ((RectangleGeometry)border.Clip).Rect;
+            Check(Math.Abs(viewport.Width - widget.Width) < 0.01
+                && Math.Abs(viewport.Height - widget.Height) < 0.01,
+                "The rounded viewport stopped following the animated widget size");
+            foreach (string name in new[] { "SongTitle", "SongArtist" })
+                Check(!((FrameworkElement)widget.FindName(name)).RenderTransform.HasAnimatedProperties,
+                    "An invisible compact marquee kept running during expansion");
             for (int i = 0; i < elements.Length; i++)
             {
                 var (element, from, to, _, _) = elements[i];
@@ -327,8 +341,52 @@ internal static class TaskbarHostChecks
             opening ? "FluentFlyout-motion-open.png" : "FluentFlyout-motion-close.png");
         using (var output = System.IO.File.Create(evidencePath)) encoder.Save(output);
         Console.WriteLine($"Motion evidence: {evidencePath}");
+        FrameworkElement[] nativeContent = [
+            (FrameworkElement)widget.FindName("SongImageBorder"),
+            (FrameworkElement)widget.FindName("SongTitle"),
+            (FrameworkElement)widget.FindName("SongArtist")];
+        var landingBounds = nativeContent.Select(element => element.TransformToAncestor(root)
+            .TransformBounds(new Rect(element.RenderSize))).ToArray();
+        var landingPixels = !opening ? nativeContent.Select(element => ReadVisualPixels(element, dpi)).ToArray() : null;
+        if (!opening)
+        {
+            Check(((FrameworkElement)widget.FindName("MainGrid")).Opacity == 1
+                && elements.Take(3).All(e => e.element.Opacity == 0),
+                "The last collapse frame still substitutes scaled artwork or text for native compact content");
+        }
         Call(window, "FinishWidgetExpansion", (int)Read(window, "_expansionVersion")!);
+        if (!opening)
+        {
+            widget.UpdateLayout();
+            for (int i = 0; i < nativeContent.Length; i++)
+            {
+                var settled = nativeContent[i].TransformToAncestor(root)
+                    .TransformBounds(new Rect(nativeContent[i].RenderSize));
+                Check((settled.TopLeft - landingBounds[i].TopLeft).Length < 0.01
+                    && Math.Abs(settled.Width - landingBounds[i].Width) < 0.01
+                    && Math.Abs(settled.Height - landingBounds[i].Height) < 0.01,
+                    $"Compact content {i} jumped or changed size at the final handoff");
+                Check(landingPixels![i].SequenceEqual(ReadVisualPixels(nativeContent[i], dpi)),
+                    $"Compact content {i} changed rasterization at the final handoff");
+            }
+        }
+        Check(double.IsNaN(border.Width) && double.IsNaN(border.Height),
+            "The transition retained its fixed layout after settling");
         Console.WriteLine("Motion continuity passed: 41 samples, six shared elements, fixed layout and one clock.");
+    }
+
+    private static byte[] ReadVisualPixels(FrameworkElement element, double dpi)
+    {
+        int width = Math.Max(1, (int)Math.Ceiling(element.ActualWidth * dpi));
+        int height = Math.Max(1, (int)Math.Ceiling(element.ActualHeight * dpi));
+        var bitmap = new RenderTargetBitmap(width, height, 96 * dpi, 96 * dpi, PixelFormats.Pbgra32);
+        var visual = new DrawingVisual();
+        using (var drawing = visual.RenderOpen())
+            drawing.DrawRectangle(new VisualBrush(element) { Stretch = Stretch.Fill }, null, new Rect(element.RenderSize));
+        bitmap.Render(visual);
+        var pixels = new byte[width * height * 4];
+        bitmap.CopyPixels(pixels, width * 4, 0);
+        return pixels;
     }
 
     private static void CheckCompactRegion(TaskbarWindow window, TaskbarWidgetControl widget, IntPtr handle)

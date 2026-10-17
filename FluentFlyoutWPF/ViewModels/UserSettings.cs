@@ -86,6 +86,12 @@ public partial class UserSettings : ObservableObject
     public partial bool Startup { get; set; }
 
     /// <summary>
+    /// Force WPF software rendering instead of hardware acceleration. Applied at the next app startup.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool UseSoftwareRendering { get; set; }
+
+    /// <summary>
     /// MediaFlyout Always Display
     /// </summary>
     [ObservableProperty]
@@ -614,7 +620,7 @@ public partial class UserSettings : ObservableObject
     public bool TaskbarWidgetBackgroundRotateEnabled => TaskbarWidgetBackgroundBlur;
 
     /// <summary>
-    /// Gets or sets a value indicating whether the taskbar widget should be completely hidden from view when no media is playing.
+    /// Gets or sets whether the taskbar widget is hidden when no media session is available (paused media is still available).
     /// </summary>
     [ObservableProperty]
     public partial bool TaskbarWidgetHideCompletely { get; set; }

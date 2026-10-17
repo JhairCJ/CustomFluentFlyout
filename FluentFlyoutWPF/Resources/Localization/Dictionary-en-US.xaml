@@ -663,6 +663,8 @@ You can help contribute translations on</System:String>
     <System:String x:Key="ImportSettingsWarning">This will replace all your current settings. Continue?</System:String>
     <System:String x:Key="FailedToImportSettings">Failed to import settings. Check the logs for details.</System:String>
     <System:String x:Key="AdvancedSettingsTitle">Advanced Settings</System:String>
+    <System:String x:Key="SoftwareRenderingTitle">Software rendering</System:String>
+    <System:String x:Key="SoftwareRenderingDescription">Disables WPF GPU acceleration. Applies after restarting Fluent Flyout and may increase CPU usage.</System:String>
     <System:String x:Key="LegacyTaskbarWidthTitle">Legacy Taskbar Width System</System:String>
     <System:String x:Key="LegacyTaskbarWidthDescription">Use the legacy Taskbar width system for Taskbar Widgets</System:String>
     <System:String x:Key="TaskbarWidgetScrollingTextTitle">Scrolling Text</System:String>

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes;
+using FluentFlyout.Classes.Settings;
 using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Windows;
 using Microsoft.Toolkit.Uwp.Notifications;
@@ -16,6 +17,17 @@ public partial class App : Application
 {
     protected override async void OnStartup(StartupEventArgs e)
     {
+        try
+        {
+            SettingsManager.RestoreSettings();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(IslandStrings.Format("SettingsRestoreFailed",
+                "Failed to restore settings: {0}", ex.Message));
+            NLog.LogManager.GetCurrentClassLogger().Error(ex, "Failed to restore settings");
+        }
+
         ConfigureRendering(e.Args);
         SessionDiagnostics.Start(System.Windows.Media.RenderOptions.ProcessRenderMode == System.Windows.Interop.RenderMode.SoftwareOnly);
         SessionDiagnostics.Mark(DiagnosticStage.Startup);
@@ -46,7 +58,8 @@ public partial class App : Application
 
     internal static void ConfigureRendering(string[] args)
     {
-        if (args.Contains("--software-rendering", StringComparer.OrdinalIgnoreCase))
+        if (SettingsManager.Current.UseSoftwareRendering
+            || args.Contains("--software-rendering", StringComparer.OrdinalIgnoreCase))
             System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
     }
     protected override void OnExit(ExitEventArgs e)

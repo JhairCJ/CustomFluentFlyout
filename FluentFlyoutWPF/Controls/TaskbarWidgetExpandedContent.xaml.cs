@@ -25,7 +25,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
     private readonly DispatcherTimer _progressTimer;
     private DateTimeOffset _nextProgressRead, _positionUpdatedAt;
     private double _minimumSeconds, _positionSeconds, _maximumSeconds;
-    private double _paintedPositionSecond = double.NaN, _paintedRemainingSecond = double.NaN;
+    private double _paintedPositionSecond = double.NaN, _paintedDurationSecond = double.NaN;
     private bool _progressPlaying, _progressSeekable;
     private volatile bool _active, _disposed;
     private bool _drag, _albumArtHovering, _isPaused = true;
@@ -78,6 +78,10 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         ArtistText.FontWeight = artist.FontWeight;
         ArtistText.FontStyle = artist.FontStyle;
         ArtistText.Opacity = artist.Opacity;
+        // Empty TextBlocks must reserve the same line box as populated rows.
+        TitleMorph.Height = Math.Ceiling(TitleText.FontSize * TitleText.FontFamily.LineSpacing);
+        ArtistMorph.Height = Math.Ceiling(ArtistText.FontSize * ArtistText.FontFamily.LineSpacing);
+        SettleTextRows();
     }
 
     public void SetCompactButtonIconSizes(double previous, double playPause, double next)
@@ -98,7 +102,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         ScaleGlyph(NextIcon, _compactNextIconSize);
         ScaleGlyph(_playIcon, _compactPlayIconSize);
         ScaleGlyph(_pauseIcon, _compactPlayIconSize);
-        double visibility = SettingsManager.Current.TaskbarWidgetControlsEnabled ? 1 : _morphProgress;
+        double visibility = _morphProgress;
         PreviousButton.Opacity = (_canPrevious ? 1 : 0.5) * visibility;
         PlayPauseButton.Opacity = (_canPlayPause ? 1 : 0.5) * visibility;
         NextButton.Opacity = (_canNext ? 1 : 0.5) * visibility;
@@ -143,6 +147,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     private void UpdateTextRow(System.Windows.Controls.TextBlock row, string text, bool backwards, Func<bool> current)
     {
+        var slot = ReferenceEquals(row, TitleText) ? TitleMorph : ArtistMorph;
         var transform = (TranslateTransform)row.RenderTransform;
         double from = transform.X;
         transform.BeginAnimation(TranslateTransform.XProperty, null);
@@ -151,11 +156,11 @@ public partial class TaskbarWidgetExpandedContent : UserControl
             || SettingsManager.Current.TaskbarWidgetSongChangeAnimation != 1 || string.IsNullOrEmpty(row.Text))
         {
             row.Text = text;
-            if (ReferenceEquals(row, ArtistText)) ArtistMorph.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+            slot.Visibility = string.IsNullOrEmpty(text) ? Visibility.Hidden : Visibility.Visible;
             transform.X = 0;
             return;
         }
-        if (ReferenceEquals(row, ArtistText) && !string.IsNullOrEmpty(text)) ArtistMorph.Visibility = Visibility.Visible;
+        slot.Visibility = Visibility.Visible;
         var half = TimeSpan.FromMilliseconds(TaskbarWidgetAnimationEnvironment.GetDurationMs() / 2.0);
         double distance = row.ActualWidth + 8;
         var exit = new DoubleAnimation(from, backwards ? distance : -distance, half)
@@ -166,11 +171,33 @@ public partial class TaskbarWidgetExpandedContent : UserControl
             transform.BeginAnimation(TranslateTransform.XProperty, null);
             transform.X = backwards ? -distance : distance;
             row.Text = text;
-            if (ReferenceEquals(row, ArtistText)) ArtistMorph.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+            slot.Visibility = string.IsNullOrEmpty(text) ? Visibility.Hidden : Visibility.Visible;
             transform.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(transform.X, 0, half)
             { EasingFunction = TaskbarWidgetAnimationEnvironment.GetEasing(_mainWindow, true) });
         };
         transform.BeginAnimation(TranslateTransform.XProperty, exit);
+    }
+
+    private void SettleTextRows()
+    {
+        ++_titleVersion;
+        ++_artistVersion;
+        Park(TitleText, TitleMorph, _titleTarget);
+        Park(ArtistText, ArtistMorph, _artistTarget);
+        static void Park(System.Windows.Controls.TextBlock row, Border slot, string text)
+        {
+            var transform = (TranslateTransform)row.RenderTransform;
+            transform.BeginAnimation(TranslateTransform.XProperty, null);
+            transform.X = 0;
+            row.Text = text;
+            slot.Visibility = string.IsNullOrEmpty(text) ? Visibility.Hidden : Visibility.Visible;
+        }
+    }
+
+    internal void SettleTransitions()
+    {
+        SetAlbumArt(AlbumTransition.Target);
+        SettleTextRows();
     }
 
     public void ApplyPlaybackState(bool paused, GlobalSystemMediaTransportControlsSessionPlaybackControls? controls)
@@ -193,16 +220,13 @@ public partial class TaskbarWidgetExpandedContent : UserControl
     {
         if (_disposed) return;
         _active = active;
+        if (active) ApplyAlbumArt(AlbumArt.ImageSource as BitmapImage);
         Interlocked.Increment(ref _progressVersion);
         RefreshObservedSession();
         UpdateProgressTimer();
         if (!active)
         {
-            SetAlbumArt(AlbumTransition.Target);
-            ++_titleVersion;
-            ++_artistVersion;
-            UpdateTextRow(TitleText, _titleTarget, false, () => true);
-            UpdateTextRow(ArtistText, _artistTarget, false, () => true);
+            SettleTransitions();
             _drag = false;
             _seekSession = null;
             Seekbar.ReleaseMouseCapture();
@@ -247,7 +271,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         }
         _observedSession = current;
         _minimumSeconds = _positionSeconds = _maximumSeconds = 0;
-        _paintedPositionSecond = _paintedRemainingSecond = double.NaN;
+        _paintedPositionSecond = _paintedDurationSecond = double.NaN;
         Interlocked.Increment(ref _progressVersion);
         if (current != null)
         {
@@ -398,6 +422,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     private void ApplyProgress(double minimumSeconds, double positionSeconds, double maximumSeconds, bool seekable)
     {
+        TimelineProgress.Background = AlbumAccent.TaskbarBrush;
         SeekRow.Visibility = maximumSeconds > minimumSeconds ? Visibility.Visible : Visibility.Hidden;
         if (maximumSeconds <= minimumSeconds) return;
 
@@ -414,22 +439,20 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         Seekbar.Value = positionSeconds;
         if (boundsChanged) UpdateTimelineVisual();
         double positionSecond = Math.Floor(positionSeconds);
-        double remainingSecond = Math.Floor(maximumSeconds - positionSeconds);
+        double durationSecond = Math.Floor(maximumSeconds);
         if (_paintedPositionSecond != positionSecond)
         {
             _paintedPositionSecond = positionSecond;
             PosText.Text = Fmt(TimeSpan.FromSeconds(positionSecond));
         }
-        if (_paintedRemainingSecond != remainingSecond)
+        if (_paintedDurationSecond != durationSecond)
         {
-            _paintedRemainingSecond = remainingSecond;
-            DurText.Text = FmtRemaining(TimeSpan.FromSeconds(remainingSecond));
+            _paintedDurationSecond = durationSecond;
+            DurText.Text = Fmt(TimeSpan.FromSeconds(durationSecond));
         }
     }
 
     private static string Fmt(TimeSpan t) => t.ToString(t.Hours > 0 ? @"h\:mm\:ss" : @"m\:ss");
-
-    private static string FmtRemaining(TimeSpan t) => t.TotalSeconds < 1 ? "0:00" : "-" + Fmt(t);
 
     private void UpdateTimelineVisual()
     {
@@ -448,7 +471,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
         var position = TimeSpan.FromSeconds(Math.Clamp(Seekbar.Value, 0, Seekbar.Maximum));
         PosText.Text = Fmt(position);
-        DurText.Text = FmtRemaining(TimeSpan.FromSeconds(Seekbar.Maximum) - position);
+        DurText.Text = Fmt(TimeSpan.FromSeconds(Math.Floor(Seekbar.Maximum)));
     }
 
     private void Seekbar_Down(object sender, MouseButtonEventArgs e)
@@ -456,7 +479,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         if (!Seekbar.IsEnabled || _mainWindow?.GetTaskbarSession() is not { } session) return;
         _seekSession = session.ControlSession;
         _drag = true;
-        _paintedPositionSecond = _paintedRemainingSecond = double.NaN;
+        _paintedPositionSecond = _paintedDurationSecond = double.NaN;
         Seekbar.CaptureMouse();
         SetSeekPosition(e);
         e.Handled = true;

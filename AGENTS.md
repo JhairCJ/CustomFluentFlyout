@@ -9,7 +9,5 @@
 
 ## Entrega local
 
-- Después de cambiar código, compilar Release x64 y validar el cambio. Preparar la publicación antes de cerrar la instancia activa; conservarla si falla la compilación.
-- Publicar con sus dependencias en `C:\Users\Admin\Desktop\custom fluent flyout\CustomFluentFlyout\bin\FluentFlyout` y reiniciar automáticamente `FluentFlyout.exe`, sin pedir otra confirmación.
-- Intentar primero un cierre normal; finalizar únicamente la instancia afectada si no responde. Conservar ajustes, modelos, transcripciones y otros datos del usuario.
-- Lanzar con `Start-Process -WindowStyle Hidden` y verificar que el nuevo proceso permanece activo y utiliza ese ejecutable.
+- No compilar, publicar ni instalar el proyecto. El usuario hará el build y la instalación por su cuenta.
+- No iniciar ni reiniciar automáticamente `FluentFlyout.exe`.

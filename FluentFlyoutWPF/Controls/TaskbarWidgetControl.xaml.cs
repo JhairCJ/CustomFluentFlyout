@@ -28,6 +28,7 @@ public partial class TaskbarWidgetControl : UserControl
 {
     internal TaskbarWindow? TaskbarOwner { get; set; }
     internal void DestroyWidgetResources() => CleanupWidgetResources();
+    internal event Action? LayoutInvalidated;
 
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
@@ -51,6 +52,8 @@ public partial class TaskbarWidgetControl : UserControl
     private double _cachedTitleWidth = 0;
     private double _cachedArtistWidth = 0;
     private double _cachedTextDpi;
+    private bool _textMetricsDirty = true;
+    private bool _marqueeDirty = true;
     private double _cachedTitleContainerWidth = -1;
     private double _cachedArtistContainerWidth = -1;
     private readonly double _extraMarginForText = 5.4; // card 6; margin that avoids text clipping
@@ -117,6 +120,7 @@ public partial class TaskbarWidgetControl : UserControl
     private bool _songInfoHovering;
     private bool _songInfoExpanded;
     private (FrameworkElement element, Rect from, Rect to, double scale, bool visible)[] _expansionElements = [];
+    private (FrameworkElement element, Rect bounds, Point contentOffset, double opacity)[] _expansionCompactElements = [];
     public static readonly DependencyProperty ExpansionProgressProperty = DependencyProperty.Register(
         nameof(ExpansionProgress), typeof(double), typeof(TaskbarWidgetControl),
         new PropertyMetadata(0.0, (d, e) => ((TaskbarWidgetControl)d).ApplyExpansionProgress((double)e.NewValue)));
@@ -282,7 +286,11 @@ public partial class TaskbarWidgetControl : UserControl
 
         // A forever rotation clock burns CPU/GPU even when nobody can see it
         // (autohide, widget collapsed, no media). Freeze it while hidden.
-        IsVisibleChanged += (s, e) => UpdateRotationPauseState();
+        IsVisibleChanged += (s, e) =>
+        {
+            UpdateRotationPauseState();
+            UpdateMarquees();
+        };
 
         // Release timers, clocks and slide state when the host window goes away so
         // the control never keeps itself (or its DispatcherTimers) alive after teardown.
@@ -292,7 +300,9 @@ public partial class TaskbarWidgetControl : UserControl
     public void ApplyCornerRadius()
     {
         double compactRadius = SettingsManager.Current.TaskbarWidgetBorderRadius;
-        double expansion = Math.Clamp((MainBorder.ActualHeight - 40) / 116, 0, 1);
+        double width = _expansionTransition ? Width : MainBorder.ActualWidth;
+        double height = _expansionTransition ? Height : MainBorder.ActualHeight;
+        double expansion = Math.Clamp((height - 40) / 84, 0, 1);
         double radius = compactRadius + (Math.Max(16, compactRadius) - compactRadius) * expansion;
         MainBorder.CornerRadius = new CornerRadius(radius);
         TopBorder.CornerRadius = new CornerRadius(Math.Max(0, radius - 1));
@@ -300,7 +310,7 @@ public partial class TaskbarWidgetControl : UserControl
         CrossfadeOverlay.CornerRadius = new CornerRadius(radius);
         if (MainBorder.Clip is not RectangleGeometry clip || clip.IsFrozen)
             MainBorder.Clip = clip = new RectangleGeometry();
-        clip.Rect = new Rect(0, 0, MainBorder.ActualWidth, MainBorder.ActualHeight);
+        clip.Rect = new Rect(0, 0, width, height);
         clip.RadiusX = clip.RadiusY = radius;
     }
 
@@ -332,6 +342,8 @@ public partial class TaskbarWidgetControl : UserControl
             MainStackPanel.Children.Add(ControlsStackPanel);
             ControlsStackPanel.Margin = new Thickness(8, 0, 0, 0);
         }
+        ParkControlsFollow();
+        LayoutInvalidated?.Invoke();
     }
 
     /// <summary>
@@ -399,6 +411,7 @@ public partial class TaskbarWidgetControl : UserControl
     /// </summary>
     public void ApplyTextStyle()
     {
+        CancelSongChangeSlide();
         FontFamily family = WidgetFontFamily;
 
         SongTitle.FontFamily = family;
@@ -425,12 +438,13 @@ public partial class TaskbarWidgetControl : UserControl
         CenterTextRow(SongArtist, SongArtistContainer);
         ExpandedContent.ApplyTextStyle(SongTitle, SongArtist);
 
-        _cachedTitleText = string.Empty;
-        _cachedArtistText = string.Empty;
+        _textMetricsDirty = true;
+        _marqueeDirty = true;
         _cachedTitleContainerWidth = -1;
         _cachedArtistContainerWidth = -1;
 
-        UpdateMarquees();
+        CalculateSize(VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        LayoutInvalidated?.Invoke();
     }
 
     /// <summary>
@@ -1084,8 +1098,9 @@ public partial class TaskbarWidgetControl : UserControl
 
         bool textChanged = false;
         double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        bool dpiChanged = dpi != _cachedTextDpi;
+        bool dpiChanged = _textMetricsDirty || dpi != _cachedTextDpi;
         _cachedTextDpi = dpi;
+        _textMetricsDirty = false;
 
         if (dpiChanged || !string.Equals(currentTitle, _cachedTitleText, StringComparison.Ordinal))
         {
@@ -1156,9 +1171,10 @@ public partial class TaskbarWidgetControl : UserControl
         bool widthChanged = SyncTextContainerWidths(logicalWidth);
 
         // Refresh animations if layout bounds or text contents change
-        if (textChanged || widthChanged)
+        if (textChanged || widthChanged || _marqueeDirty)
         {
             UpdateMarquees();
+            _marqueeDirty = _songChangeSlideActive;
         }
 
         // add space for playback controls if enabled and visible
@@ -1182,7 +1198,8 @@ public partial class TaskbarWidgetControl : UserControl
         double titleAvailableWidth = double.IsNaN(SongTitleContainer.Width) ? 0 : SongTitleContainer.Width;
         double artistAvailableWidth = double.IsNaN(SongArtistContainer.Width) ? 0 : SongArtistContainer.Width;
 
-        bool isScrollingEnabled = SettingsManager.Current.TaskbarWidgetScrollingEnabled;
+        bool isScrollingEnabled = SettingsManager.Current.TaskbarWidgetScrollingEnabled
+            && IsVisible && !_songInfoExpanded && !_expansionTransition;
 
         if (updateTitle)
             UpdateMarquee(SongTitle, SongTitleContainer, _cachedTitleWidth, titleAvailableWidth, isScrollingEnabled);
@@ -1194,7 +1211,7 @@ public partial class TaskbarWidgetControl : UserControl
     {
         if (textBlock.RenderTransform as TranslateTransform is not { } transform) return;
 
-        int speed = SettingsManager.Current.TaskbarWidgetScrollingTextSpeed;
+        int speed = Math.Max(1, SettingsManager.Current.TaskbarWidgetScrollingTextSpeed);
         bool loopForever = SettingsManager.Current.TaskbarWidgetScrollingTextLoopForever;
         bool isTitle = textBlock == SongTitle;
         double containerWidth = container.Width;
@@ -1398,7 +1415,7 @@ public partial class TaskbarWidgetControl : UserControl
             _noMediaDebounceTimer?.Stop();
             _noMediaDebounceTimer = null;
 
-            string newTitle = !string.IsNullOrEmpty(title) ? title : "-";
+            string newTitle = string.IsNullOrWhiteSpace(title) ? string.Empty : title;
             string newArtist = string.IsNullOrWhiteSpace(artist) ? string.Empty : artist;
 
             // NOTE: the navigation direction note is deliberately NOT consumed here.
@@ -1449,9 +1466,9 @@ public partial class TaskbarWidgetControl : UserControl
         // adjust UI based on available controls
         if (settings.ControlsEnabled && playbackControls != null)
         {
-            PreviousButton.IsHitTestVisible = playbackControls.IsPreviousEnabled;
-            PlayPauseButton.IsHitTestVisible = playbackControls.IsPauseEnabled || playbackControls.IsPlayEnabled;
-            NextButton.IsHitTestVisible = playbackControls.IsNextEnabled;
+            PreviousButton.IsHitTestVisible = PreviousButton.Focusable = playbackControls.IsPreviousEnabled;
+            PlayPauseButton.IsHitTestVisible = PlayPauseButton.Focusable = playbackControls.IsPauseEnabled || playbackControls.IsPlayEnabled;
+            NextButton.IsHitTestVisible = NextButton.Focusable = playbackControls.IsNextEnabled;
 
             PreviousButton.Opacity = playbackControls.IsPreviousEnabled ? 1 : 0.5;
             PlayPauseButton.Opacity = (playbackControls.IsPauseEnabled || playbackControls.IsPlayEnabled) ? 1 : 0.5;
@@ -1459,9 +1476,9 @@ public partial class TaskbarWidgetControl : UserControl
         }
         else
         {
-            PreviousButton.IsHitTestVisible = false;
-            PlayPauseButton.IsHitTestVisible = false;
-            NextButton.IsHitTestVisible = false;
+            PreviousButton.IsHitTestVisible = PreviousButton.Focusable = false;
+            PlayPauseButton.IsHitTestVisible = PlayPauseButton.Focusable = false;
+            NextButton.IsHitTestVisible = NextButton.Focusable = false;
 
             PreviousButton.Opacity = 0.5;
             NextButton.Opacity = 0.5;
@@ -1487,7 +1504,9 @@ public partial class TaskbarWidgetControl : UserControl
     private void CommitPendingSong(MediaArtworkSnapshot snapshot)
     {
         if (_mainWindow != null && !Equals(_mainWindow.GetTaskbarSession()?.ControlSession, snapshot.Session)) return;
-        string newTitle = string.IsNullOrEmpty(snapshot.Title) ? "-" : snapshot.Title;
+        bool firstPublication = !HasPublishedSong;
+        HasPublishedSong = true;
+        string newTitle = string.IsNullOrWhiteSpace(snapshot.Title) ? string.Empty : snapshot.Title;
         string newArtist = string.IsNullOrWhiteSpace(snapshot.Artist) ? string.Empty : snapshot.Artist;
         BitmapImage? icon = snapshot.Artwork;
         BitmapHelper.GetDominantColors(icon);
@@ -1517,8 +1536,7 @@ public partial class TaskbarWidgetControl : UserControl
 
             // Cover-only arrivals (late art) never change the width: only identity
             // changes arm the host window's resize morph.
-            if (infoChanged)
-                SongCommitVersion++;
+            if (infoChanged) _marqueeDirty = true;
 
             // Slide and crossfade are mutually exclusive entrance styles: the slide owns
             // the text swap (and the marquee restart), so the snapshot crossfade is skipped.
@@ -1531,16 +1549,14 @@ public partial class TaskbarWidgetControl : UserControl
                 && settings.SongChangeAnimation == 1
                 && TryAnimateSongChangeSlide(oldTitle, oldArtist, newTitle, newArtist, titleChanged, artistChanged, slideBackwards);
 
-            if (!slid)
+            if (infoChanged && !slid)
             {
-                // changed info
-                if (settings.Animated && infoChanged)
+                // Capture the outgoing frame before parking the rows on the new song.
+                if (settings.Animated)
                 {
                     AnimateEntrance();
                 }
-
-                SongTitle.Text = _actualTitle;
-                SongArtist.Text = _actualArtist;
+                CancelSongChangeSlide();
             }
         }
 
@@ -1564,6 +1580,13 @@ public partial class TaskbarWidgetControl : UserControl
         UpdateAlbumArtOverlay();
         ApplyCommitTail(settings);
         UpdateRotationPauseState();
+        if (firstPublication || infoChanged)
+        {
+            SongCommitVersion++;
+            // Artwork publication can finish after the metadata event's positioning
+            // pass. Notify the host again instead of waiting for another player event.
+            LayoutInvalidated?.Invoke();
+        }
     }
 
     private void ApplyCompactAlbumArt(BitmapImage? art)
@@ -1590,12 +1613,12 @@ public partial class TaskbarWidgetControl : UserControl
     /// </summary>
     private void ApplyCommitTail(TaskbarWidgetSettingsSnapshot settings)
     {
-        SongTitle.Visibility = Visibility.Visible;
-        // While a slide is in flight the transition owns the artist row visibility
-        // (kept visible for the outgoing text, collapsed on completion if empty).
-        if (!_songChangeSlideActive)
-            SongArtist.Visibility = SongArtistContainer.Visibility = !string.IsNullOrEmpty(_actualArtist) ? Visibility.Visible : Visibility.Collapsed; // hide artist if it's not available
-        SongInfoStackPanel.Visibility = Visibility.Visible;
+        if (_songChangeSlideActive && (!AreAnimationsEnabled || settings.SongChangeAnimation != 1))
+        {
+            CancelSongChangeSlide();
+            CalculateSize(VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        }
+        UpdateTextRowVisibility();
         // The canvas owns both background layers (front + incoming crossfade layer).
         BackgroundCanvas.Visibility = settings.BackgroundBlur ? Visibility.Visible : Visibility.Collapsed;
 
@@ -1610,6 +1633,33 @@ public partial class TaskbarWidgetControl : UserControl
             AnimateFadeIn();
         else
             Visibility = Visibility.Visible;
+    }
+
+    private void UpdateTextRowVisibility()
+    {
+        // Hidden reserves the row's height: a title or artist never recenters when
+        // the other row disappears, including at a slide's completion.
+        SongTitle.Visibility = SongTitleContainer.Visibility =
+            !string.IsNullOrEmpty(_actualTitle) || (_songChangeSlideActive && _slideAnimatedTitle)
+                ? Visibility.Visible : Visibility.Hidden;
+        SongArtist.Visibility = SongArtistContainer.Visibility =
+            !string.IsNullOrEmpty(_actualArtist) || (_songChangeSlideActive && _slideAnimatedArtist)
+                ? Visibility.Visible : Visibility.Hidden;
+        SongInfoStackPanel.Visibility = !string.IsNullOrEmpty(_actualTitle)
+            || !string.IsNullOrEmpty(_actualArtist) || _songChangeSlideActive
+                ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void CancelSongChangeSlide()
+    {
+        ++_songChangeSlideVersion;
+        _songChangeSlideActive = false;
+        _slideAnimatedTitle = _slideAnimatedArtist = false;
+        _slidePendingCompletions = 0;
+        ParkSlideRow(SongTitle, _actualTitle);
+        ParkSlideRow(SongArtist, _actualArtist);
+        _marqueeDirty = true;
+        UpdateTextRowVisibility();
     }
 
     /// <summary>
@@ -1628,12 +1678,19 @@ public partial class TaskbarWidgetControl : UserControl
         _noMediaDebounceTimer = null;
 
 
-        _songChangeSlideActive = false;
-        _slideAnimatedTitle = false;
-        _slideAnimatedArtist = false;
-        _slidePendingCompletions = 0;
-        ParkSlideRow(SongTitle, _actualTitle);
-        ParkSlideRow(SongArtist, _actualArtist);
+        CancelSongChangeSlide();
+        ClearEntranceAnimation();
+        SongTitleContainer.OpacityMask = SongArtistContainer.OpacityMask = null;
+        if (_cachedTitleOpacityMask != null)
+        {
+            _cachedTitleOpacityMask.GradientStops[0].BeginAnimation(GradientStop.ColorProperty, null);
+            _cachedTitleOpacityMask.GradientStops[3].BeginAnimation(GradientStop.ColorProperty, null);
+        }
+        if (_cachedArtistOpacityMask != null)
+        {
+            _cachedArtistOpacityMask.GradientStops[0].BeginAnimation(GradientStop.ColorProperty, null);
+            _cachedArtistOpacityMask.GradientStops[3].BeginAnimation(GradientStop.ColorProperty, null);
+        }
         CancelBackgroundCrossfade();
         // A background bake may still finish after Unloaded. Invalidate its art
         // identity so that result cannot start another animation on the old control.
@@ -1669,6 +1726,13 @@ public partial class TaskbarWidgetControl : UserControl
         _lastIcon = null;
         _actualTitle = string.Empty;
         _actualArtist = string.Empty;
+        HasPublishedSong = false;
+        CancelSongChangeSlide();
+        ClearEntranceAnimation();
+        ControlsStackPanel.Visibility = Visibility.Collapsed;
+        UpdateMarquees();
+        SongCommitVersion++;
+        LayoutInvalidated?.Invoke();
 
         if (SettingsManager.Current.TaskbarWidgetHideCompletely)
         {
@@ -1676,10 +1740,6 @@ public partial class TaskbarWidgetControl : UserControl
             return;
         }
 
-        ControlsStackPanel.Visibility = Visibility.Collapsed;
-        SongTitle.Text = string.Empty;
-        SongArtist.Text = string.Empty;
-        SongInfoStackPanel.Visibility = Visibility.Collapsed;
         SongInfoStackPanel.ToolTip = string.Empty;
         SongImagePlaceholder.Symbol = SymbolRegular.MusicNote220;
         SongImagePlaceholder.Visibility = Visibility.Visible;
@@ -1839,7 +1899,6 @@ public partial class TaskbarWidgetControl : UserControl
             // running marquee on that row is left untouched — unless the row is
             // stranded mid-flight by the superseded slide above, in which case it is
             // parked back at rest now and its marquee restarts on completion.
-            bool titleHasIncoming = animateTitle && !string.IsNullOrEmpty(newTitle);
             bool artistHasIncoming = animateArtist && !string.IsNullOrEmpty(newArtist);
 
             if (animateTitle)
@@ -1861,7 +1920,6 @@ public partial class TaskbarWidgetControl : UserControl
 
             bool restartTitle = animateTitle || parkTitle;
             bool restartArtist = animateArtist || parkArtist;
-            bool collapseArtist = animateArtist && !artistHasIncoming;
 
             // Exact settle: the slide ends when its slowest row completes (artist
             // stagger included), never on a wall-clock timer that can drift and
@@ -1872,7 +1930,7 @@ public partial class TaskbarWidgetControl : UserControl
                 if (version != _songChangeSlideVersion)
                     return;
                 if (--_slidePendingCompletions <= 0)
-                    FinishSongChangeSlide(version, restartTitle, restartArtist, collapseArtist);
+                    FinishSongChangeSlide(version, restartTitle, restartArtist);
             }
 
             if (animateArtist)
@@ -1889,12 +1947,7 @@ public partial class TaskbarWidgetControl : UserControl
         catch (Exception ex)
         {
             Logger.Error(ex, "Taskbar Widget error during song-change slide animation");
-            _songChangeSlideActive = false;
-            _slideAnimatedTitle = false;
-            _slideAnimatedArtist = false;
-            _slidePendingCompletions = 0;
-            ParkSlideRow(SongTitle, _actualTitle);
-            ParkSlideRow(SongArtist, _actualArtist);
+            CancelSongChangeSlide();
             // Reattach marquee masks/scrolling in case they were suspended mid-flight.
             UpdateMarquees();
             return false;
@@ -1919,7 +1972,11 @@ public partial class TaskbarWidgetControl : UserControl
     private void SlideSingleText(System.Windows.Controls.TextBlock live, Canvas container, string oldText, string newText, double newTextWidth, double oldContainerWidth, double newContainerWidth, int durationMs, int staggerMs, bool slideBackwards, int version, Action? onCompleted = null)
     {
         if (live.RenderTransform is not TranslateTransform transform)
+        {
+            live.Text = newText;
+            onCompleted?.Invoke();
             return;
+        }
 
         bool isTitleRow = live == SongTitle;
         bool hasOld = !string.IsNullOrEmpty(oldText);
@@ -2087,7 +2144,7 @@ public partial class TaskbarWidgetControl : UserControl
     /// superseded slide) are left untouched. Stale completions from superseded
     /// rapid-skip slides are ignored.
     /// </summary>
-    private void FinishSongChangeSlide(int version, bool restartTitle, bool restartArtist, bool collapseArtist)
+    private void FinishSongChangeSlide(int version, bool restartTitle, bool restartArtist)
     {
         if (version != _songChangeSlideVersion)
             return;
@@ -2108,10 +2165,9 @@ public partial class TaskbarWidgetControl : UserControl
             artistTransform.X = 0;
         }
 
-        if (collapseArtist)
-            SongArtist.Visibility = SongArtistContainer.Visibility = Visibility.Collapsed;
-
-        UpdateMarquees(restartTitle, restartArtist);
+        UpdateTextRowVisibility();
+        UpdateMarquees(restartTitle || _marqueeDirty, restartArtist || _marqueeDirty);
+        _marqueeDirty = false;
     }
 
     private void AnimateEntrance()
@@ -2181,6 +2237,16 @@ public partial class TaskbarWidgetControl : UserControl
         }
     }
 
+    private void ClearEntranceAnimation()
+    {
+        RootGrid.BeginAnimation(OpacityProperty, null);
+        RootGrid.Opacity = 1;
+        CrossfadeOverlay.BeginAnimation(OpacityProperty, null);
+        CrossfadeOverlay.Visibility = Visibility.Collapsed;
+        CrossfadeOverlay.Background = null;
+        if (_crossfadeBrush != null) _crossfadeBrush.ImageSource = null;
+    }
+
     /// <summary>
     /// Renders the current widget (old album) into <see cref="CrossfadeOverlay"/> so it
     /// can be faded out on top of the freshly updated content underneath (true crossfade).
@@ -2228,45 +2294,34 @@ public partial class TaskbarWidgetControl : UserControl
     }
 
     // event handlers for media control buttons
-    private async void Previous_Click(object sender, RoutedEventArgs e)
+    private async void Previous_Click(object sender, RoutedEventArgs e) =>
+        await ExecuteTransportAsync(PreviousButton, async session => await session.TrySkipPreviousAsync(), false);
+
+    private async void PlayPause_Click(object sender, RoutedEventArgs e) =>
+        await ExecuteTransportAsync(PlayPauseButton, async session => await session.TryTogglePlayPauseAsync());
+
+    private async void Next_Click(object sender, RoutedEventArgs e) =>
+        await ExecuteTransportAsync(NextButton, async session => await session.TrySkipNextAsync(), true);
+
+    private async Task ExecuteTransportAsync(FrameworkElement button,
+        Func<GlobalSystemMediaTransportControlsSession, Task<bool>> command, bool? forward = null)
     {
-        if (_mainWindow == null) return;
-
-        var session = _mainWindow.GetTaskbarSession();
-        if (session == null) return;
-
-        // Stick the widget to the controlled session before the command: pausing or
-        // skipping moves the OS focus elsewhere as a side effect, and the widget must
-        // keep showing this session instead of jumping to the next active media.
-        _mainWindow.PinTaskbarSession(session);
-        NoteTrackNavigation(forward: false);
-        await session.ControlSession.TrySkipPreviousAsync();
-    }
-
-    private async void PlayPause_Click(object sender, RoutedEventArgs e)
-    {
-        if (_mainWindow == null) return;
-
-        var session = _mainWindow.GetTaskbarSession();
-        if (session == null) return;
-
-        // Same stickiness as above: without it, pausing moves the OS focus to the
-        // next active session, so the following play press would hit the wrong
-        // session (and jump the widget to it) instead of resuming this one.
-        _mainWindow.PinTaskbarSession(session);
-        await session.ControlSession.TryTogglePlayPauseAsync();
-    }
-
-    private async void Next_Click(object sender, RoutedEventArgs e)
-    {
-        if (_mainWindow == null) return;
-
-        var session = _mainWindow.GetTaskbarSession();
-        if (session == null) return;
-
-        _mainWindow.PinTaskbarSession(session);
-        NoteTrackNavigation(forward: true);
-        await session.ControlSession.TrySkipNextAsync();
+        if (!button.IsHitTestVisible || _mainWindow == null) return;
+        try
+        {
+            var session = _mainWindow.GetTaskbarSession();
+            if (session?.ControlSession == null) return;
+            // Keep commands attached to the chosen player even if Windows changes focus.
+            _mainWindow.PinTaskbarSession(session);
+            if (forward.HasValue) NoteTrackNavigation(forward.Value);
+            if (!await command(session.ControlSession) && forward.HasValue)
+                _slideBackwardsPending = false;
+        }
+        catch (Exception ex)
+        {
+            if (forward.HasValue) _slideBackwardsPending = false;
+            Logger.Debug(ex, "Taskbar widget transport failed");
+        }
     }
 
     // ------------------------------------------------------------------
@@ -2276,7 +2331,7 @@ public partial class TaskbarWidgetControl : UserControl
     private void SongInfo_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         // Empty block (no media placeholder): nothing to expand.
-        if (string.IsNullOrEmpty(_actualTitle))
+        if (!HasPublishedSong)
             return;
 
         e.Handled = true;
@@ -2299,15 +2354,18 @@ public partial class TaskbarWidgetControl : UserControl
     /// Marks the song block as expanded while the widget is expanded, so the
     /// toggle state stays visible on the widget itself. Called by the host window.
     /// </summary>
-    public bool HasPublishedSong => !string.IsNullOrEmpty(_actualTitle);
+    public bool HasPublishedSong { get; private set; }
 
-    public void SetExpandedState(bool expanded)
+    public void SetExpandedState(bool expanded, double compactWidth)
     {
         if (_songInfoExpanded == expanded) return;
+        CancelSongChangeSlide();
+        CalculateSize(VisualTreeHelper.GetDpi(this).PixelsPerDip);
         SetCompactAlbumArt(_lastIcon);
         bool wasTransitioning = _expansionTransition;
         _songInfoExpanded = expanded;
         _expansionTransition = true;
+        UpdateMarquees();
         // Spatial motion must remain continuous between physical pixels. Restore
         // crisp pixel alignment only after all shared elements have landed.
         UseLayoutRounding = false;
@@ -2317,37 +2375,49 @@ public partial class TaskbarWidgetControl : UserControl
         Opacity = 1;
         Visibility = Visibility.Visible;
         IsHitTestVisible = true;
-        CrossfadeOverlay.BeginAnimation(OpacityProperty, null);
-        CrossfadeOverlay.Visibility = Visibility.Collapsed;
-        CrossfadeOverlay.Background = null;
-        if (_crossfadeBrush != null) _crossfadeBrush.ImageSource = null;
+        ClearEntranceAnimation();
         MainGrid.BeginAnimation(OpacityProperty, null);
         ExpandedContent.BeginAnimation(OpacityProperty, null);
         MainGrid.Opacity = ExpandedContent.Opacity = 1;
-        // Hidden keeps compact layout measurable. No delayed opacity completion
-        // can collapse the newly restored compact content after the morph ends.
-        MainGrid.Visibility = Visibility.Hidden;
+        // Blend the native compact visuals into the expanded ones. Scaled text
+        // has different font hinting; replacing it only on the last frame pops.
+        MainGrid.Visibility = Visibility.Visible;
         MainGrid.IsHitTestVisible = false;
         ExpandedContent.Visibility = Visibility.Visible;
         ExpandedContent.IsHitTestVisible = false;
-        UpdateLayout();
-        ExpandedContent.SetCompactButtonIconSizes(
-            (PreviousButton.Icon as SymbolIcon)?.FontSize ?? 16,
-            (PlayPauseButton.Icon as SymbolIcon)?.FontSize ?? 16,
-            (NextButton.Icon as SymbolIcon)?.FontSize ?? 16);
-        // A newly reparented visual can belong to a hidden HWND. UpdateLayout
-        // alone does not arrange that root: measuring endpoints then records
-        // zero offsets, followed by a visible jump when the popup first renders.
-        var expandedSize = new Size(ExpandedContent.Width, ExpandedContent.Height);
-        ExpandedContent.Measure(expandedSize);
-        ExpandedContent.Arrange(new Rect(expandedSize));
-        ExpandedContent.UpdateLayout();
+        // Lay out the content once at full size. Only the outer viewport and the
+        // shared-element transforms change during the flight, so resizing the
+        // widget cannot remeasure or recenter its text, artwork or background.
+        MainBorder.Width = Math.Max(Width, ExpandedContent.Width);
+        MainBorder.Height = Math.Max(Height, ExpandedContent.Height);
+        MainBorder.HorizontalAlignment = HorizontalAlignment.Left;
+        MainBorder.VerticalAlignment = VerticalAlignment.Top;
         if (!wasTransitioning)
         {
+            ExpandedContent.SettleTransitions();
+            // Measure the real rounded compact layout, including border thickness
+            // and margins. Subtracting half the card height loses those pixel offsets.
+            TopBorder.UseLayoutRounding = true;
+            TopBorder.Measure(new Size(compactWidth, 40));
+            TopBorder.Arrange(new Rect(0, 0, compactWidth, 40));
+            TopBorder.Height = TopBorder.ActualHeight;
+            TopBorder.VerticalAlignment = VerticalAlignment.Top;
+            UpdateLayout();
+            ExpandedContent.SetCompactButtonIconSizes(
+                (PreviousButton.Icon as SymbolIcon)?.FontSize ?? 16,
+                (PlayPauseButton.Icon as SymbolIcon)?.FontSize ?? 16,
+                (NextButton.Icon as SymbolIcon)?.FontSize ?? 16);
+            // A newly reparented visual can belong to a hidden HWND. Arrange it
+            // explicitly before capturing endpoints; reversals reuse those endpoints.
+            var expandedSize = new Size(ExpandedContent.Width, ExpandedContent.Height);
+            ExpandedContent.Measure(expandedSize);
+            ExpandedContent.Arrange(new Rect(expandedSize));
+            ExpandedContent.UpdateLayout();
             var destinations = ExpandedContent.MorphElements;
             FrameworkElement[] sources = [SongImageBorder, SongTitleContainer, SongArtistContainer,
                 PreviousButton, PlayPauseButton, NextButton];
             _expansionElements = new (FrameworkElement, Rect, Rect, double, bool)[sources.Length];
+            _expansionCompactElements = new (FrameworkElement, Rect, Point, double)[sources.Length];
             for (int i = 0; i < sources.Length; i++)
             {
                 destinations[i].RenderTransformOrigin = new Point(0, 0);
@@ -2356,18 +2426,15 @@ public partial class TaskbarWidgetControl : UserControl
                 destinations[i].CacheMode = new BitmapCache();
                 var to = destinations[i].TransformToAncestor(RootGrid).TransformBounds(
                     new Rect(destinations[i].RenderSize));
-                var from = sources[i].TransformToAncestor(RootGrid).TransformBounds(new Rect(sources[i].RenderSize));
-                // MainGrid remains centered in the tall surface while hidden; its
-                // compact endpoint is centered in 40 DIPs, regardless of card height.
-                from.Offset(0, (40 - ActualHeight) / 2);
-                if (i == 1 || i == 2)
-                {
-                    double textTop = Canvas.GetTop(i == 1 ? SongTitle : SongArtist);
-                    if (!double.IsNaN(textTop)) from.Offset(0, textTop);
-                }
+                var sourceBounds = sources[i].TransformToAncestor(RootGrid).TransformBounds(new Rect(sources[i].RenderSize));
+                FrameworkElement content = i == 1 ? SongTitle : i == 2 ? SongArtist : sources[i];
+                var from = content.TransformToAncestor(RootGrid).TransformBounds(new Rect(content.RenderSize));
+                var contentOffset = new Point(from.Left - sourceBounds.Left, from.Top - sourceBounds.Top);
+                _expansionCompactElements[i] = (sources[i], sourceBounds, contentOffset, sources[i].Opacity);
+                sources[i].RenderTransformOrigin = new Point(0, 0);
                 bool visible = i == 0 ? SettingsManager.Current.TaskbarWidgetShowAlbumArt
                     : i < 3 ? SongInfoStackPanel.Visibility == Visibility.Visible
-                        && (i != 2 || SongArtist.Visibility == Visibility.Visible)
+                        && (i == 1 ? SongTitleContainer.Visibility : SongArtistContainer.Visibility) == Visibility.Visible
                     : SettingsManager.Current.TaskbarWidgetControlsEnabled;
                 double scale = i == 1 || i == 2 ? CompactContentScale
                     : to.Width > 0 && from.Width > 0 ? from.Width / to.Width : CompactContentScale;
@@ -2390,14 +2457,22 @@ public partial class TaskbarWidgetControl : UserControl
         double alpha = Math.Clamp(progress, 0, 1);
         for (int i = 0; i < _expansionElements.Length; i++)
         {
-            var (element, from, to, initialScale, visible) = _expansionElements[i];
-            double scale = initialScale + (1 - initialScale) * progress;
-            double x = from.Left + (to.Left - from.Left) * progress - to.Left;
-            double y = from.Top + (to.Top - from.Top) * progress - to.Top;
+            var (element, from, to, initialScale, _) = _expansionElements[i];
+            double scale = initialScale + (1 - initialScale) * alpha;
+            double x = from.Left + (to.Left - from.Left) * alpha - to.Left;
+            double y = from.Top + (to.Top - from.Top) * alpha - to.Top;
             if (element.RenderTransform is not MatrixTransform transform || transform.IsFrozen)
                 element.RenderTransform = transform = new MatrixTransform();
             transform.Matrix = new Matrix(scale, 0, 0, scale, x, y);
-            element.Opacity = visible ? 1 : alpha;
+            element.Opacity = alpha;
+            var (compact, bounds, offset, opacity) = _expansionCompactElements[i];
+            double compactScale = scale / initialScale;
+            if (compact.RenderTransform is not MatrixTransform compactTransform || compactTransform.IsFrozen)
+                compact.RenderTransform = compactTransform = new MatrixTransform();
+            compactTransform.Matrix = new Matrix(compactScale, 0, 0, compactScale,
+                from.Left + (to.Left - from.Left) * alpha - bounds.Left - offset.X * compactScale,
+                from.Top + (to.Top - from.Top) * alpha - bounds.Top - offset.Y * compactScale);
+            compact.Opacity = opacity * (1 - alpha);
             if (i == 1 || i == 2)
             {
                 double width = from.Width / Math.Max(initialScale, 0.01)
@@ -2414,6 +2489,12 @@ public partial class TaskbarWidgetControl : UserControl
     public void CompleteExpansionTransition()
     {
         _expansionTransition = false;
+        MainBorder.Width = MainBorder.Height = double.NaN;
+        MainBorder.HorizontalAlignment = HorizontalAlignment.Stretch;
+        MainBorder.VerticalAlignment = VerticalAlignment.Stretch;
+        TopBorder.Height = double.NaN;
+        TopBorder.VerticalAlignment = VerticalAlignment.Stretch;
+        TopBorder.ClearValue(UseLayoutRoundingProperty);
         UseLayoutRounding = true;
         SnapsToDevicePixels = true;
 
@@ -2429,12 +2510,20 @@ public partial class TaskbarWidgetControl : UserControl
             element.Opacity = 1;
             element.CacheMode = null;
         }
+        foreach (var (element, _, _, opacity) in _expansionCompactElements)
+        {
+            element.RenderTransform = Transform.Identity;
+            element.Opacity = opacity;
+        }
         _expansionElements = [];
+        _expansionCompactElements = [];
         ExpandedContent.SetMorphProgress(_songInfoExpanded ? 1 : 0);
         MainGrid.Opacity = _songInfoExpanded ? 0 : 1;
         ExpandedContent.Visibility = _songInfoExpanded ? Visibility.Visible : Visibility.Collapsed;
         ExpandedContent.Opacity = _songInfoExpanded ? 1 : 0;
         ExpandedBackdropBase.Opacity = _songInfoExpanded ? 1 : 0;
+        UpdateSongInfoHighlight();
+        UpdateMarquees();
         UpdateBackgroundMode(preserveCrossfade: true);
         if (!_songInfoExpanded && _noMediaWhileExpanded)
         {
@@ -2462,7 +2551,7 @@ public partial class TaskbarWidgetControl : UserControl
             return;
 
         // Expanded wins over hover so the latched state is never masked by the pointer.
-        SongInfoHitArea.Background = !SettingsManager.Current.TaskbarWidgetExpandOnClick
+        SongInfoHitArea.Background = _expansionTransition || !SettingsManager.Current.TaskbarWidgetExpandOnClick
             ? Brushes.Transparent : _songInfoExpanded
             ? SongInfoExpandedBrush
             : _songInfoHovering ? SongInfoHoverBrush : Brushes.Transparent;
@@ -2494,14 +2583,6 @@ public partial class TaskbarWidgetControl : UserControl
     // over the album art with several sessions available the chevron replaces the pause icon.
     private void UpdateAlbumArtOverlay()
     {
-        if (!_hasAlbumCover)
-        {
-            // no cover: the music-note placeholder stands alone, nothing to overlay
-            SongImagePlaceholder.Symbol = SymbolRegular.MusicNote220;
-            SongImagePlaceholder.Visibility = Visibility.Visible;
-            return;
-        }
-
         bool showChevron = _albumArtHovering
             && _mainWindow != null
             && _mainWindow.GetTaskbarSessionCount() > 1;
@@ -2511,6 +2592,15 @@ public partial class TaskbarWidgetControl : UserControl
             SongImagePlaceholder.Symbol = SymbolRegular.ChevronRight20;
             SongImagePlaceholder.Visibility = Visibility.Visible;
             SongImage.Opacity = 0.4;
+            return;
+        }
+
+        if (!_hasAlbumCover)
+        {
+            // A player with no readable cover still offers the same session switch.
+            SongImagePlaceholder.Symbol = SymbolRegular.MusicNote220;
+            SongImagePlaceholder.Visibility = Visibility.Visible;
+            SongImage.Opacity = 1;
             return;
         }
 

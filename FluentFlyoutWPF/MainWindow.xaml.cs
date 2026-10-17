@@ -67,6 +67,7 @@ public partial class MainWindow : MicaWindow
 
     private readonly int _seekbarUpdateInterval = 300;
     private readonly Timer _positionTimer;
+    private readonly DispatcherTimer _mediaSessionRefreshTimer;
     private bool _isActive;
     private bool _isDragging;
     private bool _isHiding = true;
@@ -89,14 +90,10 @@ public partial class MainWindow : MicaWindow
     /// </summary>
     internal DictationService Dictation { get; } = new();
 
-    // Taskbar widget: the media session the widget is stuck to. Set when the user
-    // interacts with the widget (play/pause/next/previous buttons, album-art cycle)
-    // so the widget keeps showing and controlling THAT session while the OS moves
-    // its focus elsewhere as a side effect (e.g. pausing the shown session moves
-    // focus to the next active one). null means the widget follows the OS focused
-    // session (default behaviour). Released when another session genuinely starts
-    // playing, on manual cycle (re-pinned), or when the session closes/disappears.
+    // Keep the controlled session pinned through pause so Play resumes the same media.
+    // Only explicit selection or removal of that session changes the pin.
     private string? _taskbarPinnedSessionId;
+    private MediaSession? _lastFocusedTaskbarSession;
 
     private VolumeMixerWindow? volumeMixerWindow;
 
@@ -152,20 +149,6 @@ public partial class MainWindow : MicaWindow
             }
         });
 
-        try
-        {
-            SettingsManager.RestoreSettings();
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(IslandStrings.Format("SettingsRestoreFailed",
-                "Failed to restore settings: {0}", ex.Message));
-            Logger.Error(ex, "Failed to restore settings");
-        }
-
-        // RestoreSettings may replace SettingsManager.Current instance, so rebind DataContext.
-        DataContext = SettingsManager.Current;
-
         if (SettingsManager.Current.Startup == true) // add to startup programs if enabled, needs improvement
         {
             RegistryKey? key = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
@@ -199,6 +182,12 @@ public partial class MainWindow : MicaWindow
         mediaManager.OnAnyTimelinePropertyChanged += MediaManager_OnAnyTimelinePropertyChanged;
         mediaManager.OnAnySessionClosed += MediaManager_OnAnySessionClosed;
         mediaManager.OnFocusedSessionChanged += MediaManager_OnFocusedSessionChanged;
+
+        _mediaSessionRefreshTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(3)
+        };
+        _mediaSessionRefreshTimer.Tick += MediaSessionRefreshTimer_Tick;
 
         islandWindow = new IslandWindow(this);
 
@@ -283,7 +272,54 @@ public partial class MainWindow : MicaWindow
         (appName.Equals(entry, StringComparison.OrdinalIgnoreCase) || appId.Contains(entry, StringComparison.OrdinalIgnoreCase));
 
     private List<MediaSession> GetWidgetSessions() =>
-        mediaManager.CurrentMediaSessions.Values.Where(IsWidgetSessionAllowed).ToList();
+        mediaManager.CurrentMediaSessions.Values
+            .Where(session => IsWidgetSessionAllowed(session) && IsWidgetSessionPresent(session))
+            .ToList();
+
+    private static bool IsWidgetSessionPresent(MediaSession session)
+    {
+        if (session.ControlSession == null) return false;
+        try
+        {
+            // A registered session with an unavailable snapshot is still selectable.
+            // Paused players can temporarily stop answering while focus changes.
+            return session.ControlSession.GetPlaybackInfo()?.PlaybackStatus
+                != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed;
+        }
+        catch (COMException)
+        {
+            return true;
+        }
+    }
+
+    private static GlobalSystemMediaTransportControlsSessionPlaybackInfo? TryGetTaskbarPlaybackInfo(MediaSession session)
+    {
+        try { return session.ControlSession?.GetPlaybackInfo(); }
+        catch (COMException ex)
+        {
+            Logger.Debug(ex, "Taskbar playback snapshot temporarily unavailable");
+            return null;
+        }
+    }
+
+    private void PublishTaskbarSession(TaskbarWindow? widget,
+        GlobalSystemMediaTransportControlsSessionMediaProperties? properties,
+        GlobalSystemMediaTransportControlsSessionPlaybackInfo? playback)
+    {
+        if (playback?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed)
+        {
+            // A session can close between selection and this read. Another
+            // registered player keeps the switch target alive until the refresh.
+            if (GetWidgetSessions().Count > 0) return;
+            widget?.UpdateUi("-", "-", null, GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed);
+            return;
+        }
+        // Missing metadata is not session removal. Publish an empty selectable
+        // surface rather than disabling the user's way back to another player.
+        widget?.UpdateUi(properties?.Title ?? "", properties?.Artist ?? "",
+            properties == null ? null : BitmapHelper.GetThumbnail(properties.Thumbnail),
+            playback?.PlaybackStatus, playback?.Controls);
+    }
 
     private List<MediaSession> GetValidMediaSessions()
     {
@@ -304,8 +340,7 @@ public partial class MainWindow : MicaWindow
     }
 
     /// <summary>
-    /// Returns the session the taskbar widget should show: the pinned one if the user
-    /// cycled to it and it is still available, otherwise the OS focused session.
+    /// Returns a present session, including paused media: pinned, focused, or first available.
     /// </summary>
     public MediaSession? GetTaskbarSession()
     {
@@ -324,14 +359,9 @@ public partial class MainWindow : MicaWindow
     }
 
     /// <summary>
-    /// Pins the taskbar widget to the given session (sticky widget): the widget keeps
-    /// showing and controlling that session even when the OS moves its focus elsewhere
-    /// as a side effect of the user's command (e.g. pausing moves focus to the next
-    /// active session). Must be called synchronously in the button handler, before the
-    /// async transport command, so every event the command triggers still resolves to
-    /// the controlled session. The pin is released when another session genuinely
-    /// starts playing, on manual cycle (re-pinned), or when the session disappears
-    /// (<see cref="GetTaskbarSession"/> then falls through to the OS focus).
+    /// Pins the widget to a session while it remains available. Must be called
+    /// synchronously in the button handler, before the async transport command, so
+    /// events from that command still resolve to the controlled session, even when paused.
     /// </summary>
     public void PinTaskbarSession(MediaSession? session)
     {
@@ -366,17 +396,30 @@ public partial class MainWindow : MicaWindow
     }
 
     /// <summary>
-    /// Re-renders the widget after an OS focus move. Never yanks the widget off its
-    /// pinned session here: when the user pauses the widget's session, the OS moves
-    /// focus to another session as a side effect, and following it is exactly the
-    /// pause-flicker bug (widget jumps to the next active media, and the next play
-    /// press hits the wrong session). The pin is released by a genuine play elsewhere
-    /// (see <see cref="CurrentSession_OnPlaybackStateChanged"/>), by manual cycling,
-    /// or when the session closes. Just re-render: with a pin this re-asserts the
-    /// pinned session, without one it follows the new focus.
+    /// Re-renders after an OS focus move while respecting the pinned session.
     /// </summary>
     private void MediaManager_OnFocusedSessionChanged(MediaSession mediaSession)
     {
+        if (ReferenceEquals(_lastFocusedTaskbarSession, mediaSession)) return;
+        _lastFocusedTaskbarSession = mediaSession;
+        UpdateTaskbar();
+    }
+
+    private void MediaSessionRefreshTimer_Tick(object? sender, EventArgs e)
+    {
+        try
+        {
+            // The media library documents this as recovery when Windows stops raising session events.
+            mediaManager.ForceUpdate();
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug(ex, "Failed to refresh media sessions");
+        }
+
+        // ForceUpdate reconciles the session list and focus, but does not refresh playback
+        // state for an existing session. Re-read it so a missed Closed event cannot leave
+        // the last song published in the taskbar widget.
         UpdateTaskbar();
     }
 
@@ -658,12 +701,16 @@ public partial class MainWindow : MicaWindow
         // Taskbar widget window is only created when the widget is enabled
         if (!SettingsManager.Current.TaskbarWidgetEnabled)
         {
+            _mediaSessionRefreshTimer.Stop();
             if (taskbarWindow != null)
             {
                 ShutdownTaskbarWindow();
             }
             return;
         }
+
+        if (!_mediaSessionRefreshTimer.IsEnabled)
+            _mediaSessionRefreshTimer.Start();
 
         if (taskbarWindow == null)
         {
@@ -680,13 +727,7 @@ public partial class MainWindow : MicaWindow
         }
 
         var songInfo = TryGetMediaProperties(activeSession.ControlSession);
-        if (songInfo == null)
-            return;
-
-        var playbackInfo = activeSession.ControlSession.GetPlaybackInfo();
-        var thumbnail = BitmapHelper.GetThumbnail(songInfo.Thumbnail);
-        BitmapHelper.GetDominantColors(thumbnail);
-        widget.UpdateUi(songInfo.Title, songInfo.Artist, thumbnail, playbackInfo.PlaybackStatus, playbackInfo.Controls);
+        PublishTaskbarSession(widget, songInfo, TryGetTaskbarPlaybackInfo(activeSession));
     }
 
     private void ShutdownTaskbarWindow()
@@ -791,29 +832,9 @@ public partial class MainWindow : MicaWindow
 #endif     
         pauseOtherMediaSessionsIfNeeded(mediaSession);
 
-        // Sticky widget: the session that just changed state wins when it is the
-        // widget's pinned session. Pausing/resuming in the widget moves the OS focus
-        // elsewhere as a side effect, but the widget must keep showing (and the next
-        // button press must keep controlling) the session the user acted on — never
-        // jump to the next active media. A *different* allowed session that just
-        // started playing is genuine new activity elsewhere: release the pin and
-        // follow it.
-        MediaSession? sessionToShow;
-        if (_taskbarPinnedSessionId != null
-            && mediaSession.Id == _taskbarPinnedSessionId
-            && IsWidgetSessionAllowed(mediaSession)
-            && mediaSession.ControlSession != null)
-        {
-            sessionToShow = mediaSession;
-        }
-        else
-        {
-            var changedStatus = playbackInfo?.PlaybackStatus
-                ?? mediaSession.ControlSession?.GetPlaybackInfo()?.PlaybackStatus;
-            if (changedStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
-                _taskbarPinnedSessionId = null;
-            sessionToShow = GetTaskbarSession();
-        }
+        // Background events from the other player must not undo a manual selection,
+        // particularly when the chosen player is paused.
+        var sessionToShow = GetTaskbarSession();
 
         if (sessionToShow == null)
         {
@@ -822,13 +843,7 @@ public partial class MainWindow : MicaWindow
         }
 
         var tbSongInfo = TryGetMediaProperties(sessionToShow.ControlSession);
-        if (tbSongInfo != null)
-        {
-            var tbThumbnail = BitmapHelper.GetThumbnail(tbSongInfo.Thumbnail);
-            var tbPlayback = sessionToShow.ControlSession.GetPlaybackInfo();
-
-            taskbarWindow?.UpdateUi(tbSongInfo.Title, tbSongInfo.Artist, tbThumbnail, tbPlayback?.PlaybackStatus, tbPlayback?.Controls);
-        }
+        PublishTaskbarSession(taskbarWindow, tbSongInfo, TryGetTaskbarPlaybackInfo(sessionToShow));
 
         if (IsVisible)
         {
@@ -867,10 +882,12 @@ public partial class MainWindow : MicaWindow
         }
 
         var songInfo = TryGetMediaProperties(currentActiveSession.ControlSession);
-        if (songInfo == null)
+        var playbackInfo = TryGetTaskbarPlaybackInfo(currentActiveSession);
+        if (songInfo == null || playbackInfo == null)
+        {
+            PublishTaskbarSession(taskbarWindow, songInfo, playbackInfo);
             return;
-
-        var playbackInfo = currentActiveSession.ControlSession.GetPlaybackInfo();
+        }
 
         string check = songInfo.Title + songInfo.Artist + playbackInfo.PlaybackStatus;
         var thumbnail = BitmapHelper.GetThumbnail(songInfo.Thumbnail);
@@ -886,7 +903,7 @@ public partial class MainWindow : MicaWindow
         previousMediaPropertyThumbnail = thumbnail;
 
 
-        taskbarWindow?.UpdateUi(songInfo.Title, songInfo.Artist, thumbnail, playbackInfo.PlaybackStatus, playbackInfo.Controls);
+        PublishTaskbarSession(taskbarWindow, songInfo, playbackInfo);
 
         pauseOtherMediaSessionsIfNeeded(mediaSession);
 
@@ -1681,6 +1698,7 @@ public partial class MainWindow : MicaWindow
         try
         {
             // unsubscribe from events
+            _mediaSessionRefreshTimer.Stop();
             mediaManager.OnAnyMediaPropertyChanged -= MediaManager_OnAnyMediaPropertyChanged;
             mediaManager.OnAnyPlaybackStateChanged -= CurrentSession_OnPlaybackStateChanged;
             mediaManager.OnAnyTimelinePropertyChanged -= MediaManager_OnAnyTimelinePropertyChanged;
