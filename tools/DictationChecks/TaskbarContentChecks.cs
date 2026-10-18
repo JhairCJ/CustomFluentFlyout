@@ -210,6 +210,7 @@ internal static class TaskbarContentChecks
                 "Available times must remain visible even when the player disables seeking");
             int version = (int)Read(content, "_progressVersion")!;
             Write(content, "_active", true);
+            Call(content, "ReadProgress", null, version);
             // No MainWindow is attached: the asynchronous refresh cannot read a player.
             // A cosmetic publication must not invalidate or erase a valid timeline.
             content.PublishSong("Same track", "Artist", artwork);
@@ -221,6 +222,11 @@ internal static class TaskbarContentChecks
                 "An unavailable timeline read erased the last valid taskbar position");
             Check((int)Read(content, "_progressRefreshPending")! == 0,
                 "An unavailable player left the taskbar timeline refresh stuck");
+            Call(content, "SuspendProgress");
+            Check((bool)Read(content, "_active")! && !((DispatcherTimer)Read(content, "_progressTimer")!).IsEnabled,
+                "Temporary unloading must pause progress without cancelling the requested expanded state");
+            content.SetActive(false);
+            Check(!(bool)Read(content, "_active")!, "Explicitly closing the widget must stop progress");
         }
         finally { content.DisposeResources(); }
     }

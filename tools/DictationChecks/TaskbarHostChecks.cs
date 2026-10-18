@@ -138,6 +138,9 @@ internal static class TaskbarHostChecks
             var host = (TaskbarExpansionWindow?)Read(window, "_expansionHost");
             Check(host != null && host.Surface.Children.Contains(widget) && !compact.Children.Contains(widget),
                 "Expansion duplicated/lost the interactive widget instance");
+            Check(expanded.IsLoaded && expanded.IsVisible && (bool)Read(expanded, "_active")!
+                && ((DispatcherTimer)Read(expanded, "_progressTimer")!).IsEnabled,
+                "Reparenting the expanded widget disabled its seekbar updates after Unloaded/Loaded");
             Check(ReferenceEquals(Read(widget, "_artworkPublication"), publication), "Transfer cleaned pending publication");
             Check(NativeMethods.GetParent(new WindowInteropHelper(host!).Handle) == IntPtr.Zero,
                 "Expanded host is clipped by Explorer");
@@ -151,6 +154,8 @@ internal static class TaskbarHostChecks
             Pump(80);
             window.ToggleWidgetExpansion();
             Pump(400);
+            Check((bool)Read(expanded, "_active")! && ((DispatcherTimer)Read(expanded, "_progressTimer")!).IsEnabled,
+                "Reopening the expanded widget failed to resume seekbar updates");
             int popupMovesDuringReturn = 0;
             bool returning = false;
             host!.LocationChanged += (_, _) => { if (returning && host.IsVisible) popupMovesDuringReturn++; };

@@ -52,7 +52,8 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         { Interval = TimeSpan.FromMilliseconds(100) };
         _progressTimer.Tick += ProgressTick;
         IsVisibleChanged += (_, _) => UpdateProgressTimer();
-        Unloaded += (_, _) => SetActive(false);
+        Loaded += (_, _) => UpdateProgressTimer();
+        Unloaded += (_, _) => SuspendProgress();
     }
 
     public void ApplyButtonStyle()
@@ -228,6 +229,19 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         }
     }
 
+    private void SuspendProgress()
+    {
+        // Expansion reparents this control into another window. Unloaded is a
+        // temporary detach, not a request to close the expanded media view.
+        // Keep _active so Loaded can resume without another expansion click.
+        _progressTimer.Stop();
+        Interlocked.Increment(ref _progressVersion);
+        RefreshObservedSession(null);
+        _drag = false;
+        _seekSession = null;
+        Seekbar.ReleaseMouseCapture();
+    }
+
     public void DisposeResources()
     {
         if (_disposed) return;
@@ -304,7 +318,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     private void StartProgressRead()
     {
-        if (_disposed || !_active)
+        if (_disposed || !_active || !IsLoaded || !IsVisible)
         {
             Interlocked.Exchange(ref _progressRefreshPending, 0);
             return;
@@ -325,7 +339,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     private void UpdateProgressTimer()
     {
-        if (_disposed || !_active || !IsVisible)
+        if (_disposed || !_active || !IsLoaded || !IsVisible)
         {
             _progressTimer.Stop();
             return;
@@ -337,7 +351,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
 
     private void ProgressTick(object? sender, EventArgs e)
     {
-        if (_disposed || !_active || !IsVisible) { _progressTimer.Stop(); return; }
+        if (_disposed || !_active || !IsLoaded || !IsVisible) { _progressTimer.Stop(); return; }
         var now = DateTimeOffset.UtcNow;
         // The 100 ms paint uses the last snapshot; only the 1 s recovery poll and
         // actual playback/timeline events cross into the player's process.

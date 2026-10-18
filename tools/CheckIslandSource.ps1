@@ -10,6 +10,7 @@ $sourceFiles = @(
     Get-Item (Join-Path $projectRoot 'FluentFlyoutWPF/Controls/IslandActionSurface.cs')
     Get-Item (Join-Path $projectRoot 'FluentFlyoutWPF/Controls/TaskbarWidgetExpandedContent.xaml.cs')
     Get-Item (Join-Path $projectRoot 'tools/DictationChecks/TaskbarContentChecks.cs')
+    Get-Item (Join-Path $projectRoot 'tools/DictationChecks/TaskbarHostChecks.cs')
     Get-Item (Join-Path $projectRoot 'FluentFlyoutWPF/Pages/IslandPage.xaml.cs')
     Get-Item (Join-Path $projectRoot 'FluentFlyoutWPF/MainWindow.xaml.cs')
     Get-Item (Join-Path $projectRoot 'FluentFlyoutWPF/Classes/GoogleCalendarService.cs')
