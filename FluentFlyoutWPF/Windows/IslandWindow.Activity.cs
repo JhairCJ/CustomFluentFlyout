@@ -88,6 +88,7 @@ public partial class IslandWindow
     // --- cadences limited per content ---
     private DispatcherTimer? _recovery;
     private DispatcherTimer? _timerWake;
+    private DispatcherTimer? _noticeWake;
     private DispatcherTimer? _viewRefresh;
     private DispatcherTimer? _hoverFallback;
     private bool _fallbackInside;
@@ -147,6 +148,8 @@ public partial class IslandWindow
         _hoverFallback = null;
         _timerWake?.Stop();
         _timerWake = null;
+        _noticeWake?.Stop();
+        _noticeWake = null;
 
         RemovePointerHook();
         _pointerHookWanted = false;

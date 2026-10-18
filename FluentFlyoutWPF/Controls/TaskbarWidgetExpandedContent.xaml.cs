@@ -138,11 +138,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         ArtistText.ToolTip = artist;
         StartAlbumFlip(art);
         Interlocked.Increment(ref _progressVersion);
-        if (_active)
-        {
-            RefreshObservedSession();
-            RequestProgressRefresh();
-        }
+        if (_active) RequestProgressRefresh();
     }
 
     private void UpdateTextRow(System.Windows.Controls.TextBlock row, string text, bool backwards, Func<bool> current)
@@ -213,7 +209,6 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         PlayPauseButton.IsHitTestVisible = PlayPauseButton.Focusable = _canPlayPause;
         NextButton.IsHitTestVisible = NextButton.Focusable = _canNext;
         SetMorphProgress(_morphProgress);
-        if (_active) RefreshObservedSession();
     }
 
     public void SetActive(bool active)
@@ -222,7 +217,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         _active = active;
         if (active) ApplyAlbumArt(AlbumArt.ImageSource as BitmapImage);
         Interlocked.Increment(ref _progressVersion);
-        RefreshObservedSession();
+        if (!active) RefreshObservedSession(null);
         UpdateProgressTimer();
         if (!active)
         {
@@ -256,9 +251,8 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         AlbumArt.Opacity = chevron ? 0.4 : 1;
     }
 
-    private void RefreshObservedSession()
+    private void RefreshObservedSession(GlobalSystemMediaTransportControlsSession? current)
     {
-        var current = _active ? _mainWindow?.GetTaskbarSession()?.ControlSession : null;
         if (ReferenceEquals(current, _observedSession)) return;
         if (_observedSession != null)
         {
@@ -272,7 +266,6 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         _observedSession = current;
         _minimumSeconds = _positionSeconds = _maximumSeconds = 0;
         _paintedPositionSecond = _paintedDurationSecond = double.NaN;
-        Interlocked.Increment(ref _progressVersion);
         if (current != null)
         {
             try
@@ -281,7 +274,6 @@ public partial class TaskbarWidgetExpandedContent : UserControl
                 current.PlaybackInfoChanged += SessionStateChanged;
             }
             catch (Exception ex) { Logger.Debug(ex, "Taskbar session notifications unavailable; polling remains active"); }
-            RequestProgressRefresh();
         }
     }
 
@@ -323,7 +315,6 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         if (now >= _nextProgressRead)
         {
             _nextProgressRead = now.AddSeconds(1);
-            RefreshObservedSession();
             RequestProgressRefresh();
         }
         ApplyCachedProgress(now);
@@ -376,13 +367,14 @@ public partial class TaskbarWidgetExpandedContent : UserControl
             Interlocked.Exchange(ref _progressRefreshPending, 0);
             return;
         }
-        Dispatcher.BeginInvoke(() =>
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
         {
             try
             {
                 if (_disposed || !_active || version != Volatile.Read(ref _progressVersion)) return;
-                RefreshObservedSession();
-                if (version != Volatile.Read(ref _progressVersion) || !ReferenceEquals(session, _observedSession)) return;
+                // Selection and playback reads already ran on the worker. Never
+                // query every player's COM state again on the animation thread.
+                RefreshObservedSession(session);
                 if (_drag && Mouse.LeftButton == MouseButtonState.Released) _drag = false;
                 ApplyPlaybackState(!playing, controls);
                 _minimumSeconds = minimumSeconds;
@@ -579,7 +571,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
     {
         e.Handled = true;
         _mainWindow?.CycleTaskbarSession();
-        RefreshObservedSession();
+        Interlocked.Increment(ref _progressVersion);
         RequestProgressRefresh();
     }
 

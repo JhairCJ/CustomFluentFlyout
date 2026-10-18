@@ -210,8 +210,8 @@ public partial class IslandWindow
             Refresh: RefreshBluetoothUI,
             Tick: null,
             ModeAvailable: BluetoothModeAvailable,
-            Sustains: BluetoothActive,
-            Middle: BluetoothName));
+            // The device name identifies the notice; ultra mode must retain it.
+            Sustains: BluetoothActive));
 
         // --- portapapeles ---
         RegisterCard(new IslandFeatureCard(

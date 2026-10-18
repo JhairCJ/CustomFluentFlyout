@@ -1571,9 +1571,8 @@ on_error:
         }
         // One clock owns geometry and content. Independent layout clocks can be
         // sampled on opposite sides of arrange, visibly pulling the content sideways.
-        double durationMs = FluentFlyout.Controls.TaskbarWidget.TaskbarWidgetAnimationEnvironment.GetDurationMs();
         var frame = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(
-            Math.Clamp(durationMs * (_widgetExpanded ? 0.8 : 0.65), 140, 360)))
+            FluentFlyout.Controls.TaskbarWidget.TaskbarWidgetAnimationEnvironment.GetExpansionDurationMs(_widgetExpanded)))
         { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
         frame.Completed += (_, _) => FinishWidgetExpansion(version);
         SetValue(ExpansionFrameProperty, 0.0);
@@ -1695,25 +1694,26 @@ on_error:
         int frames = 0;
         _handoffRendering = (_, _) =>
         {
-            // A reused layered HWND can retain its old bitmap. Reveal it only
-            // with the newly arranged visual, then start motion after that frame.
+            // Start motion with the first prepared frame. Keep the outgoing
+            // snapshot for two presents, without holding the animation clock.
             if (_expansionOwnsLayout && _expansionHost is { Opacity: 0 })
+            {
                 _expansionHost.Opacity = 1;
+                var start = _pendingExpansionAnimation;
+                _pendingExpansionAnimation = null;
+                start?.Invoke();
+            }
             if (++frames < 2) return;
             CompositionTarget.Rendering -= _handoffRendering;
             _handoffRendering = null;
-            Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
-            {
-                if (!ReferenceEquals(image, _handoffImage)) return;
-                var start = _pendingExpansionAnimation;
-                _pendingExpansionAnimation = null;
-                ClearWidgetHandoff();
-                if (_closed) return;
-                start?.Invoke();
-                ApplyWidgetHostBounds(_expansionOwnsLayout
-                    ? (_expansionAnimating ? _expansionFlightRect : LiveWidgetRect()) : _compactWidgetRect);
-                if (!_expansionOwnsLayout) _expansionHost?.Hide();
-            });
+            if (!ReferenceEquals(image, _handoffImage)) return;
+            // Retire before this frame is drawn, so a moving popup cannot leave
+            // a second compact widget behind while a dispatcher callback waits.
+            ClearWidgetHandoff();
+            if (_closed) return;
+            ApplyWidgetHostBounds(_expansionOwnsLayout
+                ? (_expansionAnimating ? _expansionFlightRect : LiveWidgetRect()) : _compactWidgetRect);
+            if (!_expansionOwnsLayout) _expansionHost?.Hide();
         };
         CompositionTarget.Rendering += _handoffRendering;
     }

@@ -69,6 +69,7 @@ public partial class IslandWindow
 
     /// <summary>Último dispositivo conectado: es el que enseña el aviso y el que sostiene la funcionalidad.</summary>
     private IslandBluetoothDevice? _bluetoothDevice;
+    private double _bluetoothCompactWidth = 120;
     private IslandBluetoothMonitor? _bluetooth;
     // Anti-rebote del aviso: al emparejar, algunos dispositivos se conectan,
     // sueltan y vuelven a conectarse en un par de segundos (perfiles), y eso NO
@@ -175,7 +176,11 @@ public partial class IslandWindow
         if (Suppressed() || HasExclusive() || _expanded) return;
         bool rebound = _bluetoothShownId == device.Id
             && DateTime.UtcNow - _bluetoothShownAt < BluetoothReboundGuard;
-        if (rebound) return;
+        if (rebound)
+        {
+            PostActivity(IslandActivityReason.Bluetooth);
+            return;
+        }
         _bluetoothShownId = device.Id;
         _bluetoothShownAt = DateTime.UtcNow;
         ShowBluetoothCompact(restartNotice: true);
@@ -282,6 +287,23 @@ public partial class IslandWindow
             BluetoothPercent.Text = "";
         }
         BluetoothCompactGrid.ToolTip = BluetoothTooltip(device);
+        // Measure only when device data changes, never inside the render loop.
+        // DesiredSize includes the name's own spacing; a missing battery adds none.
+        BluetoothName.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        BluetoothPercent.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        double batteryWidth = BluetoothBatteryZone.Visibility == Visibility.Visible
+            ? BatteryRingSize : BluetoothPercent.DesiredSize.Width;
+        double width = Math.Ceiling(BluetoothCompactGrid.Margin.Left + BluetoothCompactGrid.Margin.Right
+            + BluetoothCompactGrid.ColumnDefinitions[0].Width.Value + BluetoothName.DesiredSize.Width + batteryWidth);
+        if (_bluetoothCompactWidth != width)
+        {
+            _bluetoothCompactWidth = width;
+            if (_contentMode == IslandContentMode.Bluetooth)
+            {
+                CompactLayer.Width = IsNotch ? RestCompactWidth(NotchCompactWidth) : ContentCompactWidth;
+                if (IsBoxShown) ApplyFrame();
+            }
+        }
     }
 
     /// <summary>
@@ -289,8 +311,8 @@ public partial class IslandWindow
     /// Windows no dio uno usable (el vigía publica vacío en ese caso).
     /// </summary>
     private static string BluetoothDisplayName(IslandBluetoothDevice device) =>
-        device.Name is { Length: > 0 } name
-            ? name
+        !string.IsNullOrWhiteSpace(device.Name)
+            ? device.Name.Trim()
             : IslandStrings.Get("IslandBluetoothUnknownDevice", "Bluetooth device");
 
     /// <summary>Tooltip del aviso: dice qué pasó y, si se conoce, la batería.</summary>

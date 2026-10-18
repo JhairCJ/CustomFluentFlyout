@@ -96,9 +96,7 @@ public partial class IslandWindow
         {
             bool opening = _inactiveTt < _inactiveT;
             double step = dt / (opening ? InactiveReopenSeconds : InactiveTransitionSeconds);
-            _inactiveT += Math.Sign(_inactiveTt - _inactiveT) * step;
-            if (_inactiveTt > _inactiveT ? _inactiveT >= _inactiveTt : _inactiveT <= _inactiveTt)
-                _inactiveT = _inactiveTt;
+            _inactiveT = IslandPhysics.MoveTowards(_inactiveT, _inactiveTt, step);
         }
         // The expanded height chases its target: content changes glide, they do not jump.
         _hexpShown += (_hexp - _hexpShown) * Math.Clamp(dt * 10, 0, 1);
@@ -111,12 +109,13 @@ public partial class IslandWindow
             if (Math.Abs(_inactiveHotT - hotTarget) < 0.01) _inactiveHotT = hotTarget;
         }
         if (_popPlaying) StepPop(dt);
-        ApplyFrame();
-
         bool pSettled = IslandPhysics.Settled(_p, _pv, _pT);
         bool qSettled = IslandPhysics.Settled(_q, _qv, _qT);
         if (pSettled) { _p = _pT; _pv = 0; }
         if (qSettled) { _q = _qT; _qv = 0; }
+        // Paint the snapped values before stopping the clock, not the preceding
+        // near-final spring values that would jump on the next layout update.
+        ApplyFrame();
 
         bool popSettled = !_popPlaying;
         bool hSettled = _hexpShown == _hexp;

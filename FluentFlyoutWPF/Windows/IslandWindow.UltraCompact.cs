@@ -34,10 +34,13 @@ public partial class IslandWindow
     /// <summary>
     /// Current compact view width with ultra mode in front: it overrides both the
     /// feature's width and the style's (notch included), because in ultra the capsule
-    /// is defined by its two extremes.
+    /// is defined by its two extremes. Bluetooth fits its actual contents instead
+    /// of reserving a full-width notice just to keep the device name visible.
     /// </summary>
-    private static double RestCompactWidth(double styleWidth) =>
-        UltraCompactOn ? UltraCompactWidth : styleWidth;
+    private double RestCompactWidth(double styleWidth) =>
+        _contentMode == IslandContentMode.Bluetooth
+            ? Math.Clamp(_bluetoothCompactWidth, 72, UltraCompactOn ? 180 : styleWidth)
+            : UltraCompactOn ? UltraCompactWidth : styleWidth;
 
     /// <summary>
     /// How many cells fit in a compact row (tray, shelf, clipboard): ultra mode

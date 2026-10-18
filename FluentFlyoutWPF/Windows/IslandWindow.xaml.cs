@@ -377,6 +377,9 @@ public partial class IslandWindow : Window
     {
         if (_disposed) return;
         _disposed = true;
+        Seekbar.ReleaseMouseCapture();
+        _seekSession = null;
+        _drag = false;
         _artworkPublication?.Cancel();
         LocalizationManager.LanguageChanged -= OnLanguageChanged;
         ShutdownActivity();

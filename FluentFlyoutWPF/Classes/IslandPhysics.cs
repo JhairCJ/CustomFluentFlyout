@@ -94,6 +94,10 @@ public static class IslandPhysics
 
     public static double Lerp(double a, double b, double t) => a + (b - a) * t;
 
+    /// <summary>Advance at bounded speed and land exactly, including after reversing direction.</summary>
+    public static double MoveTowards(double value, double target, double maxStep) =>
+        Math.Abs(target - value) <= maxStep ? target : value + Math.Sign(target - value) * maxStep;
+
     /// <summary>
     /// Progress with the spring BOUNCE intact on the upper side and compressed on the
     /// lower one: the container overshoots its size a little and comes back - Apple's

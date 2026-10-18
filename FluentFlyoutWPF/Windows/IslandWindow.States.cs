@@ -705,7 +705,12 @@ public partial class IslandWindow
     /// until the view becomes compact again. Without this the expiry died inside the
     /// expanded view and the notice stayed stuck forever.
     /// </summary>
-    private void HoldTemporaryNotice() => _noticeVersion++;
+    private void HoldTemporaryNotice()
+    {
+        _noticeVersion++;
+        _noticeWake?.Stop();
+        _noticeCheckActive = false;
+    }
 
     /// <summary>
     /// Closes the presented notice: there is no pending deadline to honour nor any entry
@@ -715,6 +720,7 @@ public partial class IslandWindow
     private void ClearTemporaryNotice()
     {
         _noticeVersion++;
+        _noticeWake?.Stop();
         _noticeCheckActive = false;
         _noticeUntil = DateTime.MinValue;
         _noticeForced = false;
@@ -755,12 +761,21 @@ public partial class IslandWindow
     /// </summary>
     private void ScheduleNoticeCheck(int version, TimeSpan wait)
     {
-        _noticeCheckActive = true;
-        _ = Task.Delay(wait).ContinueWith(_ => Dispatcher.Invoke(() =>
+        if (_disposed || version != _noticeVersion) return;
+        if (_noticeWake == null)
         {
-            _noticeCheckActive = false;
-            RetractTemporaryNotice(version);
-        }));
+            _noticeWake = new DispatcherTimer(DispatcherPriority.Background);
+            _noticeWake.Tick += (_, _) =>
+            {
+                _noticeWake?.Stop();
+                _noticeCheckActive = false;
+                if (!_disposed) RetractTemporaryNotice(_noticeVersion);
+            };
+        }
+        _noticeWake.Stop();
+        _noticeWake.Interval = wait > TimeSpan.Zero ? wait : TimeSpan.FromMilliseconds(1);
+        _noticeCheckActive = true;
+        _noticeWake.Start();
     }
 
     /// <summary>

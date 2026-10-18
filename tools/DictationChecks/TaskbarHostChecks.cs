@@ -122,6 +122,16 @@ internal static class TaskbarHostChecks
             handoffBitmap.CopyPixels(handoffPixels, handoffBitmap.PixelWidth * 4, 0);
             Check(Enumerable.Range(0, handoffPixels.Length / 4).Any(i => handoffPixels[i * 4 + 3] > 0),
                 "The outgoing transfer frame is blank");
+            var firstFrame = (EventHandler)Read(window, "_handoffRendering")!;
+            var startMotion = (Action)Read(window, "_pendingExpansionAnimation")!;
+            bool motionStarted = false;
+            Write(window, "_pendingExpansionAnimation", (Action)(() => { motionStarted = true; startMotion(); }));
+            firstFrame(window, EventArgs.Empty);
+            Check(motionStarted && Read(window, "_pendingExpansionAnimation") == null
+                && ((TaskbarExpansionWindow)Read(window, "_expansionHost")!).Opacity == 1,
+                "Expansion still waits for a second frame or a background queue before starting");
+            Check(ReferenceEquals(Read(window, "_handoffImage"), handoff),
+                "Starting motion discarded the transfer snapshot before the receiving host presented");
             Pump(30);
             var host = (TaskbarExpansionWindow?)Read(window, "_expansionHost");
             Check(host != null && host.Surface.Children.Contains(widget) && !compact.Children.Contains(widget),

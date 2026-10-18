@@ -4,6 +4,7 @@
 using Wpf.Ui.Controls;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Enumeration;
+using System.Collections.Concurrent;
 
 namespace FluentFlyoutWPF.Classes;
 
@@ -85,11 +86,11 @@ public sealed class IslandBluetoothMonitor : IDisposable
     // contados. Algunos auriculares tardan en informar su nivel.
     private static readonly int[] BatteryRetryDelaysMs = [2500, 6500, 12000];
 
-    private readonly Dictionary<string, string> _names = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, SymbolRegular> _glyphs = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, bool> _connected = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, int?> _battery = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, bool?> _charging = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _names = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, SymbolRegular> _glyphs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, bool> _connected = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, int?> _battery = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, bool?> _charging = new(StringComparer.OrdinalIgnoreCase);
 
     private DeviceWatcher? _watcher;
     private bool _seeding = true;
@@ -115,6 +116,7 @@ public sealed class IslandBluetoothMonitor : IDisposable
     public void Start()
     {
         if (_disposed || _watcher != null) return;
+        Stop();
         try
         {
             string selector = BluetoothDevice.GetDeviceSelector();
@@ -132,6 +134,7 @@ public sealed class IslandBluetoothMonitor : IDisposable
         }
         catch (Exception ex)
         {
+            if (_watcher is { } failed) DetachWatcher(failed);
             _watcher = null;
             _seeding = false;
             Log.Warn(ex, "Bluetooth: vigía no disponible; no habrá avisos de conexión");
@@ -151,11 +154,7 @@ public sealed class IslandBluetoothMonitor : IDisposable
         {
             try
             {
-                watcher.Added -= OnAdded;
-                watcher.Updated -= OnUpdated;
-                watcher.Removed -= OnRemoved;
-                watcher.EnumerationCompleted -= OnEnumerationCompleted;
-                watcher.Stopped -= OnStopped;
+                DetachWatcher(watcher);
                 watcher.Stop();
             }
             catch (Exception ex)
@@ -167,6 +166,7 @@ public sealed class IslandBluetoothMonitor : IDisposable
         _glyphs.Clear();
         _connected.Clear();
         _battery.Clear();
+        _charging.Clear();
         _seeding = true;
     }
 
@@ -177,15 +177,29 @@ public sealed class IslandBluetoothMonitor : IDisposable
         Stop();
     }
 
+    private void DetachWatcher(DeviceWatcher watcher)
+    {
+        try
+        {
+            watcher.Added -= OnAdded;
+            watcher.Updated -= OnUpdated;
+            watcher.Removed -= OnRemoved;
+            watcher.EnumerationCompleted -= OnEnumerationCompleted;
+            watcher.Stopped -= OnStopped;
+        }
+        catch (Exception ex) { Log.Debug(ex, "Bluetooth: el vigía ya no admite liberar sus eventos"); }
+    }
+
     // --- eventos del vigía ---
 
     private void OnAdded(DeviceWatcher sender, DeviceInformation info)
     {
-        if (_disposed) return;
+        if (_disposed || !ReferenceEquals(sender, _watcher)) return;
         try
         {
             string id = info.Id;
-            _names[id] = CleanName(info.Name);
+            string name = CleanName(info.Name);
+            _names[id] = name.Length > 0 ? name : ReadName(info.Properties);
             _glyphs[id] = GlyphFor(info.Properties);
             bool connected = ReadConnected(info.Properties);
             _connected[id] = connected;
@@ -206,39 +220,10 @@ public sealed class IslandBluetoothMonitor : IDisposable
 
     private void OnUpdated(DeviceWatcher sender, DeviceInformationUpdate update)
     {
-        if (_disposed) return;
+        if (_disposed || !ReferenceEquals(sender, _watcher)) return;
         try
         {
-            string id = update.Id;
-            var props = update.Properties;
-            int? incoming = ReadBattery(props);
-            bool? charging = ReadCharging(props);
-            bool batteryNews = incoming is int battery
-                && (!_battery.TryGetValue(id, out int? known) || known != battery);
-            bool chargingNews = charging != null
-                && (!_charging.TryGetValue(id, out bool? wasCharging) || wasCharging != charging);
-            if (batteryNews) _battery[id] = incoming;
-            if (chargingNews) _charging[id] = charging;
-            if (batteryNews || chargingNews)
-            {
-                // Batería o carga nuevas de un dispositivo ya conectado: se refina
-                // (solo repinta si su aviso sigue a la vista).
-                if (_connected.TryGetValue(id, out bool live) && live && _names.ContainsKey(id))
-                {
-                    Updated?.Invoke(Build(id));
-                    return;
-                }
-            }
-            if (ReadConnectedOrNull(props) is not bool now) return;
-            bool was = _connected.TryGetValue(id, out bool previous) && previous;
-            _connected[id] = now;
-            if (now && !was)
-            {
-                if (!_seeding) RaiseConnected(id);
-                _ = RetryBatteryAsync(id, _generation);
-                return;
-            }
-            if (!now && was) Disconnected?.Invoke(id);
+            ApplyUpdate(update.Id, update.Properties);
         }
         catch (Exception ex)
         {
@@ -246,23 +231,60 @@ public sealed class IslandBluetoothMonitor : IDisposable
         }
     }
 
+    private void ApplyUpdate(string id, IReadOnlyDictionary<string, object> props)
+    {
+        int? incoming = ReadBattery(props);
+        bool? charging = ReadCharging(props);
+        string name = ReadName(props);
+        bool nameNews = name.Length > 0 && (!_names.TryGetValue(id, out var knownName) || name != knownName);
+        if (nameNews) _names[id] = name;
+        bool glyphNews = props.ContainsKey("System.Devices.Aep.Bluetooth.Cod.Major")
+            || props.ContainsKey("System.Devices.Aep.Bluetooth.Cod.Services.Audio");
+        if (glyphNews) _glyphs[id] = GlyphFor(props);
+        bool batteryNews = incoming is int battery
+            && (!_battery.TryGetValue(id, out int? known) || known != battery);
+        bool chargingNews = charging != null
+            && (!_charging.TryGetValue(id, out bool? wasCharging) || wasCharging != charging);
+        if (batteryNews) _battery[id] = incoming;
+        if (chargingNews) _charging[id] = charging;
+        bool was = _connected.TryGetValue(id, out bool previous) && previous;
+        bool now = ReadConnectedOrNull(props) ?? was;
+        _connected[id] = now;
+        if (now && !was)
+        {
+            if (!_seeding) RaiseConnected(id);
+            _ = RetryBatteryAsync(id, _generation);
+            return;
+        }
+        // A single update can contain battery/name data AND a disconnect.
+        // Publish the refined snapshot first, but never skip the state change.
+        if (was && (batteryNews || chargingNews || nameNews || glyphNews) && _names.ContainsKey(id))
+            Updated?.Invoke(Build(id));
+        if (!now && was) Disconnected?.Invoke(id);
+    }
+
     private void OnRemoved(DeviceWatcher sender, DeviceInformationUpdate update)
     {
-        if (_disposed) return;
+        if (_disposed || !ReferenceEquals(sender, _watcher)) return;
         string id = update.Id;
         bool was = _connected.TryGetValue(id, out bool previous) && previous;
-        _names.Remove(id);
-        _glyphs.Remove(id);
-        _connected.Remove(id);
-        _battery.Remove(id);
-        _charging.Remove(id);
+        _names.TryRemove(id, out _);
+        _glyphs.TryRemove(id, out _);
+        _connected.TryRemove(id, out _);
+        _battery.TryRemove(id, out _);
+        _charging.TryRemove(id, out _);
         if (was) Disconnected?.Invoke(id);
     }
 
-    private void OnEnumerationCompleted(DeviceWatcher sender, object args) => _seeding = false;
+    private void OnEnumerationCompleted(DeviceWatcher sender, object args)
+    {
+        if (ReferenceEquals(sender, _watcher)) _seeding = false;
+    }
 
     private void OnStopped(DeviceWatcher sender, object args)
     {
+        if (!ReferenceEquals(sender, _watcher)) return;
+        DetachWatcher(sender);
         // El vigía se cayó (permiso, servicio): se deja constancia y no se
         // reintenta en bucle. VOLVER a activar la funcionalidad en ajustes lo
         // arranca de nuevo.
@@ -308,6 +330,7 @@ public sealed class IslandBluetoothMonitor : IDisposable
                     .ConfigureAwait(false);
                 if (_disposed || generation != _generation) return;
                 if (info == null) return;
+                if (!_connected.TryGetValue(id, out live) || !live) return;
                 bool news = false;
                 if (ReadBattery(info.Properties) is int battery
                     && (!_battery.TryGetValue(id, out int? current) || current != battery))
@@ -337,6 +360,9 @@ public sealed class IslandBluetoothMonitor : IDisposable
 
     private static bool ReadConnected(IReadOnlyDictionary<string, object> props) =>
         props.TryGetValue("System.Devices.Aep.IsConnected", out var value) && value is bool on && on;
+
+    private static string ReadName(IReadOnlyDictionary<string, object> props) =>
+        CleanName(props.TryGetValue("System.ItemNameDisplay", out var value) ? value as string : null);
 
     private static bool? ReadConnectedOrNull(IReadOnlyDictionary<string, object> props) =>
         props.TryGetValue("System.Devices.Aep.IsConnected", out var value) && value is bool on ? on : null;
@@ -442,7 +468,8 @@ public sealed class IslandBluetoothMonitor : IDisposable
     {
         string clean = (name ?? "").Trim();
         if (clean.Length == 0) return UnknownName;
-        if (clean.All(c => char.IsAsciiHexDigit(c) || c is ':' or '-' or ' ')) return UnknownName;
+        if (clean.Count(char.IsAsciiHexDigit) == 12
+            && clean.All(c => char.IsAsciiHexDigit(c) || c is ':' or '-' or ' ')) return UnknownName;
         return clean;
     }
 }

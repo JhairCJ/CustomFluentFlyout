@@ -286,6 +286,7 @@
                                        Foreground="White" FontSize="15" HorizontalAlignment="Center"
                                        VerticalAlignment="Center" IsHitTestVisible="False"/>
                         <TextBlock x:Name="BluetoothName" Grid.Column="1" Foreground="White" FontSize="12"
+                                   TextAlignment="Right"
                                    Margin="8,0,4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                    IsHitTestVisible="False"/>
                         <Grid Grid.Column="2" VerticalAlignment="Center" IsHitTestVisible="False">
@@ -414,8 +415,10 @@
                             <!-- Transparent hit target over the custom track. The reference design
                                  has no permanent thumb, so the native thumb is effectively hidden. -->
                             <Slider x:Name="Seekbar" Minimum="0" Maximum="100" Value="0" Opacity="0.01"
+                                    AutomationProperties.Name="{DynamicResource ShowSeekbarTitle}"
                                     VerticalAlignment="Stretch"
                                     PreviewMouseLeftButtonDown="Seekbar_Down" PreviewMouseLeftButtonUp="Seekbar_Up"
+                                    PreviewMouseMove="Seekbar_Move" LostMouseCapture="Seekbar_LostCapture"
                                     ValueChanged="Seekbar_ValueChanged"/>
                         </Grid>
                         <TextBlock x:Name="DurText" Grid.Column="2" Text="0:00" Foreground="White" FontSize="11" Opacity="0.6" VerticalAlignment="Center"/>

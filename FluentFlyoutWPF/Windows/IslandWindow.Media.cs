@@ -39,6 +39,7 @@ public partial class IslandWindow
         GlobalSystemMediaTransportControlsSessionPlaybackStatus Status);
 
     private IslandMediaSnapshot? _music;
+    private MediaSession? _seekSession;
     // Did the last media change bring new metadata (title/artwork)? It is consumed
     // during reconciliation to decide the track-change trigger without inspecting
     // events that are already coalesced (001 MOD RF-1).
@@ -940,7 +941,7 @@ public partial class IslandWindow
 
     private void ApplyCapabilities(MediaSession session)
     {
-        bool canPlay = false, canPrev = false, canNext = false, canSeek = false;
+        bool canPlay = false, canPrev = false, canNext = false, canSeek = false, hasTimeline = false;
         try
         {
             var c = session.ControlSession.GetPlaybackInfo()?.Controls;
@@ -950,10 +951,13 @@ public partial class IslandWindow
                 canPrev = c.IsPreviousEnabled;
                 canNext = c.IsNextEnabled;
             }
-            canSeek = session.ControlSession.GetTimelineProperties().MaxSeekTime.TotalSeconds >= 1;
+            var timeline = session.ControlSession.GetTimelineProperties();
+            hasTimeline = timeline.MaxSeekTime > timeline.MinSeekTime;
+            canSeek = hasTimeline && c?.IsPlaybackPositionEnabled == true;
         }
         catch { }
-        SeekRow.Visibility = canSeek ? Visibility.Visible : Visibility.Hidden;
+        SeekRow.Visibility = hasTimeline ? Visibility.Visible : Visibility.Hidden;
+        Seekbar.IsEnabled = canSeek;
         BtnPlay.IsEnabled = canPlay;
         BtnPlay.Opacity = canPlay ? 1 : 0.35;
         BtnPrev.IsEnabled = canPrev;
@@ -993,8 +997,8 @@ public partial class IslandWindow
 
     private void UpdateTimelineVisual()
     {
-        double maximum = Seekbar.Maximum;
-        double ratio = maximum > 0 ? Math.Clamp(Seekbar.Value / maximum, 0, 1) : 0;
+        double range = Seekbar.Maximum - Seekbar.Minimum;
+        double ratio = range > 0 ? Math.Clamp((Seekbar.Value - Seekbar.Minimum) / range, 0, 1) : 0;
         TimelineProgress.Width = TimelineTrack.ActualWidth * ratio;
     }
 
@@ -1004,7 +1008,7 @@ public partial class IslandWindow
     {
         UpdateTimelineVisual();
         if (!_drag || Seekbar.Maximum <= 0) return;
-        var position = TimeSpan.FromSeconds(Math.Clamp(Seekbar.Value, 0, Seekbar.Maximum));
+        var position = TimeSpan.FromSeconds(Math.Clamp(Seekbar.Value, Seekbar.Minimum, Seekbar.Maximum));
         PosText.Text = Fmt(position);
         DurText.Text = FmtRemaining(TimeSpan.FromSeconds(Seekbar.Maximum) - position);
     }
@@ -1015,14 +1019,21 @@ public partial class IslandWindow
         try
         {
             var tl = session.ControlSession.GetTimelineProperties();
-            if (tl.MaxSeekTime.TotalSeconds >= 1)
+            if (tl.MaxSeekTime > tl.MinSeekTime)
             {
-                bool playing = session.ControlSession.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                var playback = session.ControlSession.GetPlaybackInfo();
+                bool playing = playback?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                Seekbar.IsEnabled = playback?.Controls?.IsPlaybackPositionEnabled == true;
+                SeekRow.Visibility = Visibility.Visible;
                 var pos = playing ? tl.Position + (DateTimeOffset.UtcNow - tl.LastUpdatedTime) : tl.Position;
                 if (pos < tl.MinSeekTime) pos = tl.MinSeekTime;
                 if (pos > tl.MaxSeekTime) pos = tl.MaxSeekTime;
-                Seekbar.Maximum = tl.MaxSeekTime.TotalSeconds;
-                Seekbar.Minimum = tl.MinSeekTime.TotalSeconds;
+                if (Seekbar.Minimum != tl.MinSeekTime.TotalSeconds || Seekbar.Maximum != tl.MaxSeekTime.TotalSeconds)
+                {
+                    Seekbar.Minimum = 0;
+                    Seekbar.Maximum = tl.MaxSeekTime.TotalSeconds;
+                    Seekbar.Minimum = tl.MinSeekTime.TotalSeconds;
+                }
                 if (!_drag) { Seekbar.Value = pos.TotalSeconds; PosText.Text = Fmt(pos); }
                 DurText.Text = FmtRemaining(tl.MaxSeekTime - pos);
                 UpdateTimelineVisual();
@@ -1030,6 +1041,8 @@ public partial class IslandWindow
             }
         }
         catch { }
+        Seekbar.IsEnabled = false;
+        SeekRow.Visibility = Visibility.Hidden;
         Seekbar.Minimum = 0; Seekbar.Maximum = 100; Seekbar.Value = 0; PosText.Text = "0:00"; DurText.Text = "0:00";
         UpdateTimelineVisual();
     }
@@ -1038,25 +1051,25 @@ public partial class IslandWindow
 
     private MediaSession? AnySession() => !MusicContentShown() || _music == null ? null : Current() ?? NewestPlaying() ?? FirstAllowed();
 
-    private async void Prev_Click(object sender, RoutedEventArgs e)
-    {
-        if (Current() is not { } s) return;
-        PinMediaSession(s);
-        await s.ControlSession.TrySkipPreviousAsync();
-    }
+    private async void Prev_Click(object sender, RoutedEventArgs e) =>
+        await RunMediaCommandAsync(session => session.TrySkipPreviousAsync().AsTask());
 
-    private async void PlayPause_Click(object sender, RoutedEventArgs e)
-    {
-        if (Current() is not { } s) return;
-        PinMediaSession(s);
-        await s.ControlSession.TryTogglePlayPauseAsync();
-    }
+    private async void PlayPause_Click(object sender, RoutedEventArgs e) =>
+        await RunMediaCommandAsync(session => session.TryTogglePlayPauseAsync().AsTask());
 
-    private async void Next_Click(object sender, RoutedEventArgs e)
+    private async void Next_Click(object sender, RoutedEventArgs e) =>
+        await RunMediaCommandAsync(session => session.TrySkipNextAsync().AsTask());
+
+    private async Task RunMediaCommandAsync(Func<GlobalSystemMediaTransportControlsSession, Task<bool>> command)
     {
-        if (Current() is not { } s) return;
-        PinMediaSession(s);
-        await s.ControlSession.TrySkipNextAsync();
+        try
+        {
+            if (_disposed || Current() is not { } session) return;
+            PinMediaSession(session);
+            await command(session.ControlSession);
+        }
+        catch (Exception ex) { Logger.Debug(ex, "Island media command failed"); }
+        finally { PostActivity(IslandActivityReason.Media); }
     }
 
     private void AlbumArt_MouseEnter(object sender, MouseEventArgs e)
@@ -1095,17 +1108,51 @@ public partial class IslandWindow
         else ShowMusicCompact(next, nextStatus);
     }
 
-    private void Seekbar_Down(object sender, MouseButtonEventArgs e) { _drag = true; if (sender is Slider sl) { var p = e.GetPosition(sl); double ratio = sl.ActualWidth > 0 ? Math.Clamp(p.X / sl.ActualWidth, 0, 1) : 0; sl.Value = ratio * sl.Maximum; } }
+    private void Seekbar_Down(object sender, MouseButtonEventArgs e)
+    {
+        if (!Seekbar.IsEnabled || Current() is not { } session) return;
+        _seekSession = session;
+        _drag = true;
+        Seekbar.CaptureMouse();
+        SetSeekPosition(e);
+        e.Handled = true;
+    }
+
+    private void Seekbar_Move(object sender, MouseEventArgs e)
+    {
+        if (!_drag) return;
+        SetSeekPosition(e);
+        e.Handled = true;
+    }
+
+    private void SetSeekPosition(MouseEventArgs e)
+    {
+        double ratio = Seekbar.ActualWidth > 0 ? Math.Clamp(e.GetPosition(Seekbar).X / Seekbar.ActualWidth, 0, 1) : 0;
+        Seekbar.Value = Seekbar.Minimum + ratio * (Seekbar.Maximum - Seekbar.Minimum);
+    }
+
+    private void Seekbar_LostCapture(object sender, MouseEventArgs e)
+    {
+        _drag = false;
+        _seekSession = null;
+        PostActivity(IslandActivityReason.Pointer);
+    }
+
     private async void Seekbar_Up(object sender, MouseButtonEventArgs e)
     {
+        if (!_drag) return;
+        var session = _seekSession;
+        var position = TimeSpan.FromSeconds(Math.Clamp(Seekbar.Value, Seekbar.Minimum, Seekbar.Maximum));
+        _drag = false;
+        _seekSession = null;
+        Seekbar.ReleaseMouseCapture();
+        e.Handled = true;
         try
         {
-            if (Current() is not { } s || sender is not Slider sl) return;
-            PinMediaSession(s);
-            var pos = TimeSpan.FromSeconds(Math.Max(sl.Value, 0));
-            await s.ControlSession.TryChangePlaybackPositionAsync(pos.Ticks);
+            if (session == null || !ReferenceEquals(session.ControlSession, Current()?.ControlSession)) return;
+            PinMediaSession(session);
+            await session.ControlSession.TryChangePlaybackPositionAsync(position.Ticks);
         }
-        catch { }
-        finally { _drag = false; }
+        catch (Exception ex) { Logger.Debug(ex, "Island media seek failed"); }
     }
 }

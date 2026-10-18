@@ -20,6 +20,9 @@ internal static class TaskbarWidgetAnimationEnvironment
 
     public static int GetDurationMs() => Math.Max(MainWindow.getDuration(), 1);
 
+    public static double GetExpansionDurationMs(bool expanded) =>
+        Math.Clamp(GetDurationMs() * (expanded ? 0.6 : 0.45), 90, expanded ? 240 : 180);
+
     public static EasingFunctionBase? GetEasing(MainWindow? mainWindow, bool easeOut)
     {
         if (mainWindow != null)
