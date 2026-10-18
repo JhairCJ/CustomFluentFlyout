@@ -52,7 +52,7 @@ public partial class IslandWindow
 
     private void EnsureLoop()
     {
-        if (_loopOn) return;
+        if (_disposed || _loopOn) return;
         _loopOn = true;
         _lastTick = TimeSpan.Zero;
         CompositionTarget.Rendering += OnFrame;
@@ -70,13 +70,16 @@ public partial class IslandWindow
 
     private void OnFrame(object? s, EventArgs e)
     {
+        if (_disposed || !_loopOn) return;
         var args = e as RenderingEventArgs;
         TimeSpan now = args?.RenderingTime ?? TimeSpan.Zero;
         if (now == TimeSpan.Zero) now = TimeSpan.FromTicks(Environment.TickCount64 * 10000);
+        if (_lastTick == now) return;
         double dt;
         if (_lastTick == TimeSpan.Zero || now <= _lastTick) dt = 1.0 / 60.0;
         else dt = IslandPhysics.ClampStep((now - _lastTick).TotalSeconds);
         _lastTick = now;
+        _profileFrames++;
 
         // Pure physics (IslandPhysics): coefficients memoized by (duration, style).
         var spring = IslandPhysics.Coefficients(MainWindow.getDuration(), IsNotch);
@@ -98,14 +101,13 @@ public partial class IslandWindow
             double step = dt / (opening ? InactiveReopenSeconds : InactiveTransitionSeconds);
             _inactiveT = IslandPhysics.MoveTowards(_inactiveT, _inactiveTt, step);
         }
-        // The expanded height chases its target: content changes glide, they do not jump.
-        _hexpShown += (_hexp - _hexpShown) * Math.Clamp(dt * 10, 0, 1);
-        if (Math.Abs(_hexp - _hexpShown) < 0.5) _hexpShown = _hexp;
+        // Height is the fixed expansion endpoint; only p animates the opening.
+        _hexpShown = _hexp;
         // Live hover micro-growth (inactive piece and resting box).
         double hotTarget = _inactiveHot ? 1 : 0;
         if (_inactiveHotT != hotTarget)
         {
-            _inactiveHotT += (hotTarget - _inactiveHotT) * Math.Clamp(dt * 12, 0, 1);
+            _inactiveHotT += (hotTarget - _inactiveHotT) * (1 - Math.Exp(-dt * 12));
             if (Math.Abs(_inactiveHotT - hotTarget) < 0.01) _inactiveHotT = hotTarget;
         }
         if (_popPlaying) StepPop(dt);
@@ -147,6 +149,7 @@ public partial class IslandWindow
             // EVERYTHING settled - and from that came the compact views that took long or
             // never appeared at all.
             RepairPresentation();
+            SyncPresentationWork();
         }
         else if (_qT == 0 && _q <= 0.12)
         {
@@ -163,187 +166,39 @@ public partial class IslandWindow
         // Fast 0->1 outbound, damped 1->0 return: a single cycle
         if (_popPhase == 0)
         {
-            double a = (1 - _pop) * 900 - _popV * 28;
-            _popV += a * dt;
-            _pop += _popV * dt;
+            IslandPhysics.Step(ref _pop, ref _popV, 1, 900, 28, dt);
             _pop = Math.Clamp(_pop, 0, 1);
             if (_pop >= 0.995) { _pop = 1; _popV = 0; _popPhase = 1; }
         }
         else
         {
-            double a = (0 - _pop) * 500 - _popV * 32;
-            _popV += a * dt;
-            _pop += _popV * dt;
+            IslandPhysics.Step(ref _pop, ref _popV, 0, 500, 32, dt);
             _pop = Math.Clamp(_pop, 0, 1);
             if (_pop <= 0.005) { _pop = 0; _popV = 0; _popPlaying = false; _popPhase = 0; }
         }
     }
 
-    /// <summary>
-    /// Shared expanded height (001 MOD RF-15): the tallest of the configured screens
-    /// that can be shown. Every screen uses this same target, even the one in front
-    /// having less content.
-    /// </summary>
-    private double _hexpShared;
+    private void ResetSharedHeight() => ExpandedContents.InvalidateMeasure();
 
-    /// <summary>Prevents a measurement of all screens from re-entering.</summary>
-    private bool _measuringExpandedHeight;
-
-    /// <summary>
-    /// Forgets the shared height: the next time the Island expands it is measured
-    /// from scratch again (001 MOD RF-15).
-    /// </summary>
-    private void ResetSharedHeight() => _hexpShared = 0;
-
-    /// <summary>
-    /// Measures the real height of every configured screen and sets the target of a
-    /// SINGLE height for the whole container (001 MOD RF-15); the loop glides towards
-    /// it (or snaps to it, with animations off).
-    ///
-    /// <para>The height is SHARED: the tallest screen that exists right now wins, and
-    /// in pill style the configured height is still the floor. Before, only the views
-    /// that had already appeared in the session were accumulated, so the first screen
-    /// could leave the container too short for another one. Measuring them all avoids
-    /// that jump and keeps the pointer inside the box.</para>
-    /// </summary>
     private void SyncMeasuredHeight()
     {
-        try
-        {
-            double measuredHeight = MeasureMaxScreenHeight();
-            if (measuredHeight <= 0)
-            {
-                // With no usable screens yet (during startup, for example), keep a fallback
-                // measurement from whatever content is mounted.
-                ExpandedLayer.Measure(new Size(ContentExpandedWidth, double.PositiveInfinity));
-                measuredHeight = ExpandedLayer.DesiredSize.Height;
-            }
-            // On notch the height comes from the content (the setting belongs to the pill
-            // style); on pill, the setting is the music floor.
-            double floor = IsNotch ? 0 : ContentExpandedHeight;
-            _hexpShared = Math.Max(floor, measuredHeight);
-            double h = _hexpShared;
-            double old = _hexp;
-            if (h > 34 && h < 260) _hexp = h;
-            // The target wins: if it changed, run frames (or snap). If it did not
-            // change, the loop is not touched at all: music at rest does not notice.
-            if (_hexp != old)
-            {
-                if (!AnimationsEnabled || (!IsBoxShown && _qT == 0)) _hexpShown = _hexp;
-                else EnsureLoop();
-            }
-        }
-        catch { }
+        if (_disposed) return;
+        if (_settingsUpdateDepth > 0) { _measurementPending = true; return; }
+        double contentWidth = Math.Max(1, ContentExpandedWidth - _expandedMarginOrig.Left - _expandedMarginOrig.Right);
+        if (TimerExpanded.Visibility == Visibility.Visible)
+            LayoutTimerEditor(_contentMode == IslandContentMode.Screen ? ScreenColumnTimer.Width : contentWidth);
+        // Resolve the natural endpoint once before opening. No height-following animation.
+        ExpandedViewport.Height = double.NaN;
+        ScreenExpandedRow.MinHeight = 0;
+        ExpandedContents.Measure(new Size(contentWidth, double.PositiveInfinity));
+        var monitor = PrimaryMonitor();
+        double available = monitor.dpiY > 0 ? monitor.workArea.Height * 96.0 / monitor.dpiY - 96 : 640;
+        double natural = ExpandedContents.DesiredSize.Height + _expandedMarginOrig.Top + _expandedMarginOrig.Bottom;
+        _hexp = Math.Clamp(Math.Max(ExpandedIslandHeight, natural), 60, Math.Max(60, available));
+        _hexpShown = _hexp;
+        Height = Math.Max(240, _hexp + Math.Clamp(SettingsManager.Current.IslandTopOffset, 0, 80) + 16);
+        ExpandedViewport.MaxHeight = Math.Max(40, _hexp - _expandedMarginOrig.Top - _expandedMarginOrig.Bottom);
     }
-
-    /// <summary>
-    /// Measures each screen with its real columns, without waiting for the user to
-    /// open it. The composition is horizontal, which is why a combined screen's
-    /// height is that of its tallest column, not the sum of all columns.
-    /// </summary>
-    private double MeasureMaxScreenHeight()
-    {
-        if (_measuringExpandedHeight || _screens.Count == 0) return 0;
-
-        int savedScreenIndex = _screenIndex;
-        bool savedExpanded = _expanded;
-        IslandContentMode savedContentMode = _contentMode;
-        IIslandFeature? savedSelectedFeature = _selectedFeature;
-        double savedLayerWidth = ExpandedLayer.Width;
-        HorizontalAlignment savedLayerAlignment = ExpandedLayer.HorizontalAlignment;
-        Thickness savedLayerMargin = ExpandedLayer.Margin;
-        string savedClipboardStatus = ClipboardStatus.Text;
-        double maxHeight = 0;
-
-        _measuringExpandedHeight = true;
-        try
-        {
-            // Columns may have panels moved from ExpandedLayer. Every pass starts with
-            // the tree back in its original place.
-            RestoreExpandedHomes();
-
-            for (int index = 0; index < _screens.Count; index++)
-            {
-                var members = ScreenUsableFeatures(_screens[index])
-                    .Where(feature => ColumnFor(feature.Id) != null)
-                    .ToList();
-                if (members.Count == 0) continue;
-
-                int columns = members.Count;
-                bool combined = columns > 1;
-                double screenWidth = combined
-                    ? ScreenExpandedWidthForMembers(columns)
-                    : ExpandedWidthForFeature(members[0]);
-                double memberWidth = combined
-                    ? ScreenColumnWidthForCount(columns)
-                    : screenWidth;
-
-                _screenIndex = index;
-                _expanded = true;
-                _contentMode = combined ? IslandContentMode.Screen : ModeForFeature(members[0].Id);
-                SelectFeature(members[0].Id);
-                ExpandedLayer.Width = IsNotch ? screenWidth : double.NaN;
-                ExpandedLayer.HorizontalAlignment = IsNotch
-                    ? HorizontalAlignment.Center
-                    : HorizontalAlignment.Stretch;
-                ExpandedLayer.Margin = _expandedMarginOrig;
-                HideAllExpandedPanels();
-
-                double screenContentHeight = 0;
-                foreach (var member in members)
-                {
-                    var card = FeatureCard(member.Id);
-                    if (card == null) continue;
-
-                    card.ShowExpanded();
-                    double memberHeight = 0;
-                    foreach (var panel in card.Expanded)
-                    {
-                        if (panel.Visibility == Visibility.Collapsed) continue;
-                        panel.Measure(new Size(memberWidth, double.PositiveInfinity));
-                        memberHeight += panel.DesiredSize.Height;
-                    }
-                    screenContentHeight = Math.Max(screenContentHeight, memberHeight);
-                }
-
-                if (screenContentHeight > 0)
-                {
-                    maxHeight = Math.Max(
-                        maxHeight,
-                        screenContentHeight + _expandedMarginOrig.Top + _expandedMarginOrig.Bottom);
-                }
-            }
-        }
-        finally
-        {
-            try
-            {
-                // The measurement is invisible to the user: it leaves the view that was in
-                // front untouched and re-composes the current screen if needed.
-                RestoreExpandedHomes();
-                _screenIndex = savedScreenIndex;
-                _expanded = savedExpanded;
-                _contentMode = savedContentMode;
-                _selectedFeature = savedSelectedFeature;
-                try { ApplyContentVisibility(); } catch { }
-                ClipboardStatus.Text = savedClipboardStatus;
-                ExpandedLayer.Width = savedLayerWidth;
-                ExpandedLayer.HorizontalAlignment = savedLayerAlignment;
-                ExpandedLayer.Margin = savedLayerMargin;
-            }
-            finally
-            {
-                _measuringExpandedHeight = false;
-            }
-        }
-
-        return maxHeight;
-    }
-
-    private double ExpandedWidthForFeature(IIslandFeature feature) =>
-        feature.ExpandedPreferredWidth > 0
-            ? Math.Clamp(feature.ExpandedPreferredWidth, 200, 600)
-            : ExpandedIslandWidth;
 
     private void SnapFrame()
     {
@@ -447,7 +302,7 @@ public partial class IslandWindow
             IslandBox.Width = w + 2 * earReach;
             IslandBox.Height = h;
             // ponytail: las orejas son solo fondo; el contenido vive en el ancho lógico w.
-            ExpandedLayer.Width = w;
+            ExpandedLayer.Width = Math.Max(1, ContentExpandedWidth - _expandedMarginOrig.Left - _expandedMarginOrig.Right);
             ExpandedLayer.Margin = new Thickness(0, _expandedMarginOrig.Top, 0, _expandedMarginOrig.Bottom);
             ExpandedLayer.HorizontalAlignment = HorizontalAlignment.Center;
             IslandBox.RenderTransformOrigin = new Point(0.5, 0);
@@ -479,9 +334,9 @@ public partial class IslandWindow
             w += hotW * (1 - IslandPhysics.Smooth(p));
             IslandBox.Width = w;
             IslandBox.Height = h;
-            ExpandedLayer.Width = double.NaN;
-            ExpandedLayer.Margin = _expandedMarginOrig;
-            ExpandedLayer.HorizontalAlignment = HorizontalAlignment.Stretch;
+            ExpandedLayer.Width = Math.Max(1, ContentExpandedWidth - _expandedMarginOrig.Left - _expandedMarginOrig.Right);
+            ExpandedLayer.Margin = new Thickness(0, _expandedMarginOrig.Top, 0, _expandedMarginOrig.Bottom);
+            ExpandedLayer.HorizontalAlignment = HorizontalAlignment.Center;
             IslandBox.Opacity = IslandPhysics.Smooth(Math.Clamp(q / 0.38, 0, 1)) * exitTailOpacity;
             // Radius: a perfect circle while it is the dot, then compact->expanded morph.
             // When expanded (p>0.02) always pill with the expanded radius.
@@ -686,6 +541,7 @@ public partial class IslandWindow
             && Math.Abs(_clipDrop - drop) < ClipEpsilon)
         {
             if (!ReferenceEquals(IslandBox.Clip, _clipGeometry)) IslandBox.Clip = _clipGeometry;
+            IslandOutline.Data = _clipGeometry;
             return;
         }
         _clipWidth = width;
@@ -698,5 +554,7 @@ public partial class IslandWindow
             ? CreateNotchClip(width, height, radius, reach, drop)
             : CreateIslandClip(width, height, new CornerRadius(radius));
         IslandBox.Clip = _clipGeometry;
+        IslandOutline.Data = _clipGeometry;
+        IslandOutline.Clip = notch ? new RectangleGeometry(new Rect(0, 1, width, Math.Max(0, height - 1))) : null;
     }
 }

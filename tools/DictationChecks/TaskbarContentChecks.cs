@@ -35,6 +35,7 @@ internal static class TaskbarContentChecks
     internal static void Run(TaskbarWindow window, TaskbarWidgetControl widget,
         TaskbarWidgetExpandedContent expanded, BitmapImage a, BitmapImage b)
     {
+        CheckTimelineRetention(a);
         var settings = SettingsManager.Current;
         var title = (TextBlock)widget.FindName("SongTitle");
         var artist = (TextBlock)widget.FindName("SongArtist");
@@ -189,6 +190,39 @@ internal static class TaskbarContentChecks
         Call(window, "UpdatePosition", true); Pump(settle);
         CheckBackgroundPreparation(widget, a, b);
         Console.WriteLine("Taskbar content checks passed: deferred sizing, fixed rows, untitled expansion, interrupted slides, late art and visualizer geometry.");
+    }
+
+    private static void CheckTimelineRetention(BitmapImage artwork)
+    {
+        var content = new TaskbarWidgetExpandedContent();
+        try
+        {
+            content.SetMorphProgress(1);
+            Write(content, "_minimumSeconds", 0.0);
+            Write(content, "_positionSeconds", 60.0);
+            Write(content, "_maximumSeconds", 200.0);
+            Write(content, "_positionUpdatedAt", DateTimeOffset.UtcNow);
+            Write(content, "_progressSeekable", false);
+            Call(content, "ApplyCachedProgress", DateTimeOffset.UtcNow);
+            var row = (FrameworkElement)content.FindName("SeekRow");
+            var seek = (System.Windows.Controls.Slider)content.FindName("Seekbar");
+            Check(row.Visibility == Visibility.Visible && !seek.IsEnabled,
+                "Available times must remain visible even when the player disables seeking");
+            int version = (int)Read(content, "_progressVersion")!;
+            Write(content, "_active", true);
+            // No MainWindow is attached: the asynchronous refresh cannot read a player.
+            // A cosmetic publication must not invalidate or erase a valid timeline.
+            content.PublishSong("Same track", "Artist", artwork);
+            Check((int)Read(content, "_progressVersion")! == version,
+                "Metadata publication invalidated an in-flight timeline read");
+            for (int attempt = 0; attempt < 80 && (int)Read(content, "_progressRefreshPending")! != 0; attempt++)
+                Pump(25);
+            Check(row.Visibility == Visibility.Visible && seek.Value == 60 && seek.Maximum == 200,
+                "An unavailable timeline read erased the last valid taskbar position");
+            Check((int)Read(content, "_progressRefreshPending")! == 0,
+                "An unavailable player left the taskbar timeline refresh stuck");
+        }
+        finally { content.DisposeResources(); }
     }
 
     private static void CheckBackgroundPreparation(TaskbarWidgetControl widget, BitmapImage a, BitmapImage b)

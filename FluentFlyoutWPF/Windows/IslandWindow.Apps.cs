@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
+using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Models;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -44,7 +45,7 @@ public partial class IslandWindow
     private bool AppsKeepsView() =>
         AppsModeAvailable()
         && SettingsManager.Current.IslandVisibilityMode == 1
-        && _noticeUntil > DateTime.UtcNow;
+        && _noticeUntil > FluentFlyoutWPF.Classes.IslandClock.Now;
 
     internal IslandFeatureState GetAppsFeatureState()
     {
@@ -88,10 +89,9 @@ public partial class IslandWindow
         //   · pill:  240 − 16 = 224 útiles; encajan 7 de sobra.
         // El notch es más estrecho por diseño: caben menos iconos en su renglón.
         int fit = CompactRowFit(IsNotch ? IslandApp.MaxCompactAppsNotch : IslandApp.MaxCompactApps);
-        var compact = apps.Take(fit).ToList();
-        AppsCompactList.ItemsSource = compact;
+        int shown = BindCompactItems(AppsCompactList, apps, fit);
         AppsExpandedList.ItemsSource = apps;
-        int rest = apps.Count - compact.Count;
+        int rest = apps.Count - shown;
         AppsCompactMore.Text = rest > 0 ? $"+{rest}" : "";
         AppsCompactMore.Visibility = rest > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -163,24 +163,30 @@ public partial class IslandWindow
         LaunchApp(app);
     }
 
-    private void LaunchApp(IslandApp app)
+    private readonly HashSet<string> _launchPending = new(StringComparer.OrdinalIgnoreCase);
+
+    private async void LaunchApp(IslandApp app)
     {
+        if (!_launchPending.Add(app.Path)) return;
         try
         {
-            Process.Start(new ProcessStartInfo
+            await Task.Run(() => Process.Start(new ProcessStartInfo
             {
                 FileName = app.Path,
                 UseShellExecute = true,
                 WorkingDirectory = System.IO.Path.GetDirectoryName(app.Path) ?? "",
-            });
+            }));
         }
         catch (Exception ex)
         {
             // Ruta borrada, sin permisos o acceso directo roto: se registra y no
             // se deja el Island abierto sobre un fallo silencioso.
             Logger.Warn(ex, "Island: no se pudo lanzar la aplicación {App} ({Path})", app.Name, app.Path);
+            if (!_disposed) ShowActionFeedback(IslandStrings.Format("IslandAppLaunchFailed", "Could not open {0}. Check its path in settings and try again.", app.Name), () => LaunchApp(app), settings: true);
+            return;
         }
-        RetractAfterAppLaunch();
+        finally { _launchPending.Remove(app.Path); }
+        if (!_disposed) { LeaveKeyboardMode(); RetractAfterAppLaunch(); }
     }
 
     /// <summary>
@@ -191,7 +197,7 @@ public partial class IslandWindow
     /// </summary>
     private void RetractAfterAppLaunch()
     {
-        _hoverSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
+        _hoverSnoozeUntil = FluentFlyoutWPF.Classes.IslandClock.Now.AddSeconds(TimerReshowSnoozeSeconds);
         _expanded = false;
         if (SettingsManager.Current.IslandVisibilityMode == 0
             && ResolveActiveVigenteForVisible() is { } vigente && ShowScreenOfFeature(vigente))

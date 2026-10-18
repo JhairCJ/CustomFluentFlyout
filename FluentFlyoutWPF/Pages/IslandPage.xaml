@@ -1,4 +1,4 @@
-﻿<Page x:Class="FluentFlyoutWPF.Pages.IslandPage"
+<Page x:Class="FluentFlyoutWPF.Pages.IslandPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -16,84 +16,11 @@
     <StackPanel MaxWidth="1000" Margin="16">
         <TextBlock Text="Fluent Island" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,8" />
         <TextBlock Text="{DynamicResource IslandPage_Intro}" FontSize="14" Opacity="0.75" Margin="0,0,0,20" MaxWidth="600" HorizontalAlignment="Left" TextWrapping="WrapWithOverflow" />
-            <ui:CardControl x:Name="AlbumArtChangeAnimationTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon Image24}" Margin="0,0,0,8">
-                <ui:CardControl.Header>
-                    <StackPanel>
-                        <TextBlock Text="{DynamicResource AlbumArtChangeAnimationTitle}" FontSize="14" />
-                        <TextBlock Text="{DynamicResource AlbumArtChangeAnimationDescription}" FontSize="12" Opacity="0.5" TextWrapping="Wrap" />
-                    </StackPanel>
-                </ui:CardControl.Header>
-                <ComboBox SelectedIndex="{Binding AlbumArtChangeAnimation, Mode=TwoWay}">
-                    <ComboBoxItem Content="{DynamicResource TaskbarWidgetSongChangeAnimationCrossfade}" />
-                    <ComboBoxItem Content="{DynamicResource AlbumArtChangeAnimationFlip}" />
-                </ComboBox>
-            </ui:CardControl>
+
         <Grid x:Name="IslandSettingsGrid">
-            <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-            <TextBlock Tag="General" Grid.Row="0" Text="{DynamicResource IslandPage_GeneralSection}" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,6" />
-            <ui:CardControl x:Name="IslandEnabledCard" Tag="General" Grid.Row="1" Icon="{ui:SymbolIcon Album24}" Margin="0,0,0,3">
+<Grid.Resources>
+<DataTemplate x:Key="IslandCategoryGeneral"><StackPanel><TextBlock Tag="General" Text="{DynamicResource IslandPage_GeneralSection}" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,6" />
+<ui:CardControl x:Name="IslandEnabledCard" Tag="General" Icon="{ui:SymbolIcon Album24}" Margin="0,0,0,3">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_EnableTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -102,7 +29,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandEnabled, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandAnimatedCard" Tag="General" Grid.Row="2" Icon="{ui:SymbolIcon Wand24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandAnimatedCard" Tag="General" Icon="{ui:SymbolIcon Wand24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_Animations}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -111,7 +38,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandAnimated, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandModeCard" Tag="General" Grid.Row="3" Icon="{ui:SymbolIcon Timer24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandModeCard" Tag="General" Icon="{ui:SymbolIcon Timer24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_Visibility}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -123,7 +50,7 @@
                     <ComboBoxItem Content="{DynamicResource IslandPage_ModeTemporary}" />
                 </ComboBox>
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandDurationCard" Tag="General" Grid.Row="4" Icon="{ui:SymbolIcon Clock24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandDurationCard" Tag="General" Icon="{ui:SymbolIcon Clock24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_NoticeDuration}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -136,7 +63,7 @@
                     <TextBlock Text="s" VerticalAlignment="Center" Margin="2,0,0,0" Opacity="0.6" />
                 </StackPanel>
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandReturnToInactiveCard" Tag="General" Grid.Row="5" Icon="{ui:SymbolIcon EyeLines24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandReturnToInactiveCard" Tag="General" Icon="{ui:SymbolIcon EyeLines24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_ReturnToInactive}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -145,11 +72,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandReturnToInactive, Mode=TwoWay}" />
             </ui:CardControl>
-            <!-- Modo ultra compacto (change island-ultra-compacto): la cápsula replegada
-                 enseña solo sus dos EXTREMOS. Pensado para «Volver a inactivo» apagado:
-                 el Island solo asoma cuando hay algo que enseñar, y como entonces no
-                 queda nada en pantalla, la franja de arriba lo trae de vuelta. -->
-            <ui:CardControl x:Name="IslandUltraCompactCard" Tag="General" Grid.Row="6" Icon="{ui:SymbolIcon ArrowAutofitWidth24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandUltraCompactCard" Tag="General" Icon="{ui:SymbolIcon ArrowAutofitWidth24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_UltraCompact}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -158,7 +81,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandUltraCompact, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandHideOnFullscreenCard" Tag="General" Grid.Row="7" Icon="{ui:SymbolIcon Shield24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandHideOnFullscreenCard" Tag="General" Icon="{ui:SymbolIcon Shield24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_HideFullscreen}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -166,14 +89,9 @@
                     </StackPanel>
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandHideOnFullscreen, Mode=TwoWay}" />
-            </ui:CardControl>
-            <TextBlock Tag="Screens" Grid.Row="8" Text="{DynamicResource IslandPage_ScreensSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
-            <!-- Pantallas del Island: cada una agrupa una o varias funcionalidades y la
-                 rueda y las flechas recorren pantallas. El editor lo construye el
-                 code-behind: una tarjeta por funcionalidad, EN ORDEN (ese orden es el de
-                 presentación: de izquierda a derecha), con ◀ ▶ para colocarla y ✕ para
-                 sacarla, más la lista de las que faltan. -->
-            <ui:CardExpander x:Name="IslandScreensCard" Tag="Screens" Grid.Row="9" Icon="{ui:SymbolIcon Grid24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+            </ui:CardControl></StackPanel></DataTemplate>
+<DataTemplate x:Key="IslandCategoryScreens"><StackPanel><TextBlock Tag="Screens" Text="{DynamicResource IslandPage_ScreensSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+<ui:CardExpander x:Name="IslandScreensCard" Tag="Screens" Icon="{ui:SymbolIcon Grid24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardExpander.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_ScreensTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -186,9 +104,9 @@
                             ToolTip="{DynamicResource IslandPage_NewScreenTip}" />
                     <TextBlock Text="{DynamicResource IslandPage_ScreensNote}" FontSize="12" Opacity="0.5" Margin="0,6,0,0" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
-            </ui:CardExpander>
-            <TextBlock Tag="Music" Grid.Row="10" Text="{DynamicResource IslandPage_MusicSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
-            <ui:CardControl x:Name="IslandEqEnabledCard" Tag="Music" Grid.Row="11" Icon="{ui:SymbolIcon SoundWaveCircle24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+            </ui:CardExpander></StackPanel></DataTemplate>
+<DataTemplate x:Key="IslandCategoryMusic"><StackPanel><TextBlock Tag="Music" Text="{DynamicResource IslandPage_MusicSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+<ui:CardControl x:Name="IslandEqEnabledCard" Tag="Music" Icon="{ui:SymbolIcon SoundWaveCircle24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_Equalizer}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -197,7 +115,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandEqEnabled, Mode=TwoWay}" />
             </ui:CardControl>
-            <StackPanel Tag="Music" Grid.Row="12">
+<Expander Header="{DynamicResource IslandAdvanced}" Margin="0,12,0,16"><StackPanel><StackPanel Tag="Music">
             <ui:CardControl x:Name="IslandEqBarsCard" Tag="Music"  Icon="{ui:SymbolIcon DataBarVertical24, Filled=True}" Margin="0,0,0,3" IsEnabled="{Binding IslandEqEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
@@ -222,7 +140,7 @@
                 </StackPanel>
             </ui:CardControl>
             </StackPanel>
-            <ui:CardControl x:Name="IslandEqCenteredBarsCard" Tag="Music" Grid.Row="13" Icon="{ui:SymbolIcon AlignCenterHorizontal24, Filled=True}" Margin="0,0,0,3" IsEnabled="{Binding IslandEqEnabled}">
+<ui:CardControl x:Name="IslandEqCenteredBarsCard" Tag="Music" Icon="{ui:SymbolIcon AlignCenterHorizontal24, Filled=True}" Margin="0,0,0,3" IsEnabled="{Binding IslandEqEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_CenteredBars}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -231,7 +149,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandEqCenteredBars, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandEqSensitivityCard" Tag="Music" Grid.Row="14" Icon="{ui:SymbolIcon BezierCurveSquare20}" Margin="0,0,0,3" IsEnabled="{Binding IslandEqEnabled}">
+<ui:CardControl x:Name="IslandEqSensitivityCard" Tag="Music" Icon="{ui:SymbolIcon BezierCurveSquare20}" Margin="0,0,0,3" IsEnabled="{Binding IslandEqEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_Sensitivity}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -241,7 +159,7 @@
                     <Slider Minimum="1" Maximum="3" Value="{Binding IslandEqSensitivity, Mode=TwoWay}" TickFrequency="1" TickPlacement="Both" IsSnapToTickEnabled="True" Width="150" Margin="0,0,0,0" IsMoveToPointEnabled="True" />
                 </StackPanel>
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandEqSmoothingCard" Tag="Music" Grid.Row="15" Icon="{ui:SymbolIcon SlideTransition24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEqEnabled}">
+<ui:CardControl x:Name="IslandEqSmoothingCard" Tag="Music" Icon="{ui:SymbolIcon SlideTransition24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEqEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_Smoothing}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -251,8 +169,8 @@
                     <Slider Minimum="0" Maximum="100" Value="{Binding IslandEqSmoothing, Mode=TwoWay}" TickFrequency="5" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
                     <ui:TextBlock Text="{Binding IslandEqSmoothing}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
                 </StackPanel>
-            </ui:CardControl>
-            <ui:CardControl x:Name="IslandStyleCard" Tag="Interaction" Grid.Row="16" Icon="{ui:SymbolIcon ExtendedDock24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+            </ui:CardControl></StackPanel></Expander></StackPanel></DataTemplate>
+<DataTemplate x:Key="IslandCategoryInteraction"><StackPanel><ui:CardControl x:Name="IslandStyleCard" Tag="Interaction" Icon="{ui:SymbolIcon ExtendedDock24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_Style}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -264,35 +182,7 @@
                     <ComboBoxItem Content="{DynamicResource IslandPage_StyleNotch}" />
                 </ComboBox>
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandToleranceVerticalCard" Tag="Interaction" Grid.Row="17" Icon="{ui:SymbolIcon CursorHover24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
-                <ui:CardControl.Header>
-                    <StackPanel Orientation="Vertical">
-                        <TextBlock Text="{DynamicResource IslandPage_ToleranceVertical}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                        <TextBlock Text="{DynamicResource IslandPage_ToleranceVerticalDesc}" FontSize="12" Opacity="0.5" />
-                    </StackPanel>
-                </ui:CardControl.Header>
-                <StackPanel Orientation="Horizontal">
-                    <Slider Minimum="0" Maximum="40" Value="{Binding IslandHoverToleranceVertical, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
-                    <ui:TextBlock Text="{Binding IslandHoverToleranceVertical}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
-                </StackPanel>
-            </ui:CardControl>
-            <ui:CardControl x:Name="IslandToleranceHorizontalCard" Tag="Interaction" Grid.Row="18" Icon="{ui:SymbolIcon CursorHover24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
-                <ui:CardControl.Header>
-                    <StackPanel Orientation="Vertical">
-                        <TextBlock Text="{DynamicResource IslandPage_ToleranceHorizontal}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                        <TextBlock Text="{DynamicResource IslandPage_ToleranceHorizontalDesc}" FontSize="12" Opacity="0.5" />
-                    </StackPanel>
-                </ui:CardControl.Header>
-                <StackPanel Orientation="Horizontal">
-                    <Slider Minimum="0" Maximum="80" Value="{Binding IslandHoverToleranceHorizontal, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
-                    <ui:TextBlock Text="{Binding IslandHoverToleranceHorizontal}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
-                </StackPanel>
-            </ui:CardControl>
-            <!-- Puerta del Island oculto: con la caja y la línea sin dibujar no queda nada
-                 a lo que apuntar, así que la franja del borde no existe y el puntero no
-                 hace nada ahí. Este interruptor la devuelve como puerta invisible para
-                 quien quiera poder abrir el Island a ciegas. -->
-            <ui:CardControl x:Name="IslandHiddenAccessCard" Tag="Interaction" Grid.Row="19" Icon="{ui:SymbolIcon CursorHover24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandHiddenAccessCard" Tag="Interaction" Icon="{ui:SymbolIcon CursorHover24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_HiddenAccess}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -301,7 +191,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandHiddenAccess, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandShowPlayCard" Tag="Interaction" Grid.Row="20" Icon="{ui:SymbolIcon Play24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandShowPlayCard" Tag="Interaction" Icon="{ui:SymbolIcon Play24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_ShowOnPlay}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -310,7 +200,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandShowOnPlayPause, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandShowPauseCard" Tag="Interaction" Grid.Row="21" Icon="{ui:SymbolIcon Pause24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandShowPauseCard" Tag="Interaction" Icon="{ui:SymbolIcon Pause24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_ShowOnPause}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -319,7 +209,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandShowOnPause, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandShowTrackChangeCard" Tag="Interaction" Grid.Row="22" Icon="{ui:SymbolIcon MusicNote2Play20}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandShowTrackChangeCard" Tag="Interaction" Icon="{ui:SymbolIcon MusicNote2Play20}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_ShowOnTrackChange}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -328,7 +218,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandShowOnTrackChange, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandPauseCountsActiveCard" Tag="Interaction" Grid.Row="23" Icon="{ui:SymbolIcon Pause24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandPauseCountsActiveCard" Tag="Interaction" Icon="{ui:SymbolIcon Pause24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_PauseCountsActive}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -337,7 +227,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandPauseCountsActive, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandExpandTriggerCard" Tag="Interaction" Grid.Row="24" Icon="{ui:SymbolIcon CursorHover24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandExpandTriggerCard" Tag="Interaction" Icon="{ui:SymbolIcon CursorHover24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_ExpandTrigger}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -350,7 +240,7 @@
                     <ComboBoxItem Content="{DynamicResource IslandPage_TriggerBoth}" />
                 </ComboBox>
             </ui:CardControl>
-            <ui:CardExpander x:Name="IslandTypographyCard" Tag="Interaction" Grid.Row="25" Icon="{ui:SymbolIcon TextCaseTitle24}" ContentPadding="0" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
+<ui:CardExpander x:Name="IslandTypographyCard" Tag="Interaction" Icon="{ui:SymbolIcon TextCaseTitle24}" ContentPadding="0" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardExpander.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_TypographyTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -457,8 +347,44 @@
                     </ui:CardControl>
                 </StackPanel>
             </ui:CardExpander>
-            <TextBlock Tag="Appearance" Grid.Row="26" Text="{DynamicResource IslandPage_AppearanceSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
-        <ui:CardControl x:Name="IslandExpandedWidthCard" Tag="Appearance" Grid.Row="27" Icon="{ui:SymbolIcon ArrowAutofitWidth24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<Expander Header="{DynamicResource IslandAdvanced}" Margin="0,12,0,16"><StackPanel><ui:CardControl x:Name="IslandToleranceVerticalCard" Tag="Interaction" Icon="{ui:SymbolIcon CursorHover24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="{DynamicResource IslandPage_ToleranceVertical}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="{DynamicResource IslandPage_ToleranceVerticalDesc}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <StackPanel Orientation="Horizontal">
+                    <Slider Minimum="0" Maximum="40" Value="{Binding IslandHoverToleranceVertical, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
+                    <ui:TextBlock Text="{Binding IslandHoverToleranceVertical}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
+                </StackPanel>
+            </ui:CardControl>
+<ui:CardControl x:Name="IslandToleranceHorizontalCard" Tag="Interaction" Icon="{ui:SymbolIcon CursorHover24}" Margin="0,0,0,24" IsEnabled="{Binding IslandEnabled}">
+                <ui:CardControl.Header>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="{DynamicResource IslandPage_ToleranceHorizontal}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                        <TextBlock Text="{DynamicResource IslandPage_ToleranceHorizontalDesc}" FontSize="12" Opacity="0.5" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <StackPanel Orientation="Horizontal">
+                    <Slider Minimum="0" Maximum="80" Value="{Binding IslandHoverToleranceHorizontal, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
+                    <ui:TextBlock Text="{Binding IslandHoverToleranceHorizontal}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
+                </StackPanel>
+            </ui:CardControl></StackPanel></Expander></StackPanel></DataTemplate>
+<DataTemplate x:Key="IslandCategoryAppearance"><StackPanel><TextBlock Tag="Appearance" Text="{DynamicResource IslandPage_AppearanceSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+<ui:CardControl x:Name="AlbumArtChangeAnimationTitleCard" Tag="Indexable" Icon="{ui:SymbolIcon Image24}" Margin="0,0,0,8">
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="{DynamicResource AlbumArtChangeAnimationTitle}" FontSize="14" />
+                        <TextBlock Text="{DynamicResource AlbumArtChangeAnimationDescription}" FontSize="12" Opacity="0.5" TextWrapping="Wrap" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ComboBox SelectedIndex="{Binding AlbumArtChangeAnimation, Mode=TwoWay}">
+                    <ComboBoxItem Content="{DynamicResource TaskbarWidgetSongChangeAnimationCrossfade}" />
+                    <ComboBoxItem Content="{DynamicResource AlbumArtChangeAnimationFlip}" />
+                </ComboBox>
+            </ui:CardControl>
+<ui:CardControl x:Name="IslandExpandedWidthCard" Tag="Appearance" Icon="{ui:SymbolIcon ArrowAutofitWidth24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">
                     <TextBlock Text="{DynamicResource IslandPage_ExpandedWidth}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -470,7 +396,7 @@
                 <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
             </StackPanel>
         </ui:CardControl>
-        <ui:CardControl x:Name="IslandExpandedHeightCard" Tag="Appearance" Grid.Row="28" Icon="{ui:SymbolIcon ArrowAutofitUp24}" Margin="0,0,0,3" IsEnabled="{Binding IslandFloatingStyleEnabled}">
+<ui:CardControl x:Name="IslandExpandedHeightCard" Tag="Appearance" Icon="{ui:SymbolIcon ArrowAutofitUp24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">
                     <TextBlock Text="{DynamicResource IslandPage_FloatingHeight}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -482,7 +408,7 @@
                 <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
             </StackPanel>
         </ui:CardControl>
-        <ui:CardControl x:Name="IslandTopOffsetCard" Tag="Appearance" Grid.Row="29" Icon="{ui:SymbolIcon ArrowMove24}" Margin="0,0,0,3" IsEnabled="{Binding IslandFloatingStyleEnabled}">
+<ui:CardControl x:Name="IslandTopOffsetCard" Tag="Appearance" Icon="{ui:SymbolIcon ArrowMove24}" Margin="0,0,0,3" IsEnabled="{Binding IslandFloatingStyleEnabled}">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">
                     <TextBlock Text="{DynamicResource IslandPage_IslandOffset}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -494,23 +420,7 @@
                 <ui:TextBlock Text="{Binding IslandTopOffset}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
             </StackPanel>
         </ui:CardControl>
-        <ui:CardControl x:Name="IslandLineTopOffsetCard" Tag="Appearance" Grid.Row="30" Icon="{ui:SymbolIcon EyeLines24}" Margin="0,0,0,3" IsEnabled="{Binding IslandFloatingStyleEnabled}">
-            <ui:CardControl.Header>
-                <StackPanel Orientation="Vertical">
-                    <TextBlock Text="{DynamicResource IslandPage_LineOffset}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                    <TextBlock Text="{DynamicResource IslandPage_LineOffsetDesc}" FontSize="12" Opacity="0.5" />
-                </StackPanel>
-            </ui:CardControl.Header>
-            <StackPanel Orientation="Horizontal">
-                <Slider Minimum="0" Maximum="60" Value="{Binding IslandLineTopOffset, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
-                <ui:TextBlock Text="{Binding IslandLineTopOffset}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
-            </StackPanel>
-        </ui:CardControl>
-        <!-- Línea gris: la manija del Island. Se pinta cuando hay algo que abrir (alguna
-             pantalla usable) y es además la puerta del puntero, porque la franja del
-             borde la sigue. Apagarla cierra esa puerta; si se quiere el acceso de todos
-             modos, está «Acceso al Island oculto» en Interacción. -->
-        <ui:CardControl x:Name="IslandActivityLineCard" Tag="Appearance" Grid.Row="31" Icon="{ui:SymbolIcon EyeLines24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandActivityLineCard" Tag="Appearance" Icon="{ui:SymbolIcon EyeLines24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">
                     <TextBlock Text="{DynamicResource IslandPage_ActivityLine}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -519,7 +429,7 @@
             </ui:CardControl.Header>
             <ui:ToggleSwitch IsChecked="{Binding IslandActivityLine, Mode=TwoWay}" />
         </ui:CardControl>
-        <ui:CardControl x:Name="IslandCompactBorderRadiusCard" Tag="Appearance" Grid.Row="32" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandCompactBorderRadiusCard" Tag="Appearance" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">
                     <TextBlock Text="{DynamicResource IslandPage_CompactRadius}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -531,7 +441,7 @@
                 <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
             </StackPanel>
         </ui:CardControl>
-        <ui:CardControl x:Name="IslandExpandedBorderRadiusCard" Tag="Appearance" Grid.Row="33" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandExpandedBorderRadiusCard" Tag="Appearance" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">
                     <TextBlock Text="{DynamicResource IslandPage_ExpandedRadius}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -543,31 +453,7 @@
                 <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
             </StackPanel>
         </ui:CardControl>
-        <ui:CardControl x:Name="IslandNotchFilletCompactCard" Tag="Appearance" Grid.Row="34" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
-            <ui:CardControl.Header>
-                <StackPanel Orientation="Vertical">
-                    <TextBlock Text="{DynamicResource IslandPage_NotchFilletCompact}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                    <TextBlock Text="{DynamicResource IslandPage_NotchFilletCompactDesc}" FontSize="12" Opacity="0.5" />
-                </StackPanel>
-            </ui:CardControl.Header>
-            <StackPanel Orientation="Horizontal">
-                <ui:TextBox Width="60" ClearButtonEnabled="False" Text="{Binding IslandNotchFilletCompactText, Mode=TwoWay}" />
-                <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
-            </StackPanel>
-        </ui:CardControl>
-        <ui:CardControl x:Name="IslandNotchFilletExpandedCard" Tag="Appearance" Grid.Row="35" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
-            <ui:CardControl.Header>
-                <StackPanel Orientation="Vertical">
-                    <TextBlock Text="{DynamicResource IslandPage_NotchFilletExpanded}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
-                    <TextBlock Text="{DynamicResource IslandPage_NotchFilletExpandedDesc}" FontSize="12" Opacity="0.5" />
-                </StackPanel>
-            </ui:CardControl.Header>
-            <StackPanel Orientation="Horizontal">
-                <ui:TextBox Width="60" ClearButtonEnabled="False" Text="{Binding IslandNotchFilletExpandedText, Mode=TwoWay}" />
-                <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
-            </StackPanel>
-        </ui:CardControl>
-        <ui:CardControl x:Name="IslandAlbumArtRadiusCard" Tag="Appearance" Grid.Row="36" Icon="{ui:SymbolIcon Album24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandAlbumArtRadiusCard" Tag="Appearance" Icon="{ui:SymbolIcon Album24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">
                     <TextBlock Text="{DynamicResource IslandPage_AlbumArtRadius}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -579,7 +465,7 @@
                 <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
             </StackPanel>
         </ui:CardControl>
-        <ui:CardControl x:Name="IslandBorderCard" Tag="Appearance" Grid.Row="37" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandBorderCard" Tag="Appearance" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
             <ui:CardControl.Header>
                 <StackPanel Orientation="Vertical">
                     <TextBlock Text="{DynamicResource IslandPage_WhiteBorder}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -588,7 +474,7 @@
             </ui:CardControl.Header>
             <ui:ToggleSwitch IsChecked="{Binding IslandBorderEnabled, Mode=TwoWay}" />
         </ui:CardControl>
-        <ui:CardExpander x:Name="IslandBackgroundCard" Tag="Appearance" Grid.Row="38" Icon="{ui:SymbolIcon ColorBackground24}" ContentPadding="0" Margin="0,0,0,76" IsEnabled="{Binding IslandEnabled}">
+<ui:CardExpander x:Name="IslandBackgroundCard" Tag="Appearance" Icon="{ui:SymbolIcon ColorBackground24}" ContentPadding="0" Margin="0,0,0,76" IsEnabled="{Binding IslandEnabled}">
             <ui:CardExpander.Header>
                 <Grid ColumnDefinitions="*, Auto">
                     <StackPanel Orientation="Vertical">
@@ -693,8 +579,44 @@
                 </ui:CardControl>
             </StackPanel>
         </ui:CardExpander>
-            <TextBlock Tag="Content" Grid.Row="39" Text="{DynamicResource IslandPage_ContentSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
-            <ui:CardControl x:Name="IslandMediaEnabledCard" Tag="Content" Grid.Row="40" Icon="{ui:SymbolIcon MusicNote2Play20}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<Expander Header="{DynamicResource IslandAdvanced}" Margin="0,12,0,16"><StackPanel><ui:CardControl x:Name="IslandLineTopOffsetCard" Tag="Appearance" Icon="{ui:SymbolIcon EyeLines24}" Margin="0,0,0,3" IsEnabled="{Binding IslandFloatingStyleEnabled}">
+            <ui:CardControl.Header>
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Text="{DynamicResource IslandPage_LineOffset}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                    <TextBlock Text="{DynamicResource IslandPage_LineOffsetDesc}" FontSize="12" Opacity="0.5" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <StackPanel Orientation="Horizontal">
+                <Slider Minimum="0" Maximum="60" Value="{Binding IslandLineTopOffset, Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="True" Width="150" IsMoveToPointEnabled="True" />
+                <ui:TextBlock Text="{Binding IslandLineTopOffset}" Width="32" TextAlignment="Center" Margin="12,0,0,0" />
+            </StackPanel>
+        </ui:CardControl>
+<ui:CardControl x:Name="IslandNotchFilletCompactCard" Tag="Appearance" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+            <ui:CardControl.Header>
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Text="{DynamicResource IslandPage_NotchFilletCompact}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                    <TextBlock Text="{DynamicResource IslandPage_NotchFilletCompactDesc}" FontSize="12" Opacity="0.5" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <StackPanel Orientation="Horizontal">
+                <ui:TextBox Width="60" ClearButtonEnabled="False" Text="{Binding IslandNotchFilletCompactText, Mode=TwoWay}" />
+                <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+        </ui:CardControl>
+<ui:CardControl x:Name="IslandNotchFilletExpandedCard" Tag="Appearance" Icon="{ui:SymbolIcon Oval24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+            <ui:CardControl.Header>
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Text="{DynamicResource IslandPage_NotchFilletExpanded}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
+                    <TextBlock Text="{DynamicResource IslandPage_NotchFilletExpandedDesc}" FontSize="12" Opacity="0.5" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <StackPanel Orientation="Horizontal">
+                <ui:TextBox Width="60" ClearButtonEnabled="False" Text="{Binding IslandNotchFilletExpandedText, Mode=TwoWay}" />
+                <TextBlock Text="px" FontSize="14" FontWeight="Regular" Margin="10,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+        </ui:CardControl></StackPanel></Expander></StackPanel></DataTemplate>
+<DataTemplate x:Key="IslandCategoryContent"><StackPanel><TextBlock Tag="Content" Text="{DynamicResource IslandPage_ContentSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+<ui:CardControl x:Name="IslandMediaEnabledCard" Tag="Content" Icon="{ui:SymbolIcon MusicNote2Play20}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_MediaTitle}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -702,9 +624,9 @@
                     </StackPanel>
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandMediaEnabled, Mode=TwoWay}" />
-            </ui:CardControl>
-            <TextBlock Tag="Timer" Grid.Row="41" Text="{DynamicResource IslandPage_TimerSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
-            <ui:CardControl x:Name="IslandTimerEnabledCard" Tag="Timer" Grid.Row="42" Icon="{ui:SymbolIcon Timer24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+            </ui:CardControl></StackPanel></DataTemplate>
+<DataTemplate x:Key="IslandCategoryTimer"><StackPanel><TextBlock Tag="Timer" Text="{DynamicResource IslandPage_TimerSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+<ui:CardControl x:Name="IslandTimerEnabledCard" Tag="Timer" Icon="{ui:SymbolIcon Timer24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_EnableTimer}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -713,7 +635,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandTimerEnabled, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandTimerProgressCard" Tag="Timer" Grid.Row="43" Icon="{ui:SymbolIcon DataBarVertical24, Filled=True}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandTimerProgressCard" Tag="Timer" Icon="{ui:SymbolIcon DataBarVertical24, Filled=True}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_TimerProgress}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -722,7 +644,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandTimerShowProgress, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardControl x:Name="IslandTimerArrowsCard" Tag="Timer" Grid.Row="44" Icon="{ui:SymbolIcon SlideArrowRight24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardControl x:Name="IslandTimerArrowsCard" Tag="Timer" Icon="{ui:SymbolIcon SlideArrowRight24}" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardControl.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_SideArrows}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -731,7 +653,7 @@
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch IsChecked="{Binding IslandTimerShowArrows, Mode=TwoWay}" />
             </ui:CardControl>
-            <ui:CardExpander x:Name="IslandTimerPresetsCard" Tag="Timer" Grid.Row="45" Icon="{ui:SymbolIcon Clock24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<ui:CardExpander x:Name="IslandTimerPresetsCard" Tag="Timer" Icon="{ui:SymbolIcon Clock24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardExpander.Header>
                     <StackPanel Orientation="Vertical">
                         <TextBlock Text="{DynamicResource IslandPage_Presets}" FontSize="14" FontWeight="Regular" VerticalAlignment="Center" />
@@ -761,9 +683,9 @@
                         <TextBlock Text="{Binding TimerPresetsError}" Foreground="#E81123" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>
                 </StackPanel>
-            </ui:CardExpander>
-            <TextBlock Tag="Apps" Grid.Row="46" Text="{DynamicResource IslandPage_AppsSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
-            <ui:CardExpander x:Name="IslandAppsCard" Tag="Apps" Grid.Row="47" Icon="{ui:SymbolIcon Apps24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+            </ui:CardExpander></StackPanel></DataTemplate>
+<DataTemplate x:Key="IslandCategoryApps"><StackPanel><TextBlock Tag="Apps" Text="{DynamicResource IslandPage_AppsSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+<ui:CardExpander x:Name="IslandAppsCard" Tag="Apps" Icon="{ui:SymbolIcon Apps24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardExpander.Header>
                     <Grid ColumnDefinitions="*, Auto">
                         <StackPanel Orientation="Vertical">
@@ -797,16 +719,9 @@
                         <TextBlock Text="{Binding IslandAppsError}" Foreground="#E81123" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>
                 </StackPanel>
-            </ui:CardExpander>
-            <!-- La antigua lista de orden de funcionalidades se retiró: el único orden del
-                 Island es el de las PANTALLAS (arriba), tanto para la rueda y las flechas
-                 como para la composición de cada vista. Las filas del panel van en orden
-                 de arriba abajo y sin huecos: añadir una tarjeta nueva es elegir su fila
-                 y renumerar las siguientes. -->
-            <TextBlock Tag="Organization" Grid.Row="48" Text="{DynamicResource IslandPage_ShelfSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
-            <!-- Estante: los archivos se MUEVEN a la carpeta propia del estante y quitarlos los
-                 devuelve a su carpeta original. Nada caduca y nada se borra desde aquí. -->
-            <ui:CardExpander x:Name="IslandShelfCard" Tag="Organization" Grid.Row="49" Icon="{ui:SymbolIcon Folder24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+            </ui:CardExpander></StackPanel></DataTemplate>
+<DataTemplate x:Key="IslandCategoryOrganization"><StackPanel><TextBlock Tag="Organization" Text="{DynamicResource IslandPage_ShelfSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+<ui:CardExpander x:Name="IslandShelfCard" Tag="Organization" Icon="{ui:SymbolIcon Folder24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardExpander.Header>
                     <Grid ColumnDefinitions="*, Auto">
                         <StackPanel Orientation="Vertical">
@@ -842,12 +757,9 @@
                         <TextBlock Text="{Binding IslandShelfError}" Foreground="#E81123" FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>
                 </StackPanel>
-            </ui:CardExpander>
-            <TextBlock Tag="Tools" Grid.Row="50" Text="{DynamicResource IslandPage_CalendarSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
-            <!-- Google Calendar: el inicio de sesión se hace desde aquí (navegador + bucle
-                 local); los tokens se guardan con los ajustes. La app necesita el cliente
-                 OAuth del propio usuario: no se reparte ninguno. -->
-            <ui:CardExpander x:Name="IslandCalendarCard" Tag="Tools" Grid.Row="51" Icon="{ui:SymbolIcon Calendar24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+            </ui:CardExpander></StackPanel></DataTemplate>
+<DataTemplate x:Key="IslandCategoryTools"><StackPanel><TextBlock Tag="Tools" Text="{DynamicResource IslandPage_CalendarSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+<ui:CardExpander x:Name="IslandCalendarCard" Tag="Tools" Icon="{ui:SymbolIcon Calendar24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardExpander.Header>
                     <Grid ColumnDefinitions="*, Auto">
                         <StackPanel Orientation="Vertical">
@@ -901,11 +813,8 @@
                                FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" Margin="0,10,0,0" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
             </ui:CardExpander>
-            <TextBlock Tag="Tools" Grid.Row="52" Text="{DynamicResource IslandPage_BluetoothSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
-            <!-- Bluetooth: solo se observan conexiones (nada se envía ni se modifica) y
-                 el aviso es SIEMPRE temporal, con la duración del aviso configurada,
-                 aunque el contenedor esté en «Visible mientras activo». -->
-            <ui:CardExpander x:Name="IslandBluetoothCard" Tag="Tools" Grid.Row="53" Icon="{ui:SymbolIcon Bluetooth24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<TextBlock Tag="Tools" Text="{DynamicResource IslandPage_BluetoothSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+<ui:CardExpander x:Name="IslandBluetoothCard" Tag="Tools" Icon="{ui:SymbolIcon Bluetooth24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardExpander.Header>
                     <Grid ColumnDefinitions="*, Auto">
                         <StackPanel Orientation="Vertical">
@@ -920,11 +829,8 @@
                                FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
             </ui:CardExpander>
-            <TextBlock Tag="Tools" Grid.Row="54" Text="{DynamicResource IslandPage_ClipboardSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
-            <!-- Portapapeles: solo se observa lo que el usuario copia (nada se envía ni
-                 se modifica; el original se conserva intacto) y su vista vive en el
-                 Island, donde un clic devuelve la pieza al portapapeles para pegarla. -->
-            <ui:CardExpander x:Name="IslandClipboardCard" Tag="Tools" Grid.Row="55" Icon="{ui:SymbolIcon Clipboard24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<TextBlock Tag="Tools" Text="{DynamicResource IslandPage_ClipboardSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+<ui:CardExpander x:Name="IslandClipboardCard" Tag="Tools" Icon="{ui:SymbolIcon Clipboard24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardExpander.Header>
                     <Grid ColumnDefinitions="*, Auto">
                         <StackPanel Orientation="Vertical">
@@ -941,15 +847,13 @@
                         <ui:TextBlock Text="{Binding IslandClipboardMaxItems}" Width="24" TextAlignment="Center" Margin="12,0,0,0" />
                         <TextBlock Text="{DynamicResource IslandPage_Pieces}" VerticalAlignment="Center" Opacity="0.6" />
                     </StackPanel>
+                    <TextBlock Text="{Binding IslandClipboardStatus}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/>
                     <TextBlock Text="{DynamicResource IslandPage_ClipboardNote}"
                                FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" Margin="0,10,0,0" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
             </ui:CardExpander>
-            <TextBlock Tag="Tools" Grid.Row="56" Text="{DynamicResource IslandPage_WeatherSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
-            <!-- Clima: el lugar se busca y se elige entre las sugerencias (así no hay
-                 que teclear coordenadas ni elegir entre dos pueblos con el mismo
-                 nombre); el dato lo lee el Island y no se envía nada más que el lugar. -->
-            <ui:CardExpander x:Name="IslandWeatherCard" Tag="Tools" Grid.Row="57" Icon="{ui:SymbolIcon WeatherSunny24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<TextBlock Tag="Tools" Text="{DynamicResource IslandPage_WeatherSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+<ui:CardExpander x:Name="IslandWeatherCard" Tag="Tools" Icon="{ui:SymbolIcon WeatherSunny24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardExpander.Header>
                     <Grid ColumnDefinitions="*, Auto">
                         <StackPanel Orientation="Vertical">
@@ -981,11 +885,8 @@
                                FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" Margin="0,10,0,0" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
             </ui:CardExpander>
-            <TextBlock Tag="Tools" Grid.Row="58" Text="{DynamicResource IslandPage_PowerSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
-            <!-- Cargador: solo se observa el estado de energía que ya conoce Windows (nada
-                 se envía ni se modifica) y el aviso es SIEMPRE temporal, con la duración
-                 del aviso configurada. -->
-            <ui:CardExpander x:Name="IslandPowerCard" Tag="Tools" Grid.Row="59" Icon="{ui:SymbolIcon BatteryCharge24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
+<TextBlock Tag="Tools" Text="{DynamicResource IslandPage_PowerSection}" FontSize="14" FontWeight="SemiBold" Margin="0,12,0,6" />
+<ui:CardExpander x:Name="IslandPowerCard" Tag="Tools" Icon="{ui:SymbolIcon BatteryCharge24}" ContentPadding="0" Margin="0,0,0,3" IsEnabled="{Binding IslandEnabled}">
                 <ui:CardExpander.Header>
                     <Grid ColumnDefinitions="*, Auto">
                         <StackPanel Orientation="Vertical">
@@ -1000,7 +901,9 @@
                                FontSize="12" Opacity="0.5" TextWrapping="WrapWithOverflow" MaxWidth="520" HorizontalAlignment="Left" />
                 </StackPanel>
             </ui:CardExpander>
-            <TextBlock Tag="Tools" Grid.Row="60" Text=" " FontSize="8" Margin="0,0,0,72" /> 
-        </Grid>
+<TextBlock Tag="Tools" Text=" " FontSize="8" Margin="0,0,0,72" /></StackPanel></DataTemplate>
+</Grid.Resources>
+<StackPanel x:Name="CategoryHost"/>
+</Grid>
     </StackPanel>
 </Page>

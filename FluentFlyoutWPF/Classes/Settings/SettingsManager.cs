@@ -21,6 +21,19 @@ public class SettingsManager
         "settings.xml"
     );
 
+    // Recovery journals are retired only after the shelf metadata is actually on disk.
+    internal static bool ShelfStateIsPersisted(IReadOnlyCollection<FluentFlyoutWPF.Models.IslandShelfItem> items)
+    {
+        try
+        {
+            var root = System.Xml.Linq.XDocument.Load(SettingsFilePath).Root;
+            var saved = root?.Element("IslandShelfItems")?.Elements()
+                .Select(item => ((string?)item.Element("Path") ?? "", (string?)item.Element("Origin") ?? "", (bool?)item.Element("IsFolder") ?? false)).ToHashSet();
+            return saved != null && saved.SetEquals(items.Select(item => (item.Path, item.Origin, item.IsFolder)));
+        }
+        catch { return false; }
+    }
+
     private static UserSettings? _current;
     // One serializer for the whole process. Building an XmlSerializer is reflection
     // plus a cache lookup, and SaveSettings is called on every settings change.

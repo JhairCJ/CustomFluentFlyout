@@ -776,23 +776,7 @@ public partial class TaskbarWidgetControl : UserControl
     }
 
     private BitmapSource CaptureBackgroundBlend(double baseOpacity, double nextOpacity)
-    {
-        const int side = 256;
-        var visual = new DrawingVisual();
-        using (var dc = visual.RenderOpen())
-        {
-            dc.PushOpacity(baseOpacity);
-            dc.DrawImage(BackgroundImage.Source, new Rect(0, 0, side, side));
-            dc.Pop();
-            dc.PushOpacity(nextOpacity);
-            dc.DrawImage(BackgroundImageNext.Source, new Rect(0, 0, side, side));
-            dc.Pop();
-        }
-        var snapshot = new RenderTargetBitmap(side, side, 96, 96, PixelFormats.Pbgra32);
-        snapshot.Render(visual);
-        snapshot.Freeze();
-        return snapshot;
-    }
+        => AlbumArtCrossfade.CaptureBlend(BackgroundImage.Source, BackgroundImageNext.Source, baseOpacity, nextOpacity);
 
     /// <summary>
     /// Parks the incoming background layer and forgets any running crossfade target.

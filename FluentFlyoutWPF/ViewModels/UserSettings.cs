@@ -1420,6 +1420,14 @@ public partial class UserSettings : ObservableObject
     [ObservableProperty]
     public partial int IslandClipboardMaxItems { get; set; }
 
+    private string _islandClipboardStatus = "";
+    [XmlIgnore]
+    public string IslandClipboardStatus
+    {
+        get => _islandClipboardStatus;
+        set => SetProperty(ref _islandClipboardStatus, value);
+    }
+
     /// <summary>
     /// Weather: feature enabled. With it off nothing is queried over the network
     /// (not even the place lookup) and the Island does not offer it.
@@ -2147,11 +2155,32 @@ public partial class UserSettings : ObservableObject
     /// setting that is also SANITIZED (clamped or rounded) has its own partial
     /// method, which calls the window after sanitizing.
     /// </summary>
+    private readonly HashSet<Action<IslandWindow>> _pendingIslandUpdates = [];
+    private bool _islandUpdateQueued;
+
     private void OnIslandSettingChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_initializing || e.PropertyName is not { } name) return;
         if (!IslandSettingHandlers.TryGetValue(name, out var apply)) return;
-        if (Island is { } island) apply(island);
+        if (Application.Current?.Dispatcher is not { } dispatcher) return;
+        if (!dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(new Action(() => OnIslandSettingChanged(sender, e)));
+            return;
+        }
+        _pendingIslandUpdates.Add(apply);
+        if (_islandUpdateQueued) return;
+        _islandUpdateQueued = true;
+        dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() =>
+        {
+            _islandUpdateQueued = false;
+            var updates = _pendingIslandUpdates.ToArray();
+            _pendingIslandUpdates.Clear();
+            if (Island is not { } island) return;
+            island.BeginSettingsUpdate();
+            try { foreach (var update in updates) update(island); }
+            finally { island.EndSettingsUpdate(); }
+        }));
     }
 
     [XmlIgnore]
@@ -2666,6 +2695,7 @@ public partial class UserSettings : ObservableObject
 
     private void IslandShelfItems_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
     {
+        if (_shelfBatch) return;
         if (!_initializing) SettingsManager.SaveSettings();
         // The container fills its lists (and, with the shelf on screen, keeps it up to date).
         Island?.RefreshShelfContent();
@@ -2696,121 +2726,6 @@ public partial class UserSettings : ObservableObject
     /// came from is recorded, so it can be returned on removal. Returns how many
     /// went in.
     /// </summary>
-    public int AddIslandShelfPaths(IEnumerable<string> paths)
-    {
-        int added = 0;
-        foreach (string? raw in paths)
-        {
-            string source = (raw ?? "").Trim();
-            if (source.Length == 0) continue;
-            // Already on the shelf: it is not duplicated.
-            if (IslandShelfItems.Any(i => string.Equals(i.Path, source, StringComparison.OrdinalIgnoreCase))) continue;
-            if (IslandShelfItems.Count >= IslandShelfItem.MaxItems)
-            {
-                IslandShelfError = IslandStrings.Format("IslandShelfMax",
-                    "Max {0} items on the shelf.", IslandShelfItem.MaxItems);
-                break;
-            }
-            bool isFolder = Directory.Exists(source);
-            if (!isFolder && !File.Exists(source)) continue;
-            if (!TryEnsureShelfFolder()) break;
-            string? parked = MoveTo(IslandShelfFolder, source, isFolder);
-            if (parked == null)
-            {
-                IslandShelfError = IslandStrings.Get("IslandShelfParkFailed", "Could not park an item (check the log).");
-                continue;
-            }
-            IslandShelfItems.Add(new IslandShelfItem { Path = parked, Origin = source, IsFolder = isFolder });
-            added++;
-        }
-        if (added > 0) IslandShelfError = "";
-        return added;
-    }
-
-    /// <summary>
-    /// Removes an item from the shelf by returning it to its original folder: removing
-    /// it must never destroy anything of the user's. If the original folder no longer
-    /// exists - or the name is taken and could not be numbered - the item stays and
-    /// the reason is explained. Returns true if it left the shelf.
-    /// </summary>
-    public bool RemoveIslandShelfItem(IslandShelfItem item)
-    {
-        try
-        {
-            string originDir = System.IO.Path.GetDirectoryName(item.Origin) ?? "";
-            if (originDir.Length == 0 || !Directory.Exists(originDir))
-            {
-                IslandShelfError = IslandStrings.Get("IslandShelfOriginGone",
-                    "The original folder is gone: the item stays on the shelf.");
-                return false;
-            }
-            string target = FreeTarget(originDir, System.IO.Path.GetFileName(item.Origin), item.IsFolder);
-            if (item.IsFolder) Directory.Move(item.Path, target);
-            else File.Move(item.Path, target);
-            IslandShelfItems.Remove(item);
-            IslandShelfError = "";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Logger.Warn(ex, "Estante: no se pudo devolver {Path} a su carpeta original", item.Path);
-            IslandShelfError = IslandStrings.Get("IslandShelfReturnFailed",
-                "Could not return the item to its original folder.");
-            return false;
-        }
-    }
-
-    private bool TryEnsureShelfFolder()
-    {
-        try
-        {
-            Directory.CreateDirectory(IslandShelfFolder);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Logger.Warn(ex, "Estante: no se pudo preparar la carpeta {Folder}", IslandShelfFolder);
-            IslandShelfError = IslandStrings.Get("IslandShelfFolderFailed",
-                "Could not prepare the shelf folder.");
-            return false;
-        }
-    }
-
-    /// <summary>Moves a file or folder into the shelf folder, overwriting nothing.</summary>
-    private static string? MoveTo(string folder, string source, bool isFolder)
-    {
-        try
-        {
-            string target = FreeTarget(folder, System.IO.Path.GetFileName(source), isFolder);
-            if (isFolder) Directory.Move(source, target);
-            else File.Move(source, target);
-            return target;
-        }
-        catch (Exception ex)
-        {
-            Logger.Warn(ex, "Estante: no se pudo mover {Source} a {Folder}", source, folder);
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// First free path in <paramref name="folder"/> for that name: if it is taken it is
-    /// numbered ("name (2).ext", "name (3).ext"...). It never returns a taken path,
-    /// so no shelf move overwrites a file that was already there.
-    /// </summary>
-    private static string FreeTarget(string folder, string name, bool isFolder)
-    {
-        string target = System.IO.Path.Combine(folder, name);
-        int n = 1;
-        while (File.Exists(target) || Directory.Exists(target))
-        {
-            string stem = isFolder ? name : System.IO.Path.GetFileNameWithoutExtension(name);
-            string ext = isFolder ? "" : System.IO.Path.GetExtension(name);
-            target = System.IO.Path.Combine(folder, $"{stem} ({++n}){ext}");
-        }
-        return target;
-    }
-
     partial void OnAppLanguageChanged(string oldValue, string newValue)
     {
         if (oldValue == newValue) return;

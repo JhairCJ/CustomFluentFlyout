@@ -62,6 +62,22 @@ internal sealed record IslandFeatureCard(
 /// </summary>
 public partial class IslandWindow
 {
+    // Keep native item containers and hover state when only the view is refreshed.
+    private static int BindCompactItems<T>(ItemsControl target, IReadOnlyList<T> items, int limit) where T : class
+    {
+        int count = Math.Min(items.Count, Math.Max(0, limit));
+        if (target.ItemsSource is IReadOnlyList<T> current && current.Count == count)
+        {
+            int index = 0;
+            while (index < count && ReferenceEquals(current[index], items[index])) ++index;
+            if (index == count) return count;
+        }
+        var visible = new T[count];
+        for (int index = 0; index < count; ++index) visible[index] = items[index];
+        target.ItemsSource = visible;
+        return count;
+    }
+
     private readonly Dictionary<string, IslandFeatureCard> _featureCards = new(StringComparer.Ordinal);
     private readonly Dictionary<IslandContentMode, string> _featureIdByMode = [];
 
@@ -304,7 +320,12 @@ public partial class IslandWindow
     /// </summary>
     private void ShowContentFace(IslandFeatureCard card)
     {
-        HideAllContentLayers();
+        foreach (var other in _featureCards.Values)
+        {
+            if (ReferenceEquals(other, card)) continue;
+            other.Compact.Visibility = Visibility.Collapsed;
+            other.HideExpanded();
+        }
         card.Compact.Visibility = Visibility.Visible;
         card.ShowExpanded();
     }

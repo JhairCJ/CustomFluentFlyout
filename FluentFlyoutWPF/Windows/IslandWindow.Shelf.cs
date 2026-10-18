@@ -46,7 +46,7 @@ public partial class IslandWindow
     private bool ShelfKeepsView() =>
         ShelfModeAvailable()
         && SettingsManager.Current.IslandVisibilityMode == 1
-        && _noticeUntil > DateTime.UtcNow;
+        && _noticeUntil > FluentFlyoutWPF.Classes.IslandClock.Now;
 
     internal IslandFeatureState GetShelfFeatureState()
     {
@@ -77,19 +77,23 @@ public partial class IslandWindow
     /// Vincula las listas del estante. El compacto lleva solo los que caben en la fila
     /// (el resto vive en el expandido, contados por el «+N»), igual que el cajón.
     /// </summary>
-    private void InitShelf() => RefreshShelfList();
+    private void InitShelf()
+    {
+        RefreshShelfList();
+        _ = SettingsManager.Current.RecoverIslandShelfAsync();
+    }
 
     private void RefreshShelfList()
     {
+        ShelfExpanded.DataContext = SettingsManager.Current;
         var items = ShelfItems;
         // El notch es más estrecho por diseño: caben menos mosaicos en su renglón. La
         // celda es la misma que la del cajón (20 + 4 de paso), así que encajan los
         // mismos que allí: 6 en el notch y 7 en el pill.
         int fit = CompactRowFit(IsNotch ? IslandShelfItem.MaxCompactItemsNotch : IslandShelfItem.MaxCompactItems);
-        var compact = items.Take(fit).ToList();
-        ShelfCompactList.ItemsSource = compact;
+        int shown = BindCompactItems(ShelfCompactList, items, fit);
         ShelfExpandedList.ItemsSource = items;
-        int rest = items.Count - compact.Count;
+        int rest = items.Count - shown;
         ShelfCompactMore.Text = rest > 0 ? $"+{rest}" : "";
         ShelfCompactMore.Visibility = rest > 0 ? Visibility.Visible : Visibility.Collapsed;
         ShelfExpandedEmpty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -157,7 +161,7 @@ public partial class IslandWindow
         if (!data.GetDataPresent(DataFormats.FileDrop)) return false;
         if (data.GetData(DataFormats.FileDrop) is not string[] paths || paths.Length == 0) return false;
         if (ShelfItems.Count >= IslandShelfItem.MaxItems) return false;
-        return paths.Any(p => File.Exists(p) || Directory.Exists(p));
+        return !SettingsManager.Current.IslandShelfBusy;
     }
 
     /// <summary>
@@ -189,7 +193,7 @@ public partial class IslandWindow
     /// estante (nada se copia, nada se pisa: si el nombre está cogido se numera) y el
     /// estante se muestra con lo que acaba de guardar — el gesto tiene que verse.
     /// </summary>
-    private void IslandBox_Drop(object sender, DragEventArgs e)
+    private async void IslandBox_Drop(object sender, DragEventArgs e)
     {
         e.Handled = true;
         if (_shelfDropHot)
@@ -199,7 +203,8 @@ public partial class IslandWindow
         }
         if (!CanAcceptShelfDrop(e.Data)) return;
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths) return;
-        if (SettingsManager.Current.AddIslandShelfPaths(paths) <= 0) return;
+        if (await SettingsManager.Current.AddIslandShelfPathsAsync(paths) <= 0) return;
+        if (_disposed) return;
         RefreshShelfList();
         ExpandShelf();
     }
@@ -233,6 +238,7 @@ public partial class IslandWindow
         _shelfDragCandidate = null;
         try
         {
+            _shelfDragging = true;
             var data = new DataObject(DataFormats.FileDrop, new[] { item.Path });
             var effect = DragDrop.DoDragDrop(this, data, DragDropEffects.Move | DragDropEffects.Copy);
             if (effect == DragDropEffects.None || item.Exists || !ShelfItems.Contains(item)) return;
@@ -250,6 +256,11 @@ public partial class IslandWindow
             // sigue en el estante.
             Logger.Warn(ex, "Island: no se pudo arrastrar {Path} fuera del estante", item.Path);
         }
+        finally
+        {
+            _shelfDragging = false;
+            PostActivity(IslandActivityReason.Pointer);
+        }
     }
 
     /// <summary>
@@ -257,12 +268,13 @@ public partial class IslandWindow
     /// <c>UserSettings.RemoveIslandShelfItem</c>): quitarlo del estante no puede destruir
     /// nada del usuario. Si la carpeta original ya no existe, el elemento se queda.
     /// </summary>
-    private void ShelfItemRemove_Click(object sender, MouseButtonEventArgs e)
+    private async void ShelfItemRemove_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
         _shelfDragCandidate = null;
         if ((sender as FrameworkElement)?.DataContext is not IslandShelfItem item) return;
-        if (!SettingsManager.Current.RemoveIslandShelfItem(item)) return;
+        if (!await SettingsManager.Current.RemoveIslandShelfItemAsync(item)) return;
+        if (_disposed) return;
         RefreshShelfList();
         if (!ViewShowsFeature(IslandFeatureIds.Shelf)) return;
         ApplyContentVisibility();

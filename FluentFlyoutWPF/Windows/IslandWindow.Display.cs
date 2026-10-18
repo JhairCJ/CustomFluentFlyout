@@ -26,6 +26,9 @@ public partial class IslandWindow
         {
             _displayRefreshPending = false;
             if (_disposed) return;
+            ReleaseReelCapture();
+            ResetSharedHeight();
+            _screenMembers.Clear();
             _ctxValid = false;
             RefreshContextSnapshot();
             PositionTopCenter();

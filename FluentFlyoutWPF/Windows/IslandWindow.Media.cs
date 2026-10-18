@@ -7,6 +7,7 @@ using FluentFlyout.Classes.Utils;
 using FluentFlyout.Controls.TaskbarWidget;
 using FluentFlyoutWPF.Classes;
 using FluentFlyoutWPF.Classes.Utils;
+using FluentFlyoutWPF.Models;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -84,7 +85,11 @@ public partial class IslandWindow
     private void InvalidateMediaReads(bool props = false)
     {
         _statusMemo.Clear();
-        if (props) _propsMemo.Clear();
+        if (props)
+        {
+            _propsMemo.Clear();
+            foreach (string id in _metadataVersions.Keys.ToArray()) _metadataVersions[id]++;
+        }
     }
 
     /// <summary>
@@ -109,7 +114,7 @@ public partial class IslandWindow
             mm.OnAnySessionClosed -= OnClosed;
             Dispatcher.Invoke(() =>
             {
-                if (_music != null) OnMusicUnavailable();
+                if (!_disposed && _music != null) OnMusicUnavailable();
             });
         }
         _mediaHooksOn = on;
@@ -198,6 +203,7 @@ public partial class IslandWindow
 
     private void ApplyMediaSnapshot(IslandMediaSnapshot? s)
     {
+        _screenMembers.Clear();
         bool existed = _music != null;
         _music = s;
         _lastStatus = s?.Status;
@@ -314,20 +320,38 @@ public partial class IslandWindow
     private IslandMediaProps? MediaPropsOf(MediaSession session)
     {
         if (_propsMemo.TryGetValue(session.Id, out var known)) return known;
-        var fetched = FetchMediaProps(session);
-        if (fetched != null) _propsMemo[session.Id] = fetched;
-        return fetched;
+        QueueMetadataRead(session);
+        return null;
     }
 
     /// <summary>System read of a session's properties (the only blocking route).</summary>
-    private static IslandMediaProps? FetchMediaProps(MediaSession session)
+    private readonly HashSet<string> _metadataReads = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _metadataVersions = new(StringComparer.Ordinal);
+
+    private bool IsRegisteredSession(MediaSession session) => _main.mediaManager.CurrentMediaSessions.Values.Any(current => ReferenceEquals(current.ControlSession, session.ControlSession));
+
+    private async void QueueMetadataRead(MediaSession session)
     {
+        if (_disposed || !_metadataReads.Add(session.Id)) return;
+        int version = _metadataVersions.GetValueOrDefault(session.Id);
         try
         {
-            var props = session.ControlSession.TryGetMediaPropertiesAsync().GetAwaiter().GetResult();
-            return props == null ? null : FromProperties(props);
+            var props = await session.ControlSession.TryGetMediaPropertiesAsync();
+            if (_disposed || version != _metadataVersions.GetValueOrDefault(session.Id)
+                || !IsRegisteredSession(session)) return;
+            var value = await Task.Run(() => FromProperties(props));
+            if (_disposed || version != _metadataVersions.GetValueOrDefault(session.Id) || !IsRegisteredSession(session)) return;
+            _propsMemo[session.Id] = value;
+            _mediaMetadataChanged = true;
+            if (IsDisplayedSession(session)) TryNoteTrackIdentity(session);
+            PostActivity(IslandActivityReason.Media);
         }
-        catch { return null; }
+        catch (Exception ex) { Logger.Debug(ex, "Island metadata refresh failed"); }
+        finally
+        {
+            _metadataReads.Remove(session.Id);
+            if (!_disposed && version != _metadataVersions.GetValueOrDefault(session.Id) && IsRegisteredSession(session) && !_propsMemo.ContainsKey(session.Id)) PostActivity(IslandActivityReason.Media);
+        }
     }
 
     /// <summary>
@@ -513,36 +537,30 @@ public partial class IslandWindow
     /// state: that is the case of a song change arriving with an intermediate state
     /// that must not be painted.
     /// </summary>
+    private string? _lastMediaActivityId;
+    private GlobalSystemMediaTransportControlsSessionPlaybackStatus? _lastMediaActivityStatus;
+
     private void PresentMediaSnapshot(GlobalSystemMediaTransportControlsSessionPlaybackStatus? status,
         bool trackChanged = false, bool forceNotice = false)
     {
         var session = Current() ?? ActiveMediaSession();
         if (session == null) return;
         _currentId = session.Id;
-        if (_expanded)
+        var now = IslandClock.Now;
+        bool fresh = trackChanged || session.Id != _lastMediaActivityId || status != _lastMediaActivityStatus;
+        _lastMediaActivityId = session.Id;
+        _lastMediaActivityStatus = status;
+        bool temporal = SettingsManager.Current.IslandVisibilityMode == 1;
+        bool live = !temporal && IsMediaActiveForContract()
+            || temporal && SettingsManager.Current.IslandPauseCountsActive && status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
+        _activity.SetLive(IslandFeatureIds.Media, live, now, restart: fresh);
+        if (fresh && !live && (temporal || forceNotice))
         {
-            RefreshUi(session, status);
-            return;
+            int duration = Math.Clamp(SettingsManager.Current.IslandVisibilityDuration, 1000, 10000);
+            _activity.Pulse(IslandFeatureIds.Media, now, now.AddMilliseconds(duration), alwaysTemporal: forceNotice);
         }
-        // The Bluetooth notice is in front with its deadline alive: media does not take
-        // it over with an ordinary event (play/pause or metadata), because that
-        // notice is a more recent, shorter notification. A song change IS a new event
-        // and takes the view (change island-bluetooth-conectado
-        // RF-1).
-        if (!trackChanged && IsBoxShown && _contentMode == IslandContentMode.Bluetooth
-            && _noticeUntil > DateTime.UtcNow)
-            return;
-        // Already on screen with its notice in force: a repeated player event must not
-        // restart the deadline or make the notice REAPPEAR every few seconds
-        // (001 MOD RF-2). A song change does premiere a new notice. With the music
-        // inside a screen it is the same: its view is already in front.
-        if (IsBoxShown && MediaOwnsView()
-            && _noticeUntil > DateTime.UtcNow && !trackChanged)
-        {
-            RefreshUi(session, status);
-            return;
-        }
-        ShowMusicCompact(session, status, forceNotice: forceNotice);
+        if (ViewShowsFeature(IslandFeatureIds.Media)) RefreshUi(session, status);
+        // ReconcileCore applies the single policy after all sources have published their state.
     }
 
     /// <summary>
@@ -553,7 +571,7 @@ public partial class IslandWindow
     /// </summary>
     private void OnPlayState(MediaSession session, GlobalSystemMediaTransportControlsSessionPlaybackInfo? info)
     {
-        Dispatcher.BeginInvoke(new Action(() =>
+        QueueIslandUi(() =>
         {
             if (_disposed) return;
             if (!_main.IsWidgetSessionAllowed(session)) return;
@@ -580,7 +598,7 @@ public partial class IslandWindow
                 TryNoteTrackIdentity(session);
             }
             PostActivity(IslandActivityReason.Media);
-        }));
+        });
     }
 
     /// <summary>
@@ -590,15 +608,41 @@ public partial class IslandWindow
     /// (001 MOD RF-1). That way a burst from the player (title first, thumbnail
     /// later) paints once and with the final state.
     /// </summary>
-    private void OnMediaProp(MediaSession session, GlobalSystemMediaTransportControlsSessionMediaProperties props)
+    private void OnMediaProp(MediaSession session, GlobalSystemMediaTransportControlsSessionMediaProperties props) =>
+        QueueIslandUi(() =>
+        {
+            int version = _metadataVersions[session.Id] = _metadataVersions.GetValueOrDefault(session.Id) + 1;
+            _pendingMetadataEvents[session.Id] = (session, props, version);
+            if (_metadataEventWorkers.Add(session.Id)) _ = DrainMetadataEventsAsync(session.Id);
+        });
+
+    private readonly Dictionary<string, (MediaSession Session, GlobalSystemMediaTransportControlsSessionMediaProperties Props, int Version)> _pendingMetadataEvents = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _metadataEventWorkers = new(StringComparer.Ordinal);
+    private async Task DrainMetadataEventsAsync(string id)
     {
-        Dispatcher.BeginInvoke(new Action(() =>
+        try
+        {
+            while (!_disposed && _pendingMetadataEvents.Remove(id, out var pending))
+                await AdoptMediaPropertiesAsync(pending.Session, pending.Props, pending.Version);
+        }
+        finally { _metadataEventWorkers.Remove(id); }
+    }
+
+    private async Task AdoptMediaPropertiesAsync(MediaSession session, GlobalSystemMediaTransportControlsSessionMediaProperties props, int version)
+    {
+        try
         {
             if (_disposed) return;
             if (!_main.IsWidgetSessionAllowed(session)) return;
             // The event ALREADY carries the new properties: they are stored without
             // asking the system anything, and the repaint behind finds them ready.
-            if (props != null) _propsMemo[session.Id] = FromProperties(props);
+            if (version != _metadataVersions.GetValueOrDefault(session.Id) || !IsRegisteredSession(session)) return;
+            if (props != null)
+            {
+                var value = await Task.Run(() => FromProperties(props));
+                if (_disposed || version != _metadataVersions.GetValueOrDefault(session.Id) || !IsRegisteredSession(session)) return;
+                _propsMemo[session.Id] = value;
+            }
             _statusMemo.Remove(session.Id);
             // Events from foreign sessions cannot hijack an explicit selection.
             var sessionStatus = SafeStatus(session);
@@ -624,7 +668,8 @@ public partial class IslandWindow
                     sessionStatus ?? GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused));
             }
             PostActivity(IslandActivityReason.Media);
-        }));
+        }
+        catch (Exception ex) { Logger.Debug(ex, "Island media event preparation failed"); }
     }
 
     /// <summary>
@@ -634,17 +679,19 @@ public partial class IslandWindow
     /// </summary>
     private void OnClosed(MediaSession session)
     {
-        Dispatcher.BeginInvoke(new Action(() =>
+        QueueIslandUi(() =>
         {
             if (_disposed) return;
             if (IsDisplayedSession(session)) _artworkPublication?.Cancel();
             _lastPlay.Remove(session.Id);
+            _metadataVersions.Remove(session.Id);
+            _pendingMetadataEvents.Remove(session.Id);
             _statusMemo.Remove(session.Id);
             _propsMemo.Remove(session.Id);
             if (IsDisplayedSession(session) && _mediaPinnedSessionId == session.Id)
                 _mediaPinnedSessionId = null;
             PostActivity(IslandActivityReason.Media);
-        }));
+        });
     }
 
     // The music is gone (last session closed or invalid candidate): no empty
@@ -661,7 +708,7 @@ public partial class IslandWindow
         ApplyMediaSnapshot(null);
         // The strip poll fires ExpandFromHover every 150 ms; without this pause it
         // would re-open the box we just closed under the cursor.
-        _hoverSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
+        _hoverSnoozeUntil = IslandClock.Now.AddSeconds(TimerReshowSnoozeSeconds);
         ClearClosedMediaView();
     }
 
@@ -849,20 +896,6 @@ public partial class IslandWindow
         // event adopts the most recent content (spec 001 RF-24) inside ITS screen:
         // expanded and with a combined screen, the composition of its columns; in any
         // other case, its usual rich view (a single one, which is what fits compact).
-        if (!ScreenOwnsMediaView())
-        {
-            if (_expanded && MediaFeature is { } mediaFeature && ScreenOfFeatureIsCombined(mediaFeature))
-            {
-                _screenIndex = ResolveScreenIndexFor(mediaFeature.Id);
-                _contentMode = IslandContentMode.Screen;
-                RefreshScreenMembers();
-            }
-            else
-            {
-                _contentMode = IslandContentMode.Media;
-            }
-            ApplyContentVisibility();
-        }
         var status = knownStatus ?? SafeStatus(session) ?? _lastStatus;
         if (status != null) _lastStatus = status;
         PaintGlyph();
@@ -941,29 +974,13 @@ public partial class IslandWindow
 
     private void ApplyCapabilities(MediaSession session)
     {
-        bool canPlay = false, canPrev = false, canNext = false, canSeek = false, hasTimeline = false;
-        try
+        // Capabilities and timeline come from the same asynchronous read. Expansion
+        // may still be committing its state, so perform the initial read next turn.
+        if (SeekVisible) UpdateSeek(session);
+        else QueueIslandUi(() =>
         {
-            var c = session.ControlSession.GetPlaybackInfo()?.Controls;
-            if (c != null)
-            {
-                canPlay = c.IsPlayEnabled || c.IsPauseEnabled;
-                canPrev = c.IsPreviousEnabled;
-                canNext = c.IsNextEnabled;
-            }
-            var timeline = session.ControlSession.GetTimelineProperties();
-            hasTimeline = timeline.MaxSeekTime > timeline.MinSeekTime;
-            canSeek = hasTimeline && c?.IsPlaybackPositionEnabled == true;
-        }
-        catch { }
-        SeekRow.Visibility = hasTimeline ? Visibility.Visible : Visibility.Hidden;
-        Seekbar.IsEnabled = canSeek;
-        BtnPlay.IsEnabled = canPlay;
-        BtnPlay.Opacity = canPlay ? 1 : 0.35;
-        BtnPrev.IsEnabled = canPrev;
-        BtnPrev.Opacity = canPrev ? 1 : 0.35;
-        BtnNext.IsEnabled = canNext;
-        BtnNext.Opacity = canNext ? 1 : 0.35;
+            if (SeekVisible && ReferenceEquals(session.ControlSession, Current()?.ControlSession)) UpdateSeek(session);
+        });
     }
 
     private void PaintGlyph()
@@ -1013,40 +1030,6 @@ public partial class IslandWindow
         DurText.Text = FmtRemaining(TimeSpan.FromSeconds(Seekbar.Maximum) - position);
     }
 
-    private void UpdateSeek(MediaSession session)
-    {
-        if (_drag) return;
-        try
-        {
-            var tl = session.ControlSession.GetTimelineProperties();
-            if (tl.MaxSeekTime > tl.MinSeekTime)
-            {
-                var playback = session.ControlSession.GetPlaybackInfo();
-                bool playing = playback?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-                Seekbar.IsEnabled = playback?.Controls?.IsPlaybackPositionEnabled == true;
-                SeekRow.Visibility = Visibility.Visible;
-                var pos = playing ? tl.Position + (DateTimeOffset.UtcNow - tl.LastUpdatedTime) : tl.Position;
-                if (pos < tl.MinSeekTime) pos = tl.MinSeekTime;
-                if (pos > tl.MaxSeekTime) pos = tl.MaxSeekTime;
-                if (Seekbar.Minimum != tl.MinSeekTime.TotalSeconds || Seekbar.Maximum != tl.MaxSeekTime.TotalSeconds)
-                {
-                    Seekbar.Minimum = 0;
-                    Seekbar.Maximum = tl.MaxSeekTime.TotalSeconds;
-                    Seekbar.Minimum = tl.MinSeekTime.TotalSeconds;
-                }
-                if (!_drag) { Seekbar.Value = pos.TotalSeconds; PosText.Text = Fmt(pos); }
-                DurText.Text = FmtRemaining(tl.MaxSeekTime - pos);
-                UpdateTimelineVisual();
-                return;
-            }
-        }
-        catch { }
-        Seekbar.IsEnabled = false;
-        SeekRow.Visibility = Visibility.Hidden;
-        Seekbar.Minimum = 0; Seekbar.Maximum = 100; Seekbar.Value = 0; PosText.Text = "0:00"; DurText.Text = "0:00";
-        UpdateTimelineVisual();
-    }
-
     // --- controles ---
 
     private MediaSession? AnySession() => !MusicContentShown() || _music == null ? null : Current() ?? NewestPlaying() ?? FirstAllowed();
@@ -1066,9 +1049,15 @@ public partial class IslandWindow
         {
             if (_disposed || Current() is not { } session) return;
             PinMediaSession(session);
-            await command(session.ControlSession);
+            var control = session.ControlSession;
+            bool ok = await command(control);
+            if (_disposed || !ReferenceEquals(control, Current()?.ControlSession)) return;
+            if (!ok) ShowActionFeedback(IslandStrings.Get("IslandMediaCommandFailed", "The player could not complete that action. Try again."));
+            _nextSeekRead = 0;
+            if (_seekReadPending) _seekReadAgain = true;
+            UpdateSeek(session);
         }
-        catch (Exception ex) { Logger.Debug(ex, "Island media command failed"); }
+        catch (Exception ex) { Logger.Debug(ex, "Island media command failed"); if (!_disposed) ShowActionFeedback(IslandStrings.Get("IslandMediaCommandFailed", "The player could not complete that action. Try again.")); }
         finally { PostActivity(IslandActivityReason.Media); }
     }
 
@@ -1096,9 +1085,17 @@ public partial class IslandWindow
 
     private void Album_Click(object sender, MouseButtonEventArgs e)
     {
-        e.Handled = true; // el clic del álbum SOLO cambia de medio (001 MOD RF-5)
+        e.Handled = true;
+        CycleMediaSession();
+    }
+
+    private void Album_Action(object sender, RoutedEventArgs e) => CycleMediaSession();
+
+    private void CycleMediaSession()
+    {
         var all = _main.mediaManager.CurrentMediaSessions.Values.Where(s => _main.IsWidgetSessionAllowed(s)).ToList();
         if (!MusicAvailable() || all.Count <= 1) return;
+        InvalidateMediaReads();
         int i = all.FindIndex(s => s.Id == (Current()?.Id ?? DisplayedMediaId));
         var next = all[(i + 1) % all.Count];
         PinMediaSession(next);
@@ -1135,6 +1132,7 @@ public partial class IslandWindow
     {
         _drag = false;
         _seekSession = null;
+        _seekPaintedSecond = _seekPaintedRemaining = double.NaN;
         PostActivity(IslandActivityReason.Pointer);
     }
 
@@ -1151,8 +1149,13 @@ public partial class IslandWindow
         {
             if (session == null || !ReferenceEquals(session.ControlSession, Current()?.ControlSession)) return;
             PinMediaSession(session);
-            await session.ControlSession.TryChangePlaybackPositionAsync(position.Ticks);
+            var control = session.ControlSession;
+            bool ok = await control.TryChangePlaybackPositionAsync(position.Ticks);
+            if (_disposed || !ReferenceEquals(control, Current()?.ControlSession)) return;
+            if (!ok) ShowActionFeedback(IslandStrings.Get("IslandMediaCommandFailed", "The player could not complete that action. Try again."));
+            _nextSeekRead = 0;
+            UpdateSeek(session);
         }
-        catch (Exception ex) { Logger.Debug(ex, "Island media seek failed"); }
+        catch (Exception ex) { Logger.Debug(ex, "Island media seek failed"); if (!_disposed) ShowActionFeedback(IslandStrings.Get("IslandMediaCommandFailed", "The player could not complete that action. Try again.")); }
     }
 }

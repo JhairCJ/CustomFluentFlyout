@@ -54,12 +54,13 @@ public partial class IslandWindow
     /// <summary>
     /// Ajuste del ecualizador en caliente (encendido/apagado o número de barras): el
     /// contenedor re-aplica su presencia (manija y barras) y, si su tarjeta está delante,
-    /// repinta. Los demás parámetros (centrado, sensibilidad, suavizado) los lee el
-    /// visualizador EN VIVO por delegado en cada frame, así que no necesitan aviso.
+    /// repinta. La invalidación despierta también un visualizador estabilizado para
+    /// aplicar centrado, línea base, radios y color sin esperar al siguiente audio.
     /// </summary>
     public void RefreshEqContent() => Dispatcher.Invoke(() =>
     {
         SyncEq();
+        _eq.InvalidateAppearance();
         UpdateLine();
     });
 
@@ -71,7 +72,7 @@ public partial class IslandWindow
     /// </summary>
     private bool EqShouldRun()
     {
-        if (!SettingsManager.Current.IslandEnabled || !SettingsManager.Current.IslandEqEnabled) return false;
+        if (_disposed || !IsVisible || System.Windows.SystemParameters.HighContrast || !SettingsManager.Current.IslandEnabled || !SettingsManager.Current.IslandEqEnabled) return false;
         if (Suppressed() && !HasExclusive()) return false;
         // Reposo inactivo: sin contenido visible no hay nada que animar.
         if (_inactiveShown || _inactiveTt == 1 || _inactiveT >= 1) return false;
@@ -86,7 +87,6 @@ public partial class IslandWindow
         if (!mediaOnScreen) return false;
         if (_timer.State == IslandTimerState.Alerting) return false;
         if (!MediaContentAvailable()) return false;
-        return _music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
-            || NewestPlaying() != null;
+        return _music?.Status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
     }
 }

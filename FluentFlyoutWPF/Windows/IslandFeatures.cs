@@ -19,7 +19,7 @@ public interface IIslandFeature
     /// <summary>Identificador estable de la funcionalidad (p. ej. "media", "timer").</summary>
     string Id { get; }
 
-    /// <summary>Estado del contrato en este instante; el contenedor lo consulta, nunca lo cachea.</summary>
+    /// <summary>Estado del contrato en este instante; el contenedor toma una instantánea por decisión, sin conservarla entre reconciliaciones.</summary>
     IslandFeatureState State { get; }
 
     /// <summary>Ancho preferido de la vista compacta (DIPs).</summary>

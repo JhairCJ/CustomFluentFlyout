@@ -84,6 +84,11 @@ public partial class IslandWindow
     {
         var power = _power;
         _power = null;
+        if (power != null)
+        {
+            power.ChargerConnected -= OnChargerConnected;
+            power.ChargerDisconnected -= OnChargerDisconnected;
+        }
         power?.Dispose();
     }
 
@@ -110,7 +115,7 @@ public partial class IslandWindow
     // ------------------------------------------------------------------
 
     /// <summary>Se enchufó a la corriente: rayo verde y el nivel de batería.</summary>
-    private void OnChargerConnected(IslandPowerStatus status) => Dispatcher.BeginInvoke(new Action(() =>
+    private void OnChargerConnected(IslandPowerStatus status) => QueueIslandUi(() =>
     {
         if (_disposed || !PowerModeAvailable()) return;
         _powerStatus = status;
@@ -119,12 +124,11 @@ public partial class IslandWindow
         if (!SettingsManager.Current.IslandEnabled) return;
         // Nunca interrumpe: con una vista expandida delante (o suprimido) el aviso no
         // se presenta; el estado queda adoptado y el próximo cambio sí avisa.
-        if (Suppressed() || HasExclusive() || _expanded) return;
-        ShowPowerCompact(restartNotice: true);
-    }));
+        PublishOrdinaryNotice(IslandFeatureIds.Power);
+    });
 
     /// <summary>Se desenchufó: rayo rojo y el último nivel conocido.</summary>
-    private void OnChargerDisconnected(IslandPowerStatus status) => Dispatcher.BeginInvoke(new Action(() =>
+    private void OnChargerDisconnected(IslandPowerStatus status) => QueueIslandUi(() =>
     {
         if (_disposed || !PowerModeAvailable()) return;
         _powerStatus = status;
@@ -133,7 +137,7 @@ public partial class IslandWindow
         if (!SettingsManager.Current.IslandEnabled) return;
         if (Suppressed() || HasExclusive() || _expanded) return;
         ShowPowerCompact(restartNotice: true);
-    }));
+    });
 
     // ------------------------------------------------------------------
     // Presentación

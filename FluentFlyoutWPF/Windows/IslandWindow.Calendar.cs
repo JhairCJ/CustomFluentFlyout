@@ -28,6 +28,7 @@ public partial class IslandWindow
 {
     /// <summary>Recordatorio vigente (el evento que desplegó el aviso).</summary>
     private GoogleCalendarEvent? _calendarReminder;
+    private long _calendarPaintBucket = -1;
 
     /// <summary>Funcionalidad «calendario» registrada (nunca null tras el arranque).</summary>
     private IIslandFeature? CalendarFeature => FeatureById(IslandFeatureIds.Calendar);
@@ -68,7 +69,7 @@ public partial class IslandWindow
         // En «Aviso temporal» el aviso vive su plazo y no se prolonga (001 RF-2): el
         // recordatorio es un aviso más. En «Visible mientras activo» lo sostiene su
         // propia actividad, igual que la música o el temporizador.
-        && (SettingsManager.Current.IslandVisibilityMode == 0 || _noticeUntil > DateTime.UtcNow);
+        && (SettingsManager.Current.IslandVisibilityMode == 0 || _noticeUntil > IslandClock.Now);
 
     internal IslandFeatureState GetCalendarFeatureState()
     {
@@ -103,12 +104,13 @@ public partial class IslandWindow
         RefreshCalendarList();
         GoogleCalendarService.Instance.ReminderDue += OnCalendarReminder;
         GoogleCalendarService.Instance.StateChanged += OnCalendarStateChanged;
-        Closed += (_, _) =>
-        {
-            GoogleCalendarService.Instance.ReminderDue -= OnCalendarReminder;
-            GoogleCalendarService.Instance.StateChanged -= OnCalendarStateChanged;
-        };
         GoogleCalendarService.Instance.Configure();
+    }
+
+    private void ShutdownCalendar()
+    {
+        GoogleCalendarService.Instance.ReminderDue -= OnCalendarReminder;
+        GoogleCalendarService.Instance.StateChanged -= OnCalendarStateChanged;
     }
 
     /// <summary>
@@ -159,7 +161,10 @@ public partial class IslandWindow
     private void RefreshCalendarList()
     {
         var upcoming = GoogleCalendarService.Instance.Upcoming;
-        CalendarExpandedList.ItemsSource = upcoming;
+        long bucket = DateTime.UtcNow.Ticks / TimeSpan.FromSeconds(30).Ticks;
+        if (!ReferenceEquals(CalendarExpandedList.ItemsSource, upcoming)) CalendarExpandedList.ItemsSource = upcoming;
+        else if (_calendarPaintBucket != bucket) CalendarExpandedList.Items.Refresh();
+        _calendarPaintBucket = bucket;
         CalendarExpandedEmpty.Visibility = upcoming.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
 
         bool reminding = CalendarReminderLive();
@@ -171,7 +176,10 @@ public partial class IslandWindow
         CalendarExpandedHeader.Text = reminding
             ? IslandStrings.Get("IslandCalendarHeaderSoon", "Starting soon")
             : IslandStrings.Get("IslandCalendarHeaderUpcoming", "Upcoming events");
-        CalendarSyncedText.Text = GoogleCalendarService.Instance.LastSyncUtc == DateTime.MinValue
+        var service = GoogleCalendarService.Instance;
+        CalendarSyncedText.Text = service.Syncing ? IslandStrings.Get("IslandCalendarLoading", "Synchronizing…")
+            : !string.IsNullOrEmpty(SettingsManager.Current.GoogleCalendarError) ? IslandStrings.Get("IslandCalendarStale", "Offline · showing the last available events")
+            : service.LastSyncUtc == DateTime.MinValue
             ? IslandStrings.Get("IslandCalendarNotSynced", "Not synchronized yet.")
             : IslandStrings.Format("IslandCalendarLastSync", "Last synchronized: {0}.",
                 GoogleCalendarService.Instance.LastSyncUtc.ToLocalTime().ToString("HH:mm"));
@@ -189,21 +197,19 @@ public partial class IslandWindow
 
     /// <summary>
     /// Llegó un recordatorio: se fija el evento, se repinta y se despliega. Si la caja
-    /// ya estaba expandida se expande el calendario (el aviso manda sobre lo que se
-    /// estuviera mirando); si no, entra como compacto con su plazo de aviso. Con el
+    /// ya estaba expandida se respeta la vista elegida; si no, el contenedor resuelve
+    /// el recordatorio como una actividad compacta con su plazo de aviso. Con el
     /// contenedor apagado o suprimido (juego a pantalla completa) no se fuerza nada: al
     /// siguiente latido el estado de la funcionalidad ya cuenta el recordatorio.
     /// </summary>
-    private void OnCalendarReminder(GoogleCalendarEvent item) => Dispatcher.Invoke(() =>
+    private void OnCalendarReminder(GoogleCalendarEvent item) => QueueIslandUi(() =>
     {
         _calendarReminder = item;
         RefreshCalendarList();
-        if (!SettingsManager.Current.IslandEnabled || Suppressed()) return;
-        // La alerta final del temporizador es exclusiva: no se pisa (002 RF-2). El
-        // recordatorio queda anotado y se verá cuando esa exclusiva se cierre.
-        if (HasExclusive()) return;
-        if (_expanded) ExpandCalendar();
-        else ShowCalendarCompact();
+        // Temporal mode needs an explicit notice; active mode also registers the
+        // reminder through the policy. Neither route replaces the user's expansion.
+        if (CalendarModeAvailable()) PublishOrdinaryNotice(IslandFeatureIds.Calendar);
+        PostActivity(IslandActivityReason.Calendar);
     });
 
     /// <summary>
@@ -211,9 +217,10 @@ public partial class IslandWindow
     /// repinta. Nunca altera la vista por sí solo —eso es del recordatorio—, así que
     /// sincronizar no interrumpe lo que el usuario esté mirando.
     /// </summary>
-    private void OnCalendarStateChanged() => Dispatcher.Invoke(() =>
+    private void OnCalendarStateChanged() => QueueIslandUi(() =>
     {
         RefreshCalendarList();
+        PostActivity(IslandActivityReason.Calendar);
         if (!IsBoxShown) return;
         if (ViewShowsFeature(IslandFeatureIds.Calendar)) SyncMeasuredHeight();
     });

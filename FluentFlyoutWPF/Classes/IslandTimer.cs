@@ -37,7 +37,10 @@ public sealed class IslandTimer
     /// <summary>Default notice label (free time), localized.</summary>
     private static string DefaultOriginLabel => IslandStrings.Get("IslandTimerOrigin", "Timer");
 
-    private DateTime _endUtc;
+    private readonly Func<long> _milliseconds;
+    private long _endMilliseconds;
+
+    public IslandTimer(Func<long>? milliseconds = null) => _milliseconds = milliseconds ?? (() => IslandClock.Milliseconds);
     private TimeSpan _frozen = TimeSpan.Zero;
 
     /// <summary>
@@ -60,7 +63,7 @@ public sealed class IslandTimer
             switch (State)
             {
                 case IslandTimerState.Running:
-                    var left = _endUtc - DateTime.UtcNow;
+                    var left = TimeSpan.FromMilliseconds(_endMilliseconds - _milliseconds());
                     return left < TimeSpan.Zero ? TimeSpan.Zero : left;
                 case IslandTimerState.Paused:
                     return _frozen;
@@ -101,7 +104,7 @@ public sealed class IslandTimer
         if (!IsValidDuration(duration)) return false;
         Configured = duration;
         OriginLabel = string.IsNullOrWhiteSpace(originLabel) ? DefaultOriginLabel : originLabel;
-        _endUtc = DateTime.UtcNow + duration;
+        _endMilliseconds = _milliseconds() + (long)duration.TotalMilliseconds;
         _frozen = TimeSpan.Zero;
         State = IslandTimerState.Running;
         Changed?.Invoke();
@@ -119,7 +122,7 @@ public sealed class IslandTimer
     public void Resume()
     {
         if (State != IslandTimerState.Paused) return;
-        _endUtc = DateTime.UtcNow + _frozen;
+        _endMilliseconds = _milliseconds() + (long)_frozen.TotalMilliseconds;
         State = IslandTimerState.Running;
         Changed?.Invoke();
     }
@@ -153,10 +156,11 @@ public sealed class IslandTimer
     /// the target time passes it stops the countdown and moves to alerting exactly once
     /// (RF-6).
     /// </summary>
+    // utcNow is retained for existing callers; elapsed time alone controls countdown expiry.
     public void Poll(DateTime utcNow)
     {
         if (State != IslandTimerState.Running) return;
-        if (utcNow < _endUtc) return;
+        if (_milliseconds() < _endMilliseconds) return;
         _frozen = TimeSpan.Zero;
         State = IslandTimerState.Alerting;
         Changed?.Invoke();
@@ -184,8 +188,9 @@ public sealed class IslandTimer
         if (text.All(char.IsDigit))
         {
             if (!long.TryParse(text, out var seconds)) return false;
+            if (seconds < MinDurationSeconds || seconds > MaxDurationSeconds) return false;
             duration = TimeSpan.FromSeconds(seconds);
-            return IsValidDuration(duration);
+            return true;
         }
         var parts = text.Split(':');
         if (parts.Length is not (2 or 3)) return false;
@@ -193,7 +198,7 @@ public sealed class IslandTimer
         try
         {
             long seconds = 0;
-            foreach (var p in parts) seconds = seconds * 60 + long.Parse(p);
+            foreach (var p in parts) seconds = checked(seconds * 60 + long.Parse(p));
             // m:ss does not allow 2+ digit minutes outside 0-59 when there are hours
             if (parts.Length == 3)
             {

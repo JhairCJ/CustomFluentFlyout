@@ -1,4 +1,4 @@
-﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:system="clr-namespace:System;assembly=mscorlib">
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:system="clr-namespace:System;assembly=mscorlib">
     <system:String x:Key="TitleText">Ajustes de FluentFlyout</system:String>
     <system:String x:Key="IslandFeatureMedia">Controles multimedia</system:String>
     <system:String x:Key="IslandFeatureTimer">Temporizador</system:String>
@@ -154,8 +154,8 @@
     <system:String x:Key="IslandPage_AppearanceSection">Apariencia</system:String>
     <system:String x:Key="IslandPage_ExpandedWidth">Ancho expandido</system:String>
     <system:String x:Key="IslandPage_ExpandedWidthDesc">Ajusta en píxeles el ancho del Island cuando muestra los controles.</system:String>
-    <system:String x:Key="IslandPage_FloatingHeight">Alto de la isla flotante</system:String>
-    <system:String x:Key="IslandPage_FloatingHeightDesc">Ajusta en píxeles la altura del Island expandido; solo se aplica a la isla flotante.</system:String>
+    <system:String x:Key="IslandPage_FloatingHeight">Alto de la isla expandida</system:String>
+    <system:String x:Key="IslandPage_FloatingHeightDesc">Altura común de todas las pantallas, tanto en la isla flotante como en notch.</system:String>
     <system:String x:Key="IslandPage_IslandOffset">Separación de la isla</system:String>
     <system:String x:Key="IslandPage_IslandOffsetDesc">Qué tan abajo queda la isla del borde superior, como en iPhone. Solo isla flotante.</system:String>
     <system:String x:Key="IslandPage_LineOffset">Separación de la línea gris</system:String>
@@ -833,4 +833,36 @@ Nota: Como proyecto de código abierto, estas opciones también están disponibl
     <system:String x:Key="VisualizerBarRadiusTitle">Radio de las barras</system:String>
     <system:String x:Key="VisualizerBarRadiusDescription">0 deja las esquinas rectas; valores mayores redondean los extremos.</system:String>
     <system:String x:Key="TaskbarOpenPlayerText">Abrir reproductor</system:String>
+    <system:String x:Key="IslandTimerHours">Horas</system:String>
+    <system:String x:Key="IslandTimerMinutes">Minutos</system:String>
+    <system:String x:Key="IslandTimerSeconds">Segundos</system:String>
+    <system:String x:Key="IslandTimerHoursShort">h</system:String>
+    <system:String x:Key="IslandTimerMinutesShort">min</system:String>
+    <system:String x:Key="IslandTimerSecondsShort">s</system:String>
+    <system:String x:Key="IslandTimerZero">Elige al menos un segundo.</system:String>
+    <system:String x:Key="IslandTimerInvalid">Introduce una duración entre 00:00:01 y 24:00:00.</system:String>
+    <system:String x:Key="IslandClipboardImage">Imagen</system:String>
+    <system:String x:Key="IslandClipboardBusy">El portapapeles está ocupado. Vuelve a intentarlo.</system:String>
+    <system:String x:Key="IslandClipboardTooLarge">Este elemento supera el límite de 128 MiB del historial y no se guardó.</system:String>
+    <system:String x:Key="IslandShelfMoving">Moviendo {0}…</system:String>
+    <system:String x:Key="IslandShelfCompleted">{0} elementos trasladados.</system:String>
+    <system:String x:Key="IslandShelfCancelled">Operación detenida. Se conservaron los traslados completados.</system:String>
+    <system:String x:Key="IslandShelfCancelOperation">Detener los traslados pendientes</system:String>
+    <system:String x:Key="IslandShelfSourceGone">El elemento original ya no está disponible.</system:String>
+    <system:String x:Key="IslandShelfInvalidDestination">Esta ubicación no se puede usar como destino.</system:String>
+    <system:String x:Key="IslandShelfRecoveryAmbiguous">Hay un traslado interrumpido que requiere revisión. Se conservaron ambas ubicaciones.</system:String>
+    <system:String x:Key="IslandShelfRecoveryFailed">No se pudo completar la recuperación del estante. Se conservaron los archivos guardados.</system:String>
+    <system:String x:Key="IslandShelfReturnOriginal">Devolver a la carpeta original</system:String>
+    <system:String x:Key="IslandMediaCommandFailed">El reproductor no pudo completar esa acción. Vuelve a intentarlo.</system:String>
+    <system:String x:Key="IslandAppLaunchFailed">No se pudo abrir {0}. Revisa su ruta en ajustes y vuelve a intentarlo.</system:String>
+    <system:String x:Key="IslandOpenKeyboard">Abrir Fluent Island con teclado</system:String>
+    <system:String x:Key="IslandAdvanced">Avanzado</system:String>
+    <system:String x:Key="IslandWeatherLoading">Cargando el clima…</system:String>
+    <system:String x:Key="IslandWeatherNoData">No hay datos del clima disponibles. Intenta actualizar desde ajustes.</system:String>
+    <system:String x:Key="IslandDataStale">Datos anteriores · {0}</system:String>
+    <system:String x:Key="IslandCalendarLoading">Sincronizando…</system:String>
+    <system:String x:Key="IslandCalendarStale">Sin conexión · se muestran los últimos eventos disponibles</system:String>
+    <system:String x:Key="IslandRetry">Reintentar</system:String>
+    <system:String x:Key="IslandReviewSettings">Revisar en ajustes</system:String>
+    <system:String x:Key="IslandShelfRecoveryMissing">No se encuentra un traslado interrumpido. Revisa la carpeta original y la carpeta del estante.</system:String>
 </ResourceDictionary>

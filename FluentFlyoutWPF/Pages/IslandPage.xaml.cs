@@ -44,25 +44,51 @@ public partial class IslandPage : Page
         _category = category;
         InitializeComponent();
         DataContext = SettingsManager.Current;
-        RefreshScreensEditor();
-        IslandWeatherPlaceText.Text = SettingsManager.Current.IslandWeatherPlace.Trim().Length > 0
-            ? SettingsManager.Current.IslandWeatherPlace
-            : IslandStrings.Get("IslandPage_NoPlace", "No place chosen");
         ApplyCategoryVisibility();
+        if (_category is IslandCategory.All or IslandCategory.Screens) RefreshScreensEditor();
+        if (_category is IslandCategory.All or IslandCategory.Tools)
+            IslandWeatherPlaceText.Text = SettingsManager.Current.IslandWeatherPlace.Trim().Length > 0
+                ? SettingsManager.Current.IslandWeatherPlace
+                : IslandStrings.Get("IslandPage_NoPlace", "No place chosen");
+        Unloaded += (_, _) => { _weatherPageActive = false; _weatherSearch?.Cancel(); };
+        Loaded += (_, _) => _weatherPageActive = true;
     }
+
+    private readonly List<FrameworkElement> _categoryBodies = [];
+    private readonly Dictionary<string, FrameworkElement> _categoryControls = new(StringComparer.Ordinal);
 
     private void ApplyCategoryVisibility()
     {
-        if (_category == IslandCategory.All)
-            return;
-
-        // La categoría de cada fila es su Tag: el mismo nombre que esta enumeración.
-        // Mover, añadir o borrar filas del XAML no rompe nada, y una fila sin Tag
-        // (o con una categoría que no existe) no se cuela en ninguna página.
-        string category = _category.ToString();
-        foreach (FrameworkElement child in IslandSettingsGrid.Children)
-            child.Visibility = child.Tag as string == category ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var category in Enum.GetValues<IslandCategory>())
+        {
+            if (category == IslandCategory.All || (_category != IslandCategory.All && category != _category)) continue;
+            if (IslandSettingsGrid.Resources["IslandCategory" + category] is not DataTemplate template) continue;
+            var body = (FrameworkElement)template.LoadContent();
+            _categoryBodies.Add(body);
+            CategoryHost.Children.Add(body);
+        }
     }
+
+    private T CategoryControl<T>(string name) where T : FrameworkElement
+    {
+        if (_categoryControls.TryGetValue(name, out var cached)) return (T)cached;
+        foreach (var body in _categoryBodies)
+        {
+            if (body.FindName(name) is T control)
+            {
+                _categoryControls[name] = control;
+                return control;
+            }
+        }
+        throw new InvalidOperationException($"Control {name} does not belong to the opened Island category.");
+    }
+
+    private StackPanel IslandScreensPanel => CategoryControl<StackPanel>(nameof(IslandScreensPanel));
+    private Button IslandScreenNewButton => CategoryControl<Button>(nameof(IslandScreenNewButton));
+    private Wpf.Ui.Controls.TextBox IslandWeatherSearch => CategoryControl<Wpf.Ui.Controls.TextBox>(nameof(IslandWeatherSearch));
+    private Button IslandWeatherSearchBtn => CategoryControl<Button>(nameof(IslandWeatherSearchBtn));
+    private StackPanel IslandWeatherPlaces => CategoryControl<StackPanel>(nameof(IslandWeatherPlaces));
+    private TextBlock IslandWeatherPlaceText => CategoryControl<TextBlock>(nameof(IslandWeatherPlaceText));
 
     // ------------------------------------------------------------------
     // Pantallas del Island (change island-pantallas)
@@ -313,6 +339,7 @@ public partial class IslandPage : Page
     // --- clima (change island-clima) ---
 
     private CancellationTokenSource? _weatherSearch;
+    private bool _weatherPageActive = true;
 
     /// <summary>Enter en la caja de búsqueda busca igual que el botón.</summary>
     private void IslandWeatherSearch_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -344,7 +371,8 @@ public partial class IslandPage : Page
         try
         {
             var places = await IslandWeatherService.SearchPlacesAsync(query, cts.Token);
-            if (cts.IsCancellationRequested) return;
+            if (cts.IsCancellationRequested || !_weatherPageActive || !ReferenceEquals(_weatherSearch, cts)
+                || !ReferenceEquals(settings, SettingsManager.Current) || query != (IslandWeatherSearch.Text ?? "").Trim()) return;
             if (places.Count == 0)
             {
                 settings.IslandWeatherStatus = "";
@@ -373,13 +401,17 @@ public partial class IslandPage : Page
         catch (Exception ex)
         {
             Logger.Warn(ex, "Clima: búsqueda de lugares fallida");
+            if (!_weatherPageActive || !ReferenceEquals(_weatherSearch, cts) || !ReferenceEquals(settings, SettingsManager.Current)) return;
             settings.IslandWeatherStatus = "";
             settings.IslandWeatherError = IslandStrings.Get("IslandPage_WeatherSearchFailed", "Could not search: check your internet connection.");
         }
         finally
         {
-            IslandWeatherSearchBtn.IsEnabled = true;
-            if (ReferenceEquals(_weatherSearch, cts)) _weatherSearch = null;
+            if (ReferenceEquals(_weatherSearch, cts))
+            {
+                IslandWeatherSearchBtn.IsEnabled = true;
+                _weatherSearch = null;
+            }
             cts.Dispose();
         }
     }
@@ -413,7 +445,7 @@ public partial class IslandPage : Page
     /// Aparca archivos elegidos a mano: es el mismo gesto que soltarlos sobre el Island
     /// (se MUEVEN a la carpeta del estante), para quien prefiera un diálogo al arrastre.
     /// </summary>
-    private void IslandShelfAdd_Click(object sender, RoutedEventArgs e)
+    private async void IslandShelfAdd_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
@@ -423,7 +455,7 @@ public partial class IslandPage : Page
             Multiselect = true,
         };
         if (dialog.ShowDialog() != true) return;
-        SettingsManager.Current.AddIslandShelfPaths(dialog.FileNames);
+        await SettingsManager.Current.AddIslandShelfPathsAsync(dialog.FileNames);
     }
 
     /// <summary>Abre en el Explorador la carpeta propia del estante.</summary>
@@ -441,10 +473,10 @@ public partial class IslandPage : Page
         }
     }
 
-    private void IslandShelfItemRemove_Click(object sender, RoutedEventArgs e)
+    private async void IslandShelfItemRemove_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as Button)?.DataContext is IslandShelfItem item)
-            SettingsManager.Current.RemoveIslandShelfItem(item);
+            await SettingsManager.Current.RemoveIslandShelfItemAsync(item);
     }
 
     /// <summary>
@@ -452,10 +484,9 @@ public partial class IslandPage : Page
     /// nada. Los que no puedan volver (su carpeta original ya no existe) se quedan y se
     /// explica el motivo.
     /// </summary>
-    private void IslandShelfClear_Click(object sender, RoutedEventArgs e)
+    private async void IslandShelfClear_Click(object sender, RoutedEventArgs e)
     {
-        foreach (var item in SettingsManager.Current.IslandShelfItems.ToList())
-            SettingsManager.Current.RemoveIslandShelfItem(item);
+        await SettingsManager.Current.ClearIslandShelfAsync();
     }
 
     // --- recordatorios de Google Calendar ---

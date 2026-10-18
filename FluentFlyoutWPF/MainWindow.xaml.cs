@@ -37,6 +37,8 @@ namespace FluentFlyoutWPF;
 
 public partial class MainWindow : MicaWindow
 {
+    private void OpenIslandForKeyboard(object sender, RoutedEventArgs e) => islandWindow?.OpenForKeyboard();
+
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
     private int WM_TASKBARCREATED, WM_SHELLHOOK;

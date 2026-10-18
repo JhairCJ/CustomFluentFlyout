@@ -111,7 +111,7 @@ public partial class IslandWindow
             Selected: _selectedFeature?.Id == IslandFeatureIds.Dictation,
             // With a session in progress the card is exclusive: not a song change, not a
             // notice, not the pointer can replace it until dictation ends.
-            Exclusive: active);
+            Exclusive: enabled && active);
     }
 
     internal bool ShowDictationCompactFromContract()
@@ -175,7 +175,7 @@ public partial class IslandWindow
     private void OnDictationChanged()
     {
         if (_disposed) return;
-        Dispatcher.BeginInvoke(new Action(SyncDictationView));
+        QueueIslandUi(SyncDictationView);
     }
 
     /// <summary>
@@ -193,7 +193,8 @@ public partial class IslandWindow
 
         if (dictation.Active)
         {
-            ShowDictationCompact();
+            RefreshPresentation();
+            UpdateDictationBars();
             return;
         }
         // The failure is shown even if the card was not on screen (model missing, no
@@ -201,15 +202,20 @@ public partial class IslandWindow
         // this branch dictation stayed mute (RF-6).
         if (dictation.Phase == DictationPhase.Error)
         {
-            ShowDictationCompact();
+            var now = IslandClock.Now;
+            _activity.Pulse(IslandFeatureIds.Dictation, now, now.AddMilliseconds(Math.Clamp(SettingsManager.Current.IslandVisibilityDuration, 1000, 10000)), alwaysTemporal: true);
+            RefreshPresentation();
+            UpdateDictationBars();
             return;
         }
-        if (!_dictationViewShown) return;
+        if (!_dictationViewShown) { RefreshPresentation(); return; }
 
         // Idle: the card is withdrawn and the Island goes back to its own business (RF-9).
         _dictationViewShown = false;
         StopDictationBars();
-        FallbackFromDictationView();
+        _activity.ForgetNotice(IslandFeatureIds.Dictation);
+        if (_noticeFeatureId == IslandFeatureIds.Dictation) ClearTemporaryNotice();
+        RefreshPresentation();
     }
 
     /// <summary>
@@ -226,7 +232,7 @@ public partial class IslandWindow
         // left to withdraw. Dictation is not cut: it keeps capturing and writing,
         // which is what matters; it just does not paint its card. Same veto as
         // Bluetooth and the charger, which also do not present over an exclusive.
-        if (AnotherFeatureExclusive()) return;
+        if (AnotherFeatureExclusive() && !_dictation.Active) return;
         // A phase change within the same live card only changes its feedback. Do
         // not hide/remount the layers, reset the waves or remeasure every screen.
         if (_dictationViewShown && _dictation.Active

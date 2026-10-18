@@ -13,6 +13,24 @@ using NAudio.Wave;
 if (args is ["--input"]) { await StabilityChecks.Input(); return; }
 if (args is ["--capture"]) { await StabilityChecks.Capture(); return; }
 if (args is ["--capture-device"]) { await StabilityChecks.CaptureDevice(); return; }
+if (args is ["--visualizer"])
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var app = new System.Windows.Application { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
+            SettingsManager.Current = new UserSettings();
+            VisualizerChecks.Run();
+            app.Shutdown();
+        }
+        catch (Exception error) { failure = error; }
+    });
+    thread.SetApartmentState(ApartmentState.STA); thread.Start(); thread.Join();
+    if (failure != null) { Console.Error.WriteLine(failure); Environment.ExitCode = 1; }
+    return;
+}
 if (args is ["--taskbar"])
 {
     Exception? failure = null;

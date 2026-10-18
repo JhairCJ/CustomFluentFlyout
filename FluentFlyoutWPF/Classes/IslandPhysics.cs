@@ -21,8 +21,8 @@ public readonly record struct IslandSpring(double KP, double CP, double KQ, doub
 /// ζ ≈ 0.72 on the reveal): reaching the final size it overshoots a little and comes
 /// back. The bounce is the same at any configured speed, because the duration scales
 /// frequency and damping at the same time.</item>
-/// <item>The spring step is clamped at the bottom (1/240 s) and at the top (1/25 s), so
-/// that a dropped frame or a suspend does not blow it up.</item>
+/// <item>The spring has an exact damped solution. Presentation time is bounded between
+/// 1/1000 s and 1/25 s, keeping high refresh displays and suspend/resume stable.</item>
 /// <item>The painted bounce has a ceiling (<see cref="BounceLimit"/>) and a minimum
 /// floor (<see cref="BounceCompress"/>): the overshoot when OPENING is capped at 5%
 /// and the compression when CLOSING at 0.6%, so the island lands almost firm without
@@ -31,8 +31,8 @@ public readonly record struct IslandSpring(double KP, double CP, double KQ, doub
 /// </summary>
 public static class IslandPhysics
 {
-    /// <summary>Minimum spring step (one frame at 240 Hz).</summary>
-    public const double MinStepSeconds = 1.0 / 240.0;
+    /// <summary>Support high refresh displays without accelerating the animation.</summary>
+    public const double MinStepSeconds = 1.0 / 1000.0;
 
     /// <summary>Maximum spring step (one frame at 25 Hz): a dropped frame does not blow up the bounce.</summary>
     public const double MaxStepSeconds = 1.0 / 25.0;
@@ -49,6 +49,7 @@ public static class IslandPhysics
     /// </summary>
     public static IslandSpring Coefficients(double durationMs, bool notch)
     {
+        durationMs = double.IsFinite(durationMs) && durationMs > 0 ? Math.Clamp(durationMs, 1, 60000) : 300;
         if (durationMs != _duration || notch != _notch)
         {
             _duration = durationMs;
@@ -74,14 +75,40 @@ public static class IslandPhysics
     private static IslandSpring _spring;
 
     /// <summary>
-    /// One spring step (semi-implicit Euler integration). The displacement is clamped
+    /// Exact damped spring integration. The displacement is clamped
     /// to [-0.15, 1.15] so the overshoot is visible but does not run away.
     /// </summary>
     public static void Step(ref double x, ref double v, double target, double k, double c, double dt)
     {
-        double a = (target - x) * k - v * c;
-        v += a * dt;
-        x += v * dt;
+        if (!double.IsFinite(target)) target = 0;
+        if (!double.IsFinite(x) || !double.IsFinite(v) || !double.IsFinite(k) || !double.IsFinite(c) || k <= 0 || c < 0)
+        { x = target; v = 0; return; }
+        if (!double.IsFinite(dt) || dt <= 0) return;
+        double y = x - target;
+        double damping = c * 0.5;
+        double discriminant = k - damping * damping;
+        if (discriminant > 1e-9)
+        {
+            double omega = Math.Sqrt(discriminant);
+            double sin = Math.Sin(omega * dt), cos = Math.Cos(omega * dt), decay = Math.Exp(-damping * dt);
+            x = target + decay * (y * cos + (v + damping * y) * sin / omega);
+            v = decay * (v * cos - (damping * v + k * y) * sin / omega);
+        }
+        else if (discriminant < -1e-9)
+        {
+            double root = Math.Sqrt(-discriminant);
+            double r1 = -damping + root, r2 = -damping - root;
+            double a = (v - r2 * y) / (r1 - r2), b = y - a;
+            double e1 = Math.Exp(r1 * dt), e2 = Math.Exp(r2 * dt);
+            x = target + a * e1 + b * e2;
+            v = a * r1 * e1 + b * r2 * e2;
+        }
+        else
+        {
+            double b = v + damping * y, decay = Math.Exp(-damping * dt);
+            x = target + (y + b * dt) * decay;
+            v = (v - damping * b * dt) * decay;
+        }
         x = Math.Clamp(x, -0.15, 1.15);
     }
 

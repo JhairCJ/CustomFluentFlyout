@@ -184,6 +184,7 @@
             Margin="0,127,0,114" Visibility="Collapsed">
             <tray:NotifyIcon.Menu>
                 <ContextMenu>
+                    <ui:MenuItem Header="{DynamicResource IslandOpenKeyboard}" Click="OpenIslandForKeyboard"/>
                     <ui:MenuItem x:Name="NotifyIconSettings" Header="{DynamicResource TrayIcon_SettingsOption}" Click="openSettings">
                         <ui:MenuItem.Icon>
                             <ui:SymbolIcon Symbol="Settings20"/>

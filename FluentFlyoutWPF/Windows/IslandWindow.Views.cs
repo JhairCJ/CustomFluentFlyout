@@ -124,6 +124,8 @@ public partial class IslandWindow
         // compare against the previous state (inactive/hidden) and not apply the exit.
         _appliedPresentation = new IslandPresentationResult(
             IslandDesiredView.Compact, CurrentViewFeatureId(), restartNotice, forceNotice);
+        _lastAppliedWasExclusive = feature != null && FeatureState(feature).Exclusive;
+        SyncPresentationWork();
         // The navigation arrows only exist in the expanded view: they turn off right
         // away, in the same turn, instead of waiting for the next container heartbeat.
         UpdateArrows();
@@ -187,6 +189,8 @@ public partial class IslandWindow
         ApplyContentVisibility();
         _appliedPresentation = new IslandPresentationResult(
             IslandDesiredView.Expanded, CurrentViewFeatureId(), false, false);
+        _lastAppliedWasExclusive = feature != null && FeatureState(feature).Exclusive;
+        SyncPresentationWork();
         // With the view already expanded, the navigation arrows come in the same
         // turn.
         UpdateArrows();
@@ -214,12 +218,20 @@ public partial class IslandWindow
         IslandBox.Visibility = Visibility.Visible;
         UpdateMediaStatusDot();
         UpdateRotationPauseState();
-        EnsureLoop();
+        // Reconciliation may re-present this same compact every recovery pass.
+        // A geometry already at rest needs no new rendering callback.
+        if (_p != _pT || _pv != 0 || _q != _qT || _qv != 0 || _popPlaying
+            || _hexpShown != _hexp || _inactiveT != _inactiveTt || _inactiveHotT != (_inactiveHot ? 1 : 0))
+            EnsureLoop();
+        else ApplyFrame();
     }
 
     /// <summary>Animated start of the expanded view: springs towards p=1, q=1.</summary>
     private void SetExpandedFrame()
     {
+        // Establish the endpoint before starting the single expansion spring.
+        SyncMeasuredHeight();
+        _hexpShown = _hexp;
         _pT = 1;
         _qT = 1;
         IslandBox.Visibility = Visibility.Visible;

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FluentFlyout.Classes.Settings;
+using FluentFlyout.Controls.TaskbarWidget;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -19,6 +20,7 @@ namespace FluentFlyoutWPF.Windows;
 /// </summary>
 public partial class IslandWindow
 {
+    private bool _backgroundBakeRunning;
     /// <summary>
     /// Re-evaluates the background mode (off, fixed or rotating) after an artwork or
     /// a setting changes. Without artwork, or with the background off, the layers
@@ -26,9 +28,11 @@ public partial class IslandWindow
     /// </summary>
     public void UpdateBackgroundMode()
     {
+        if (_disposed) return;
+        if (_settingsUpdateDepth > 0) { _backgroundPending = true; return; }
         ApplyBackgroundSettings();
 
-        bool enabled = SettingsManager.Current.IslandEnabled && SettingsManager.Current.IslandBackgroundBlur;
+        bool enabled = SettingsManager.Current.IslandEnabled && SettingsManager.Current.IslandBackgroundBlur && !SystemParameters.HighContrast;
         if (!enabled || _backgroundIcon == null)
         {
             StopBackgroundRotation();
@@ -38,7 +42,7 @@ public partial class IslandWindow
         }
 
         BackgroundImage.Visibility = Visibility.Visible;
-        if (SettingsManager.Current.IslandBackgroundRotate)
+        if (SettingsManager.Current.IslandBackgroundRotate && AnimationsEnabled)
         {
             ApplyBackgroundRotation();
         }
@@ -235,13 +239,20 @@ public partial class IslandWindow
 
     /// <summary>
     /// Async bake with a version guard and a quantized size (16 DIPs): bursts of
-    /// song changes do not start two bakes nor repaint an old one.
+    /// repeated requests share a bake and obsolete results cannot repaint the host.
     /// </summary>
     private async void UpdateBakedBackgroundAsync(BitmapImage icon, double discSide)
     {
-        int version = _backgroundGeneration;
         double bakeSide = Math.Round(discSide / 16.0) * 16.0;
         int blurRadius = Math.Clamp(SettingsManager.Current.IslandBackgroundBlurRadius, 0, 150);
+        var key = (icon, bakeSide, blurRadius);
+        if (_requestedBackgroundBake is not { } requested || requested != key)
+        {
+            _requestedBackgroundBake = key;
+            ++_backgroundGeneration;
+            _bakingIcon = null;
+        }
+        int version = _backgroundGeneration;
         if (_bakedBackground != null && ReferenceEquals(_bakedIcon, icon) &&
             Math.Abs(_bakedSideDip - bakeSide) < 0.5 && _bakedBlurRadius == blurRadius)
         {
@@ -250,8 +261,22 @@ public partial class IslandWindow
             return;
         }
 
+        if (_backgroundCache.TryGetValue(key, out var cached))
+        {
+            _bakedIcon = icon;
+            _bakedSideDip = bakeSide;
+            _bakedBlurRadius = blurRadius;
+            _bakedBackground = cached;
+            if (_backgroundRotationActive) BeginBackgroundCrossfade(cached, Math.Max(MainWindow.getDuration(), 1));
+            return;
+        }
+
         if (ReferenceEquals(_bakingIcon, icon) && Math.Abs(_bakingSide - bakeSide) < 0.5 && _bakingBlurRadius == blurRadius)
             return;
+
+        // One worker at a time; a burst keeps only its latest desired key. The
+        // running bake will hand over to it instead of queuing obsolete GPU work.
+        if (_backgroundBakeRunning) return;
 
         if (_bakedBackground == null)
         {
@@ -262,7 +287,8 @@ public partial class IslandWindow
         _bakingIcon = icon;
         _bakingSide = bakeSide;
         _bakingBlurRadius = blurRadius;
-        BitmapSource? baked;
+        BitmapSource? baked = null;
+        _backgroundBakeRunning = true;
         try
         {
             baked = await Task.Run(() => BakeBlurredBackground(icon, bakeSide, blurRadius));
@@ -270,23 +296,37 @@ public partial class IslandWindow
         catch (Exception ex)
         {
             Logger.Error(ex, "Failed to bake Fluent Island background");
-            if (ReferenceEquals(_bakingIcon, icon)) _bakingIcon = null;
+        }
+        finally { _backgroundBakeRunning = false; }
+
+        if (_disposed) return;
+        if (version != _backgroundGeneration || !ReferenceEquals(_backgroundIcon, icon) ||
+            !ReferenceEquals(_bakingIcon, icon) || Math.Abs(_bakingSide - bakeSide) >= 0.5 || _bakingBlurRadius != blurRadius)
+        {
+            if (_backgroundRotationActive && _requestedBackgroundBake is { } latest)
+                UpdateBakedBackgroundAsync(latest.icon, latest.side);
             return;
         }
-
-        if (_disposed || version != _backgroundGeneration || !ReferenceEquals(_backgroundIcon, icon) ||
-            !ReferenceEquals(_bakingIcon, icon) || Math.Abs(_bakingSide - bakeSide) >= 0.5 || _bakingBlurRadius != blurRadius)
-            return;
         if (ReferenceEquals(_bakingIcon, icon) && Math.Abs(_bakingSide - bakeSide) < 0.5)
             _bakingIcon = null;
         if (baked == null) return;
 
+        bool firstBake = _bakedBackground == null;
         _bakedIcon = icon;
         _bakedBackground = baked;
         _bakedSideDip = bakeSide;
         _bakedBlurRadius = blurRadius;
+        if (_backgroundCache.Count >= 6) _backgroundCache.Clear();
+        _backgroundCache[key] = baked;
         if (_backgroundRotationActive)
+        {
+            // The first texture already contains the temporary live blur. Adopt it
+            // before removing the effect, so rotation never keeps a second blur.
+            if (firstBake) BackgroundImage.Source = baked;
+            BackgroundImage.Effect = null;
+            BackgroundImageNext.Effect = null;
             BeginBackgroundCrossfade(baked, Math.Max(MainWindow.getDuration(), 1));
+        }
     }
 
     /// <summary>
@@ -316,9 +356,17 @@ public partial class IslandWindow
         int version = _backgroundCrossfadeVersion;
         _backgroundCrossfadeTarget = target;
         double bound = Math.Clamp(SettingsManager.Current.IslandBackgroundBlurIntensity, 0, 100) / 100.0;
+        double baseOpacity = BackgroundImage.Opacity;
+        double nextOpacity = BackgroundImageNext.Visibility == Visibility.Visible ? BackgroundImageNext.Opacity : 0;
+        if (nextOpacity > 0)
+        {
+            BackgroundImage.Source = AlbumArtCrossfade.CaptureBlend(BackgroundImage.Source,
+                BackgroundImageNext.Source, baseOpacity, nextOpacity);
+            baseOpacity = 1;
+        }
         BackgroundImage.BeginAnimation(OpacityProperty, null);
         BackgroundImageNext.BeginAnimation(OpacityProperty, null);
-        BackgroundImage.Opacity = bound;
+        BackgroundImage.Opacity = baseOpacity;
         BackgroundImageNext.Source = target;
         BackgroundImageNext.Visibility = Visibility.Visible;
         BackgroundImageNext.Opacity = 0;
@@ -332,7 +380,7 @@ public partial class IslandWindow
         };
         var fadeOut = new DoubleAnimation
         {
-            From = bound,
+            From = baseOpacity,
             To = 0,
             Duration = TimeSpan.FromMilliseconds(durationMs),
             EasingFunction = easing
@@ -375,8 +423,8 @@ public partial class IslandWindow
             !SettingsManager.Current.IslandBackgroundBlur)
             return;
 
-        if (_lastStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing ||
-            !IsVisible || !IsBoxShown)
+        if (SystemParameters.HighContrast || !AnimationsEnabled || _lastStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing ||
+            !IsVisible || !IsBoxShown || BackgroundCanvas.Visibility != Visibility.Visible || BackgroundCanvas.Opacity <= 0.01)
             PauseBackgroundRotation();
         else
             ResumeBackgroundRotation();
@@ -403,6 +451,9 @@ public partial class IslandWindow
 
     private void StopBackgroundRotation()
     {
+        ++_backgroundGeneration;
+        _requestedBackgroundBake = null;
+        _bakingIcon = null;
         _backgroundRotationActive = false;
         _backgroundRotationAnimationRunning = false;
         _backgroundRotationPaused = false;

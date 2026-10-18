@@ -50,6 +50,7 @@ public partial class IslandWindow
 
     /// <summary>View applied in the last <see cref="ApplyPresentation"/>: it is what allows repair.</summary>
     private IslandPresentationResult? _appliedPresentation;
+    private bool _lastAppliedWasExclusive;
 
     /// <summary>Empty action for cards with no repaint of their own.</summary>
     private static readonly Action NoOp = static () => { };
@@ -74,8 +75,12 @@ public partial class IslandWindow
     /// </summary>
     private void PublishActivity()
     {
-        var now = DateTime.UtcNow;
+        var now = IslandClock.Now;
         bool temporalMode = SettingsManager.Current.IslandVisibilityMode == 1;
+        // Release an old exclusive before publishing its replacement live state.
+        // Otherwise alert -> running loses the timer entry for an entire pass.
+        foreach (var feature in _features.Features)
+            _activity.SetExclusive(feature.Id, FeatureState(feature).Exclusive, now);
         var inScreens = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (feature, _) in ScreenOrderedFeatures())
         {
@@ -89,10 +94,6 @@ public partial class IslandWindow
         {
             if (!inScreens.Contains(id)) _activity.SetLive(id, false, now);
         }
-        // Exclusive access: the timer alert and the dictation in progress, which the
-        // policy makes prevail over any other activity.
-        foreach (var feature in _features.Features)
-            _activity.SetExclusive(feature.Id, feature.State.Exclusive, now);
     }
 
     /// <summary>
@@ -130,7 +131,7 @@ public partial class IslandWindow
         {
             { OwnActivity: { } own } => own(),
             { } card => card.Sustains(),
-            _ => feature.State.Active,
+            _ => FeatureState(feature).Active,
         };
 
     /// <summary>
@@ -163,24 +164,26 @@ public partial class IslandWindow
     /// <summary>Full snapshot for the policy: it is the only thing the policy reads.</summary>
     private IslandPresentationInput PresentationInput(bool userExpanded)
     {
-        var now = DateTime.UtcNow;
+        var now = IslandClock.Now;
         var features = PresentationFeatures();
         var ordered = new List<string>(features.Count);
         var usable = new List<string>(features.Count);
         foreach (var feature in features)
         {
             ordered.Add(feature.Id);
-            if (feature.State.Usable) usable.Add(feature.Id);
+            if (FeatureState(feature).Usable) usable.Add(feature.Id);
         }
         // With an expanded view of its own: only the ones placed on a SCREEN. A notice or
         // an exclusive outside them (dictation) lives in the compact.
         var expandable = new List<string>(features.Count);
         foreach (var (feature, _) in ScreenOrderedFeatures()) expandable.Add(feature.Id);
+        if (_suspendedExpandedFeature is { } previous && (!usable.Contains(previous) || !expandable.Contains(previous))) _suspendedExpandedFeature = null;
+        bool restoring = _suspendedExpandedFeature != null && !HasExclusive() && !_activity.NoticeAlive(IslandFeatureIds.Dictation, now);
         return new IslandPresentationInput(
             Suppressed: Suppressed(),
             ReturnToInactive: SettingsManager.Current.IslandReturnToInactive,
-            UserExpanded: userExpanded,
-            UserExpandedFeatureId: CurrentViewFeatureId(),
+            UserExpanded: userExpanded || restoring,
+            UserExpandedFeatureId: restoring ? _suspendedExpandedFeature : CurrentViewFeatureId(),
             AnyScreenUsable: AnyScreenUsable(),
             PresentedNoticeId: PresentedNoticeId(now),
             PresentedNoticeStarted: _noticeStarted,
@@ -188,7 +191,8 @@ public partial class IslandWindow
             ExpandableIds: expandable,
             UsableIds: usable,
             Activity: _activity,
-            Now: now);
+            Now: now,
+            InteractionProtected: InteractionProtected || (_noticeFeatureId != null && IsBoxShown && IsMouseOverBoxOrStrip()));
     }
 
     /// <summary>View to show RIGHT NOW according to the active list (pure, touches nothing).</summary>
@@ -204,11 +208,26 @@ public partial class IslandWindow
     /// point through which the container enters a view: every feature route calls it, the
     /// settings, the notice expiry, the pointer and the startup.
     /// </summary>
+    private Dictionary<string, IslandFeatureState>? _featureStates;
+    private IslandFeatureState FeatureState(IIslandFeature feature)
+    {
+        if (_featureStates == null) return feature.State;
+        if (!_featureStates.TryGetValue(feature.Id, out var state)) _featureStates[feature.Id] = state = feature.State;
+        return state;
+    }
+
     private void RefreshPresentation()
     {
         if (_disposed) return;
-        PublishActivity();
-        ApplyPresentation(DesiredPresentation());
+        if (_settingsUpdateDepth > 0) { _presentationPending = true; return; }
+        bool ownsSnapshot = _featureStates == null;
+        _featureStates ??= new(StringComparer.Ordinal);
+        try
+        {
+            PublishActivity();
+            ApplyPresentation(DesiredPresentation());
+        }
+        finally { if (ownsSnapshot) _featureStates = null; }
     }
 
     /// <summary>
@@ -235,10 +254,21 @@ public partial class IslandWindow
     /// </summary>
     private void ApplyPresentation(IslandPresentationResult desired)
     {
+        bool exclusive = desired.FeatureId == "dictation" && DictationActive()
+            || desired.FeatureId == "timer" && _timer.State == IslandTimerState.Alerting;
+        bool exclusiveChanged = exclusive != _lastAppliedWasExclusive;
+        if (exclusive && _expanded && !_lastAppliedWasExclusive && _suspendedExpandedFeature == null)
+        {
+            _suspendedExpandedFeature = CurrentViewFeatureId();
+            ReleaseReelCapture();
+            LeaveKeyboardMode();
+        }
+        else if (!exclusive && desired.View == IslandDesiredView.Expanded) _suspendedExpandedFeature = null;
+        _lastAppliedWasExclusive = exclusive;
         // Idempotence: the view that is ALREADY applied is not presented again (it would
         // repaint the piece and restart its micro-animation on every mailbox pass). The
         // compact is let through: there it may have to arm the deadline of a new notice.
-        if (desired.View != IslandDesiredView.Compact
+        if (!exclusiveChanged && desired.View != IslandDesiredView.Compact
             && _appliedPresentation is { } applied
             && applied.View == desired.View && applied.FeatureId == desired.FeatureId)
             return;
@@ -280,13 +310,14 @@ public partial class IslandWindow
     private void PresentCompact(IslandPresentationResult desired)
     {
         var feature = desired.FeatureId == null ? null : FeatureById(desired.FeatureId);
-        if (feature == null || !feature.State.Usable)
+        if (feature == null || !FeatureState(feature).Usable)
         {
             // The active feature stopped being presentable in the last instant: rest,
             // never an empty box (001 MOD RF-9).
             PresentRest();
             return;
         }
+        if (feature.Id == IslandFeatureIds.Dictation) _dictationViewShown = true;
         _expanded = false;
         var mode = ModeForFeature(feature.Id);
         // The presented notice belonged to another feature: it is forgotten along with its view.
@@ -301,6 +332,8 @@ public partial class IslandWindow
             // open, this is the ONLY transition (expanded → compact, without going through
             // the piece), and the face of the compact is already presented.
             if (AnimationsEnabled) SetCompactFrame();
+            else SnapCompact();
+            SyncPresentationWork();
             return;
         }
         ShowCompactView(mode, feature, FeatureCard(feature.Id)?.Refresh ?? NoOp,
@@ -334,7 +367,7 @@ public partial class IslandWindow
             if (AnimationsEnabled) EnsureLoop();
             return;
         }
-        ShowExpandedView(mode, feature, FeatureCard(feature.Id)?.Refresh ?? NoOp, skipIfExpanded: alert);
+        ShowExpandedView(mode, feature, FeatureCard(feature.Id)?.Refresh ?? NoOp, skipIfExpanded: !alert);
     }
 
     // --- rest ---
@@ -585,7 +618,8 @@ public partial class IslandWindow
     /// </summary>
     private void CollapseFromHover()
     {
-        if (!_expanded) return;
+        if (!_expanded || InteractionProtected) return;
+        ReleaseReelCapture();
         // Final alert (exclusive): it stays until stop or restart, even if the mouse goes
         // away (001 MOD RF-4).
         if (_timer.State == IslandTimerState.Alerting) return;
@@ -666,7 +700,7 @@ public partial class IslandWindow
     /// </summary>
     private void ArmTemporaryHide(bool restart = true, bool force = false)
     {
-        var now = DateTime.UtcNow;
+        var now = IslandClock.Now;
         // A countdown action done inside the expanded view leaves its notice PENDING: the
         // timer deadline starts when its compact is presented, not when Start is pressed
         // (002 RF-16), and that is exactly what just happened.
@@ -686,6 +720,11 @@ public partial class IslandWindow
         if (id == null || !IslandNoticePolicy.Arms(force, SettingsManager.Current.IslandVisibilityMode == 1, HasExclusive()))
         {
             ClearTemporaryNotice();
+            return;
+        }
+        if (!restart && _noticeFeatureId == id && _noticeUntil != DateTime.MinValue && _noticeUntil <= now)
+        {
+            ScheduleNoticeRetraction();
             return;
         }
         if (restart || !_activity.NoticeAlive(id, now))
@@ -739,7 +778,7 @@ public partial class IslandWindow
     private bool NoticeAliveFor(IslandContentMode mode)
     {
         string? id = FeatureCardOfMode(mode)?.Id;
-        return id != null && _activity.NoticeAlive(id, DateTime.UtcNow);
+        return id != null && _activity.NoticeAlive(id, IslandClock.Now);
     }
 
     /// <summary>
@@ -750,7 +789,7 @@ public partial class IslandWindow
     private void ScheduleNoticeRetraction()
     {
         int version = ++_noticeVersion;
-        TimeSpan wait = _noticeUntil - DateTime.UtcNow;
+        TimeSpan wait = _noticeUntil - IslandClock.Now;
         if (wait < TimeSpan.Zero) wait = TimeSpan.Zero;
         ScheduleNoticeCheck(version, wait);
     }
@@ -787,7 +826,7 @@ public partial class IslandWindow
     private void RetractTemporaryNotice(int version)
     {
         if (_disposed || version != _noticeVersion) return;
-        var now = DateTime.UtcNow;
+        var now = IslandClock.Now;
         string? id = _noticeFeatureId;
         var step = IslandNoticePolicy.OnExpired(
             forced: _noticeForced,
@@ -795,13 +834,12 @@ public partial class IslandWindow
             hasExclusive: HasExclusive(),
             boxShown: IsBoxShown,
             expanded: _expanded,
-            pointerOver: IsMouseOverBoxOrStrip());
+            pointerOver: InteractionProtected || IsMouseOverBoxOrStrip());
         if (step == IslandNoticeStep.Retry)
         {
             // The view cannot collapse now: the same notice is given a SHORT extra deadline
             // —renewing it, so its birth instant is untouched— and it is retried.
-            if (id != null && !_activity.NoticeAlive(id, now))
-                _activity.Renew(id, now.AddMilliseconds(250));
+            // Keep the original expiry; interaction protects the face, not the event.
             ScheduleNoticeCheck(version, TimeSpan.FromMilliseconds(250));
             return;
         }

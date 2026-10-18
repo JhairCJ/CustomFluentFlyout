@@ -41,7 +41,8 @@ public readonly record struct IslandPresentationInput(
     IReadOnlyList<string> ExpandableIds,
     IReadOnlyList<string> UsableIds,
     IslandActivityRegistry Activity,
-    DateTime Now);
+    DateTime Now,
+    bool InteractionProtected = false);
 
 /// <summary>Desired view, with the feature holding it and the notice deadline.</summary>
 public readonly record struct IslandPresentationResult(
@@ -80,7 +81,9 @@ public static class IslandPresentation
     {
         // 1. The exclusive wins: the timer alert (it has an expanded view) and dictation
         // in progress (its card lives in the compact view, outside the screens).
-        if (input.Activity.ExclusiveId(input.Now) is { } exclusive && IsUsable(input, exclusive))
+        string? exclusiveId = input.Activity.Live(IslandFeatureIds.Dictation, input.Now) is { Kind: IslandActivityKind.Exclusive }
+            && IsUsable(input, IslandFeatureIds.Dictation) ? IslandFeatureIds.Dictation : input.Activity.ExclusiveId(input.Now, id => IsUsable(input, id));
+        if (exclusiveId is { } exclusive && IsUsable(input, exclusive))
         {
             bool expandable = input.ExpandableIds.Contains(exclusive);
             return new IslandPresentationResult(
@@ -101,8 +104,9 @@ public static class IslandPresentation
         }
 
         // 3. The expanded view the user opened is respected while nothing exclusive takes it.
-        if (input.UserExpanded)
-            return new IslandPresentationResult(IslandDesiredView.Expanded, input.UserExpandedFeatureId, false, false);
+        if ((input.UserExpanded || input.InteractionProtected) && input.UserExpandedFeatureId is { } expandedId
+            && IsUsable(input, expandedId) && (!input.UserExpanded || input.ExpandableIds.Contains(expandedId)))
+            return new IslandPresentationResult(input.UserExpanded ? IslandDesiredView.Expanded : IslandDesiredView.Compact, expandedId, false, false);
 
         // 4. The active list: the most recent event wins, ties broken by screen order.
         var winner = Winner(input);
@@ -127,18 +131,16 @@ public static class IslandPresentation
     /// </summary>
     private static IslandActivityEntry? Winner(IslandPresentationInput input)
     {
-        var candidates = new List<IslandActivityCandidate>(input.ScreenOrderedIds.Count);
-        var entries = new List<IslandActivityEntry?>(input.ScreenOrderedIds.Count);
+        IslandActivityEntry? winner = null;
         foreach (string id in input.ScreenOrderedIds)
         {
             var entry = input.Activity.Live(id, input.Now);
-            entries.Add(entry);
-            bool usable = IsUsable(input, id);
-            candidates.Add(new IslandActivityCandidate(entry != null, usable,
-                entry?.StartedUtc ?? DateTime.MinValue));
+            if (entry is { } candidate && IsUsable(input, id)
+                && (winner == null
+                    || candidate.Kind == IslandActivityKind.Notice && winner.Value.Kind != IslandActivityKind.Notice
+                    || candidate.Kind == winner.Value.Kind && candidate.StartedUtc > winner.Value.StartedUtc)) winner = candidate;
         }
-        int index = IslandActivityPick.Winner(candidates);
-        return index < 0 ? null : entries[index];
+        return winner;
     }
 
     /// <summary>Can this feature be opened right now? (enabled and available).</summary>

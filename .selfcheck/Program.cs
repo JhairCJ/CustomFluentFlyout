@@ -15,7 +15,7 @@ static void Check(bool condition, string what)
 
 static void CheckNear(double actual, double expected, double tolerance, string what)
 {
-    if (Math.Abs(actual - expected) > tolerance)
+    if (!double.IsFinite(actual) || !double.IsFinite(expected) || Math.Abs(actual - expected) > tolerance)
         throw new InvalidOperationException($"FALLO: {what} ({actual} != {expected} ±{tolerance})");
 }
 
@@ -412,6 +412,88 @@ CheckNear(scaledExpansion.Width / 1.5, 340, 0.001, "el ancho visual sigue siendo
 var tiny = TaskbarWidgetExpansion.Expand(new(0, 90, 60, 10), new(0, 90, 100, 10), new(0, 0, 100, 90), 340, 156);
 Check(tiny.Left >= 0 && tiny.Top >= 0 && tiny.Right <= 100 && tiny.Bottom <= 100,
     "una pantalla pequeña limita también el tamaño, no solo la posición");
+Ok();
+
+// Exact integration preserves the same trajectory across displays, including a reversal.
+foreach (double duration in new[] { 30.0, 150, 300, 1000 })
+foreach (double damping in new[] { 0.6, 1.0, 2.0 })
+{
+    double k = IslandPhysics.Coefficients(duration, false).KP;
+    double c = damping * 2 * Math.Sqrt(k);
+    double referenceX = 0, referenceV = 0;
+    IslandPhysics.Step(ref referenceX, ref referenceV, 1, k, c, 0.1);
+    IslandPhysics.Step(ref referenceX, ref referenceV, 0, k, c, 0.1);
+    foreach (int fps in new[] { 30, 60, 144, 240, 360 })
+    {
+        double x = 0, v = 0;
+        foreach (int target in new[] { 1, 0 })
+        {
+            double remaining = 0.1;
+            while (remaining > 1e-12)
+            {
+                double dt = Math.Min(1.0 / fps, remaining);
+                IslandPhysics.Step(ref x, ref v, target, k, c, dt);
+                remaining -= dt;
+            }
+        }
+        CheckNear(x, referenceX, 1e-9, $"trayectoria a {fps} FPS, duración {duration}, amortiguación {damping}");
+        CheckNear(v, referenceV, 1e-8, "la velocidad también se conserva al invertir");
+    }
+}
+double brokenX = double.NaN, brokenV = double.PositiveInfinity;
+IslandPhysics.Step(ref brokenX, ref brokenV, 1, spring.KP, spring.CP, 1.0 / 60);
+Check(brokenX == 1 && brokenV == 0, "un estado inválido se recupera sin propagar NaN");
+Check(IslandPhysics.Coefficients(double.NaN, false) == spring, "duración inválida usa el valor normal");
+Ok();
+
+var liveTimeline = new IslandTimeline(10, 100, 25, new DateTimeOffset(at), true, true);
+CheckNear(liveTimeline.PositionAt(new DateTimeOffset(at.AddSeconds(2))), 27, 1e-9, "la reproducción avanza desde la instantánea");
+CheckNear(liveTimeline.PositionAt(new DateTimeOffset(at.AddSeconds(-2))), 25, 1e-9, "un reloj futuro no retrocede la pista");
+CheckNear(liveTimeline.PositionAt(new DateTimeOffset(at.AddMinutes(5))), 100, 1e-9, "el progreso no sale de la pista");
+CheckNear((liveTimeline with { Playing = false }).PositionAt(new DateTimeOffset(at.AddSeconds(5))), 25, 1e-9, "pausa inmóvil");
+Check(!(liveTimeline with { Maximum = 0 }).Valid && !(liveTimeline with { Position = double.NaN }).Valid,
+    "una línea temporal inválida no se pinta");
+Ok();
+
+var exclusives = new IslandActivityRegistry();
+exclusives.SetExclusive("timer", true, at);
+exclusives.SetExclusive("dictation", true, at.AddSeconds(1));
+exclusives.Pulse("dictation", at.AddSeconds(2), at.AddSeconds(5));
+Check(exclusives.Live("dictation", at.AddSeconds(2))?.Kind == IslandActivityKind.Exclusive, "un aviso no oculta una exclusiva");
+Check(exclusives.ExclusiveId(at.AddSeconds(2)) == "dictation", "gana la exclusiva más reciente");
+exclusives.SetExclusive("timer", false, at.AddSeconds(3));
+exclusives.SetExclusive("timer", true, at.AddSeconds(3));
+Check(IslandPresentation.Resolve(Input(exclusives, [.. screens, "dictation"], expandable: screens)).FeatureId == "dictation",
+    "una alerta nueva no interrumpe un dictado activo");
+Check(IslandPresentation.Resolve(Input(playing, screens, userExpanded: true, userExpandedFeatureId: "removed")).FeatureId != "removed",
+    "una pantalla eliminada no conserva una expansión vacía");
+Ok();
+
+var protectedActivity = new IslandActivityRegistry();
+protectedActivity.SetLive("media", true, at);
+var protectedInput = Input(protectedActivity, screens) with
+{
+    InteractionProtected = true,
+    UserExpanded = false,
+    UserExpandedFeatureId = "timer",
+};
+var protectedView = IslandPresentation.Resolve(protectedInput);
+Check(protectedView.View == IslandDesiredView.Compact && protectedView.FeatureId == "timer",
+    "un arrastre conserva el compacto sin abrir ni cambiar su pantalla");
+Check(IslandPresentation.Resolve(protectedInput with { UsableIds = ["media"] }).FeatureId == "media",
+    "la protección no conserva una funcionalidad que dejó de estar disponible");
+Check(IslandPresentation.Resolve(protectedInput with { Suppressed = true }).View == IslandDesiredView.Hidden,
+    "una interacción ordinaria no atraviesa la supresión contextual");
+Ok();
+
+var notificationPriority = new IslandActivityRegistry();
+notificationPriority.Pulse("power", at, at.AddSeconds(5), alwaysTemporal: true);
+notificationPriority.SetLive("media", true, at.AddSeconds(1));
+Check(IslandPresentation.Resolve(Input(notificationPriority, ["media", "power"], expandable: ["media"])).FeatureId == "power",
+    "un aviso vigente mantiene prioridad sobre una actividad más reciente");
+var availableExclusive = IslandPresentation.Resolve(Input(exclusives, screens, usable: ["media", "timer"], expandable: screens));
+Check(availableExclusive.View == IslandDesiredView.Expanded && availableExclusive.FeatureId == "timer",
+    "una exclusiva no disponible no oculta otra exclusiva válida");
 Ok();
 
 Console.WriteLine($"selfcheck: {passed} bloques correctos");

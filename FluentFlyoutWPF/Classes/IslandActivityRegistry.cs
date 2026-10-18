@@ -75,11 +75,11 @@ public sealed class IslandActivityRegistry
     /// reconciliación: repetir el mismo estado no toca la entrada, así su instante de
     /// nacimiento —el desempate— sobrevive a los refrescos.
     /// </summary>
-    public void SetLive(string id, bool active, DateTime now)
+    public void SetLive(string id, bool active, DateTime now, bool restart = false)
     {
         if (active)
         {
-            if (!_entries.ContainsKey(id))
+            if (!_entries.TryGetValue(id, out var previous) || restart && previous.Kind == IslandActivityKind.Live)
                 _entries[id] = new IslandActivityEntry(id, IslandActivityKind.Live, now, DateTime.MaxValue);
             return;
         }
@@ -165,11 +165,15 @@ public sealed class IslandActivityRegistry
         _notices.TryGetValue(id, out var notice) && notice.Alive(now) ? notice.ExpiresUtc : DateTime.MinValue;
 
     /// <summary>Funcionalidad con acceso exclusivo vigente (null si no hay ninguna).</summary>
-    public string? ExclusiveId(DateTime now)
+    public string? ExclusiveId(DateTime now, Func<string, bool>? usable = null)
     {
+        IslandActivityEntry? winner = null;
         foreach (var entry in _entries.Values)
-            if (entry.Kind == IslandActivityKind.Exclusive && entry.Alive(now)) return entry.Id;
-        return null;
+            if (entry.Kind == IslandActivityKind.Exclusive && entry.Alive(now) && (usable == null || usable(entry.Id))
+                && (winner == null || entry.StartedUtc > winner.Value.StartedUtc
+                    || (entry.StartedUtc == winner.Value.StartedUtc && string.CompareOrdinal(entry.Id, winner.Value.Id) < 0)))
+                winner = entry;
+        return winner?.Id;
     }
 
     /// <summary>¿Hay acceso exclusivo vigente?</summary>
@@ -183,6 +187,7 @@ public sealed class IslandActivityRegistry
     {
         IslandActivityEntry? best = null;
         if (_entries.TryGetValue(id, out var live) && live.Alive(now)) best = live;
+        if (best is { Kind: IslandActivityKind.Exclusive }) return best;
         if (_notices.TryGetValue(id, out var notice) && notice.Alive(now)
             && (best == null || notice.StartedUtc > best.Value.StartedUtc))
             best = notice;

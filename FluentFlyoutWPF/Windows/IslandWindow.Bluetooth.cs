@@ -134,6 +134,12 @@ public partial class IslandWindow
     {
         var monitor = _bluetooth;
         _bluetooth = null;
+        if (monitor != null)
+        {
+            monitor.Connected -= OnBluetoothConnected;
+            monitor.Updated -= OnBluetoothUpdated;
+            monitor.Disconnected -= OnBluetoothDisconnected;
+        }
         monitor?.Dispose();
     }
 
@@ -164,7 +170,7 @@ public partial class IslandWindow
     /// delante NO se interrumpe nada: el usuario ya tiene una vista decidida
     /// (RF-4, 001 MOD RF-28).
     /// </summary>
-    private void OnBluetoothConnected(IslandBluetoothDevice device) => Dispatcher.BeginInvoke(new Action(() =>
+    private void OnBluetoothConnected(IslandBluetoothDevice device) => QueueIslandUi(() =>
     {
         if (_disposed) return;
         _bluetoothDevice = device;
@@ -173,18 +179,17 @@ public partial class IslandWindow
             ? BluetoothNoticeKind.Charging : BluetoothNoticeKind.Connected;
         NoteFeatureEvent(IslandFeatureIds.Bluetooth);
         if (!SettingsManager.Current.IslandEnabled || !BluetoothModeAvailable()) return;
-        if (Suppressed() || HasExclusive() || _expanded) return;
         bool rebound = _bluetoothShownId == device.Id
-            && DateTime.UtcNow - _bluetoothShownAt < BluetoothReboundGuard;
+            && IslandClock.Now - _bluetoothShownAt < BluetoothReboundGuard;
         if (rebound)
         {
             PostActivity(IslandActivityReason.Bluetooth);
             return;
         }
         _bluetoothShownId = device.Id;
-        _bluetoothShownAt = DateTime.UtcNow;
-        ShowBluetoothCompact(restartNotice: true);
-    }));
+        _bluetoothShownAt = IslandClock.Now;
+        PublishOrdinaryNotice(IslandFeatureIds.Bluetooth);
+    });
 
     /// <summary>
     /// El dispositivo ya conectado cambió (batería que Windows publica unos
@@ -192,7 +197,7 @@ public partial class IslandWindow
     /// repinta si el aviso sigue a la vista y JAMÁS lo re-despliega ni reinicia su
     /// plazo (001 MOD RF-2/RF-28).
     /// </summary>
-    private void OnBluetoothUpdated(IslandBluetoothDevice device) => Dispatcher.BeginInvoke(new Action(() =>
+    private void OnBluetoothUpdated(IslandBluetoothDevice device) => QueueIslandUi(() =>
     {
         if (_disposed) return;
         if (_bluetoothDevice?.Id != device.Id) return;
@@ -205,13 +210,13 @@ public partial class IslandWindow
             _bluetoothNotice = device.Charging == true
                 ? BluetoothNoticeKind.Charging : BluetoothNoticeKind.Connected;
         PostActivity(IslandActivityReason.Bluetooth);
-    }));
+    });
 
     /// <summary>
     /// Se desconectó (o desapareció) el dispositivo mostrado: su aviso ya no dice
     /// la verdad, así que se retira; si era otro el mostrado, no se toca nada.
     /// </summary>
-    private void OnBluetoothDisconnected(string id) => Dispatcher.BeginInvoke(new Action(() =>
+    private void OnBluetoothDisconnected(string id) => QueueIslandUi(() =>
     {
         if (_disposed) return;
         var device = _bluetoothDevice;
@@ -220,11 +225,11 @@ public partial class IslandWindow
         // porcentaje conocido en rojo, con un plazo entero por delante (001 MOD RF-6).
         _bluetoothNotice = BluetoothNoticeKind.Disconnected;
         _bluetoothShownId = id;
-        _bluetoothShownAt = DateTime.UtcNow;
+        _bluetoothShownAt = IslandClock.Now;
         if (!SettingsManager.Current.IslandEnabled || !BluetoothModeAvailable()) return;
         if (Suppressed() || HasExclusive() || _expanded) return;
         ShowBluetoothCompact(restartNotice: true);
-    }));
+    });
 
     // ------------------------------------------------------------------
     // Presentación

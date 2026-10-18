@@ -32,6 +32,11 @@ public partial class IslandWindow
     private readonly IslandClipboardService _clipboard = new();
     /// <summary>Último aviso pintado en el expandido («Copiado al portapapeles»).</summary>
     private int _clipboardStatusVersion;
+    private long _clipboardFeedbackUntil;
+    private string _clipboardFeedbackText = "";
+
+    private void PaintClipboardStatus() => ClipboardStatus.Text = _clipboard.Error.Length > 0
+        ? _clipboard.Error : IslandClock.Milliseconds < _clipboardFeedbackUntil ? _clipboardFeedbackText : "";
 
     /// <summary>Funcionalidad «portapapeles» registrada (nunca null tras el arranque).</summary>
     private IIslandFeature? ClipboardFeature => FeatureById(IslandFeatureIds.Clipboard);
@@ -49,21 +54,21 @@ public partial class IslandWindow
     private bool ClipboardKeepsView() =>
         ClipboardModeAvailable()
         && SettingsManager.Current.IslandVisibilityMode == 1
-        && _noticeUntil > DateTime.UtcNow;
+        && _noticeUntil > IslandClock.Now;
 
     internal IslandFeatureState GetClipboardFeatureState()
     {
         bool enabled = ClipboardModeAvailable();
         // Disponible con algo copiado: sin piezas no hay nada que pegar y el
         // contenedor no abre una vista vacía (001 MOD RF-9/RF-13).
-        bool available = enabled && ClipboardHasItems();
+        bool available = enabled;
         return new IslandFeatureState(enabled, available, Active: false,
             Selected: _selectedFeature?.Id == IslandFeatureIds.Clipboard, Exclusive: false);
     }
 
     internal bool ShowClipboardExpandedFromContract()
     {
-        if (!ClipboardModeAvailable() || !ClipboardHasItems()) return false;
+        if (!ClipboardModeAvailable()) return false;
         ExpandClipboard();
         return true;
     }
@@ -83,6 +88,7 @@ public partial class IslandWindow
     {
         _clipboard.Changed += OnClipboardChanged;
         _clipboard.MaxItems = Math.Clamp(SettingsManager.Current.IslandClipboardMaxItems, 1, 100);
+        _clipboard.Trim();
         if (ClipboardModeAvailable()) _clipboard.Start();
     }
 
@@ -99,6 +105,7 @@ public partial class IslandWindow
     public void RefreshClipboardContent() => Dispatcher.Invoke(() =>
     {
         _clipboard.MaxItems = Math.Clamp(SettingsManager.Current.IslandClipboardMaxItems, 1, 100);
+        _clipboard.Trim();
         if (ClipboardModeAvailable()) _clipboard.Start();
         else
         {
@@ -111,11 +118,12 @@ public partial class IslandWindow
     });
 
     /// <summary>Vaciado desde ajustes o desde el propio Island.</summary>
-    public void ClearClipboard() => Dispatcher.Invoke(() => _clipboard.Clear());
+    public void ClearClipboard() => Dispatcher.Invoke(() => { _clipboardFeedbackUntil = 0; ++_clipboardStatusVersion; _clipboard.Clear(); });
 
-    private void OnClipboardChanged() => Dispatcher.Invoke(() =>
+    private void OnClipboardChanged() => QueueIslandUi(() =>
     {
         if (_disposed) return;
+        SettingsManager.Current.IslandClipboardStatus = _clipboard.Error;
         // La lista cambió: se repinta lo que ya esté a la vista (nunca se despliega
         // solo: copiar no es un evento que deba abrir el Island).
         if (IsBoxShown && ViewShowsFeature(IslandFeatureIds.Clipboard))
@@ -132,14 +140,13 @@ public partial class IslandWindow
     {
         var items = _clipboard.Items;
         int fit = CompactRowFit(IsNotch ? IslandClipboardItem.MaxCompactItemsNotch : IslandClipboardItem.MaxCompactItems);
-        var compact = items.Take(fit).ToList();
-        ClipboardCompactList.ItemsSource = compact;
-        int rest = items.Count - compact.Count;
+        int shown = BindCompactItems(ClipboardCompactList, items, fit);
+        int rest = items.Count - shown;
         ClipboardCompactMore.Text = rest > 0 ? $"+{rest}" : "";
         ClipboardCompactMore.Visibility = rest > 0 ? Visibility.Visible : Visibility.Collapsed;
         ClipboardExpandedList.ItemsSource = items;
         ClipboardExpandedEmpty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        ClipboardStatus.Text = "";
+        PaintClipboardStatus();
     }
 
     private void ShowClipboardCompact()
@@ -151,7 +158,7 @@ public partial class IslandWindow
 
     private void ExpandClipboard()
     {
-        if (!ClipboardModeAvailable() || !ClipboardHasItems()) return;
+        if (!ClipboardModeAvailable()) return;
         RefreshClipboardViews();
         ShowExpandedView(IslandContentMode.Clipboard, ClipboardFeature, RefreshClipboardViews);
     }
@@ -187,19 +194,37 @@ public partial class IslandWindow
     /// pega donde quiera con Ctrl+V (RF-3). El aviso «Copiado al portapapeles» se
     /// borra solo, sin tocar el resto de la vista.
     /// </summary>
-    private void ClipboardItem_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    private async void ClipboardItem_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         e.Handled = true;
         if ((sender as FrameworkElement)?.DataContext is not IslandClipboardItem item) return;
-        _clipboard.Copy(item);
-        ClipboardStatus.Text = item.Kind == IslandClipboardKind.Image
+        await CopyClipboardItemAsync(item);
+    }
+
+    private async void ClipboardItem_Action(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: IslandClipboardItem item }) await CopyClipboardItemAsync(item);
+    }
+
+    private async Task CopyClipboardItemAsync(IslandClipboardItem item)
+    {
+        if (!await _clipboard.CopyAsync(item))
+        {
+            if (!_disposed && _clipboard.Error.Length > 0) { _clipboardFeedbackUntil = 0; PaintClipboardStatus(); }
+            return;
+        }
+        if (_disposed) return;
+        _clipboardFeedbackText = item.Kind == IslandClipboardKind.Image
             ? IslandStrings.Get("IslandClipboardImageCopied", "Image copied · paste it with Ctrl+V")
             : IslandStrings.Get("IslandClipboardTextCopied", "Text copied · paste it with Ctrl+V");
+        _clipboardFeedbackUntil = IslandClock.Milliseconds + 2200;
+        PaintClipboardStatus();
         int version = ++_clipboardStatusVersion;
-        _ = Task.Delay(2200).ContinueWith(_ => Dispatcher.Invoke(() =>
+        _ = AfterIslandDelay(2200, () =>
         {
             if (_disposed || version != _clipboardStatusVersion) return;
-            ClipboardStatus.Text = "";
-        }));
+            _clipboardFeedbackUntil = 0;
+            PaintClipboardStatus();
+        });
     }
 }

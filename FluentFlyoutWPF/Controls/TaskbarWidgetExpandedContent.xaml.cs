@@ -5,6 +5,7 @@ using FluentFlyout.Classes.Settings;
 using FluentFlyout.Classes.Utils;
 using FluentFlyout.Controls.TaskbarWidget;
 using FluentFlyoutWPF;
+using FluentFlyoutWPF.Classes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -137,7 +138,6 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         TitleText.ToolTip = title;
         ArtistText.ToolTip = artist;
         StartAlbumFlip(art);
-        Interlocked.Increment(ref _progressVersion);
         if (_active) RequestProgressRefresh();
     }
 
@@ -266,8 +266,11 @@ public partial class TaskbarWidgetExpandedContent : UserControl
             catch (Exception ex) { Logger.Debug(ex, "Taskbar session ended during event cleanup"); }
         }
         _observedSession = current;
+        Interlocked.Increment(ref _progressVersion);
         _minimumSeconds = _positionSeconds = _maximumSeconds = 0;
         _paintedPositionSecond = _paintedDurationSecond = double.NaN;
+        _progressPlaying = _progressSeekable = false;
+        SeekRow.Visibility = Visibility.Hidden;
         if (current != null)
         {
             try
@@ -293,7 +296,31 @@ public partial class TaskbarWidgetExpandedContent : UserControl
             Interlocked.Exchange(ref _progressRefreshAgain, 1);
             return;
         }
-        _ = Task.Run(ReadProgress);
+        // Select on the owning dispatcher, just like the widget's transport buttons.
+        // The worker reads that exact session; it never resolves a player of its own.
+        if (Dispatcher.CheckAccess()) StartProgressRead();
+        else Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(StartProgressRead));
+    }
+
+    private void StartProgressRead()
+    {
+        if (_disposed || !_active)
+        {
+            Interlocked.Exchange(ref _progressRefreshPending, 0);
+            return;
+        }
+        try
+        {
+            var session = _mainWindow?.GetTaskbarSession()?.ControlSession;
+            RefreshObservedSession(session);
+            int version = Volatile.Read(ref _progressVersion);
+            _ = Task.Run(() => ReadProgress(session, version));
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Exchange(ref _progressRefreshPending, 0);
+            Logger.Debug(ex, "Taskbar timeline session selection failed; retaining the last valid position");
+        }
     }
 
     private void UpdateProgressTimer()
@@ -329,41 +356,40 @@ public partial class TaskbarWidgetExpandedContent : UserControl
             _maximumSeconds, _progressSeekable);
     }
 
-    private void ReadProgress()
+    private void ReadProgress(GlobalSystemMediaTransportControlsSession? session, int version)
     {
         if (_disposed || !_active)
         {
             Interlocked.Exchange(ref _progressRefreshPending, 0);
             return;
         }
-        int version = Volatile.Read(ref _progressVersion);
         var updatedAt = DateTimeOffset.UtcNow;
         double minimumSeconds = 0, positionSeconds = 0, maximumSeconds = 0;
         bool seekable = false, playing = false;
         GlobalSystemMediaTransportControlsSessionPlaybackControls? controls = null;
-        GlobalSystemMediaTransportControlsSession? session = null;
+        bool readSucceeded = false;
         try
         {
-            session = _mainWindow?.GetTaskbarSession()?.ControlSession;
             if (session != null)
             {
                 var playback = session.GetPlaybackInfo();
                 controls = playback?.Controls;
                 playing = playback?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
                 var timeline = session.GetTimelineProperties();
-                if (timeline.MaxSeekTime > timeline.MinSeekTime)
+                var snapshot = new IslandTimeline(timeline.MinSeekTime.TotalSeconds, timeline.MaxSeekTime.TotalSeconds,
+                    timeline.Position.TotalSeconds, timeline.LastUpdatedTime, playing,
+                    controls?.IsPlaybackPositionEnabled == true);
+                if (snapshot.Valid)
                 {
-                    var position = playing
-                        ? timeline.Position + (updatedAt - timeline.LastUpdatedTime)
-                        : timeline.Position;
-                    minimumSeconds = timeline.MinSeekTime.TotalSeconds;
-                    maximumSeconds = timeline.MaxSeekTime.TotalSeconds;
-                    positionSeconds = Math.Clamp(position.TotalSeconds, minimumSeconds, maximumSeconds);
-                    seekable = controls?.IsPlaybackPositionEnabled == true;
+                    minimumSeconds = snapshot.Minimum;
+                    maximumSeconds = snapshot.Maximum;
+                    positionSeconds = snapshot.PositionAt(updatedAt);
+                    seekable = snapshot.Seekable;
                 }
+                readSucceeded = true;
             }
         }
-        catch { /* A disappearing session is retried by the next notification/tick. */ }
+        catch (Exception ex) { Logger.Debug(ex, "Taskbar timeline read failed; retaining the last valid position"); }
         if (Dispatcher.HasShutdownStarted)
         {
             Interlocked.Exchange(ref _progressRefreshPending, 0);
@@ -373,10 +399,8 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         {
             try
             {
-                if (_disposed || !_active || version != Volatile.Read(ref _progressVersion)) return;
-                // Selection and playback reads already ran on the worker. Never
-                // query every player's COM state again on the animation thread.
-                RefreshObservedSession(session);
+                if (_disposed || !_active || version != Volatile.Read(ref _progressVersion)
+                    || !ReferenceEquals(session, _observedSession) || !readSucceeded) return;
                 if (_drag && Mouse.LeftButton == MouseButtonState.Released) _drag = false;
                 ApplyPlaybackState(!playing, controls);
                 _minimumSeconds = minimumSeconds;

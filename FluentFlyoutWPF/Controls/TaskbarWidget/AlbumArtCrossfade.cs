@@ -107,6 +107,26 @@ internal sealed class AlbumArtTransition(Action<BitmapImage?> apply,
 /// <summary>A small artwork-only snapshot dissolves over the live incoming cover.</summary>
 internal sealed class AlbumArtCrossfade
 {
+    internal static BitmapSource CaptureBlend(ImageSource? background, ImageSource? incoming,
+        double backgroundOpacity, double incomingOpacity)
+    {
+        const int side = 256;
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            dc.PushOpacity(Math.Clamp(backgroundOpacity, 0, 1));
+            dc.DrawImage(background, new Rect(0, 0, side, side));
+            dc.Pop();
+            dc.PushOpacity(Math.Clamp(incomingOpacity, 0, 1));
+            dc.DrawImage(incoming, new Rect(0, 0, side, side));
+            dc.Pop();
+        }
+        var snapshot = new RenderTargetBitmap(side, side, 96, 96, PixelFormats.Pbgra32);
+        snapshot.Render(visual);
+        snapshot.Freeze();
+        return snapshot;
+    }
+
     private readonly Border _surface;
     private readonly Image _outgoing = new() { Stretch = Stretch.Fill, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
     private int _version;

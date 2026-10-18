@@ -41,7 +41,8 @@ public partial class IslandWindow
         SettingsManager.Current.IslandEnabled
         && SettingsManager.Current.IslandWeatherEnabled
         && SettingsManager.Current.IslandWeatherPlace.Trim().Length > 0
-        && (SettingsManager.Current.IslandWeatherLatitude != 0 || SettingsManager.Current.IslandWeatherLongitude != 0);
+        && double.IsFinite(SettingsManager.Current.IslandWeatherLatitude) && SettingsManager.Current.IslandWeatherLatitude is >= -90 and <= 90
+        && double.IsFinite(SettingsManager.Current.IslandWeatherLongitude) && SettingsManager.Current.IslandWeatherLongitude is >= -180 and <= 180;
 
     /// <summary>
     /// ¿La vista del clima se sostiene sola? No tiene actividad propia (el clima no
@@ -51,19 +52,19 @@ public partial class IslandWindow
     private bool WeatherKeepsView() =>
         WeatherModeAvailable()
         && SettingsManager.Current.IslandVisibilityMode == 1
-        && _noticeUntil > DateTime.UtcNow;
+        && _noticeUntil > IslandClock.Now;
 
     internal IslandFeatureState GetWeatherFeatureState()
     {
         bool enabled = WeatherModeAvailable();
-        bool available = enabled && _weatherSnapshot != null;
+        bool available = enabled;
         return new IslandFeatureState(enabled, available, Active: false,
             Selected: _selectedFeature?.Id == IslandFeatureIds.Weather, Exclusive: false);
     }
 
     internal bool ShowWeatherCompactFromContract()
     {
-        if (!WeatherModeAvailable() || _weatherSnapshot == null) return false;
+        if (!WeatherModeAvailable()) return false;
         ShowWeatherCompact();
         return true;
     }
@@ -84,6 +85,7 @@ public partial class IslandWindow
     {
         _weather = new IslandWeatherService();
         _weather.Changed += OnWeatherChanged;
+        _weather.StateChanged += OnWeatherStateChanged;
         ApplyWeatherSettings();
     }
 
@@ -91,7 +93,11 @@ public partial class IslandWindow
     {
         var weather = _weather;
         _weather = null;
-        if (weather != null) weather.Changed -= OnWeatherChanged;
+        if (weather != null)
+        {
+            weather.Changed -= OnWeatherChanged;
+            weather.StateChanged -= OnWeatherStateChanged;
+        }
         weather?.Dispose();
     }
 
@@ -135,7 +141,10 @@ public partial class IslandWindow
         }
         settings.IslandWeatherError = "";
         settings.IslandWeatherStatus = IslandStrings.Get("IslandWeatherChecking", "Checking…");
+        var requestedPlace = weather.Place;
         bool ok = await weather.RefreshNowAsync();
+        if (_disposed || !ReferenceEquals(weather, _weather) || !WeatherModeAvailable()
+            || !Equals(requestedPlace, weather.Place)) return;
         var snapshot = weather.Snapshot;
         if (snapshot != null)
         {
@@ -164,9 +173,11 @@ public partial class IslandWindow
         var weather = _weather;
         if (weather == null) return;
         var settings = SettingsManager.Current;
+        var previousPlace = weather.Place;
         weather.Place = WeatherModeAvailable()
             ? new IslandWeatherPlace(settings.IslandWeatherPlace.Trim(), "", "", settings.IslandWeatherLatitude, settings.IslandWeatherLongitude)
             : null;
+        if (!Equals(previousPlace, weather.Place)) _weatherSnapshot = null;
         if (WeatherModeAvailable()) weather.Start();
         else weather.Stop();
     }
@@ -175,9 +186,16 @@ public partial class IslandWindow
     // Dato que llega (hilo de fondo -> hilo de UI)
     // ------------------------------------------------------------------
 
-    private void OnWeatherChanged(IslandWeatherSnapshot snapshot) => Dispatcher.BeginInvoke(new Action(() =>
+    private void OnWeatherStateChanged() => QueueIslandUi(() =>
     {
-        if (_disposed) return;
+        if (_weather == null || !WeatherModeAvailable()) return;
+        SettingsManager.Current.IslandWeatherError = _weather.Error ?? "";
+        if (ViewShowsFeature(IslandFeatureIds.Weather)) RefreshWeatherUI();
+    });
+
+    private void OnWeatherChanged(IslandWeatherSnapshot snapshot) => QueueIslandUi(() =>
+    {
+        if (_disposed || !ReferenceEquals(snapshot, _weather?.Snapshot)) return;
         var previous = _weatherSnapshot;
         _weatherSnapshot = snapshot;
         SettingsManager.Current.IslandWeatherError = _weather?.Error ?? "";
@@ -191,7 +209,7 @@ public partial class IslandWindow
         }
         UpdateArrows();
         PostActivity(IslandActivityReason.Weather);
-    }));
+    });
 
     // ------------------------------------------------------------------
     // Presentación
@@ -199,14 +217,14 @@ public partial class IslandWindow
 
     private void ShowWeatherCompact()
     {
-        if (!WeatherModeAvailable() || _weatherSnapshot == null) { SnapHidden(); return; }
+        if (!WeatherModeAvailable()) { SnapHidden(); return; }
         RefreshWeatherUI();
         ShowCompactView(IslandContentMode.Weather, WeatherFeature, RefreshWeatherUI);
     }
 
     private void ExpandWeather()
     {
-        if (!WeatherModeAvailable() || _weatherSnapshot == null) return;
+        if (!WeatherModeAvailable()) return;
         RefreshWeatherUI();
         ShowExpandedView(IslandContentMode.Weather, WeatherFeature, RefreshWeatherUI);
     }
@@ -219,7 +237,15 @@ public partial class IslandWindow
     private void RefreshWeatherUI()
     {
         var snapshot = _weatherSnapshot;
-        if (snapshot == null) return;
+        if (snapshot == null)
+        {
+            WeatherPlace.Text = SettingsManager.Current.IslandWeatherPlace;
+            WeatherCompactTemp.Text = WeatherExpandedTemp.Text = "—°";
+            WeatherCondition.Text = _weather?.Error ?? (_weather?.IsRefreshing == true ? IslandStrings.Get("IslandWeatherLoading", "Loading weather…") : IslandStrings.Get("IslandWeatherNoData", "No weather data is available. Try refreshing in settings."));
+            WeatherRange.Text = "";
+            WeatherUpdated.Text = "";
+            return;
+        }
         WeatherCompactGlyph.Symbol = snapshot.Glyph;
         WeatherCompactTemp.Text = snapshot.TemperatureText;
         WeatherCompactGrid.ToolTip = WeatherTooltip(snapshot);
@@ -227,10 +253,12 @@ public partial class IslandWindow
         WeatherPlace.Text = snapshot.Place;
         WeatherExpandedGlyph.Symbol = snapshot.Glyph;
         WeatherExpandedTemp.Text = snapshot.TemperatureText;
-        WeatherCondition.Text = snapshot.Condition;
+        WeatherCondition.Text = snapshot.WeatherCode is int code ? IslandWeatherService.Describe(code).Condition : snapshot.Condition;
         WeatherRange.Text = snapshot.RangeText ?? "";
         WeatherRange.Visibility = snapshot.RangeText == null ? Visibility.Collapsed : Visibility.Visible;
-        WeatherUpdated.Text = snapshot.UpdatedUtc.ToLocalTime().ToString("HH:mm");
+        WeatherUpdated.Text = _weather?.Error is { Length: > 0 } || DateTime.UtcNow - snapshot.UpdatedUtc > TimeSpan.FromMinutes(30)
+            ? IslandStrings.Format("IslandDataStale", "Older data · {0}", snapshot.UpdatedUtc.ToLocalTime().ToString("HH:mm"))
+            : snapshot.UpdatedUtc.ToLocalTime().ToString("HH:mm");
     }
 
     private static string WeatherTooltip(IslandWeatherSnapshot snapshot)

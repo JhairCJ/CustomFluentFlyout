@@ -55,6 +55,7 @@ internal static class TaskbarHostChecks
         app.Resources["InstantContextMenu"] = new Style(typeof(ContextMenu));
         app.Resources["PercentageToOpacityConverter"] = new FluentFlyoutWPF.Classes.Converters.PercentageToOpacityConverter();
         app.Resources["BoolToVisibleCollapsedConverter"] = new FluentFlyoutWPF.Classes.Converters.BoolToVisibleCollapsedConverter();
+        app.Resources["HexColorToBrushConverter"] = new FluentFlyoutWPF.Classes.Converters.HexColorToBrushConverter();
         Wpf.Ui.Appearance.ApplicationThemeManager.Apply(Wpf.Ui.Appearance.ApplicationTheme.Dark);
         MicaWPF.Core.Services.MicaWPFServiceUtility.ThemeService.ChangeTheme(MicaWPF.Core.Enums.WindowsTheme.Dark);
         SettingsManager.Current = new UserSettings

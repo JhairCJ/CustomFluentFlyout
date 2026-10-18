@@ -7,7 +7,7 @@ using System.Text.Json.Serialization;
 namespace FluentFlyoutWPF.Classes;
 
 [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<DiagnosticStage>))]
-internal enum DiagnosticStage { Startup, TaskbarAttach, TaskbarGeometry, Expansion, CaptureOpen, CaptureReady, CaptureStop, CaptureTimeout, CaptureRelease, CaptureError, PreloadStart, PreloadComplete, PreloadFailure, Recognition, RecognitionComplete, RecognitionFailure, Phase, InputRecovery, Shutdown, Fatal, RenderFailure, Resources }
+internal enum DiagnosticStage { Startup, TaskbarAttach, TaskbarGeometry, Expansion, CaptureOpen, CaptureReady, CaptureStop, CaptureTimeout, CaptureRelease, CaptureError, PreloadStart, PreloadComplete, PreloadFailure, Recognition, RecognitionComplete, RecognitionFailure, Phase, InputRecovery, Shutdown, Fatal, RenderFailure, Resources, IslandPerformance }
 internal readonly record struct ResourceSnapshot(long PrivateBytes, long WorkingSetBytes, long ManagedBytes,
     int Handles, long CommitLimitBytes, long AvailableCommitBytes, long AvailablePhysicalBytes);
 internal readonly record struct DiagnosticMilestone(DateTime Utc, DiagnosticStage Stage,

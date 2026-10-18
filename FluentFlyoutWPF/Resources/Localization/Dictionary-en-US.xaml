@@ -1,4 +1,4 @@
-﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:System="clr-namespace:System;assembly=mscorlib">
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:System="clr-namespace:System;assembly=mscorlib">
     <System:String x:Key="TitleText">FluentFlyout Settings</System:String>
     <System:String x:Key="IslandFeatureMedia">Media controls</System:String>
     <System:String x:Key="IslandFeatureTimer">Timer</System:String>
@@ -155,8 +155,8 @@
     <System:String x:Key="IslandPage_AppearanceSection">Appearance</System:String>
     <System:String x:Key="IslandPage_ExpandedWidth">Expanded width</System:String>
     <System:String x:Key="IslandPage_ExpandedWidthDesc">Pixel width of the Island when it shows the controls.</System:String>
-    <System:String x:Key="IslandPage_FloatingHeight">Floating island height</System:String>
-    <System:String x:Key="IslandPage_FloatingHeightDesc">Pixel height of the expanded Island; it only applies to the floating island.</System:String>
+    <System:String x:Key="IslandPage_FloatingHeight">Expanded island height</System:String>
+    <System:String x:Key="IslandPage_FloatingHeightDesc">Shared height for every screen, in both floating island and notch styles.</System:String>
     <System:String x:Key="IslandPage_IslandOffset">Island offset</System:String>
     <System:String x:Key="IslandPage_IslandOffsetDesc">How far down the island sits from the top edge, like on iPhone. Floating island only.</System:String>
     <System:String x:Key="IslandPage_LineOffset">Grey line offset</System:String>
@@ -833,4 +833,36 @@ You can help contribute translations on</System:String>
     <System:String x:Key="VisualizerBarRadiusTitle">Bar corner radius</System:String>
     <System:String x:Key="VisualizerBarRadiusDescription">0 gives square corners; higher values round the ends.</System:String>
     <System:String x:Key="TaskbarOpenPlayerText">Open media player</System:String>
+    <System:String x:Key="IslandTimerHours">Hours</System:String>
+    <System:String x:Key="IslandTimerMinutes">Minutes</System:String>
+    <System:String x:Key="IslandTimerSeconds">Seconds</System:String>
+    <System:String x:Key="IslandTimerHoursShort">h</System:String>
+    <System:String x:Key="IslandTimerMinutesShort">min</System:String>
+    <System:String x:Key="IslandTimerSecondsShort">s</System:String>
+    <System:String x:Key="IslandTimerZero">Choose at least one second.</System:String>
+    <System:String x:Key="IslandTimerInvalid">Enter a duration between 00:00:01 and 24:00:00.</System:String>
+    <System:String x:Key="IslandClipboardImage">Image</System:String>
+    <System:String x:Key="IslandClipboardBusy">The clipboard is busy. Try again.</System:String>
+    <System:String x:Key="IslandClipboardTooLarge">This item exceeds the 128 MiB history limit and was not saved.</System:String>
+    <System:String x:Key="IslandShelfMoving">Moving {0}…</System:String>
+    <System:String x:Key="IslandShelfCompleted">{0} items moved.</System:String>
+    <System:String x:Key="IslandShelfCancelled">Stopped. Completed moves have been kept.</System:String>
+    <System:String x:Key="IslandShelfCancelOperation">Stop pending moves</System:String>
+    <System:String x:Key="IslandShelfSourceGone">The original item is no longer available.</System:String>
+    <System:String x:Key="IslandShelfInvalidDestination">This location cannot be used as a destination.</System:String>
+    <System:String x:Key="IslandShelfRecoveryAmbiguous">An interrupted move needs review. Both locations were preserved.</System:String>
+    <System:String x:Key="IslandShelfRecoveryFailed">Could not finish shelf recovery. The parked files were preserved.</System:String>
+    <System:String x:Key="IslandShelfReturnOriginal">Return to original folder</System:String>
+    <System:String x:Key="IslandMediaCommandFailed">The player could not complete that action. Try again.</System:String>
+    <System:String x:Key="IslandAppLaunchFailed">Could not open {0}. Check its path in settings and try again.</System:String>
+    <System:String x:Key="IslandOpenKeyboard">Open Fluent Island with keyboard</System:String>
+    <System:String x:Key="IslandAdvanced">Advanced</System:String>
+    <System:String x:Key="IslandWeatherLoading">Loading weather…</System:String>
+    <System:String x:Key="IslandWeatherNoData">No weather data is available. Try refreshing in settings.</System:String>
+    <System:String x:Key="IslandDataStale">Older data · {0}</System:String>
+    <System:String x:Key="IslandCalendarLoading">Synchronizing…</System:String>
+    <System:String x:Key="IslandCalendarStale">Offline · showing the last available events</System:String>
+    <System:String x:Key="IslandRetry">Try again</System:String>
+    <System:String x:Key="IslandReviewSettings">Review in settings</System:String>
+    <System:String x:Key="IslandShelfRecoveryMissing">An interrupted move cannot be located. Review its original folder and the shelf folder.</System:String>
 </ResourceDictionary>

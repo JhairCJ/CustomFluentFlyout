@@ -40,7 +40,8 @@ public sealed record IslandWeatherSnapshot(
     double? LowC,
     string Condition,
     SymbolRegular Glyph,
-    DateTime UpdatedUtc)
+    DateTime UpdatedUtc,
+    int? WeatherCode = null)
 {
     /// <summary>Temperatura redondeada para los textos («18°»).</summary>
     public string TemperatureText => $"{Math.Round(TemperatureC)}°";
@@ -81,6 +82,14 @@ public sealed class IslandWeatherService : IDisposable
 
     private CancellationTokenSource? _loop;
     private bool _disposed;
+    private readonly object _gate = new();
+    private IslandWeatherPlace? _place;
+    private int _generation;
+    private CancellationTokenSource? _request;
+    private Task<bool>? _refreshTask;
+    private int _refreshGeneration;
+    private bool _refreshing;
+    internal Func<IslandWeatherPlace, CancellationToken, Task<IslandWeatherSnapshot?>>? FetchOverride { get; set; }
 
     /// <summary>Último dato bueno publicado (null mientras no haya ninguno).</summary>
     public IslandWeatherSnapshot? Snapshot { get; private set; }
@@ -89,10 +98,28 @@ public sealed class IslandWeatherService : IDisposable
     public string? Error { get; private set; }
 
     /// <summary>Último lugar pedido: sin él no se consulta nada.</summary>
-    public IslandWeatherPlace? Place { get; set; }
+    public IslandWeatherPlace? Place
+    {
+        get { lock (_gate) return _place; }
+        set
+        {
+            lock (_gate)
+            {
+                if (_disposed || Equals(_place, value)) return;
+                bool running = _loop != null;
+                Stop();
+                _place = value;
+                Snapshot = null;
+                Error = null;
+                if (running && value != null) Start();
+            }
+        }
+    }
 
     /// <summary>Se publicó un dato nuevo (o el primero): el consumidor decide si repinta.</summary>
     public event Action<IslandWeatherSnapshot>? Changed;
+    public event Action? StateChanged;
+    public bool IsRefreshing { get { lock (_gate) return _refreshing; } }
 
     /// <summary>
     /// Arranca el ciclo de refresco (idempotente). Sin lugar configurado no consulta
@@ -100,35 +127,84 @@ public sealed class IslandWeatherService : IDisposable
     /// </summary>
     public void Start()
     {
-        if (_disposed || _loop != null) return;
-        var cts = new CancellationTokenSource();
-        _loop = cts;
-        _ = LoopAsync(cts.Token);
+        lock (_gate)
+        {
+            if (_disposed || _loop != null || _place == null) return;
+            _loop = new CancellationTokenSource();
+            _ = LoopAsync(_loop.Token);
+        }
     }
 
     /// <summary>Para el ciclo y olvida lo observado (apagar la funcionalidad no deja nada corriendo).</summary>
     public void Stop()
     {
-        var loop = _loop;
-        _loop = null;
-        try { loop?.Cancel(); } catch { /* ya cancelado */ }
-        loop?.Dispose();
+        lock (_gate)
+        {
+            ++_generation;
+            var loop = _loop;
+            _loop = null;
+            loop?.Cancel();
+            loop?.Dispose();
+            _request?.Cancel();
+        }
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        Stop();
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            Stop();
+            Changed = null;
+            StateChanged = null;
+        }
     }
 
     /// <summary>Refresco a mano (ajustes): devuelve true si se publicó un dato nuevo.</summary>
-    public async Task<bool> RefreshNowAsync()
+    public Task<bool> RefreshNowAsync()
     {
-        var snapshot = await FetchAsync(Place, CancellationToken.None).ConfigureAwait(false);
-        if (snapshot == null) return false;
-        Publish(snapshot);
-        return true;
+        lock (_gate)
+        {
+            if (_disposed || _place == null) return Task.FromResult(false);
+            if (_refreshTask is { IsCompleted: false } && _refreshGeneration == _generation) return _refreshTask;
+            var request = _request = new CancellationTokenSource();
+            _refreshGeneration = _generation;
+            _refreshing = true;
+            return _refreshTask = RefreshCoreAsync(_place, _generation, request);
+        }
+    }
+
+    private async Task<bool> RefreshCoreAsync(IslandWeatherPlace place, int generation, CancellationTokenSource request)
+    {
+        try
+        {
+            var snapshot = FetchOverride is { } fetch
+                ? await fetch(place, request.Token).ConfigureAwait(false)
+                : await FetchAsync(place, request.Token, generation).ConfigureAwait(false);
+            lock (_gate)
+            {
+                if (_disposed || request.IsCancellationRequested || generation != _generation) return false;
+                if (snapshot == null)
+                {
+                    Error ??= IslandStrings.Get("IslandWeatherNoData", "No weather data is available. Try refreshing in settings.");
+                    return false;
+                }
+                Publish(snapshot);
+                return true;
+            }
+        }
+        catch (OperationCanceledException) { return false; }
+        catch (Exception ex) { Log.Warn(ex, "Clima: fallo al refrescar el dato"); return false; }
+        finally
+        {
+            lock (_gate)
+            {
+                if (ReferenceEquals(_request, request)) { _request = null; _refreshing = false; }
+                request.Dispose();
+            }
+            try { StateChanged?.Invoke(); } catch (Exception ex) { Log.Debug(ex, "Weather state subscriber failed"); }
+        }
     }
 
     /// <summary>
@@ -179,16 +255,15 @@ public sealed class IslandWeatherService : IDisposable
     {
         // Primera consulta inmediata (al activar la funcionalidad o arrancar la app) y
         // después una por intervalo. Sin lugar configurado se espera sin consultar.
-        while (!token.IsCancellationRequested)
+        try
         {
-            if (Place != null)
+            while (!token.IsCancellationRequested)
             {
-                var snapshot = await FetchAsync(Place, token).ConfigureAwait(false);
-                if (snapshot != null) Publish(snapshot);
+                await RefreshNowAsync().ConfigureAwait(false);
+                await Task.Delay(RefreshInterval, token).ConfigureAwait(false);
             }
-            try { await Task.Delay(RefreshInterval, token).ConfigureAwait(false); }
-            catch (OperationCanceledException) { return; }
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
     }
 
     private void Publish(IslandWeatherSnapshot snapshot)
@@ -199,7 +274,7 @@ public sealed class IslandWeatherService : IDisposable
         catch (Exception ex) { Log.Warn(ex, "Clima: fallo al publicar el dato"); }
     }
 
-    private async Task<IslandWeatherSnapshot?> FetchAsync(IslandWeatherPlace? place, CancellationToken token)
+    private async Task<IslandWeatherSnapshot?> FetchAsync(IslandWeatherPlace? place, CancellationToken token, int generation)
     {
         if (place == null) return null;
         try
@@ -223,7 +298,7 @@ public sealed class IslandWeatherService : IDisposable
                 if (daily.TryGetProperty("temperature_2m_min", out var min) && min.GetArrayLength() > 0) low = min[0].GetDouble();
             }
             var (condition, glyph) = Describe(code);
-            return new IslandWeatherSnapshot(place.Label, temperature, high, low, condition, glyph, DateTime.UtcNow);
+            return new IslandWeatherSnapshot(place.Label, temperature, high, low, condition, glyph, DateTime.UtcNow, code);
         }
         catch (OperationCanceledException)
         {
@@ -231,7 +306,9 @@ public sealed class IslandWeatherService : IDisposable
         }
         catch (Exception ex)
         {
-            Error = IslandStrings.Get("IslandWeatherError", "Unable to read the weather. It will be retried on the next cycle.");
+            lock (_gate)
+                if (!_disposed && generation == _generation)
+                    Error = IslandStrings.Get("IslandWeatherError", "Unable to read the weather. It will be retried on the next cycle.");
             Log.Warn(ex, "Clima: fallo al leer el dato de {Place}", place.Label);
             return null;
         }
@@ -242,7 +319,7 @@ public sealed class IslandWeatherService : IDisposable
     /// Los códigos van por grupos (despejado, nubes, lluvia, nieve, tormenta), así que
     /// cada glifo cubre su familia sin tabla de treinta entradas.
     /// </summary>
-    private static (string Condition, SymbolRegular Glyph) Describe(int code) => code switch
+    internal static (string Condition, SymbolRegular Glyph) Describe(int code) => code switch
     {
         0 => (Condition("IslandWeatherClear", "Clear"), SymbolRegular.WeatherSunny24),
         1 => (Condition("IslandWeatherMostlyClear", "Mostly clear"), SymbolRegular.WeatherSunny24),

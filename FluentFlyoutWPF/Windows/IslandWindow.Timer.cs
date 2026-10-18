@@ -114,8 +114,10 @@ public partial class IslandWindow
     /// </summary>
     public void RefreshTimerEnabled()
     {
+        _screenMembers.Clear();
         if (!TimerModeAvailable())
         {
+            ReleaseReelCapture();
             _timer.Cancel();
             _pendingTimerAlert = false;
             if (_contentMode == IslandContentMode.Timer)
@@ -149,6 +151,8 @@ public partial class IslandWindow
         TimerProgressFill.Width = track > 0 ? track * _timer.ElapsedFraction : 0;
         bool idle = _timer.State == IslandTimerState.Idle;
         if (idle) PaintReels();
+        TimerStartBtn.IsEnabled = _staged > TimeSpan.Zero;
+        TimerStartBtn.ToolTip = _staged > TimeSpan.Zero ? null : IslandStrings.Get("IslandTimerZero", "Choose at least one second.");
         TimerRunOrigin.Text = _timer.OriginLabel;
         TimerRunRemaining.Text = IslandTimer.FormatHms(_timer.Remaining);
         TimerRunPauseGlyph.Symbol = _timer.State == IslandTimerState.Paused
@@ -160,12 +164,15 @@ public partial class IslandWindow
         TimerAlertName.Text = _timer.OriginLabel;
     }
 
-    private void PaintReels()
+    private void PaintReels(bool force = false)
     {
+        if (!force && _keyboardMode && (ReelH.IsKeyboardFocusWithin || ReelM.IsKeyboardFocusWithin || ReelS.IsKeyboardFocusWithin)) return;
+        _paintingReels = true;
         long total = (long)_staged.TotalSeconds;
         ReelH.Text = $"{total / 3600:00}";
         ReelM.Text = $"{(total % 3600) / 60:00}";
         ReelS.Text = $"{total % 60:00}";
+        _paintingReels = false;
     }
 
     /// <summary>
@@ -261,19 +268,21 @@ public partial class IslandWindow
     // the fade. That way, repeating ApplyContentVisibility (container updates, settings,
     // start/pause) can never push the panel back to opacity 0 and leave the box black
     // (001/002 ADDED RF-1).
-    private static void FadeInPanel(UIElement el, bool show)
+    private void FadeInPanel(UIElement el, bool show)
     {
-        el.BeginAnimation(UIElement.OpacityProperty, null);
-        el.Opacity = 1; // local value = final state; the animation only covers the gesture
         if (!show)
         {
+            el.BeginAnimation(UIElement.OpacityProperty, null);
+            el.Opacity = 1;
             el.Visibility = Visibility.Collapsed;
             return;
         }
         if (el.Visibility == Visibility.Visible) return;
+        el.BeginAnimation(UIElement.OpacityProperty, null);
+        el.Opacity = 1; // local value = final state; the animation only covers the gesture
         el.Visibility = Visibility.Visible;
-        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150));
-        fadeIn.Completed += (_, _) => el.BeginAnimation(UIElement.OpacityProperty, null);
+        if (!AnimationsEnabled) return;
+        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)) { FillBehavior = FillBehavior.Stop };
         el.BeginAnimation(UIElement.OpacityProperty, fadeIn);
     }
 
@@ -354,7 +363,7 @@ public partial class IslandWindow
     {
         _staged = TimeSpan.Zero;
         TimerStatus.Text = "";
-        _hoverSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
+        _hoverSnoozeUntil = IslandClock.Now.AddSeconds(TimerReshowSnoozeSeconds);
         _expanded = false;
         RefreshTimerUI();
         // The timer closing is an event of its own: in «Temporary notice», with music
@@ -386,11 +395,17 @@ public partial class IslandWindow
     /// </summary>
     private void ShowTimerAlert()
     {
+        if (_disposed) return;
         if (!TimerModeAvailable()) return;
         if (!SettingsManager.Current.IslandEnabled) { _pendingTimerAlert = true; return; }
+        if (DictationActive())
+        {
+            PostActivity(IslandActivityReason.Timer);
+            return;
+        }
         // skipIfExpanded:false - the alert is exclusive and must prevail over the
         // current view even if the box was already expanded (002 RF-2/RF-6).
-        ShowExpandedView(IslandContentMode.Timer, TimerFeature, RefreshTimerUI, skipIfExpanded: false);
+        RefreshPresentation();
     }
 
     /// <summary>
@@ -406,6 +421,7 @@ public partial class IslandWindow
     /// </summary>
     private void CycleMode(int direction = 1)
     {
+        ReleaseReelCapture();
         // Modal alert: until stop or restart there is no way out to the other modes.
         if (_timer.State == IslandTimerState.Alerting) return;
         // Navigation by SCREENS (change island-pantallas RF-4): each step looks for the
@@ -450,15 +466,17 @@ public partial class IslandWindow
             case "M": m = WrapUnit(m + dir, 60); break;
             default: s = WrapUnit(s + dir, 60); break;
         }
-        _staged = new TimeSpan(h, m, s);
+        _staged = new TimeSpan(h, h == 24 ? 0 : m, h == 24 ? 0 : s);
         _timerInputCustom = true;
         TimerPresetList.SelectedItem = null;
         TimerStatus.Text = "";
+        PaintReels(force: true);
         RefreshTimerUI();
     }
 
     private void Reel_Down(object sender, MouseButtonEventArgs e)
     {
+        if (_keyboardMode) return;
         if (sender is not FrameworkElement el || el.Tag is not string unit) return;
         _reelDragging = true;
         _reelDragUnit = unit;
@@ -485,7 +503,7 @@ public partial class IslandWindow
             case "M": m = next; break;
             default: s = next; break;
         }
-        _staged = new TimeSpan(h, m, s);
+        _staged = new TimeSpan(h, h == 24 ? 0 : m, h == 24 ? 0 : s);
         _timerInputCustom = true;
         TimerPresetList.SelectedItem = null;
         TimerStatus.Text = "";
@@ -502,7 +520,10 @@ public partial class IslandWindow
     // Wheel on a digit: up decreases, down increases (the owner's criterion).
     private void Reel_Wheel(object sender, MouseWheelEventArgs e)
     {
-        if ((e.OriginalSource as FrameworkElement)?.Tag is not string unit) return;
+        DependencyObject? source = e.OriginalSource as DependencyObject;
+        while (source is not FrameworkElement { Tag: string } && source != null && source != TimerReels)
+            source = IslandParent(source);
+        if (source is not FrameworkElement { Tag: string unit }) return;
         ReelStep(unit, e.Delta > 0 ? -1 : 1);
         e.Handled = true;
     }
@@ -520,6 +541,7 @@ public partial class IslandWindow
 
     private void TimerStart_Click(object sender, RoutedEventArgs e)
     {
+        if (_keyboardMode && !CommitTimerEntry()) return;
         TimeSpan duration;
         string origin;
         if (!_timerInputCustom && TimerPresetList.SelectedItem is TimerPreset preset)

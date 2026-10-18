@@ -3,6 +3,8 @@
 
 using FluentFlyout.Classes;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Windows.Threading;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -45,18 +47,19 @@ public sealed class IslandClipboardItem
     public BitmapSource? Preview { get; init; }
 
     public DateTime When { get; init; } = DateTime.Now;
+    public string ContentHash { get; init; } = "";
+    public long MemoryBytes => (long)Text.Length * sizeof(char) + ImageBytes(Image) + (ReferenceEquals(Image, Preview) ? 0 : ImageBytes(Preview));
+    private static long ImageBytes(BitmapSource? image) => image == null ? 0 : (long)image.PixelWidth * image.PixelHeight * Math.Max(4, (image.Format.BitsPerPixel + 7) / 8);
 
     /// <summary>¿Es la misma pieza que esta otra? (para no repetir copias seguidas)</summary>
     public bool SameAs(IslandClipboardItem other) =>
         Kind == other.Kind
         && (Kind == IslandClipboardKind.Text
             ? string.Equals(Text, other.Text, StringComparison.Ordinal)
-            : ReferenceEquals(Image, other.Image) || (Image != null && other.Image != null
-                && Image.PixelWidth == other.Image.PixelWidth
-                && Image.PixelHeight == other.Image.PixelHeight));
+            : ReferenceEquals(Image, other.Image) && Image != null || ContentHash.Length > 0 && ContentHash == other.ContentHash);
 
     /// <summary>Texto del elemento para el tooltip y para las pantallas combinadas.</summary>
-    public string Caption => Kind == IslandClipboardKind.Image ? "Imagen" : Shorten(Text, 120);
+    public string Caption => Kind == IslandClipboardKind.Image ? IslandStrings.Get("IslandClipboardImage", "Image") : Shorten(Text, 120);
 
     /// <summary>Primeras letras del texto, para la ficha minúscula del compacto.</summary>
     public string Initials => Kind == IslandClipboardKind.Image
@@ -65,8 +68,11 @@ public sealed class IslandClipboardItem
 
     private static string Shorten(string text, int max)
     {
-        string flat = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
-        return flat.Length <= max ? flat : flat[..max] + "…";
+        ReadOnlySpan<char> trimmed = text.AsSpan().Trim();
+        int length = Math.Min(trimmed.Length, max);
+        if (length > 0 && length < trimmed.Length && char.IsHighSurrogate(trimmed[length - 1])) length--;
+        string flat = new string(trimmed[..length]).Replace('\r', ' ').Replace('\n', ' ');
+        return length == trimmed.Length ? flat : flat + "…";
     }
 }
 
@@ -98,13 +104,32 @@ public sealed class IslandClipboardService : IDisposable
 
     private const int WM_CLIPBOARDUPDATE = 0x031D;
     /// <summary>Tope de texto guardado por elemento (una copia gigante no hincha la lista).</summary>
-    private const int MaxTextLength = 20000;
+    internal long MemoryBudgetBytes { get; set; } = 128L * 1024 * 1024;
+    private readonly Action<IDataObject> _writeClipboard;
+    private readonly Func<uint> _sequenceNumber;
+    private readonly Func<int, Task> _retryDelay;
+
+    public IslandClipboardService(Action<IDataObject>? writeClipboard = null, Func<uint>? sequenceNumber = null, Func<int, Task>? retryDelay = null)
+    {
+        _writeClipboard = writeClipboard ?? (data => Clipboard.SetDataObject(data, true));
+        _sequenceNumber = sequenceNumber ?? GetClipboardSequenceNumber;
+        _retryDelay = retryDelay ?? (milliseconds => Task.Delay(milliseconds));
+    }
+    private const string OriginFormat = "FluentFlyout.Island.ClipboardOrigin";
+    private readonly string _origin = Guid.NewGuid().ToString("N");
+    private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
+    private int _generation, _writeVersion;
+    private long _memoryBytes;
+    public string Error { get; private set; } = "";
+
+    [DllImport("user32.dll")]
+    private static extern uint GetClipboardSequenceNumber();
     /// <summary>Lado máximo de la miniatura de una imagen.</summary>
     private const int PreviewSide = 160;
 
     private readonly List<IslandClipboardItem> _items = [];
     private HwndSource? _source;
-    private bool _ignoreNext;
+
     private bool _disposed;
 
     /// <summary>Elementos vivos, del más reciente al más viejo.</summary>
@@ -156,6 +181,8 @@ public sealed class IslandClipboardService : IDisposable
     /// <summary>Deja de escuchar y suelta la ventana de mensajes.</summary>
     public void Stop()
     {
+        ++_generation;
+        ++_writeVersion;
         var source = _source;
         _source = null;
         if (source == null) return;
@@ -174,8 +201,11 @@ public sealed class IslandClipboardService : IDisposable
     /// <summary>Vacía la lista (ajuste de ajustes y del propio Island).</summary>
     public void Clear()
     {
-        if (_items.Count == 0) return;
+        ++_writeVersion;
+        ++_generation;
         _items.Clear();
+        _memoryBytes = 0;
+        Error = "";
         Changed?.Invoke();
     }
 
@@ -184,33 +214,40 @@ public sealed class IslandClipboardService : IDisposable
     /// escritura se marca para que su propia notificación no lo vuelva a añadir
     /// (RF-3); el elemento sube al principio (es lo último usado).
     /// </summary>
-    public void Copy(IslandClipboardItem item)
+    public async Task<bool> CopyAsync(IslandClipboardItem item)
     {
-        try
+        if (_disposed) return false;
+        int version = ++_writeVersion;
+        uint sequence = _sequenceNumber();
+        for (int attempt = 0; attempt < 3; attempt++)
         {
-            if (item.Kind == IslandClipboardKind.Image && item.Image != null)
+            if (_disposed || version != _writeVersion || (attempt > 0 && _sequenceNumber() != sequence)) return false;
+            try
             {
-                _ignoreNext = true;
-                Clipboard.SetImage(item.Image);
+                var data = new DataObject();
+                if (item.Kind == IslandClipboardKind.Image && item.Image != null) data.SetImage(item.Image);
+                else if (item.Text.Length > 0) data.SetText(item.Text);
+                else return false;
+                data.SetData(OriginFormat, _origin);
+                _writeClipboard(data);
+                Error = "";
+                if (_items.Remove(item)) _items.Insert(0, item);
+                Changed?.Invoke();
+                return true;
             }
-            else if (item.Text.Length > 0)
+            catch (COMException) when (attempt < 2) { await _retryDelay(attempt == 0 ? 50 : 150); }
+            catch (Exception ex)
             {
-                _ignoreNext = true;
-                Clipboard.SetText(item.Text);
+                Log.Warn(ex, "Island clipboard write failed");
+                break;
             }
-            else
-            {
-                return;
-            }
-            if (_items.Remove(item)) _items.Insert(0, item);
+        }
+        if (!_disposed && version == _writeVersion)
+        {
+            Error = IslandStrings.Get("IslandClipboardBusy", "The clipboard is busy. Try again.");
             Changed?.Invoke();
         }
-        catch (Exception ex)
-        {
-            // El portapapeles puede estar bloqueado por otra aplicación justo ahora.
-            _ignoreNext = false;
-            Log.Warn(ex, "Portapapeles: no se pudo devolver el elemento al portapapeles");
-        }
+        return false;
     }
 
     public void Dispose()
@@ -224,72 +261,100 @@ public sealed class IslandClipboardService : IDisposable
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (msg != WM_CLIPBOARDUPDATE) return IntPtr.Zero;
-        // La copia la hizo el propio Island: no vuelve a entrar en la lista.
-        if (_ignoreNext)
+        if (msg == WM_CLIPBOARDUPDATE && !_disposed)
         {
-            _ignoreNext = false;
-            return IntPtr.Zero;
+            int generation = ++_generation;
+            uint sequence = _sequenceNumber();
+            // Never perform clipboard conversion or hashing inside a native callback.
+            _dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => _ = CaptureAsync(generation, sequence)));
         }
-        Capture();
         return IntPtr.Zero;
     }
 
-    /// <summary>
-    /// Lee el portapapeles y añade lo que haya. Si otra aplicación lo tiene
-    /// bloqueado en ese instante (COMException) se descarta ESA captura: la
-    /// siguiente copia vuelve a avisar.
-    /// </summary>
-    private void Capture()
+    private async Task CaptureAsync(int generation, uint sequence)
     {
-        try
+        for (int attempt = 0; attempt < 3; attempt++)
         {
-            IslandClipboardItem? item = null;
-            if (Clipboard.ContainsImage())
+            if (_disposed || !IsListening || generation != _generation || _sequenceNumber() != sequence) return;
+            try
             {
-                var image = Clipboard.GetImage();
-                if (image != null)
+                if (Clipboard.GetData(OriginFormat) as string == _origin) return;
+                IslandClipboardItem? item = null;
+                if (Clipboard.ContainsImage() && Clipboard.GetImage() is { } image)
                 {
-                    item = new IslandClipboardItem
+                    if ((long)image.PixelWidth * image.PixelHeight * 4 > MemoryBudgetBytes) { RejectOversized(); return; }
+                    if (!image.IsFrozen)
                     {
-                        Kind = IslandClipboardKind.Image,
-                        Image = image,
-                        Preview = MakePreview(image),
-                    };
+                        image = BitmapFrame.Create(image);
+                        image.Freeze();
+                    }
+                    var preview = MakePreview(image);
+                    string hash = await Task.Run(() => ImageHash(image));
+                    item = new IslandClipboardItem { Kind = IslandClipboardKind.Image, Image = image, Preview = preview, ContentHash = hash };
                 }
+                else if (Clipboard.ContainsText())
+                {
+                    string text = Clipboard.GetText();
+                    if ((long)text.Length * sizeof(char) > MemoryBudgetBytes) { RejectOversized(); return; }
+                    if (!string.IsNullOrWhiteSpace(text)) item = new IslandClipboardItem { Kind = IslandClipboardKind.Text, Text = text };
+                }
+                if (!_disposed && generation == _generation && item != null) Add(item);
+                return;
             }
-            else if (Clipboard.ContainsText())
+            catch (COMException) when (attempt < 2) { await _retryDelay(attempt == 0 ? 50 : 150); }
+            catch (Exception ex)
             {
-                string text = Clipboard.GetText();
-                if (!string.IsNullOrWhiteSpace(text))
+                Log.Warn(ex, "Island clipboard capture failed");
+                if (!_disposed && generation == _generation)
                 {
-                    item = new IslandClipboardItem
-                    {
-                        Kind = IslandClipboardKind.Text,
-                        Text = text.Length > MaxTextLength ? text[..MaxTextLength] : text,
-                    };
+                    Error = IslandStrings.Get("IslandClipboardBusy", "The clipboard is busy. Try again.");
+                    Changed?.Invoke();
                 }
+                return;
             }
-            if (item == null) return;
-            Add(item);
         }
-        catch (COMException)
+    }
+
+    internal static string ImageHash(BitmapSource source)
+    {
+        var image = new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
+        int stride = checked(image.PixelWidth * 4);
+        byte[] row = new byte[stride];
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(BitConverter.GetBytes(image.PixelWidth));
+        hash.AppendData(BitConverter.GetBytes(image.PixelHeight));
+        for (int y = 0; y < image.PixelHeight; y++)
         {
-            // Portapapeles ocupado por otra aplicación: se ignora esta captura.
+            image.CopyPixels(new Int32Rect(0, y, image.PixelWidth, 1), row, stride, 0);
+            hash.AppendData(row);
         }
-        catch (Exception ex)
-        {
-            Log.Warn(ex, "Portapapeles: no se pudo leer lo copiado");
-        }
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    private void RejectOversized()
+    {
+        Error = IslandStrings.Get("IslandClipboardTooLarge", "This item exceeds the 128 MiB history limit and was not saved.");
+        Changed?.Invoke();
     }
 
     private void Add(IslandClipboardItem item)
     {
-        if (_items.Count > 0 && _items[0].SameAs(item)) return; // copia repetida
+        if (item.MemoryBytes > MemoryBudgetBytes) { RejectOversized(); return; }
+        if (_items.Count > 0 && _items[0].SameAs(item)) return;
         _items.Insert(0, item);
-        int max = Math.Clamp(MaxItems, 1, 100);
-        while (_items.Count > max) _items.RemoveAt(_items.Count - 1);
+        _memoryBytes += item.MemoryBytes;
+        Trim();
+        Error = "";
         Changed?.Invoke();
+    }
+
+    public void Trim()
+    {
+        while (_items.Count > 0 && (_items.Count > Math.Clamp(MaxItems, 1, 100) || _memoryBytes > MemoryBudgetBytes))
+        {
+            _memoryBytes -= _items[^1].MemoryBytes;
+            _items.RemoveAt(_items.Count - 1);
+        }
     }
 
     /// <summary>Miniatura congelada de una imagen (el original no se toca: RF-4).</summary>

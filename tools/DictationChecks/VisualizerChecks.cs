@@ -5,6 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using FluentFlyout.Classes.Settings;
 using FluentFlyoutWPF.Classes;
+using NAudio.CoreAudioApi;
 using NAudio.CoreAudioApi.Interfaces;
 
 // Synthetic samples only: no recorder is started and no audio device is changed.

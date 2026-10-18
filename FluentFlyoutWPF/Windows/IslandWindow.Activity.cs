@@ -78,12 +78,10 @@ public partial class IslandWindow
     // View refresh ONLY while there is visible content (001 MOD RF-16;
     // 002 MOD RF-15): timer countdown, expanded seek and calendar
     // countdowns. Never with the view hidden.
-    private const int ViewRefreshIntervalMs = 300;
 
     // --- activity mailbox ---
-    private IslandActivityReason _activityReasons;
-    private bool _activityScheduled;
-    private bool _reconciling;
+    private int _activityReasons;
+    private int _activityScheduled;
 
     // --- cadences limited per content ---
     private DispatcherTimer? _recovery;
@@ -181,30 +179,20 @@ public partial class IslandWindow
     /// </summary>
     private void PostActivity(IslandActivityReason reason)
     {
-        if (_disposed) return;
-        _activityReasons |= reason;
-        if (_activityScheduled || _reconciling) return;
-        _activityScheduled = true;
+        if (_disposed || Dispatcher.HasShutdownStarted) return;
+        Interlocked.Or(ref _activityReasons, (int)reason);
+        if (Interlocked.CompareExchange(ref _activityScheduled, 1, 0) != 0) return;
         Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(Reconcile));
     }
 
     private void Reconcile()
     {
-        _activityScheduled = false;
-        if (_disposed) return;
-        if (_reconciling) return;
-        _reconciling = true;
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
-            // The whole mailbox is drained: the changes arriving DURING the
-            // reconciliation are handled in the same pass with the last state.
-            while (!_disposed)
-            {
-                var reasons = _activityReasons;
-                if (reasons == IslandActivityReason.None) break;
-                _activityReasons = IslandActivityReason.None;
-                ReconcileCore(reasons);
-            }
+            if (_disposed) return;
+            var reasons = (IslandActivityReason)Interlocked.Exchange(ref _activityReasons, 0);
+            if (reasons != IslandActivityReason.None) ReconcileCore(reasons);
         }
         catch (Exception ex)
         {
@@ -212,7 +200,12 @@ public partial class IslandWindow
         }
         finally
         {
-            _reconciling = false;
+            _profilePasses++;
+            _profileMaxReconcileMs = Math.Max(_profileMaxReconcileMs, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            Interlocked.Exchange(ref _activityScheduled, 0);
+            // Yield to input/rendering between passes instead of draining an
+            // unbounded stream of events on the dispatcher in a while loop.
+            if (Volatile.Read(ref _activityReasons) != 0) PostActivity(IslandActivityReason.None);
         }
     }
 
@@ -224,6 +217,8 @@ public partial class IslandWindow
     /// </summary>
     private void ReconcileCore(IslandActivityReason reasons)
     {
+        _screenMembers.Clear();
+        ReconcileDeferredNotices();
         // Each pass reads the media system from scratch (once per pass): the read memos
         // die here, so no decision is taken with data from the previous pass and the 5 s
         // recovery keeps seeing a fresh state.
@@ -316,7 +311,7 @@ public partial class IslandWindow
         // shown right away, without waiting for the geometry to settle or for any gate
         // (change island-lista-de-activos). The decision is a single one, even if the
         // reason arrived through different paths.
-        if (DateTime.UtcNow >= _hoverSnoozeUntil) RefreshPresentation();
+        if (IslandClock.Now >= _hoverSnoozeUntil) RefreshPresentation();
         if (_expanded && !_drag && !_reelDragging && !IsMouseOverBoxOrStrip()) LeaveHover();
         SyncEq();
         UpdateArrows();
@@ -336,35 +331,45 @@ public partial class IslandWindow
     /// </summary>
     private void UpdateVisibleRefresh()
     {
-        bool want = !_disposed && SettingsManager.Current.IslandEnabled && IsBoxShown
-            && (_contentMode switch
-            {
-                IslandContentMode.Timer => TimerModeAvailable(),
-                IslandContentMode.Calendar => CalendarModeAvailable(),
-                // The expanded seek is only painted with the media view in front.
-                IslandContentMode.Media => _expanded && MusicContentShown(),
-                // The expanded view of a combined screen ages its countdowns
-                // (timer, calendar) and its seek. Collapsed it does not go through here:
-                // it shows ONE feature and its route sets the cadence.
-                IslandContentMode.Screen => _expanded,
-                _ => false,
-            });
+        int interval = int.MaxValue;
+        bool visible = !_disposed && SettingsManager.Current.IslandEnabled && IsVisible && IsBoxShown
+            && !_inactiveShown && _inactiveTt < 1;
+        if (visible)
+        {
+            if (ViewShowsFeature("timer") && _timer.State == IslandTimerState.Running) interval = 250;
+            if (_expanded && ViewShowsFeature("media") && MusicAvailable())
+                interval = Math.Min(interval, _lastStatus == global::Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing ? 100 : 1000);
+            if (ViewShowsFeature("calendar") && CalendarModeAvailable()) interval = Math.Min(interval, 30000);
+        }
+        bool want = interval != int.MaxValue;
         if (want)
         {
             if (_viewRefresh == null)
             {
                 _viewRefresh = new DispatcherTimer(DispatcherPriority.Background)
                 {
-                    Interval = TimeSpan.FromMilliseconds(ViewRefreshIntervalMs),
+                    Interval = TimeSpan.FromMilliseconds(interval),
                 };
                 _viewRefresh.Tick += (_, _) => RefreshVisibleContent();
             }
+            var cadence = TimeSpan.FromMilliseconds(interval);
+            if (_viewRefresh.Interval != cadence) _viewRefresh.Interval = cadence;
             if (!_viewRefresh.IsEnabled) _viewRefresh.Start();
         }
         else
         {
             _viewRefresh?.Stop();
         }
+    }
+
+    private void SyncPresentationWork()
+    {
+        if (!SeekVisible && _seekObserved != null) ShutdownSeek();
+        SyncEq();
+        UpdateDictationBars();
+        UpdateDictationShimmer();
+        UpdateRotationPauseState();
+        UpdateVisibleRefresh();
     }
 
     private void RefreshVisibleContent()
@@ -403,6 +408,7 @@ public partial class IslandWindow
     /// </summary>
     private void OnTimerChanged()
     {
+        _screenMembers.Clear();
         ArmTimerWake();
         PostActivity(IslandActivityReason.Timer);
         UpdateVisibleRefresh();
@@ -430,7 +436,7 @@ public partial class IslandWindow
             {
                 _timerWake?.Stop();
                 // The target time rules: when it fires it is checked against the clock.
-                _timer.Poll(DateTime.UtcNow);
+                _timer.Poll(IslandClock.Now);
             };
         }
         _timerWake.Stop();
@@ -446,7 +452,7 @@ public partial class IslandWindow
     {
         if (_timer.State != IslandTimerState.Running) { ArmTimerWake(); return; }
         if (_timer.Remaining > TimeSpan.Zero) { ArmTimerWake(); return; }
-        _timer.Poll(DateTime.UtcNow);
+        _timer.Poll(IslandClock.Now);
     }
 
     // ------------------------------------------------------------------
@@ -456,11 +462,12 @@ public partial class IslandWindow
     private void OnRecoveryTick(object? sender, EventArgs e)
     {
         if (_disposed) return;
+        RecordIslandPerformance();
         // Impure context (foreground/fullscreen/DPI) only here and on events.
         _ctxValid = false;
         PostRecovery();
         // Temporary notice: if its one-shot was lost, it is honoured here within 5 s.
-        if (!_noticeCheckActive && _noticeUntil != DateTime.MinValue && _noticeUntil <= DateTime.UtcNow)
+        if (!_noticeCheckActive && _noticeUntil != DateTime.MinValue && _noticeUntil <= IslandClock.Now)
             RetractTemporaryNotice(_noticeVersion);
     }
 
@@ -547,12 +554,15 @@ public partial class IslandWindow
         int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
     {
         if (eventType != NativeMethods.EVENT_SYSTEM_FOREGROUND) return;
-        _ctxValid = false;
-        PostActivity(IslandActivityReason.Context);
+        QueueIslandUi(() =>
+        {
+            _ctxValid = false;
+            PostActivity(IslandActivityReason.Context);
+        });
     }
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e) =>
-        Dispatcher.BeginInvoke(new Action(QueueIslandDisplayRefresh));
+        QueueIslandUi(QueueIslandDisplayRefresh);
 
     private void OnSessionSwitch(object? sender, SessionSwitchEventArgs e)
     {
@@ -571,14 +581,14 @@ public partial class IslandWindow
     /// context included (001 MOD RF-2/RF-28; 002 MOD RF-6/RF-13).
     /// </summary>
     private void HandleSystemWake() =>
-        Dispatcher.BeginInvoke(new Action(() =>
+        QueueIslandUi(() =>
         {
             if (_disposed) return;
             _ctxValid = false;
             RefreshContextSnapshot();
             PollTimerSafely();
             PostRecovery();
-        }));
+        });
 
     // ------------------------------------------------------------------
     // Native pointer notification with fallback (001 MOD RF-3)

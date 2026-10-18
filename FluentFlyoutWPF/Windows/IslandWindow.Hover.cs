@@ -81,7 +81,7 @@ public partial class IslandWindow
         // resurrect itself right after the user closed it).
         if (UltraCompactPullsFromTop)
         {
-            if (DateTime.UtcNow < _hoverSnoozeUntil) return;
+            if (IslandClock.Now < _hoverSnoozeUntil) return;
             if (ExpandLastUsable()) return;
         }
         // T2: if we are already at inactive rest/nothing for lack of a current active item
@@ -95,7 +95,7 @@ public partial class IslandWindow
         }
         // Anti-reopen: the user just hid the box with the cursor on top of it; detection
         // must not immediately give content back.
-        if (DateTime.UtcNow < _hoverSnoozeUntil) return;
+        if (IslandClock.Now < _hoverSnoozeUntil) return;
         if (!_inactiveHot)
         {
             _inactiveHot = true;
@@ -206,20 +206,20 @@ public partial class IslandWindow
     /// </summary>
     private void ArmHoverLeave()
     {
-        if (_disposed || !_expanded || _drag || _reelDragging) return;
+        if (_disposed || !_expanded || InteractionProtected) return;
         if (_hoverLeavePending) return;
         _hoverLeavePending = true;
         int version = ++_hoverLeaveVersion;
-        _ = Task.Delay(HoverLeaveGraceMs).ContinueWith(_ => Dispatcher.Invoke(() =>
+        _ = AfterIslandDelay(HoverLeaveGraceMs, () =>
         {
             if (_disposed || version != _hoverLeaveVersion) return;
             _hoverLeavePending = false;
             // The pointer is over the Island again (or an interaction is in progress): the
             // card stays as it was.
-            if (!_expanded || _drag || _reelDragging || IsMouseOverBoxOrStrip()) return;
+            if (!_expanded || InteractionProtected || IsMouseOverBoxOrStrip()) return;
             if (Suppressed()) { HidePerMode(); return; }
             CollapseFromHover();
-        }));
+        });
     }
 
     /// <summary>
@@ -307,7 +307,7 @@ public partial class IslandWindow
         // The click completes the growth and opens the last usable one; with none usable
         // it does not open an empty view (001 MOD RF-3, RF-9, RF-16).
         if (!ExpandLastUsable())
-            _hoverSnoozeUntil = DateTime.UtcNow.AddSeconds(TimerReshowSnoozeSeconds);
+            _hoverSnoozeUntil = IslandClock.Now.AddSeconds(TimerReshowSnoozeSeconds);
     }
 
     /// <summary>
@@ -342,7 +342,9 @@ public partial class IslandWindow
         // up it compacts without changing screen.
         if (_expanded && UsableScreenCount() > 1)
         {
-            if (e.OriginalSource is DependencyObject wheelSrc && (Seekbar.IsAncestorOf(wheelSrc) || TimerPresetList.IsAncestorOf(wheelSrc) || TimerConfigGrid.IsAncestorOf(wheelSrc))) return;
+            if (e.OriginalSource is DependencyObject wheelSrc && (Seekbar.IsAncestorOf(wheelSrc)
+                || ReferenceEquals(wheelSrc, TimerReels) || TimerReels.IsAncestorOf(wheelSrc)
+                || IsInsideScrollControl(wheelSrc))) return;
             if (e.Delta < 0) CycleMode();
             // Explicit gesture: the wheel folds right away, without the pointer grace.
             else if (e.Delta > 0) CollapseFromHover();

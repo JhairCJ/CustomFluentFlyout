@@ -49,6 +49,9 @@ public partial class IslandWindow
 
     public void RefreshAppearance()
     {
+        if (_disposed) return;
+        if (_settingsUpdateDepth > 0) { _appearancePending = true; return; }
+        ApplyAccessibleAppearance();
         ApplyStyle();
         ApplyAlbumArtRadius();
         ApplyIslandTextStyle();
@@ -63,16 +66,15 @@ public partial class IslandWindow
     /// (estado del temporizador, del calendario y del cargador) para que el Island no
     /// quede a medio traducir.
     /// </summary>
-    private void OnLanguageChanged() => Dispatcher.Invoke(() =>
+    private void OnLanguageChanged() => QueueIslandUi(() =>
     {
         if (_disposed) return;
         ApplyIslandTextStyle();
         UpdateLine();
         if (!IsBoxShown) return;
-        if (_contentMode == IslandContentMode.Timer) RefreshTimerUI();
-        else if (_contentMode == IslandContentMode.Calendar) RefreshCalendarList();
-        else if (_contentMode == IslandContentMode.Power) RefreshPowerUI();
-        else if (_contentMode == IslandContentMode.Dictation) RefreshDictationUI();
+        foreach (var card in _featureCards.Values)
+            if (card.Compact.IsVisible || card.Expanded.Any(panel => panel.IsVisible)) card.Refresh();
+        SyncMeasuredHeight();
     });
 
     private int _appliedStyle = -1;
@@ -86,12 +88,12 @@ public partial class IslandWindow
             _appliedStyle = style;
             if (style == 1)
             {
-                IslandBox.BorderThickness = new Thickness(1, 0, 1, 1);
+                IslandBox.BorderThickness = new Thickness(0);
                 CompactLayer.Width = RestCompactWidth(NotchCompactWidth);
             }
             else
             {
-                IslandBox.BorderThickness = new Thickness(1);
+                IslandBox.BorderThickness = new Thickness(0);
                 CompactLayer.Width = ContentCompactWidth;
             }
         }
@@ -99,9 +101,9 @@ public partial class IslandWindow
         // Mientras se arrastra algo sobre el Island (estante) el borde se ilumina aunque
         // el borde configurado esté apagado: es la señal de que ahí se puede soltar, no
         // decoración.
-        IslandBox.BorderBrush = _shelfDropHot
-            ? ShelfDropBrush
-            : SettingsManager.Current.IslandBorderEnabled ? IslandBorderBrush : Brushes.Transparent;
+        IslandOutline.Stroke = _shelfDropHot
+            ? SystemParameters.HighContrast ? SystemColors.HighlightBrush : ShelfDropBrush
+            : SettingsManager.Current.IslandBorderEnabled ? SystemParameters.HighContrast ? SystemColors.WindowTextBrush : IslandBorderBrush : Brushes.Transparent;
 
         // CornerRadius lo gobierna ApplyFrame por frame (punto 26→cápsula)
         SyncMeasuredHeight();
@@ -166,6 +168,7 @@ public partial class IslandWindow
     public void ApplyIslandTextStyle()
     {
         FontFamily family = IslandFontFamily;
+        FontFamily = family;
 
         CompactTitle.FontFamily = family;
         SongTitle.FontFamily = family;
@@ -180,7 +183,7 @@ public partial class IslandWindow
         SongTitle.FontWeight = titleWeight;
         SongArtist.FontWeight = ToIslandFontWeight(IslandArtistWeight);
         SongArtist.FontStyle = IslandArtistItalic ? FontStyles.Italic : FontStyles.Normal;
-        _islandArtistOpacity = IslandArtistOpacity;
+        _islandArtistOpacity = SystemParameters.HighContrast ? 1 : Math.Max(0.75, IslandArtistOpacity);
 
         SyncMeasuredHeight();
     }
@@ -245,7 +248,7 @@ public partial class IslandWindow
         HoverStrip.HorizontalAlignment = HorizontalAlignment.Center;
         HoverStrip.VerticalAlignment = VerticalAlignment.Top;
         ApplyAccessZone();
-        var eqVis = SettingsManager.Current.IslandEqEnabled ? Visibility.Visible : Visibility.Collapsed;
+        var eqVis = SettingsManager.Current.IslandEqEnabled && !SystemParameters.HighContrast ? Visibility.Visible : Visibility.Collapsed;
         ExpandedEq.Visibility = eqVis;
         UpdateEqButton(); // arbitra CompactEq vs icono de pausa
         UpdateMediaStatusDot();
@@ -315,8 +318,10 @@ public partial class IslandWindow
         var s = AnySession();
         bool zone = !_expanded && SettingsManager.Current.IslandEqEnabled && s != null;
         bool paused = s != null && zone && SafeStatus(s) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
-        EqPlayPauseBtn.Visibility = paused ? Visibility.Visible : Visibility.Collapsed;
-        CompactEq.Visibility = paused ? Visibility.Collapsed
+        bool icon = paused || SystemParameters.HighContrast;
+        EqPlayPauseGlyph.Symbol = paused ? Wpf.Ui.Controls.SymbolRegular.Play16 : Wpf.Ui.Controls.SymbolRegular.Pause16;
+        EqPlayPauseBtn.Visibility = zone && icon ? Visibility.Visible : Visibility.Collapsed;
+        CompactEq.Visibility = icon ? Visibility.Collapsed
             : SettingsManager.Current.IslandEqEnabled ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -325,6 +330,7 @@ public partial class IslandWindow
         e.Handled = true;
         PlayPause_Click(sender, e);
         // Flip optimista de vista; UpdateLine/Tick lo confirman.
+        if (SystemParameters.HighContrast) { PostActivity(IslandActivityReason.Media); return; }
         bool toIcon = EqPlayPauseBtn.Visibility != Visibility.Visible;
         EqPlayPauseBtn.Visibility = toIcon ? Visibility.Visible : Visibility.Collapsed;
         if (SettingsManager.Current.IslandEqEnabled)
@@ -353,7 +359,7 @@ public partial class IslandWindow
         double monitorWidth = primary.dpiX > 0
             ? primary.workArea.Width * 96.0 / primary.dpiX
             : DefaultWindowWidth;
-        double maxWindow = Math.Max(280, monitorWidth - 24);
+        double maxWindow = Math.Max(200, monitorWidth - 24);
         double wanted = Math.Min(Math.Max(DefaultWindowWidth, content + 80), maxWindow);
         if (Math.Abs(Width - wanted) > 0.5) Width = wanted;
         double rawW = Width * primary.dpiX / 96.0;

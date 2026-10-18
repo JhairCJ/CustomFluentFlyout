@@ -35,6 +35,10 @@ public sealed class GoogleCalendarService
 
     private readonly Lock _gate = new();
     private readonly List<GoogleCalendarEvent> _upcoming = [];
+    private IReadOnlyList<GoogleCalendarEvent> _publishedUpcoming = Array.Empty<GoogleCalendarEvent>();
+    private readonly SemaphoreSlim _fetchGate = new(1, 1);
+    private int _generation;
+    private string _configuredAccount = "", _configuredClient = "";
     private readonly HashSet<string> _reminded = [];
 
     private CancellationTokenSource? _loopCts;
@@ -44,7 +48,7 @@ public sealed class GoogleCalendarService
     /// <summary>Copia de los próximos eventos, ya ordenados por comienzo.</summary>
     public IReadOnlyList<GoogleCalendarEvent> Upcoming
     {
-        get { lock (_gate) return [.. _upcoming]; }
+        get { lock (_gate) return _publishedUpcoming; }
     }
 
     /// <summary>Instante de la última sincronización correcta (MinValue = ninguna).</summary>
@@ -68,14 +72,24 @@ public sealed class GoogleCalendarService
     {
         bool wanted = Wanted();
         bool running = _loop != null;
+        var settings = SettingsManager.Current;
+        if (wanted && running && (_configuredAccount != settings.GoogleCalendarAccount || _configuredClient != settings.GoogleCalendarClientId))
+        {
+            Stop();
+            running = false;
+        }
+        _configuredAccount = settings.GoogleCalendarAccount;
+        _configuredClient = settings.GoogleCalendarClientId;
         if (wanted && !running) Start();
-        else if (!wanted && running) Stop();
+        else if (!wanted && (running || Syncing)) Stop();
     }
 
     /// <summary>Sincroniza ahora, sin esperar al siguiente ciclo (botón de ajustes).</summary>
     public async Task RefreshNowAsync()
     {
         if (!Wanted()) return;
+        int generation = _generation;
+        var expectedSettings = SettingsManager.Current;
         try
         {
             await FetchAsync(CancellationToken.None);
@@ -83,11 +97,11 @@ public sealed class GoogleCalendarService
         catch (Exception ex)
         {
             Logger.Warn(ex, "Calendario: sincronización manual fallida");
-            Fail(ex);
+            if (generation == _generation && Wanted() && ReferenceEquals(expectedSettings, SettingsManager.Current)) Fail(ex);
         }
         finally
         {
-            StateChanged?.Invoke();
+            NotifyStateChanged();
         }
     }
 
@@ -99,23 +113,34 @@ public sealed class GoogleCalendarService
 
     private void Start()
     {
-        _loopCts = new CancellationTokenSource();
-        _loop = Task.Run(() => LoopAsync(_loopCts.Token));
+        var cancellation = new CancellationTokenSource();
+        _loopCts = cancellation;
+        _loop = Task.Run(() => LoopAsync(cancellation.Token));
     }
 
     private void Stop()
     {
-        try { _loopCts?.Cancel(); }
+        ++_generation;
+        var previous = _loopCts;
+        var previousLoop = _loop;
+        try { previous?.Cancel(); }
         catch (ObjectDisposedException) { /* ya cerrado */ }
         _loopCts = null;
         _loop = null;
+        if (previous != null)
+        {
+            if (previousLoop != null) _ = previousLoop.ContinueWith(_ => previous.Dispose(), TaskScheduler.Default);
+            else previous.Dispose();
+        }
         lock (_gate)
         {
             _upcoming.Clear();
+            _publishedUpcoming = Array.Empty<GoogleCalendarEvent>();
             _reminded.Clear();
         }
         LastSyncUtc = DateTime.MinValue;
-        StateChanged?.Invoke();
+        _lastFetch = DateTime.MinValue;
+        NotifyStateChanged();
     }
 
     /// <summary>
@@ -127,13 +152,15 @@ public sealed class GoogleCalendarService
     {
         while (!ct.IsCancellationRequested)
         {
+            int generation = _generation;
+            var expectedSettings = SettingsManager.Current;
             try
             {
                 var settings = SettingsManager.Current;
                 if (settings.IslandCalendarEnabled && settings.GoogleCalendarSignedIn)
                 {
                     int everyMinutes = Math.Clamp(settings.GoogleCalendarRefreshMinutes, 1, 60);
-                    if ((DateTime.Now - _lastFetch).TotalMinutes >= everyMinutes) await FetchAsync(ct);
+                    if ((DateTime.UtcNow - _lastFetch).TotalMinutes >= everyMinutes) await FetchAsync(ct);
                     CheckReminders();
                 }
             }
@@ -144,7 +171,7 @@ public sealed class GoogleCalendarService
             catch (Exception ex)
             {
                 Logger.Warn(ex, "Calendario: ciclo de recordatorios");
-                Fail(ex);
+                if (generation == _generation && Wanted() && ReferenceEquals(expectedSettings, SettingsManager.Current)) Fail(ex);
             }
 
             try { await Task.Delay(Tick, ct); }
@@ -154,9 +181,13 @@ public sealed class GoogleCalendarService
 
     private async Task FetchAsync(CancellationToken ct)
     {
+        int generation = _generation;
+        await _fetchGate.WaitAsync(ct);
         var settings = SettingsManager.Current;
-        if (!settings.GoogleCalendarSignedIn) return;
+        string account = settings.GoogleCalendarAccount;
+        if (!Wanted() || generation != _generation) { _fetchGate.Release(); return; }
         Syncing = true;
+        NotifyStateChanged();
         try
         {
             string token = await GoogleCalendarClient.EnsureAccessTokenAsync(ct);
@@ -166,16 +197,21 @@ public sealed class GoogleCalendarService
             var events = await GoogleCalendarClient.FetchUpcomingAsync(token, from, to, 20, ct);
             lock (_gate)
             {
+                if (generation != _generation || !Wanted() || !ReferenceEquals(settings, SettingsManager.Current) || account != settings.GoogleCalendarAccount) return;
                 _upcoming.Clear();
                 _upcoming.AddRange(events);
+                _publishedUpcoming = Array.AsReadOnly(_upcoming.ToArray());
+                _reminded.IntersectWith(_upcoming.Select(item => $"{item.Id}@{item.Start.Ticks}"));
+                LastSyncUtc = DateTime.UtcNow;
+                _lastFetch = DateTime.UtcNow;
             }
-            LastSyncUtc = DateTime.UtcNow;
             settings.GoogleCalendarError = "";
-            _lastFetch = DateTime.Now;
         }
         finally
         {
             Syncing = false;
+            _fetchGate.Release();
+            NotifyStateChanged();
         }
     }
 
@@ -199,6 +235,12 @@ public sealed class GoogleCalendarService
             }
         }
         foreach (var item in due) ReminderDue?.Invoke(item);
+    }
+
+    private void NotifyStateChanged()
+    {
+        try { StateChanged?.Invoke(); }
+        catch (Exception ex) { Logger.Debug(ex, "Calendar state subscriber failed"); }
     }
 
     private static void Fail(Exception ex) =>

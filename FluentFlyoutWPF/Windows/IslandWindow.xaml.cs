@@ -98,21 +98,12 @@ public partial class IslandWindow : Window
         100,
         220);
 
-    // Dimensiones efectivas del contenido seleccionado (001 MOD RF-25): la
-    // funcionalidad puede pedir ancho/alto propios y el contenedor los respeta;
-    // con 0 (lo que hacen media y temporizador) valen el ancho configurado común
-    // y la altura medida del contenido. Así una funcionalidad futura con otra
-    // geometría no necesita tocar el motor del contenedor.
-    private double ContentExpandedWidth => _contentMode == IslandContentMode.Screen && ScreenIsCombined()
-        // Pantalla combinada: una columna por funcionalidad, de izquierda a derecha, y
-        // el ancho es DINÁMICO (lo fija el número de columnas; change island-pantallas RF-3).
-        ? ScreenExpandedWidthForMembers(CurrentScreenColumnCount())
-        : _selectedFeature is { ExpandedPreferredWidth: > 0 } f
-            ? Math.Clamp(f.ExpandedPreferredWidth, 200, 600)
+    // Widgets keep their own proportions; combined screens sum their natural widths.
+    private double ContentExpandedWidth => _contentMode == IslandContentMode.Screen
+        ? CurrentScreenExpandedWidth()
+        : _selectedFeature is { } feature && feature.Id is not ("media" or "timer")
+            ? Math.Clamp(PreferredColumnWidth(feature.Id) + ScreenRowPadding, 200, 600)
             : ExpandedIslandWidth;
-    private double ContentExpandedHeight => _selectedFeature is { ExpandedPreferredHeight: > 0 } f
-        ? Math.Clamp(f.ExpandedPreferredHeight, 80, 260)
-        : ExpandedIslandHeight;
     /// <summary>
     /// Ancho de reposo (compacto) que declara el contenido seleccionado, con el modo
     /// ultra compacto por delante (entonces manda el ancho de sus dos extremos).
@@ -194,7 +185,31 @@ public partial class IslandWindow : Window
     private BitmapSource? _backgroundCrossfadeTarget;
     private int _backgroundCrossfadeVersion;
     private int _backgroundGeneration;
+    private (BitmapImage icon, double side, int radius)? _requestedBackgroundBake;
+    private readonly Dictionary<(BitmapImage icon, double side, int radius), BitmapSource> _backgroundCache = [];
     private bool _disposed;
+    private readonly CancellationTokenSource _lifetime = new();
+
+    // Native/service callbacks never synchronously wait for a closing UI thread.
+    private void QueueIslandUi(Action action)
+    {
+        if (_disposed || Dispatcher.HasShutdownStarted) return;
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+        {
+            if (!_disposed && !Dispatcher.HasShutdownStarted) { _screenMembers.Clear(); action(); }
+        });
+    }
+
+    private async Task AfterIslandDelay(int milliseconds, Action action)
+    {
+        try
+        {
+            await Task.Delay(milliseconds, _lifetime.Token);
+            if (!_disposed) action();
+        }
+        catch (OperationCanceledException) when (_disposed) { }
+        catch (Exception ex) { Logger.Error(ex, "Island delayed interaction failed"); }
+    }
     private bool _wasSuppressed;
     private Thickness _expandedMarginOrig;
 
@@ -273,6 +288,7 @@ public partial class IslandWindow : Window
         // que el contenedor sabe de cada una. Va lo primero, con los elementos del
         // XAML ya creados, porque todo lo que sigue la consulta.
         BuildFeatureCards();
+        _expandedCanonicalHomes = CapturePanelHomes(_featureCards.Values.SelectMany(card => card.Expanded));
         InitTimer();
         InitApps();
         InitShelf();
@@ -305,6 +321,7 @@ public partial class IslandWindow : Window
         if (SettingsManager.Current.IslandVisibilityMode is < 0 or > 1)
             SettingsManager.Current.IslandVisibilityMode = 0;
         _expandedMarginOrig = ExpandedLayer.Margin;
+        ApplyAccessibleAppearance();
         ApplyAlbumArtRadius();
         CompactEq.Source = _eq.Bitmap;
         ExpandedEq.Source = _eq.Bitmap;
@@ -326,9 +343,12 @@ public partial class IslandWindow : Window
         // puntero, contexto por eventos de Windows y red de recuperación de 5 s
         // (001 MOD RF-1/RF-3/RF-12/RF-28). Sin latido de 200 ms ni poll de 40 ms.
         InitActivity();
+        IsVisibleChanged += (_, _) => { if (!_disposed) SyncPresentationWork(); };
         // Idioma en caliente: los textos del XAML se refrescan solos; los que escribe
         // el código los re-aplica este aviso (ver IslandWindow.Presentation.cs).
         LocalizationManager.LanguageChanged += OnLanguageChanged;
+        SystemParameters.StaticPropertyChanged += OnSystemAppearanceChanged;
+        Deactivated += Island_Deactivated;
         SyncExistingMediaState();
     }
 
@@ -351,6 +371,8 @@ public partial class IslandWindow : Window
         // entra con el revelado punto -> pieza— y sin residuos en el árbol.
         if (!SettingsManager.Current.IslandEnabled)
         {
+            ReleaseReelCapture();
+            LeaveKeyboardMode();
             SnapHidden();
             Visibility = Visibility.Collapsed;
             return;
@@ -364,8 +386,8 @@ public partial class IslandWindow : Window
         ShowInactiveOrHidden();
     }
 
-    private void NotePlay(string id) { _lastPlay[id] = DateTime.Now; _lastFeatureEvent["media"] = DateTime.UtcNow; _currentId = id; }
-    private void NoteFeatureEvent(string id) => _lastFeatureEvent[id] = DateTime.UtcNow;
+    private void NotePlay(string id) { _lastPlay[id] = IslandClock.Now; _lastFeatureEvent["media"] = IslandClock.Now; _currentId = id; }
+    private void NoteFeatureEvent(string id) => _lastFeatureEvent[id] = IslandClock.Now;
 
     protected override void OnClosed(EventArgs e)
     {
@@ -377,12 +399,21 @@ public partial class IslandWindow : Window
     {
         if (_disposed) return;
         _disposed = true;
+        _lifetime.Cancel();
         Seekbar.ReleaseMouseCapture();
         _seekSession = null;
         _drag = false;
         _artworkPublication?.Cancel();
         LocalizationManager.LanguageChanged -= OnLanguageChanged;
+        SystemParameters.StaticPropertyChanged -= OnSystemAppearanceChanged;
+        Deactivated -= Island_Deactivated;
+        ReleaseReelCapture();
+        LeaveKeyboardMode();
         ShutdownActivity();
+        _timer.Finished -= OnTimerFinished;
+        _timer.Changed -= OnTimerChanged;
+        ShutdownCalendar();
+        ShutdownSeek();
         ShutdownBluetooth();
         ShutdownClipboard();
         ShutdownWeather();
@@ -392,8 +423,14 @@ public partial class IslandWindow : Window
         StopLoop();
         StopAlbumFlip();
         StopBackgroundRotation();
+        ++_backgroundGeneration;
+        _backgroundIcon = _bakedIcon = _bakingIcon = null;
+        _bakedBackground = null;
+        _backgroundCache.Clear();
+        BackgroundImage.Source = BackgroundImageNext.Source = null;
         _eq.Dispose();
         HookMediaEvents(false);
+        _lifetime.Dispose();
     }
 
     // ------------------------------------------------------------------
@@ -454,11 +491,11 @@ public partial class IslandWindow : Window
     });
 
     private bool HasExclusive() =>
-        _features.Features.Any(f => f.State.Exclusive);
+        _features.Features.Any(f => FeatureState(f) is { Exclusive: true, Usable: true });
 
     // --- consultas de contenido vigente ---
 
-    private bool AnimationsEnabled => SettingsManager.Current.IslandAnimated && SettingsManager.Current.FlyoutAnimationSpeed != 0;
+    private bool AnimationsEnabled => SettingsManager.Current.IslandAnimated && SettingsManager.Current.FlyoutAnimationSpeed != 0 && SystemParameters.ClientAreaAnimation;
 
     /// <summary>¿La vista actual es música (no temporizador) con sesión disponible?</summary>
     private bool MusicContentShown() => _contentMode == IslandContentMode.Media && MusicAvailable();
@@ -470,6 +507,7 @@ public partial class IslandWindow : Window
 
     public void RefreshEnabledState()
     {
+        _screenMembers.Clear();
         // El seguimiento multimedia vive con el Island: apagado se suelta entero y al
         // volver a encenderlo se reengancha y adopta lo que ya esté sonando.
         bool mediaHooksOff = !_mediaHooksOn;
@@ -522,6 +560,7 @@ public partial class IslandWindow : Window
     /// </summary>
     public void RefreshVisibilityState()
     {
+        _screenMembers.Clear();
         if (!SettingsManager.Current.IslandEnabled
             || (Suppressed() && !HasExclusive() && !DictationFeedbackAvailable())) return;
         RefreshPresentation();

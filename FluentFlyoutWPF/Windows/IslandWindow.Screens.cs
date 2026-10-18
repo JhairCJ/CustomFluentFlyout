@@ -53,11 +53,10 @@ public partial class IslandWindow
     /// <summary>Resting width of the compact of a single feature (CompactLayer in the XAML).</summary>
     private const double SingleCompactLayerWidth = 240;
     /// <summary>MAXIMUM width of a column of the expanded view of a combined screen.</summary>
-    private const double ScreenColumnWidth = 236;
     /// <summary>Gap between columns of the expanded view (same as the XAML margin).</summary>
     private const double ScreenColumnGap = 14;
     /// <summary>Side padding of the expanded content (the ExpandedLayer margin: 16+16).</summary>
-    private const double ScreenRowPadding = 32;
+    private const double ScreenRowPadding = 28;
     /// <summary>
     /// Maximum width of the expanded view of a combined screen: with four columns (the
     /// maximum of <see cref="IslandFeatureIds.MaxFeaturesPerScreen"/>) they fit at full
@@ -77,6 +76,7 @@ public partial class IslandWindow
     /// </summary>
     public void ApplyScreens()
     {
+        _screenMembers.Clear();
         _screens.Clear();
         var assigned = new HashSet<string>(StringComparer.Ordinal);
         foreach (var raw in SettingsManager.Current.IslandScreens)
@@ -101,13 +101,17 @@ public partial class IslandWindow
         _screens.Count == 0 ? [] : _screens[Math.Clamp(_screenIndex, 0, _screens.Count - 1)];
 
     /// <summary>Usable features of a screen, in the order of the screen.</summary>
+    private readonly Dictionary<IReadOnlyList<string>, List<IIslandFeature>> _screenMembers = new(ReferenceEqualityComparer.Instance);
+
     private List<IIslandFeature> ScreenUsableFeatures(IReadOnlyList<string> ids)
     {
+        if (_screenMembers.TryGetValue(ids, out var cached)) return cached;
         var members = new List<IIslandFeature>();
         foreach (var id in ids)
         {
-            if (FeatureById(id) is { } feature && feature.State.Usable) members.Add(feature);
+            if (FeatureById(id) is { } feature && FeatureState(feature).Usable) members.Add(feature);
         }
+        _screenMembers[ids] = members;
         return members;
     }
 
@@ -359,6 +363,7 @@ public partial class IslandWindow
     /// </summary>
     public void RefreshScreensContent() => Dispatcher.Invoke(() =>
     {
+        ReleaseReelCapture();
         ApplyScreens();
         if (!IsBoxShown || _disposed) return;
         // The current view is presented again when it is a SCREEN (its composition may
@@ -399,12 +404,34 @@ public partial class IslandWindow
     /// own pace). The compact does not go through here: it shows a single feature and is
     /// refreshed through that feature's route.
     /// </summary>
+    private long _nextCombinedTimerTick, _nextCombinedCalendarTick, _nextCombinedMediaTick;
+
     private void RefreshCombinedScreenTick()
     {
         if (_disposed || !IsBoxShown || _contentMode != IslandContentMode.Screen) return;
         if (!_expanded) return;
-        // Each column ages at its own pace: its card declares it.
-        foreach (var member in CurrentScreenFeatures()) FeatureCard(member.Id)?.Tick?.Invoke();
+        // The shared clock follows the fastest column; slower columns retain
+        // their own cadence instead of rebuilding their text at the seek rate.
+        long now = Environment.TickCount64;
+        foreach (var member in CurrentScreenFeatures())
+        {
+            switch (member.Id)
+            {
+                case IslandFeatureIds.Timer:
+                    if (now < _nextCombinedTimerTick) continue;
+                    _nextCombinedTimerTick = now + 250;
+                    break;
+                case IslandFeatureIds.Calendar:
+                    if (now < _nextCombinedCalendarTick) continue;
+                    _nextCombinedCalendarTick = now + 30000;
+                    break;
+                case IslandFeatureIds.Media:
+                    if (now < _nextCombinedMediaTick) continue;
+                    _nextCombinedMediaTick = now + (_lastStatus == global::Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing ? 100 : 1000);
+                    break;
+            }
+            FeatureCard(member.Id)?.Tick?.Invoke();
+        }
     }
 
     /// <summary>Refreshes the data of a feature inside a combined screen.</summary>
@@ -433,7 +460,11 @@ public partial class IslandWindow
         var members = CurrentScreenFeatures();
         // Simple screen (or with no usable members): the panels go back to their home.
         if (members.Count <= 1) RestoreExpandedHomes();
-        HideAllContentLayers();
+        foreach (var card in _featureCards.Values)
+        {
+            card.Compact.Visibility = Visibility.Collapsed;
+            if (!members.Any(member => member.Id == card.Id)) card.HideExpanded();
+        }
         // The expanded view goes from LEFT TO RIGHT: the panels of each member are moved
         // to its column, in the order of the screen (RF-2/RF-3).
         ComposeScreenExpandedRow(members);
@@ -476,6 +507,15 @@ public partial class IslandWindow
     /// expanded view by hand.
     /// </summary>
     private readonly Dictionary<UIElement, (Panel Parent, int Index)> _expandedHomes = [];
+    private Dictionary<UIElement, (Panel Parent, int Index)> _expandedCanonicalHomes = [];
+
+    internal static Dictionary<UIElement, (Panel Parent, int Index)> CapturePanelHomes(IEnumerable<UIElement> panels)
+    {
+        var homes = new Dictionary<UIElement, (Panel Parent, int Index)>();
+        foreach (var panel in panels)
+            if (VisualTreeHelper.GetParent(panel) is Panel parent) homes[panel] = (parent, parent.Children.IndexOf(panel));
+        return homes;
+    }
 
     /// <summary>
     /// Composes the expanded view of a combined screen: one column per feature, from LEFT
@@ -488,7 +528,6 @@ public partial class IslandWindow
     /// </summary>
     private void ComposeScreenExpandedRow(List<IIslandFeature> members)
     {
-        RestoreExpandedHomes();
         var columns = new List<(string Id, StackPanel Host)>();
         foreach (var member in members)
         {
@@ -496,20 +535,26 @@ public partial class IslandWindow
         }
         // The used columns go first, in the order of the screen; behind them stay (hidden)
         // the rest, so that no XAML reference is lost.
-        ScreenExpandedRow.Children.Clear();
-        foreach (var (_, host) in columns) ScreenExpandedRow.Children.Add(host);
-        foreach (var column in AllScreenColumns())
+        var desiredOrder = columns.Select(c => c.Host).Concat(AllScreenColumns().Where(c => !columns.Any(x => ReferenceEquals(x.Host, c)))).ToArray();
+        if (!ScreenExpandedRow.Children.Cast<StackPanel>().SequenceEqual(desiredOrder))
         {
-            if (!columns.Any(c => ReferenceEquals(c.Host, column))) ScreenExpandedRow.Children.Add(column);
+            ScreenExpandedRow.Children.Clear();
+            foreach (var host in desiredOrder) ScreenExpandedRow.Children.Add(host);
         }
-        double columnWidth = ScreenColumnWidthForCount(columns.Count);
+        foreach (var pair in _expandedHomes.ToArray())
+            if (!columns.Any(c => MemberPanels(c.Id).Contains(pair.Key))) RestoreExpandedPanel(pair.Key, pair.Value);
+        var widths = FitScreenColumnWidths(columns.Select(column => PreferredColumnWidth(column.Id)).ToArray(),
+            Math.Max(1, CurrentScreenExpandedWidth() - ScreenRowPadding), ScreenColumnGap);
         foreach (var column in AllScreenColumns())
         {
-            bool used = columns.Any(c => ReferenceEquals(c.Host, column));
+            int index = columns.FindIndex(c => ReferenceEquals(c.Host, column));
+            bool used = index >= 0;
             column.Visibility = used ? Visibility.Visible : Visibility.Collapsed;
-            column.Width = used ? columnWidth : double.NaN;
+            column.Width = used ? widths[index] : double.NaN;
+            column.Margin = new Thickness(0, 0, used && !ReferenceEquals(column, columns.Last().Host) ? ScreenColumnGap : 0, 0);
         }
         ScreenExpandedRow.Visibility = columns.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ScreenViewport.Visibility = ScreenExpandedRow.Visibility;
         foreach (var (id, host) in columns)
         {
             foreach (var panel in MemberPanels(id)) MoveToColumn(panel, host);
@@ -521,12 +566,23 @@ public partial class IslandWindow
     /// (the box one, already clamped to the monitor) is shared out among the columns that
     /// will be seen, so that the last one is not cut off by the edge.
     /// </summary>
-    private double ScreenColumnWidthForCount(int columns)
+    private double PreferredColumnWidth(string id) => id switch
     {
-        if (columns <= 0) return ScreenColumnWidth;
-        double available = ScreenExpandedWidthForMembers(columns) - ScreenRowPadding
-            - Math.Max(0, columns - 1) * ScreenColumnGap;
-        return Math.Clamp(available / columns, 150, ScreenColumnWidth);
+        IslandFeatureIds.Media => 280,
+        IslandFeatureIds.Timer => 200,
+        IslandFeatureIds.Apps => Math.Clamp(AppsExpandedList.Items.Count, 3, 4) * 48,
+        IslandFeatureIds.Shelf => Math.Clamp(ShelfExpandedList.Items.Count, 2, 4) * 48,
+        IslandFeatureIds.Weather => 236,
+        _ => 260
+    };
+
+    internal static double[] FitScreenColumnWidths(IReadOnlyList<double> preferred, double available, double gap)
+    {
+        if (preferred.Count == 0) return [];
+        double budget = Math.Max(0, available - Math.Max(0, preferred.Count - 1) * gap);
+        double total = preferred.Sum();
+        double scale = total > 0 ? Math.Min(1, budget / total) : 0;
+        return preferred.Select(width => width * scale).ToArray();
     }
 
     private IEnumerable<StackPanel> AllScreenColumns() =>
@@ -537,7 +593,8 @@ public partial class IslandWindow
     {
         if (VisualTreeHelper.GetParent(panel) is not Panel parent) return;
         if (ReferenceEquals(parent, host)) return;
-        if (!_expandedHomes.ContainsKey(panel)) _expandedHomes[panel] = (parent, parent.Children.IndexOf(panel));
+        if (!_expandedHomes.ContainsKey(panel))
+            _expandedHomes[panel] = _expandedCanonicalHomes.TryGetValue(panel, out var home) ? home : (parent, parent.Children.IndexOf(panel));
         parent.Children.Remove(panel);
         host.Children.Add(panel);
     }
@@ -547,22 +604,32 @@ public partial class IslandWindow
     /// starting point) and when leaving a combined screen; with no moved panels it does
     /// nothing.
     /// </summary>
+    internal static void RestorePanelHome(UIElement panel, Panel destination, int index)
+    {
+        if (VisualTreeHelper.GetParent(panel) is Panel parent && !ReferenceEquals(parent, destination)) parent.Children.Remove(panel);
+        if (!destination.Children.Contains(panel)) destination.Children.Insert(Math.Min(index, destination.Children.Count), panel);
+    }
+
+    private void RestoreExpandedPanel(UIElement panel, (Panel Parent, int Index) home)
+    {
+        RestorePanelHome(panel, home.Parent, home.Index);
+        _expandedHomes.Remove(panel);
+    }
+
     private void RestoreExpandedHomes()
     {
         if (_expandedHomes.Count == 0)
         {
             ScreenExpandedRow.Visibility = Visibility.Collapsed;
+            ScreenViewport.Visibility = Visibility.Collapsed;
             RestoreScreenColumnOrder();
             return;
         }
-        foreach (var (panel, home) in _expandedHomes.OrderBy(kv => kv.Value.Index))
-        {
-            if (VisualTreeHelper.GetParent(panel) is Panel parent && !ReferenceEquals(parent, home.Parent))
-                parent.Children.Remove(panel);
-            home.Parent.Children.Insert(Math.Min(home.Index, home.Parent.Children.Count), panel);
-        }
+        foreach (var pair in _expandedHomes.OrderBy(kv => kv.Value.Index).ToArray())
+            RestoreExpandedPanel(pair.Key, pair.Value);
         _expandedHomes.Clear();
         ScreenExpandedRow.Visibility = Visibility.Collapsed;
+            ScreenViewport.Visibility = Visibility.Collapsed;
         RestoreScreenColumnOrder();
         foreach (var column in AllScreenColumns())
         {
@@ -580,7 +647,7 @@ public partial class IslandWindow
     {
         var canonical = AllScreenColumns().ToList();
         if (ScreenExpandedRow.Children.Count == canonical.Count
-            && canonical.All(column => ScreenExpandedRow.Children.Contains(column)))
+            && !ScreenExpandedRow.Children.Cast<StackPanel>().SequenceEqual(canonical))
         {
             ScreenExpandedRow.Children.Clear();
             foreach (var column in canonical) ScreenExpandedRow.Children.Add(column);
@@ -591,14 +658,16 @@ public partial class IslandWindow
     /// Width of the expanded view of a combined screen: dynamic, one column per feature
     /// visible in the expanded view, without going past the monitor.
     /// </summary>
-    private double ScreenExpandedWidthForMembers(int columns)
+    private double CurrentScreenExpandedWidth()
     {
-        // Each column carries its gap on the right (the XAML margin), so the needed width
-        // is one column + its gap per column, plus the side padding of the content. Without
-        // that last margin the last column would be cut off by the edge of the box.
-        double total = columns * (ScreenColumnWidth + ScreenColumnGap) + ScreenRowPadding;
+        // Size this screen from its own widgets. No equal-width stretching and no
+        // horizontal scrolling. Narrow monitors reduce widths proportionally,
+        // keeping every widget in the same left-to-right row.
+        var columns = CurrentScreenFeatures().Where(feature => ColumnFor(feature.Id) != null).ToArray();
+        double total = columns.Sum(feature => PreferredColumnWidth(feature.Id))
+            + Math.Max(0, columns.Length - 1) * ScreenColumnGap + ScreenRowPadding;
         var primary = PrimaryMonitor();
         double monitorWidth = primary.dpiX > 0 ? primary.workArea.Width * 96.0 / primary.dpiX : ScreenExpandedMaxWidth;
-        return Math.Clamp(total, 280, Math.Min(ScreenExpandedMaxWidth, Math.Max(280, monitorWidth - 24)));
+        return Math.Clamp(total, 280, Math.Min(ScreenExpandedMaxWidth, Math.Max(280, monitorWidth - 104)));
     }
 }
