@@ -82,11 +82,12 @@ public partial class TaskbarWidgetControl : UserControl
     private BitmapImage? _bakedIcon;
     private BitmapSource? _bakedBackground;
     private double _bakedSideDip;
-    // Small LRU of baked discs: skipping back and forth between recent albums
+    private double _bakedBlurRadius;
+    // Small bounded cache of baked discs: skipping between recent albums
     // reuses the baked texture instantly instead of rebaking + redipping.
     // Keyed by artwork instance (thumbnails come from the cache, so reference
     // identity is exact); side is quantized to 16 DIPs, one entry per side.
-    private readonly Dictionary<(BitmapImage icon, double side), BitmapSource> _bakedBackgroundCache = [];
+    private readonly Dictionary<(BitmapImage icon, double side, double radius), BitmapSource> _bakedBackgroundCache = [];
     private const int BakedBackgroundCacheLimit = 6;
     private RotateTransform? _backgroundRotateTransform;
     private bool _backgroundRotationActive;
@@ -103,6 +104,12 @@ public partial class TaskbarWidgetControl : UserControl
     // burst events (duplicate metadata, resize ticks) don't stack parallel bakes.
     private BitmapImage? _bakingIcon;
     private double _bakingSide;
+    private double _bakingBlurRadius;
+    private (BitmapImage icon, double side, double radius)? _requestedBake;
+    private int _bakeVersion;
+    // The checks can control completion order without doing expensive raster work.
+    internal Func<BitmapImage, double, double, double, Task<BitmapSource?>> BackgroundBaker { get; set; } =
+        (icon, side, dpi, radius) => Task.Run(() => BakeBlurredBackground(icon, side, dpi, radius));
 
     // Debounce before collapsing to the "no media" placeholder so the widget does not
     // blink during the transient gap while switching tracks.
@@ -131,15 +138,7 @@ public partial class TaskbarWidgetControl : UserControl
     }
     private bool _expansionTransition;
     private bool _noMediaWhileExpanded;
-    private static readonly Brush SongInfoHoverBrush = CreateFrozenBrush(0x18);
-    private static readonly Brush SongInfoExpandedBrush = CreateFrozenBrush(0x2A);
-
-    private static Brush CreateFrozenBrush(byte alpha)
-    {
-        var brush = new SolidColorBrush(Color.FromArgb(alpha, 0xFF, 0xFF, 0xFF));
-        brush.Freeze();
-        return brush;
-    }
+    private readonly SolidColorBrush _songInfoHighlight = new(Colors.Transparent);
 
     // Play/pause glyphs shared across updates: allocating a new SymbolIcon per
     // metadata event is pure GC pressure for two constant visuals.
@@ -516,6 +515,7 @@ public partial class TaskbarWidgetControl : UserControl
     /// </summary>
     public void UpdateBackgroundMode(bool preserveCrossfade = false)
     {
+        if (!preserveCrossfade) CancelBackgroundCrossfade();
         bool shouldRotate = SettingsManager.Current.TaskbarWidgetBackgroundRotate &&
                             SettingsManager.Current.TaskbarWidgetBackgroundBlur;
 
@@ -536,8 +536,6 @@ public partial class TaskbarWidgetControl : UserControl
             if (_currentIcon != null)
                 BackgroundImage.Source = _currentIcon;
         }
-
-        if (!preserveCrossfade) CancelBackgroundCrossfade();
 
         UpdateRotationPauseState();
     }
@@ -736,6 +734,14 @@ public partial class TaskbarWidgetControl : UserControl
             return;
         }
 
+        // A third target must start from the visible blend, not replace the
+        // partially visible incoming texture. Both layers share the same rotation.
+        if (nextWasVisible && nextStart > 0 && BackgroundImageNext.Source != null)
+        {
+            BackgroundImage.Source = CaptureBackgroundBlend(baseStart, nextStart);
+            baseStart = 1;
+            nextStart = 0;
+        }
         _bgCrossfadeTarget = target;
         BackgroundImageNext.Source = target;
         BackgroundImageNext.Visibility = Visibility.Visible;
@@ -767,6 +773,25 @@ public partial class TaskbarWidgetControl : UserControl
         };
         BackgroundImage.BeginAnimation(OpacityProperty, fadeBaseOut);
         BackgroundImageNext.BeginAnimation(OpacityProperty, fadeIn);
+    }
+
+    private BitmapSource CaptureBackgroundBlend(double baseOpacity, double nextOpacity)
+    {
+        const int side = 256;
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            dc.PushOpacity(baseOpacity);
+            dc.DrawImage(BackgroundImage.Source, new Rect(0, 0, side, side));
+            dc.Pop();
+            dc.PushOpacity(nextOpacity);
+            dc.DrawImage(BackgroundImageNext.Source, new Rect(0, 0, side, side));
+            dc.Pop();
+        }
+        var snapshot = new RenderTargetBitmap(side, side, 96, 96, PixelFormats.Pbgra32);
+        snapshot.Render(visual);
+        snapshot.Freeze();
+        return snapshot;
     }
 
     /// <summary>
@@ -867,6 +892,9 @@ public partial class TaskbarWidgetControl : UserControl
 
     private void StopBackgroundRotation()
     {
+        ++_bakeVersion;
+        _requestedBake = null;
+        _bakingIcon = null;
         _backgroundRotationActive = false;
         _backgroundRotationAnimationRunning = false;
         _backgroundRotationPaused = false;
@@ -991,8 +1019,18 @@ public partial class TaskbarWidgetControl : UserControl
         // length) must reuse the cached disc instead of rebaking and re-dipping.
         // Layout still uses the exact discSide; only the bake is quantized.
         double bakeSide = Math.Round(discSide / 16.0) * 16.0;
+        double blurRadiusDips = SettingsManager.Current.TaskbarWidgetBackgroundBlurRadius;
+        var key = (icon, bakeSide, blurRadiusDips);
+        if (_requestedBake is not { } requested || requested != key)
+        {
+            _requestedBake = key;
+            ++_bakeVersion;
+            _bakingIcon = null;
+        }
+        int version = _bakeVersion;
 
-        if (_bakedBackground != null && ReferenceEquals(_bakedIcon, icon) && Math.Abs(_bakedSideDip - bakeSide) < 0.5)
+        if (_bakedBackground != null && ReferenceEquals(_bakedIcon, icon)
+            && _bakedSideDip == bakeSide && _bakedBlurRadius == blurRadiusDips)
         {
             // Identical content already baked: never snap or cancel here. A crossfade
             // already heading there is left alone to finish with easing.
@@ -1003,11 +1041,12 @@ public partial class TaskbarWidgetControl : UserControl
 
         // Recent album revisited (A -> B -> A): adopt the cached disc with the same
         // synced crossfade, no worker bake, no dip.
-        if (_bakedBackgroundCache.TryGetValue((icon, bakeSide), out BitmapSource? cachedBaked))
+        if (_bakedBackgroundCache.TryGetValue(key, out BitmapSource? cachedBaked))
         {
             _bakedIcon = icon;
             _bakedBackground = cachedBaked;
             _bakedSideDip = bakeSide;
+            _bakedBlurRadius = blurRadiusDips;
             if (_backgroundRotationActive)
                 BeginBackgroundCrossfade(cachedBaked, TaskbarWidgetAnimationEnvironment.GetDurationMs());
             return;
@@ -1015,7 +1054,7 @@ public partial class TaskbarWidgetControl : UserControl
 
         // Same bake already running (event burst / resize ticks): the in-flight task
         // will deliver it, don't stack another one.
-        if (ReferenceEquals(_bakingIcon, icon) && Math.Abs(_bakingSide - bakeSide) < 0.5)
+        if (ReferenceEquals(_bakingIcon, icon) && _bakingSide == bakeSide && _bakingBlurRadius == blurRadiusDips)
             return;
 
         // First paint ever: show the raw artwork right away; otherwise keep the previous
@@ -1024,10 +1063,9 @@ public partial class TaskbarWidgetControl : UserControl
             BackgroundImage.Source = icon;
 
         double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        double blurRadiusDips = SettingsManager.Current.TaskbarWidgetBackgroundBlurRadius;
-
         _bakingIcon = icon;
         _bakingSide = bakeSide;
+        _bakingBlurRadius = blurRadiusDips;
 
         BitmapSource? baked;
 #if DEBUG
@@ -1035,12 +1073,12 @@ public partial class TaskbarWidgetControl : UserControl
 #endif
         try
         {
-            baked = await Task.Run(() => BakeBlurredBackground(icon, bakeSide, dpi, blurRadiusDips));
+            baked = await BackgroundBaker(icon, bakeSide, dpi, blurRadiusDips);
         }
         catch (Exception ex)
         {
             Logger.Error(ex, "Failed to bake blurred taskbar widget background");
-            if (ReferenceEquals(_bakingIcon, icon))
+            if (version == _bakeVersion)
                 _bakingIcon = null;
             return;
         }
@@ -1048,19 +1086,19 @@ public partial class TaskbarWidgetControl : UserControl
         bakeStopwatch.Stop();
 #endif
 
-        if (ReferenceEquals(_bakingIcon, icon) && Math.Abs(_bakingSide - bakeSide) < 0.5)
-            _bakingIcon = null;
-
         // A newer song may have arrived while baking; discard the stale result.
-        if (baked == null || !ReferenceEquals(_currentIcon, icon))
+        if (version != _bakeVersion || !ReferenceEquals(_currentIcon, icon))
             return;
+        _bakingIcon = null;
+        if (baked == null) return;
 
         _bakedIcon = icon;
         _bakedBackground = baked;
         _bakedSideDip = bakeSide;
+        _bakedBlurRadius = blurRadiusDips;
         if (_bakedBackgroundCache.Count >= BakedBackgroundCacheLimit)
             _bakedBackgroundCache.Clear();
-        _bakedBackgroundCache[(icon, bakeSide)] = baked;
+        _bakedBackgroundCache[key] = baked;
 
         // Rotation may have been disabled while baking; the static path owns the layer then.
         if (!_backgroundRotationActive)
@@ -1692,9 +1730,13 @@ public partial class TaskbarWidgetControl : UserControl
             _cachedArtistOpacityMask.GradientStops[3].BeginAnimation(GradientStop.ColorProperty, null);
         }
         CancelBackgroundCrossfade();
+        _songInfoHighlight.BeginAnimation(SolidColorBrush.ColorProperty, null);
         // A background bake may still finish after Unloaded. Invalidate its art
         // identity so that result cannot start another animation on the old control.
         _currentIcon = null;
+        ++_bakeVersion;
+        _requestedBake = null;
+        _bakingIcon = null;
         _bakedIcon = null;
         _bakedBackground = null;
         _bakedBackgroundCache.Clear();
@@ -2311,6 +2353,7 @@ public partial class TaskbarWidgetControl : UserControl
         {
             var session = _mainWindow.GetTaskbarSession();
             if (session?.ControlSession == null) return;
+            TaskbarWidgetAnimationEnvironment.Pulse(button);
             // Keep commands attached to the chosen player even if Windows changes focus.
             _mainWindow.PinTaskbarSession(session);
             if (forward.HasValue) NoteTrackNavigation(forward.Value);
@@ -2335,6 +2378,8 @@ public partial class TaskbarWidgetControl : UserControl
             return;
 
         e.Handled = true;
+        if (SettingsManager.Current.TaskbarWidgetExpandOnClick)
+            TaskbarWidgetAnimationEnvironment.Pulse(SongInfoHitArea);
         TaskbarOwner?.ToggleWidgetExpansion();
     }
 
@@ -2551,10 +2596,12 @@ public partial class TaskbarWidgetControl : UserControl
             return;
 
         // Expanded wins over hover so the latched state is never masked by the pointer.
-        SongInfoHitArea.Background = _expansionTransition || !SettingsManager.Current.TaskbarWidgetExpandOnClick
-            ? Brushes.Transparent : _songInfoExpanded
-            ? SongInfoExpandedBrush
-            : _songInfoHovering ? SongInfoHoverBrush : Brushes.Transparent;
+        SongInfoHitArea.Background = _songInfoHighlight;
+        Color target = _expansionTransition || !SettingsManager.Current.TaskbarWidgetExpandOnClick
+            ? Colors.Transparent : _songInfoExpanded
+            ? Color.FromArgb(0x2A, 255, 255, 255)
+            : _songInfoHovering ? Color.FromArgb(0x18, 255, 255, 255) : Colors.Transparent;
+        TaskbarWidgetAnimationEnvironment.AnimateHover(_songInfoHighlight, target);
     }
 
     // clicking the album art cycles through the available media sessions (circular list)
@@ -2562,6 +2609,8 @@ public partial class TaskbarWidgetControl : UserControl
     {
         if (_mainWindow == null) return;
 
+        if (_mainWindow.GetTaskbarSessionCount() > 1)
+            TaskbarWidgetAnimationEnvironment.Pulse(SongImageBorder);
         _mainWindow.CycleTaskbarSession();
         UpdateAlbumArtOverlay();
     }

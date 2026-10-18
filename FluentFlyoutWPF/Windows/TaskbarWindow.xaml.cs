@@ -158,6 +158,8 @@ public partial class TaskbarWindow : Window
         InitializeComponent();
         Widget.TaskbarOwner = this;
         Widget.LayoutInvalidated += OnWidgetLayoutInvalidated;
+        TaskbarVisualizer.SetPresentationActive(false);
+        IsVisibleChanged += (_, _) => TaskbarVisualizer.SetPresentationActive(IsVisible);
 
         // Set DataContext for bindings
         DataContext = SettingsManager.Current;
@@ -1813,6 +1815,7 @@ on_error:
     protected override void OnClosed(EventArgs e)
     {
         _closed = true;
+        TaskbarVisualizer.SetPresentationActive(false);
         Widget.LayoutInvalidated -= OnWidgetLayoutInvalidated;
         _pendingExpansionAnimation = null;
         ClearWidgetHandoff();

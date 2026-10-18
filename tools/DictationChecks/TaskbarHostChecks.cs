@@ -65,6 +65,7 @@ internal static class TaskbarHostChecks
             TaskbarWidgetBackgroundBlur = true, TaskbarWidgetBackgroundRotate = true,
             TaskbarWidgetManualPadding = 500,
         };
+        VisualizerChecks.Run();
         var focus = NativeMethods.GetForegroundWindow();
         var window = new TaskbarWindow();
         try

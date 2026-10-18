@@ -17,6 +17,7 @@ internal static class TaskbarContentChecks
 {
     private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
     private static object? Read(object target, string field) => target.GetType().GetField(field, Private)!.GetValue(target);
+    private static void Write(object target, string field, object? value) => target.GetType().GetField(field, Private)!.SetValue(target, value);
     private static object? Call(object target, string method, params object?[] args) =>
         target.GetType().GetMethod(method, Private)!.Invoke(target, args);
     private static void Check(bool condition, string message)
@@ -186,7 +187,95 @@ internal static class TaskbarContentChecks
             Check(Math.Abs(gap) <= 2, "Visualizer detached from the widget at a DPI/orientation change");
         }
         Call(window, "UpdatePosition", true); Pump(settle);
+        CheckBackgroundPreparation(widget, a, b);
         Console.WriteLine("Taskbar content checks passed: deferred sizing, fixed rows, untitled expansion, interrupted slides, late art and visualizer geometry.");
+    }
+
+    private static void CheckBackgroundPreparation(TaskbarWidgetControl widget, BitmapImage a, BitmapImage b)
+    {
+        var settings = SettingsManager.Current;
+        int originalRadius = settings.TaskbarWidgetBackgroundBlurRadius;
+        bool originalRotation = settings.TaskbarWidgetBackgroundRotate;
+        bool originalAnimation = settings.TaskbarWidgetAnimated;
+        var property = typeof(TaskbarWidgetControl).GetProperty("BackgroundBaker", Private)!;
+        var originalBaker = property.GetValue(widget);
+        var requests = new List<(double radius, TaskCompletionSource<BitmapSource?> completion)>();
+        Func<BitmapImage, double, double, double, Task<BitmapSource?>> baker = (_, _, _, radius) =>
+        {
+            var completion = new TaskCompletionSource<BitmapSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            requests.Add((radius, completion));
+            return completion.Task;
+        };
+        property.SetValue(widget, baker);
+        try
+        {
+            Call(widget, "CancelBackgroundCrossfade");
+            Write(widget, "_bakedBackground", null);
+            ((System.Collections.IDictionary)Read(widget, "_bakedBackgroundCache")!).Clear();
+            Write(widget, "_currentIcon", a);
+            Write(widget, "_backgroundRotationActive", true);
+            settings.TaskbarWidgetBackgroundRotate = true;
+            settings.TaskbarWidgetAnimated = false;
+            void Request(int radius)
+            {
+                settings.TaskbarWidgetBackgroundBlurRadius = radius;
+                Call(widget, "UpdateBakedBackgroundAsync", a, 512.0);
+            }
+            Request(17); Request(39);
+            Check(requests.Count == 2, "Changing blur radius reused an old preparation request");
+            requests[1].completion.SetResult(b); Pump(40);
+            requests[0].completion.SetResult(a); Pump(40);
+            Check((double)Read(widget, "_bakedBlurRadius")! == 39
+                && ReferenceEquals(Read(widget, "_bakedBackground"), b),
+                "An old blur result overwrote the current setting");
+            Request(39);
+            Check(requests.Count == 2, "The current texture was unnecessarily prepared again");
+
+            Request(17);
+            requests[2].completion.SetResult(a); Pump(40);
+            Request(39);
+            Check(requests.Count == 3 && ReferenceEquals(Read(widget, "_bakedBackground"), b),
+                "Returning to a cached radius prepared a duplicate texture");
+
+            Request(55); // Deliberately leave this request running while selecting a cache hit.
+            Request(39);
+            requests[3].completion.SetResult(a); Pump(40);
+            Check((double)Read(widget, "_bakedBlurRadius")! == 39,
+                "An in-flight result survived returning to a cached setting");
+            for (int radius = 60; radius < 68; radius++)
+            {
+                Request(radius); requests[^1].completion.SetResult(a); Pump(40);
+            }
+            Check(((System.Collections.IDictionary)Read(widget, "_bakedBackgroundCache")!).Count <= 6,
+                "The background cache exceeded its bound");
+
+            // A third cover arriving mid-crossfade must preserve the visible blend.
+            settings.TaskbarWidgetAnimated = true;
+            var background = (Image)widget.FindName("BackgroundImage");
+            var incoming = (Image)widget.FindName("BackgroundImageNext");
+            Call(widget, "CancelBackgroundCrossfade");
+            background.Source = a;
+            background.Opacity = 0.35;
+            incoming.Source = b; incoming.Visibility = Visibility.Visible; incoming.Opacity = 0.3;
+            Write(widget, "_bgCrossfadeTarget", b);
+            var third = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, new byte[] { 200, 20, 50, 255 }, 4);
+            third.Freeze();
+            Call(widget, "BeginBackgroundCrossfade", third, 1000);
+            Check(!ReferenceEquals(background.Source, a) && !ReferenceEquals(background.Source, b)
+                && ReferenceEquals(incoming.Source, third), "A third cover replaced a partially visible layer");
+            Call(widget, "CancelBackgroundCrossfade");
+            background.ClearValue(UIElement.OpacityProperty);
+            incoming.ClearValue(UIElement.OpacityProperty);
+        }
+        finally
+        {
+            property.SetValue(widget, originalBaker);
+            settings.TaskbarWidgetBackgroundBlurRadius = originalRadius;
+            settings.TaskbarWidgetBackgroundRotate = originalRotation;
+            settings.TaskbarWidgetAnimated = originalAnimation;
+            Call(widget, "SetBackground", b);
+        }
+        Console.WriteLine("Background checks passed: radius keys, reversed completions, cache hits, bounded storage and interrupted blends.");
     }
 
     private static void CheckPausedSelection(TaskbarWindow window, TaskbarWidgetControl widget,

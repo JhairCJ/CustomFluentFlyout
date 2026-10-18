@@ -9,6 +9,7 @@ using NAudio.CoreAudioApi;
 using NAudio.CoreAudioApi.Interfaces;
 using NAudio.Dsp;
 using NAudio.Wave;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -41,8 +42,8 @@ namespace FluentFlyoutWPF.Classes
 
         /// <summary>
         /// Fuente viva de ajustes del ecualizador. Dos presets: Taskbar (los de
-        /// siempre) e Island (propios de Fluent Island). Los Func se leen en cada
-        /// frame, así que los sliders se aplican sin eventos.
+        /// siempre) e Island (propios de Fluent Island). Los Func se leen al procesar
+        /// audio o dibujar; los cambios de ajustes y acento despiertan el render en reposo.
         /// </summary>
         public sealed class Options
         {
@@ -91,6 +92,13 @@ namespace FluentFlyoutWPF.Classes
         private WriteableBitmap? _bitmap;
         private volatile bool _isRunning;
         private readonly object _lock = new();
+        private readonly object _captureLifecycle = new();
+        private readonly object _samplesLock = new();
+        private volatile bool _enabledRequested;
+        private volatile bool _presentationActive = true;
+        private CancellationTokenSource? _restartCancellation;
+        private int _resetCaptureSamples = 1;
+        private readonly INotifyPropertyChanged _settings;
 
         // Last drawn rect per bar, so static bars are skipped entirely instead of
         // re-rasterized every frame. Only changed bars are cleared, redrawn and
@@ -162,6 +170,7 @@ namespace FluentFlyoutWPF.Classes
         // refresh rate) or by a 30 FPS DispatcherTimer when high refresh rate
         // is disabled.
         private DispatcherTimer? _renderTimer;
+        private DispatcherTimer? _autoHideTimer;
         private volatile bool _renderLoopActive;
         private int _renderLoopRequested; // 0=false, 1=true (Interlocked)
         private readonly Stopwatch _renderStopwatch = new();
@@ -178,7 +187,8 @@ namespace FluentFlyoutWPF.Classes
         // Once the last callback is older than this, the pipe is considered dead
         // and the render thread treats targets as zero until callbacks resume.
         private const int DataStallMs = 150;
-        private bool _disposed;
+        private volatile bool _disposed;
+        private bool _appearanceDirty = true;
 
         // Frame-rate independent attack/release smoothing (seconds). Driven by
         // the TaskbarVisualizerSmoothing setting (0 = snappy, 100 = silky);
@@ -215,6 +225,7 @@ namespace FluentFlyoutWPF.Classes
         public Visualizer(Options? opts = null)
         {
             _opts = opts ?? Options.Taskbar;
+            _settings = SettingsManager.Current;
             InitializeBitmap();
 
             for (int i = 0; i < FftLength; i++)
@@ -225,6 +236,54 @@ namespace FluentFlyoutWPF.Classes
             ResizeBarList(_opts.BarCount());
             AudioDeviceMonitor.Instance.DefaultDeviceChanged += OnDefaultDeviceChanged;
             TryRegisterSystemEvents();
+            _settings.PropertyChanged += OnSettingsChanged;
+            AlbumAccent.Changed += OnAccentChanged;
+        }
+
+        private void OnSettingsChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            string prefix = ReferenceEquals(_opts, Options.Island) ? "IslandEq" : "TaskbarVisualizer";
+            if (e.PropertyName == nameof(SettingsManager.Current.TaskbarVisualizerHasContent)) return;
+            if (e.PropertyName?.StartsWith(prefix, StringComparison.Ordinal) == true
+                || e.PropertyName is "TaskbarWidgetEnabled" or "TaskbarWidgetAnimated" or "FlyoutAnimationSpeed")
+                InvalidateAppearance();
+        }
+
+        private void OnAccentChanged(object? sender, EventArgs e) => InvalidateAppearance();
+
+        internal void InvalidateAppearance() => OnDispatcher(() =>
+        {
+            if (_disposed) return;
+            _appearanceDirty = true;
+            EnsureRenderLoop();
+        });
+
+        // This is host visibility, never the content grid's HasContent visibility:
+        // an auto-hidden baseline must still wake itself when audio returns.
+        internal void SetPresentationActive(bool active) => OnDispatcher(() =>
+        {
+            if (_disposed || _presentationActive == active) return;
+            _presentationActive = active;
+            Interlocked.Exchange(ref _resetCaptureSamples, 1);
+            if (!active)
+            {
+                StopRenderLoopCore();
+                StopAutoHideTimer();
+                return;
+            }
+            if (_barValues != null) Array.Clear(_barValues);
+            lock (_samplesLock)
+                if (_targetValues != null) Array.Clear(_targetValues);
+            _lastAudibleUtc = DateTime.MinValue;
+            InvalidateAppearance();
+        });
+
+        private static void OnDispatcher(Action action)
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasShutdownStarted) return;
+            if (dispatcher.CheckAccess()) action();
+            else dispatcher.BeginInvoke(action);
         }
 
         private void TryRegisterSystemEvents()
@@ -302,78 +361,116 @@ namespace FluentFlyoutWPF.Classes
 
         private void RequestRestart(string reason)
         {
-            if (!_opts.Enabled())
-                return;
+            var requestedGeneration = Volatile.Read(ref _restartCancellation);
+            if (requestedGeneration == null || _disposed || !_enabledRequested) return;
+            // RecordingStopped may run inside Dispose. Never wait for the lifecycle
+            // lock on the recording callback thread while teardown waits for it.
+            _ = Task.Run(() =>
+            {
+                lock (_captureLifecycle)
+                {
+                    if (_disposed || !_enabledRequested || !_opts.Enabled() || (_restartInProgress != 0 && !_isRunning)
+                        || !ReferenceEquals(requestedGeneration, _restartCancellation)) return;
+                    Logger.Info($"Restarting visualizer ({reason})");
+                    QueueCaptureRecovery(immediate: false);
+                }
+            });
+        }
 
-            if (Interlocked.Exchange(ref _restartInProgress, 1) == 1)
-                return;
-
-            Logger.Info($"Restarting visualizer ({reason})");
-
-            Task.Run(async () =>
+        // Caller owns _captureLifecycle. All native capture operations run on a
+        // worker and are serialized; no dispatcher waits occur under this lock.
+        private void QueueCaptureRecovery(bool immediate)
+        {
+            _restartCancellation?.Cancel();
+            _restartCancellation?.Dispose();
+            var cancellation = _restartCancellation = new CancellationTokenSource();
+            var token = cancellation.Token;
+            _restartInProgress = 1;
+            _ = Task.Run(async () =>
             {
                 try
                 {
-                    // Capture-only teardown: the loop and the bars survive the
-                    // gap (pause/track change must not alter the visualizer).
-                    StopCapture();
-
-                    // Retry with backoff for as long as the visualizer stays
-                    // enabled and alive: giving up after N attempts left the last
-                    // frame frozen on screen forever.
-                    int attempt = 0;
-                    while (!_isRunning && !_disposed && _opts.Enabled())
+                    lock (_captureLifecycle)
                     {
-                        await Task.Delay(Math.Min(500 * (1 << Math.Min(attempt, 4)), 5000));
+                        if (token.IsCancellationRequested || _disposed || !_enabledRequested) return;
+                        StopCapture();
+                    }
+                    EnsureRenderLoop(); // A restart gap eases to rest instead of freezing.
+                    int attempt = 0;
+                    while (!token.IsCancellationRequested)
+                    {
+                        if (!immediate || attempt > 0)
+                            await Task.Delay(Math.Min(500 * (1 << Math.Min(attempt, 4)), 5000), token);
+                        lock (_captureLifecycle)
+                        {
+                            if (token.IsCancellationRequested || _disposed || !_enabledRequested || !_opts.Enabled()) return;
+                            StopCapture();
+                            StartCapture();
+                            if (_isRunning) return;
+                        }
                         attempt++;
-                        Start();
-                        if (_isRunning)
-                            return;
-                        Logger.Warn($"Visualizer restart attempt {attempt} failed, retrying...");
                     }
                 }
-                catch (Exception ex)
-                {
-                    Logger.Error(ex, "Visualizer restart failed");
-                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+                catch (Exception ex) { Logger.Error(ex, "Visualizer restart failed"); }
                 finally
                 {
-                    Interlocked.Exchange(ref _restartInProgress, 0);
+                    bool retry = false;
+                    lock (_captureLifecycle)
+                    {
+                        if (ReferenceEquals(_restartCancellation, cancellation))
+                        {
+                            _restartInProgress = 0;
+                            retry = !_disposed && _enabledRequested && !_isRunning && _opts.Enabled();
+                        }
+                    }
+                    if (retry) RequestRestart("capture ended during recovery");
                 }
             });
         }
 
         public void ResizeBarList(int newBarCount)
         {
-            _barCount = newBarCount;
-            _barValues = new float[_barCount];
-            _targetValues = new float[_barCount];
+            OnDispatcher(() =>
+            {
+                if (_disposed) return;
+                lock (_samplesLock)
+                {
+                    _barCount = Math.Clamp(newBarCount, 1, 20);
+                    _barValues = new float[_barCount];
+                    _targetValues = new float[_barCount];
+                }
+                InvalidateAppearance();
+            });
         }
 
         public void Start()
         {
-            if (_isRunning)
-                return;
-
-            // Reallocate only on a count change: restart gaps (device reconfigure)
-            // must not blank the bars mid-song.
-            if (_barValues == null || _barValues.Length != _barCount
-                || _targetValues == null || _targetValues.Length != _barCount)
+            lock (_captureLifecycle)
             {
-                ResizeBarList(_barCount);
+                if (_disposed || _enabledRequested) return;
+                _enabledRequested = true;
+                QueueCaptureRecovery(immediate: true);
             }
+            InvalidateAppearance();
+        }
 
-            // Fresh capture state: any audio still sitting in the ring from a
-            // previous session would otherwise ghost into the first windows.
-            Array.Clear(_ring, 0, _ring.Length);
-            Array.Clear(_gateSquares, 0, _gateSquares.Length);
+        private void ResetCaptureSamples()
+        {
+            Array.Clear(_ring);
+            Array.Clear(_gateSquares);
             _ringPos = 0;
             _samplesSinceHop = 0;
             _gateSum = 0;
             _gatePos = 0;
             _samplesSinceGate = 0;
             _gateSilent = true;
-            _lastAudibleUtc = DateTime.MinValue;
+            if (_targetValues != null) Array.Clear(_targetValues);
+        }
+
+        private void StartCapture()
+        {
+            Interlocked.Exchange(ref _resetCaptureSamples, 1);
             _fftHop = _opts.HighRefreshRate() ? FftHopHighRefresh : FftLength;
 
             try
@@ -399,9 +496,9 @@ namespace FluentFlyoutWPF.Classes
                 _sampleRate = _capture.WaveFormat.SampleRate;
                 _capture.DataAvailable += OnDataAvailable;
                 _capture.RecordingStopped += OnRecordingStopped;
-                _capture.StartRecording();
                 _isRunning = true;
                 _lastDataAvailableUtc = DateTime.UtcNow;
+                _capture.StartRecording();
 
                 // Dead-capture watchdog: ticks every second and only restarts
                 // capture — it never touches visuals (bars rest at zero through
@@ -447,24 +544,39 @@ namespace FluentFlyoutWPF.Classes
             }
             catch (Exception ex)
             {
+                StopCapture();
                 Logger.Error(ex, "Failed to start visualizer");
             }
         }
 
         public void Stop()
         {
-            if (!_isRunning)
-                return;
-
-            StopCapture();
-
-            StopRenderLoop();
-
-            // Park the visuals (disable path only — never on restart gaps, so a
-            // reconfigure never blanks or freezes the bars mid-song).
-            if (_barValues != null) Array.Clear(_barValues, 0, _barValues.Length);
-            if (_targetValues != null) Array.Clear(_targetValues, 0, _targetValues.Length);
-            SetHasContent(false);
+            bool needsTeardown;
+            lock (_captureLifecycle)
+            {
+                _enabledRequested = false;
+                _restartCancellation?.Cancel();
+                _restartCancellation?.Dispose();
+                _restartCancellation = null;
+                _restartInProgress = 0;
+                needsTeardown = _capture != null || _renderDevice != null;
+            }
+            // A slow COM teardown must not block an interaction or a closing frame.
+            if (needsTeardown) _ = Task.Run(() =>
+            {
+                lock (_captureLifecycle)
+                    if (!_enabledRequested) StopCapture();
+            });
+            OnDispatcher(() =>
+            {
+                if (_enabledRequested) return;
+                StopRenderLoopCore();
+                StopAutoHideTimer();
+                if (_barValues != null) Array.Clear(_barValues);
+                lock (_samplesLock)
+                    if (_targetValues != null) Array.Clear(_targetValues);
+                SetHasContent(false);
+            });
         }
 
         /// <summary>
@@ -475,23 +587,25 @@ namespace FluentFlyoutWPF.Classes
         private void StopCapture()
         {
             _isRunning = false;
-
-            _capture?.DataAvailable -= OnDataAvailable;
-            _capture?.RecordingStopped -= OnRecordingStopped;
-            _capture?.Dispose();
+            var capture = _capture;
             _capture = null;
-
-            _renderDevice?.Dispose();
+            var device = _renderDevice;
             _renderDevice = null;
-
-            // Atomic take: pairs with the Exchange publish in Start so neither
-            // side can lose the timer, whichever thread wins the race.
             var watchdog = Interlocked.Exchange(ref _captureWatchdog, null);
+            if (capture != null)
+            {
+                capture.DataAvailable -= OnDataAvailable;
+                capture.RecordingStopped -= OnRecordingStopped;
+                try { capture.Dispose(); }
+                catch (Exception ex) { Logger.Debug(ex, "Visualizer capture ended during teardown"); }
+            }
             if (watchdog != null)
             {
                 watchdog.Stop();
                 watchdog.Dispose();
             }
+            try { device?.Dispose(); }
+            catch (Exception ex) { Logger.Debug(ex, "Visualizer endpoint ended during teardown"); }
         }
 
         /// <summary>
@@ -536,11 +650,26 @@ namespace FluentFlyoutWPF.Classes
 
         private void OnDataAvailable(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition)
         {
-            if (!_isRunning)
+            if (!_isRunning || !_enabledRequested || _disposed)
                 return;
 
             // Any callback — even an empty one — proves the capture is alive.
             _lastDataAvailableUtc = DateTime.UtcNow;
+
+            if (!_presentationActive)
+            {
+                Interlocked.Exchange(ref _resetCaptureSamples, 1);
+                return;
+            }
+            lock (_samplesLock)
+            {
+                if (Interlocked.Exchange(ref _resetCaptureSamples, 0) != 0) ResetCaptureSamples();
+                ProcessSamples(buffer, flags);
+            }
+        }
+
+        private void ProcessSamples(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags)
+        {
 
             if (buffer.IsEmpty)
                 return;
@@ -627,7 +756,7 @@ namespace FluentFlyoutWPF.Classes
             // Quiet gate: targets are already zero and there is nothing new to
             // measure — the FFT (~85 ms window still draining old music) must
             // not resurrect stale targets over the zeros.
-            if (_gateSilent)
+            if (_gateSilent || !_presentationActive || !_enabledRequested || _disposed)
                 return;
 
             // Copy the sliding window into the work buffer (in chronological
@@ -769,16 +898,18 @@ namespace FluentFlyoutWPF.Classes
 
         private void EnsureRenderLoop()
         {
-            if (!_isRunning || _renderLoopActive)
+            if (!_enabledRequested || !_presentationActive || _disposed || _renderLoopActive)
                 return;
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasShutdownStarted) return;
             if (Interlocked.CompareExchange(ref _renderLoopRequested, 1, 0) == 1)
                 return;
 
-            Application.Current.Dispatcher.BeginInvoke(() =>
+            dispatcher.BeginInvoke(() =>
             {
                 try
                 {
-                    if (_renderLoopActive || !_isRunning)
+                    if (_renderLoopActive || !_enabledRequested || !_presentationActive || _disposed)
                         return;
                     StartRenderLoopCore();
                 }
@@ -792,6 +923,7 @@ namespace FluentFlyoutWPF.Classes
         private void StartRenderLoopCore()
         {
             StopRenderLoopCore();
+            StopAutoHideTimer();
             _renderLoopActive = true;
             _renderStopwatch.Restart();
             _lastRenderTime = 0;
@@ -818,38 +950,27 @@ namespace FluentFlyoutWPF.Classes
         /// </summary>
         public void RestartRenderLoop()
         {
-            if (!_isRunning || !_renderLoopActive)
-                return;
-
-            Application.Current.Dispatcher.BeginInvoke(() =>
+            OnDispatcher(() =>
             {
-                if (!_isRunning)
+                if (_disposed)
                     return;
                 // The high-refresh toggle changes the audio-thread hop: refresh the
                 // cached value together with the render loop so both switch atomically.
                 _fftHop = _opts.HighRefreshRate() ? FftHopHighRefresh : FftLength;
-                StopRenderLoopCore();
-                StartRenderLoopCore();
+                if (_renderLoopActive) StartRenderLoopCore();
+                else InvalidateAppearance();
             });
-        }
-
-        private void StopRenderLoop()
-        {
-            if (Application.Current.Dispatcher.CheckAccess())
-            {
-                StopRenderLoopCore();
-            }
-            else
-            {
-                Application.Current.Dispatcher.Invoke(StopRenderLoopCore);
-            }
         }
 
         private void StopRenderLoopCore()
         {
             _renderLoopActive = false;
             CompositionTarget.Rendering -= OnRenderingFrame;
-            _renderTimer?.Stop();
+            if (_renderTimer != null)
+            {
+                _renderTimer.Stop();
+                _renderTimer.Tick -= OnRenderTimerTick;
+            }
             _renderTimer = null;
         }
 
@@ -865,7 +986,7 @@ namespace FluentFlyoutWPF.Classes
 
         private void RenderFrame()
         {
-            if (!_isRunning || !_renderLoopActive)
+            if (!_enabledRequested || !_presentationActive || _disposed || !_renderLoopActive)
                 return;
 
             double now = _renderStopwatch.Elapsed.TotalSeconds;
@@ -888,7 +1009,7 @@ namespace FluentFlyoutWPF.Classes
             // this branch — the gate has already zeroed the targets themselves.
             // Single clock read per frame: the stall and grace checks share it.
             DateTime frameUtc = DateTime.UtcNow;
-            bool dataStale = (frameUtc - _lastDataAvailableUtc).TotalMilliseconds > DataStallMs;
+            bool dataStale = !_isRunning || (frameUtc - _lastDataAvailableUtc).TotalMilliseconds > DataStallMs;
 
             float attackFactor = 1f - (float)Math.Exp(-dt / _attackSeconds);
             float releaseFactor = 1f - (float)Math.Exp(-dt / _releaseSeconds);
@@ -910,7 +1031,7 @@ namespace FluentFlyoutWPF.Classes
                     next = 0f;
 
                 bars[i] = next;
-                if (next > 0.01f)
+                if (next != 0f)
                     resting = false;
             }
 
@@ -922,22 +1043,43 @@ namespace FluentFlyoutWPF.Classes
             bool autoHides = _opts.Baseline()
                 && _opts.BaselineAutoHide();
             bool audibleRecently = (frameUtc - _lastAudibleUtc).TotalMilliseconds < AutoHideGraceMs;
-            SetHasContent(!autoHides || audibleRecently || !resting);
+            SetHasContent(autoHides ? audibleRecently || !resting
+                : _hasContent || _lastAudibleUtc != DateTime.MinValue || _opts.Baseline());
 
-            // Idle fast path: every bar settled and the on-screen color already
-            // matches the accent — DrawBars would touch nothing, so skip the
-            // bitmap Lock/Unlock round-trip entirely (the dominant cost of a
-            // quiet frame). Any new audio, height or color change takes the
-            // normal path below on the very next frame.
-            if (resting)
-            {
-                SolidColorBrush idleBrush = _opts.AccentBrush();
-                int idleArgb = (idleBrush.Color.R << 16) | (idleBrush.Color.G << 8) | idleBrush.Color.B;
-                if (idleArgb == _drawnArgb && GetCornerRadius() == _drawnCornerRadius)
-                    return;
-            }
-
+            // Flush the actual final geometry before sleeping, including baseline,
+            // centering and count changes while the endpoint is silent.
             UpdateBitmap();
+            if (resting && _drawnArgb == _colorToArgb)
+            {
+                StopRenderLoopCore();
+                if (autoHides && audibleRecently) ScheduleAutoHide(frameUtc);
+            }
+        }
+
+        private void ScheduleAutoHide(DateTime now)
+        {
+            StopAutoHideTimer();
+            _autoHideTimer = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromMilliseconds(Math.Max(1,
+                    AutoHideGraceMs - (now - _lastAudibleUtc).TotalMilliseconds))
+            };
+            _autoHideTimer.Tick += OnAutoHideTick;
+            _autoHideTimer.Start();
+        }
+
+        private void OnAutoHideTick(object? sender, EventArgs e)
+        {
+            StopAutoHideTimer();
+            InvalidateAppearance();
+        }
+
+        private void StopAutoHideTimer()
+        {
+            if (_autoHideTimer == null) return;
+            _autoHideTimer.Stop();
+            _autoHideTimer.Tick -= OnAutoHideTick;
+            _autoHideTimer = null;
         }
 
         private void SetHasContent(bool value)
@@ -1070,12 +1212,14 @@ namespace FluentFlyoutWPF.Classes
 
             // Bar count (thus x positions and widths) changed: old pixels sit at stale
             // spots, so clear everything once and redraw all.
-            if (_prevBarY.Length != count || _prevBarEndY.Length != count)
+            bool fullRedraw = _appearanceDirty || _prevBarY.Length != count || _prevBarEndY.Length != count;
+            if (fullRedraw)
             {
                 buffer.Clear();
                 _prevBarY = new int[count];
                 _prevBarEndY = new int[count];
                 _drawnArgb = -1; // force a full repaint below
+                _appearanceDirty = false;
             }
 
             bool appearanceChanged = argb != _drawnArgb || baseRadius != _drawnCornerRadius;
@@ -1126,13 +1270,13 @@ namespace FluentFlyoutWPF.Classes
                 if (clearBottom > maxY) maxY = clearBottom;
             }
 
-            if (maxX <= minX || maxY <= minY)
+            if (!fullRedraw && (maxX <= minX || maxY <= minY))
                 return false;
 
-            dirtyX = Math.Max(minX, 0);
-            dirtyY = Math.Max(minY, 0);
-            dirtyW = Math.Min(maxX, ImageWidth) - dirtyX;
-            dirtyH = Math.Min(maxY, ImageHeight) - dirtyY;
+            dirtyX = fullRedraw ? 0 : Math.Max(minX, 0);
+            dirtyY = fullRedraw ? 0 : Math.Max(minY, 0);
+            dirtyW = fullRedraw ? ImageWidth : Math.Min(maxX, ImageWidth) - dirtyX;
+            dirtyH = fullRedraw ? ImageHeight : Math.Min(maxY, ImageHeight) - dirtyY;
             return dirtyW > 0 && dirtyH > 0;
         }
 
@@ -1319,12 +1463,15 @@ namespace FluentFlyoutWPF.Classes
 
         private void OnRecordingStopped(object? sender, StoppedEventArgs e)
         {
+            if (_disposed || !_enabledRequested || (sender != null && !ReferenceEquals(sender, _capture))) return;
+            bool wasRunning = _isRunning;
+            _isRunning = false;
             if (e.Exception != null)
             {
                 Logger.Error(e.Exception, "Visualizer recording stopped due to an error");
                 RequestRestart("recording stopped with error");
             }
-            else if (_isRunning && _opts.Enabled())
+            else if (wasRunning && _opts.Enabled())
             {
                 // Unexpected stop without an error (e.g. the endpoint reconfigured
                 // when the playback app changed format between tracks or sources).
@@ -1337,22 +1484,16 @@ namespace FluentFlyoutWPF.Classes
 
         public void Dispose()
         {
-            _disposed = true;
+            lock (_captureLifecycle)
+            {
+                if (_disposed) return;
+                _disposed = true;
+            }
             Stop();
-
-            StopRenderLoop();
-
+            _settings.PropertyChanged -= OnSettingsChanged;
+            AlbumAccent.Changed -= OnAccentChanged;
             AudioDeviceMonitor.Instance.DefaultDeviceChanged -= OnDefaultDeviceChanged;
             TryUnregisterSystemEvents();
-
-            if (_capture != null)
-            {
-                _capture.DataAvailable -= OnDataAvailable;
-                _capture.RecordingStopped -= OnRecordingStopped;
-                _capture.Dispose();
-                _capture = null;
-            }
-
             GC.SuppressFinalize(this);
         }
     }

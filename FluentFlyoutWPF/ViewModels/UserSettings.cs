@@ -2906,6 +2906,13 @@ public partial class UserSettings : ObservableObject
         mainWindow.taskbarWindow?.Widget?.UpdateBackgroundMode();
     }
 
+    partial void OnTaskbarWidgetBackgroundBlurRadiusChanged(int oldValue, int newValue)
+    {
+        if (oldValue == newValue || _initializing) return;
+        if (Application.Current?.MainWindow is MainWindow mainWindow)
+            mainWindow.taskbarWindow?.Widget?.UpdateBackgroundMode(preserveCrossfade: true);
+    }
+
     partial void OnTaskbarWidgetBackgroundRotateSideChanged(int oldValue, int newValue)
     {
         if (oldValue == newValue || _initializing) return;
@@ -3173,20 +3180,6 @@ public partial class UserSettings : ObservableObject
         if (oldValue == newValue || _initializing) return;
         IslandExpandedArtistFontSize = Math.Clamp(newValue, 10, 24);
         Island?.RefreshAppearance();
-    }
-
-    partial void OnTaskbarVisualizerBaselineChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing || newValue == false) return;
-        TaskbarVisualizerHasContent = true;
-    }
-
-    partial void OnTaskbarVisualizerBaselineAutoHideChanged(bool oldValue, bool newValue)
-    {
-        if (oldValue == newValue || _initializing) return;
-        // If newValue is true, refresh the visualizer by hiding it:
-        // if audio is playing, it will be shown again, if not, it will remain hidden.
-        TaskbarVisualizerHasContent = !newValue;
     }
 
     partial void OnUseAlbumArtAsAccentColorChanged(bool oldValue, bool newValue)

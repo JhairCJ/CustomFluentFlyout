@@ -239,6 +239,8 @@ public partial class TaskbarWidgetExpandedContent : UserControl
     private void SongInfo_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
+        if (SettingsManager.Current.TaskbarWidgetExpandOnClick && sender is FrameworkElement block)
+            TaskbarWidgetAnimationEnvironment.Pulse(block);
         ToggleExpansion?.Invoke();
     }
 
@@ -528,6 +530,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         if (!_canPrevious) return;
         var session = _mainWindow?.GetTaskbarSession();
         if (session == null) return;
+        TaskbarWidgetAnimationEnvironment.Pulse(PreviousButton);
         try
         {
             _mainWindow!.PinTaskbarSession(session);
@@ -543,6 +546,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         if (!_canPlayPause) return;
         var session = _mainWindow?.GetTaskbarSession();
         if (session == null) return;
+        TaskbarWidgetAnimationEnvironment.Pulse(PlayPauseButton);
         try
         {
             _mainWindow!.PinTaskbarSession(session);
@@ -557,6 +561,7 @@ public partial class TaskbarWidgetExpandedContent : UserControl
         if (!_canNext) return;
         var session = _mainWindow?.GetTaskbarSession();
         if (session == null) return;
+        TaskbarWidgetAnimationEnvironment.Pulse(NextButton);
         try
         {
             _mainWindow!.PinTaskbarSession(session);
@@ -570,6 +575,8 @@ public partial class TaskbarWidgetExpandedContent : UserControl
     private void Album_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
+        if (_mainWindow?.GetTaskbarSessionCount() > 1)
+            TaskbarWidgetAnimationEnvironment.Pulse(AlbumArtBorder);
         _mainWindow?.CycleTaskbarSession();
         Interlocked.Increment(ref _progressVersion);
         RequestProgressRefresh();

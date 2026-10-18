@@ -3,6 +3,8 @@
 
 using FluentFlyout.Classes.Settings;
 using FluentFlyoutWPF;
+using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 
 namespace FluentFlyout.Controls.TaskbarWidget;
@@ -15,6 +17,32 @@ namespace FluentFlyout.Controls.TaskbarWidget;
 /// </summary>
 internal static class TaskbarWidgetAnimationEnvironment
 {
+    internal static void AnimateHover(SolidColorBrush brush, Color target)
+    {
+        if (!AreAnimationsEnabled)
+        {
+            brush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+            brush.Color = target;
+            return;
+        }
+        // An omitted From continues from the currently presented color on reversal.
+        brush.BeginAnimation(SolidColorBrush.ColorProperty,
+            new ColorAnimation(target, TimeSpan.FromMilliseconds(200))
+            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+    }
+
+    internal static void Pulse(FrameworkElement element)
+    {
+        if (!AreAnimationsEnabled) return;
+        double opacity = (double)element.GetAnimationBaseValue(UIElement.OpacityProperty);
+        element.BeginAnimation(UIElement.OpacityProperty,
+            new DoubleAnimation(opacity * 0.72, opacity, TimeSpan.FromMilliseconds(80))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                FillBehavior = FillBehavior.Stop
+            });
+    }
+
     public static bool AreAnimationsEnabled =>
         SettingsManager.Current.TaskbarWidgetAnimated && SettingsManager.Current.FlyoutAnimationSpeed != 0;
 

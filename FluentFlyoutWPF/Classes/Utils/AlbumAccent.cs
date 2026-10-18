@@ -18,6 +18,8 @@ internal static class AlbumAccent
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
 
     private static readonly Palette Global = new(), Taskbar = new();
+    internal static event EventHandler? Changed;
+    private static void NotifyChanged() => Changed?.Invoke(null, EventArgs.Empty);
     public static SolidColorBrush Brush => Global.Brush;
     public static SolidColorBrush TaskbarBrush => Taskbar.Brush;
     public static bool HasAlbumColor => Global.HasColor;
@@ -46,9 +48,11 @@ internal static class AlbumAccent
             var theme = (dark, enabled, threshold, amount);
             if (force || _brush == null || _theme != theme)
             {
+                Color? previous = _brush?.Color;
                 _brush = enabled && Raw is { } raw
                     ? Freeze(new SolidColorBrush(ToThemed(raw, dark, threshold, amount))) : SystemFallback();
                 _theme = theme;
+                if (previous != _brush.Color) NotifyChanged();
             }
             return _brush;
         }
